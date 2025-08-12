@@ -8,7 +8,8 @@ use eframe::{
 use pprof::ProfilerGuard;
 
 mod components;
-mod load_file;
+mod file;
+mod helpers;
 
 #[derive(Default)]
 struct ThothApp {
@@ -16,15 +17,7 @@ struct ThothApp {
     central_panel: components::central_panel::CentralPanel,
     error: Option<String>,
     file_path: Option<PathBuf>,
-    file_type: FileType,
-    data: Vec<serde_json::Value>,
-}
-
-#[derive(PartialEq, Default, Debug, Clone)]
-enum FileType {
-    Json,
-    #[default]
-    Ndjson,
+    file_type: file::lazy_loader::FileType,
 }
 
 impl App for ThothApp {
@@ -49,16 +42,16 @@ impl App for ThothApp {
             ctx,
             &mut self.file_path,
             &mut self.file_type,
-            &mut self.data,
             &mut self.error,
         );
 
-        self.central_panel.ui(ctx, &self.data, &mut self.error);
+        self.central_panel
+            .ui(ctx, &self.file_path, &mut self.file_type, &mut self.error);
     }
 }
 
 fn main() -> Result<()> {
-    let guard = ProfilerGuard::new(100).unwrap();
+    // let guard = ProfilerGuard::new(100).unwrap();
 
     let options = eframe::NativeOptions::default();
     if let Err(e) = eframe::run_native(
@@ -71,9 +64,9 @@ fn main() -> Result<()> {
         return Err(anyhow::anyhow!("Failed to run application"));
     }
 
-    if let Ok(report) = guard.report().build() {
-        let file = std::fs::File::create("flamegraph.svg").unwrap();
-        report.flamegraph(file).unwrap();
-    }
+    // if let Ok(report) = guard.report().build() {
+    //     let file = std::fs::File::create("flamegraph.svg").unwrap();
+    //     report.flamegraph(file).unwrap();
+    // }
     Ok(())
 }
