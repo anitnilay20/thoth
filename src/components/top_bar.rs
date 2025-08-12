@@ -1,14 +1,14 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use eframe::egui;
 use rfd::FileDialog;
 
-use crate::{FileType, load_file::load_file};
+use crate::file::lazy_loader::FileType;
 
 #[derive(Default)]
 pub struct TopBar {
-    search_query: String,
-    previous_file_type: FileType,
+    pub search_query: String,
+    pub previous_file_type: FileType,
 }
 
 impl TopBar {
@@ -17,44 +17,30 @@ impl TopBar {
         ctx: &egui::Context,
         file_path: &mut Option<PathBuf>,
         file_type: &mut FileType,
-        json_lines: &mut Vec<serde_json::Value>,
         error: &mut Option<String>,
     ) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                // Pick file, but don't load it here
                 if ui.button("Open File").clicked() {
                     if let Some(path) = FileDialog::new()
                         .add_filter("JSON", &["json", "ndjson"])
                         .pick_file()
                     {
-                        match load_file(&path, file_type) {
-                            Ok(lines) => {
-                                *file_path = Some(path);
-                                *json_lines = lines;
-                                *error = None;
-                            }
-                            Err(e) => {
-                                *error = Some(format!("Failed to load file: {e}"));
-                            }
-                        }
+                        *file_type = infer_file_type(&path).unwrap_or(*file_type);
+                        *file_path = Some(path);
+                        *error = None;
+                        self.previous_file_type = *file_type;
                     }
                 }
 
                 if ui.button("Clear").clicked() {
                     *file_path = None;
-                    *json_lines = Vec::new();
                     *error = None;
                 }
 
                 ui.label("Search:");
-                let changed = ui.text_edit_singleline(&mut self.search_query).changed();
-
-                // ui.label(format!(
-                //     "File: {}",
-                //     file_path
-                //         .as_ref()
-                //         .map_or("None", |p| p.to_str().unwrap_or("None"))
-                // ));
+                ui.text_edit_singleline(&mut self.search_query);
 
                 egui::ComboBox::from_label("Mention File Type")
                     .selected_text(format!("{:?}", file_type))
@@ -64,34 +50,29 @@ impl TopBar {
                     });
 
                 if self.previous_file_type != *file_type {
-                    if let Some(path) = file_path.as_ref() {
-                        match load_file(path, file_type) {
-                            Ok(lines) => {
-                                *json_lines = lines;
-                                *error = None;
-                            }
-                            Err(e) => {
-                                *error = Some(format!("Failed to load file: {e}"));
-                            }
-                        }
-                    } else {
-                        *error = Some("No file selected".to_string());
-                    }
-                    self.previous_file_type = file_type.clone();
+                    // No actual load here — just remember for later
+                    self.previous_file_type = *file_type;
                 }
-                // if changed {
-                //     self.filtered_lines = if self.search_query.is_empty() {
-                //         self.json_lines.clone()
-                //     } else {
-                //         self.json_lines
-                //             .iter()
-                //             .filter(|line| line.contains(&self.search_query))
-                //             .cloned()
-                //             .collect()
-                //     };
-                //     self.scroll_offset = 0;
-                // }
+
+                if let Some(p) = file_path {
+                    ui.label(format!(
+                        "File: {}",
+                        p.file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("<unknown>")
+                    ));
+                } else {
+                    ui.label("File: <none>");
+                }
             });
         });
+    }
+}
+
+fn infer_file_type(path: &Path) -> Option<FileType> {
+    match path.extension()?.to_str()?.to_lowercase().as_str() {
+        "ndjson" => Some(FileType::Ndjson),
+        "json" => Some(FileType::Json),
+        _ => None,
     }
 }
