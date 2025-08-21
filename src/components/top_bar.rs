@@ -3,12 +3,16 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 use rfd::FileDialog;
 
-use crate::file::lazy_loader::FileType;
+use crate::{
+    file::lazy_loader::FileType,
+    search::{Search, SearchMessage},
+};
 
 #[derive(Default)]
 pub struct TopBar {
-    pub search_query: String,
     pub previous_file_type: FileType,
+    search_query: String,
+    match_case: bool,
 }
 
 impl TopBar {
@@ -18,7 +22,10 @@ impl TopBar {
         file_path: &mut Option<PathBuf>,
         file_type: &mut FileType,
         error: &mut Option<String>,
-    ) {
+    ) -> Option<SearchMessage> {
+        let mut search_message = None;
+        let mut search = Search::default();
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 // Pick file, but don't load it here
@@ -39,8 +46,23 @@ impl TopBar {
                     *error = None;
                 }
 
+                ui.separator();
                 ui.label("Search:");
-                ui.text_edit_singleline(&mut self.search_query);
+                let text_box_response = ui.text_edit_singleline(&mut self.search_query);
+                ui.checkbox(&mut self.match_case, "Aa");
+
+                if ui.button("Search").clicked()
+                    || (text_box_response.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                {
+                    search.query = self.search_query.clone();
+                    search.match_case = self.match_case;
+                    search_message = Some(SearchMessage::StartSearch(search));
+                }
+
+                if ui.button("Stop").clicked() {
+                    search_message = Some(SearchMessage::StopSearch);
+                }
 
                 egui::ComboBox::from_label("Mention File Type")
                     .selected_text(format!("{:?}", file_type))
@@ -50,7 +72,6 @@ impl TopBar {
                     });
 
                 if self.previous_file_type != *file_type {
-                    // No actual load here — just remember for later
                     self.previous_file_type = *file_type;
                 }
 
@@ -66,6 +87,8 @@ impl TopBar {
                 }
             });
         });
+
+        search_message
     }
 }
 

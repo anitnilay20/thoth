@@ -25,6 +25,16 @@ impl From<DetectedFileType> for FileType {
     }
 }
 
+impl From<LazyJsonFile> for FileType {
+    fn from(val: LazyJsonFile) -> Self {
+        match val {
+            LazyJsonFile::Ndjson(_) => FileType::Ndjson,
+            LazyJsonFile::JsonArray(_) => FileType::Json,
+            LazyJsonFile::Single(_) => FileType::Json, // single value is treated as JSON
+        }
+    }
+}
+
 pub enum LazyJsonFile {
     Ndjson(NdjsonFile),
     JsonArray(JsonArrayFile),
@@ -58,6 +68,14 @@ impl LazyJsonFile {
         }
         Ok(out)
     }
+
+    pub fn raw_slice(&self, idx: usize) -> Result<Vec<u8>> {
+        match self {
+            LazyJsonFile::Ndjson(f) => f.raw_line(idx),
+            LazyJsonFile::JsonArray(f) => f.raw_element(idx),
+            LazyJsonFile::Single(f) => f.raw_all(),
+        }
+    }
 }
 
 /* ---------------- NDJSON (best performance & simplest) ---------------- */
@@ -68,6 +86,25 @@ pub struct NdjsonFile {
 }
 
 impl NdjsonFile {
+    pub fn raw_line(&self, idx: usize) -> Result<Vec<u8>> {
+        let start = *self
+            .line_offsets
+            .get(idx)
+            .ok_or_else(|| anyhow!("index oob"))?;
+        let mut file = self.file.try_clone()?;
+        file.seek(SeekFrom::Start(start))?;
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
+        reader.read_until(b'\n', &mut line)?;
+        if line.last() == Some(&b'\n') {
+            line.pop();
+        }
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        Ok(line)
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         let file = File::open(path).with_context(|| "open NDJSON")?;
         let mut reader = BufReader::new(file.try_clone()?);
@@ -130,6 +167,18 @@ pub struct JsonArrayFile {
 }
 
 impl JsonArrayFile {
+    pub fn raw_element(&self, idx: usize) -> Result<Vec<u8>> {
+        let (start, end) = *self
+            .element_spans
+            .get(idx)
+            .ok_or_else(|| anyhow!("index oob"))?;
+        let mut file = self.file.try_clone()?;
+        file.seek(SeekFrom::Start(start))?;
+        let mut buf = vec![0u8; (end - start) as usize];
+        Read::read_exact(&mut file, &mut buf)?;
+        Ok(buf)
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         let mut file = File::open(path).with_context(|| "open JSON")?;
         let mut buf = Vec::new();
@@ -174,6 +223,14 @@ pub struct SingleValueFile {
 }
 
 impl SingleValueFile {
+    pub fn raw_all(&self) -> Result<Vec<u8>> {
+        let mut file = self.file.try_clone()?;
+        file.seek(SeekFrom::Start(0))?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)?;
+        Ok(buf)
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         Ok(Self {
             file: File::open(path)?,
@@ -329,10 +386,3 @@ pub fn load_file_auto(path: &Path) -> Result<(DetectedFileType, LazyJsonFile)> {
     };
     Ok((detected, lazy))
 }
-
-// pub fn load_file_lazy(path: &Path, file_type: &FileType) -> Result<LazyJsonFile> {
-//     match file_type {
-//         FileType::Ndjson => Ok(LazyJsonFile::Ndjson(NdjsonFile::open(path)?)),
-//         FileType::Json => Ok(LazyJsonFile::JsonArray(JsonArrayFile::open(path)?)),
-//     }
-// }
