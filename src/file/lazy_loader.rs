@@ -2,9 +2,14 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::{
     fs::File,
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
+    io::{BufRead, BufReader, Read},
     path::Path,
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::FileExt; // read_at
+#[cfg(windows)]
+use std::os::windows::fs::FileExt; // seek_read
 
 use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
 
@@ -12,15 +17,14 @@ use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
 pub enum FileType {
     #[default]
     Ndjson,
-    Json, // expects top-level array [ ... ]
+    Json, // expects top-level array [ ... ] or single object
 }
 
 impl From<DetectedFileType> for FileType {
     fn from(val: DetectedFileType) -> Self {
         match val {
             DetectedFileType::Ndjson => FileType::Ndjson,
-            DetectedFileType::JsonArray => FileType::Json,
-            DetectedFileType::JsonObject => FileType::Json,
+            DetectedFileType::JsonArray | DetectedFileType::JsonObject => FileType::Json,
         }
     }
 }
@@ -29,8 +33,7 @@ impl From<LazyJsonFile> for FileType {
     fn from(val: LazyJsonFile) -> Self {
         match val {
             LazyJsonFile::Ndjson(_) => FileType::Ndjson,
-            LazyJsonFile::JsonArray(_) => FileType::Json,
-            LazyJsonFile::Single(_) => FileType::Json, // single value is treated as JSON
+            LazyJsonFile::JsonArray(_) | LazyJsonFile::Single(_) => FileType::Json,
         }
     }
 }
@@ -50,23 +53,12 @@ impl LazyJsonFile {
         }
     }
 
-    /// Read and parse item at index into a serde_json::Value.
     pub fn get(&mut self, idx: usize) -> Result<Value> {
         match self {
             LazyJsonFile::Ndjson(f) => f.get(idx),
             LazyJsonFile::JsonArray(f) => f.get(idx),
             LazyJsonFile::Single(f) => f.get(idx),
         }
-    }
-
-    /// Convenience: fetch a slice [start, start+count)
-    pub fn get_range(&mut self, start: usize, count: usize) -> Result<Vec<Value>> {
-        let end = start.saturating_add(count).min(self.len());
-        let mut out = Vec::with_capacity(end.saturating_sub(start));
-        for i in start..end {
-            out.push(self.get(i)?);
-        }
-        Ok(out)
     }
 
     pub fn raw_slice(&self, idx: usize) -> Result<Vec<u8>> {
@@ -78,104 +70,127 @@ impl LazyJsonFile {
     }
 }
 
-/* ---------------- NDJSON (best performance & simplest) ---------------- */
+/* ---------------- NDJSON ---------------- */
 
 pub struct NdjsonFile {
     file: File,
-    line_offsets: Vec<u64>,
+    // (start, end) byte offsets for each line (end is exclusive)
+    line_spans: Vec<(u64, u64)>,
 }
 
 impl NdjsonFile {
+    /// Position-independent line read (safe for parallel).
     pub fn raw_line(&self, idx: usize) -> Result<Vec<u8>> {
-        let start = *self
-            .line_offsets
-            .get(idx)
-            .ok_or_else(|| anyhow!("index oob"))?;
-        let mut file = self.file.try_clone()?;
-        file.seek(SeekFrom::Start(start))?;
-        let mut reader = BufReader::new(file);
-        let mut line = Vec::new();
-        reader.read_until(b'\n', &mut line)?;
-        if line.last() == Some(&b'\n') {
-            line.pop();
+        let (start, end) = *self.line_spans.get(idx).ok_or_else(|| anyhow!("oob"))?;
+        let len = (end - start) as usize;
+        let mut buf = vec![0u8; len];
+
+        #[cfg(unix)]
+        {
+            self.file.read_at(&mut buf, start)?;
         }
-        if line.last() == Some(&b'\r') {
-            line.pop();
+        #[cfg(windows)]
+        {
+            self.file.seek_read(&mut buf, start)?;
         }
-        Ok(line)
+
+        // Trim trailing CRLF/LF if your spans included it; with this indexer we exclude '\n' already.
+        Ok(buf)
     }
 
     pub fn open(path: &Path) -> Result<Self> {
         let file = File::open(path).with_context(|| "open NDJSON")?;
-        let mut reader = BufReader::new(file.try_clone()?);
 
-        let mut offsets = Vec::new();
+        // Build (start,end) for each line using a single streaming pass
+        let mut spans = Vec::new();
+        let mut reader = BufReader::new(file.try_clone()?);
         let mut pos: u64 = 0;
         let mut buf = Vec::with_capacity(8 * 1024);
-
         loop {
             buf.clear();
             let n = reader.read_until(b'\n', &mut buf)?;
             if n == 0 {
                 break;
             }
-            offsets.push(pos);
+
+            // Exclude the '\n' from the span (common for substring search)
+            let end_exclusive = if buf.last() == Some(&b'\n') {
+                pos + (n as u64) - 1
+            } else {
+                pos + (n as u64)
+            };
+
+            // Also strip trailing '\r' if present (CRLF files)
+            let (start, mut end) = (pos, end_exclusive);
+            if end > start {
+                // Read last byte of this slice to check for '\r'
+                // (We don't have the bytes here, but we can detect from buf)
+                if buf.len() >= 2 && buf[buf.len() - 2] == b'\r' && buf[buf.len() - 1] == b'\n' {
+                    end -= 1;
+                }
+            }
+
+            spans.push((start, end));
             pos += n as u64;
         }
 
         Ok(Self {
             file,
-            line_offsets: offsets,
+            line_spans: spans,
         })
     }
 
     pub fn len(&self) -> usize {
-        self.line_offsets.len()
+        self.line_spans.len()
     }
 
     pub fn get(&mut self, idx: usize) -> Result<Value> {
-        let start = *self
-            .line_offsets
+        // Read the exact span and parse (no shared cursor)
+        let (start, end) = *self
+            .line_spans
             .get(idx)
             .ok_or_else(|| anyhow!("index out of bounds"))?;
-        // Seek to start and read the line
-        self.file.seek(SeekFrom::Start(start))?;
-        let mut reader = BufReader::new(self.file.try_clone()?);
-        let mut line = String::new();
-        let _ = reader.read_line(&mut line)?;
-        // Trim trailing newline without copying large strings
-        if line.ends_with('\n') {
-            line.pop();
-            if line.ends_with('\r') {
-                line.pop();
-            }
+        let len = (end - start) as usize;
+        let mut buf = vec![0u8; len];
+
+        #[cfg(unix)]
+        {
+            self.file.read_at(&mut buf, start)?;
         }
-        let v: Value = serde_json::from_str(&line)
+        #[cfg(windows)]
+        {
+            self.file.seek_read(&mut buf, start)?;
+        }
+
+        let v: Value = serde_json::from_slice(&buf)
             .with_context(|| format!("invalid JSON at line index {}", idx))?;
         Ok(v)
     }
 }
 
-/* ---------------- JSON array: [ {...}, {...}, ... ] ----------------
-   We index the start..end byte-ranges of each top-level element using
-   a single pass with a tiny state machine (string/escape/bracket depth).
--------------------------------------------------------------------- */
+/* ---------------- JSON array: [ {...}, {...}, ... ] ---------------- */
 
 pub struct JsonArrayFile {
     file: File,
-    element_spans: Vec<(u64, u64)>, // (start, end) byte offsets (inclusive start, exclusive end)
+    element_spans: Vec<(u64, u64)>, // (start, end) exclusive
 }
 
 impl JsonArrayFile {
+    /// Position-independent element read (safe for parallel).
     pub fn raw_element(&self, idx: usize) -> Result<Vec<u8>> {
-        let (start, end) = *self
-            .element_spans
-            .get(idx)
-            .ok_or_else(|| anyhow!("index oob"))?;
-        let mut file = self.file.try_clone()?;
-        file.seek(SeekFrom::Start(start))?;
-        let mut buf = vec![0u8; (end - start) as usize];
-        Read::read_exact(&mut file, &mut buf)?;
+        let (start, end) = *self.element_spans.get(idx).ok_or_else(|| anyhow!("oob"))?;
+        let len = (end - start) as usize;
+        let mut buf = vec![0u8; len];
+
+        #[cfg(unix)]
+        {
+            self.file.read_at(&mut buf, start)?;
+        }
+        #[cfg(windows)]
+        {
+            self.file.seek_read(&mut buf, start)?;
+        }
+
         Ok(buf)
     }
 
@@ -205,17 +220,25 @@ impl JsonArrayFile {
             .element_spans
             .get(idx)
             .ok_or_else(|| anyhow!("index out of bounds"))?;
-
-        // Read just the element slice and parse it.
         let len = (end - start) as usize;
         let mut buf = vec![0u8; len];
-        self.file.seek(SeekFrom::Start(start))?;
-        std::io::Read::read_exact(&mut self.file, &mut buf)?;
+
+        #[cfg(unix)]
+        {
+            self.file.read_at(&mut buf, start)?;
+        }
+        #[cfg(windows)]
+        {
+            self.file.seek_read(&mut buf, start)?;
+        }
+
         let v: Value = serde_json::from_slice(&buf)
             .with_context(|| format!("invalid element at index {}", idx))?;
         Ok(v)
     }
 }
+
+/* ---------------- Single value (whole file) ---------------- */
 
 pub struct SingleValueFile {
     file: File,
@@ -223,11 +246,20 @@ pub struct SingleValueFile {
 }
 
 impl SingleValueFile {
+    /// Position-independent whole-file read (safe for parallel).
     pub fn raw_all(&self) -> Result<Vec<u8>> {
-        let mut file = self.file.try_clone()?;
-        file.seek(SeekFrom::Start(0))?;
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf)?;
+        let len = self.file.metadata()?.len() as usize;
+        let mut buf = vec![0u8; len];
+
+        #[cfg(unix)]
+        {
+            self.file.read_at(&mut buf, 0)?;
+        }
+        #[cfg(windows)]
+        {
+            self.file.seek_read(&mut buf, 0)?;
+        }
+
         Ok(buf)
     }
 
@@ -237,22 +269,36 @@ impl SingleValueFile {
             parsed: None,
         })
     }
+
     pub fn get(&mut self, idx: usize) -> Result<Value> {
         if idx != 0 {
             anyhow::bail!("index out of bounds");
         }
         if let Some(v) = self.parsed.as_ref() {
-            return Ok(v.clone()); // cheap in practice; viewer caches it too
+            return Ok(v.clone());
         }
-        self.file.seek(SeekFrom::Start(0))?;
-        let v: Value = serde_json::from_reader(&mut self.file)?;
+
+        // Read full file via position-independent I/O, then parse.
+        let len = self.file.metadata()?.len() as usize;
+        let mut buf = vec![0u8; len];
+
+        #[cfg(unix)]
+        {
+            self.file.read_at(&mut buf, 0)?;
+        }
+        #[cfg(windows)]
+        {
+            self.file.seek_read(&mut buf, 0)?;
+        }
+
+        let v: Value = serde_json::from_slice(&buf)?;
         self.parsed = Some(v.clone());
         Ok(v)
     }
 }
 
-/// Return (start,end) spans for elements inside a top-level JSON array.
-/// Robust for strings/escapes and nested objects/arrays.
+/* ---------------- Array element indexer ---------------- */
+
 fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
     // Skip leading whitespace
     let mut i = skip_ws(bytes, 0).ok_or_else(|| anyhow!("empty file"))?;
@@ -266,8 +312,6 @@ fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
     let mut escaped = false;
     let mut depth: i32 = 0; // depth relative to inside the array
     let mut elem_start: Option<u64> = None;
-
-    // Helper to maybe start an element at the next non-ws
     let mut want_new_elem = true;
 
     while i < bytes.len() {
@@ -302,18 +346,12 @@ fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
             }
             b'}' | b']' => {
                 if depth == 0 {
-                    // We're at array level. ']' closes the array.
                     if b == b']' {
-                        // Close last trailing element like: [ {...} ]
                         if let Some(s) = elem_start {
                             let end = prev_non_ws(bytes, i).unwrap_or(i) + 1;
                             spans.push((s, end as u64));
-                            // elem_start = None;
                         }
                         break;
-                    } else {
-                        // '}' at depth 0 means element ends here (object at array level).
-                        // This is okay only if elem started earlier.
                     }
                 } else {
                     depth -= 1;
@@ -321,7 +359,6 @@ fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
             }
             b',' => {
                 if depth == 0 {
-                    // Element boundary at array level
                     if let Some(s) = elem_start.take() {
                         let end = prev_non_ws(bytes, i).unwrap_or(i);
                         spans.push((s, (end + 1) as u64));
@@ -331,7 +368,6 @@ fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
             }
             c if is_ws(c) => { /* skip */ }
             _ => {
-                // Primitives (true/false/null/number) at array level
                 if want_new_elem {
                     elem_start = Some(i as u64);
                     want_new_elem = false;
@@ -342,10 +378,8 @@ fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
         i += 1;
     }
 
-    // Sanity: top-level array must have closed
-    if bytes.get(i.saturating_sub(0)) != Some(&b']')
-        && bytes.get(i.saturating_sub(1)) != Some(&b'\n')
-    {
+    // Minimal sanity check: we should have encountered a ']'
+    if !bytes.contains(&b']') {
         return Err(anyhow!("unterminated top-level array"));
     }
 
@@ -375,7 +409,7 @@ fn prev_non_ws(bytes: &[u8], mut i: usize) -> Option<usize> {
     Some(i)
 }
 
-/* ---------------- Public entry point ---------------- */
+/* ---------------- Public entry ---------------- */
 
 pub fn load_file_auto(path: &Path) -> Result<(DetectedFileType, LazyJsonFile)> {
     let detected = sniff_file_type(path)?;
