@@ -11,3 +11,5 @@ serde_json = "1.0"
 rfd = "0.15.4"
 anyhow = "1.0"
 pprof = { version = "0.15.0", features = ["flamegraph"] }
+rayon = "1.11.0"
+memchr = "2.7"

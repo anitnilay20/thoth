@@ -12,6 +12,7 @@ use std::collections::HashSet;
 pub struct JsonViewer {
     // Data source
     loader: Option<LazyJsonFile>,
+    visible_roots: Option<Vec<usize>>, // filter for root indices (e.g. search results)
 
     // UI state
     expanded: HashSet<String>, // paths like "0", "0.user", "0.items[2]"
@@ -37,6 +38,7 @@ impl JsonViewer {
             expanded: HashSet::new(),
             rows: Vec::new(),
             cache: LruCache::new(32),
+            visible_roots: None,
         }
     }
 
@@ -58,17 +60,21 @@ impl JsonViewer {
         let Some(loader) = self.loader.as_ref() else {
             return;
         };
-        let total = loader.len();
 
-        for i in 0..total {
-            let path = i.to_string(); // "0", "1", ...
+        // Use filtered list if present, else 0..len
+        let indices: Box<dyn Iterator<Item = usize>> = if let Some(list) = &self.visible_roots {
+            Box::new(list.iter().copied())
+        } else {
+            Box::new(0..loader.len())
+        };
+
+        for i in indices {
+            let path = i.to_string();
             let is_expanded = self.expanded.contains(&path);
-            // We don’t know the type unless expanded. Show lightweight stub.
             let display_text = if is_expanded {
-                // When expanded, we’ll append children below and also add a closing row.
-                format!("[{}]: {{…}}", i)
+                format!("[{i}]: {{…}}")
             } else {
-                format!("[{}]: (…) ", i) // keeps it cheap until expanded
+                format!("[{i}]: (…) ")
             };
 
             self.rows.push(JsonRow {
@@ -80,29 +86,40 @@ impl JsonViewer {
             });
 
             if is_expanded {
-                if let Some(mut value) = self.cache.get(&i).cloned() {
-                    self.build_rows_from_value(&mut value, &path, 1);
-                    self.rows.push(JsonRow {
-                        path: format!("{}/_close", path),
-                        indent: 0,
-                        is_expandable: false,
-                        is_expanded: false,
-                        display_text: "}".to_string(),
-                    });
-                } else if let Some(loader) = self.loader.as_mut() {
-                    if let Ok(v) = loader.get(i) {
-                        let mut v_owned = v;
-                        self.cache.put(i, v_owned.clone());
-                        self.build_rows_from_value(&mut v_owned, &path, 1);
-                        self.rows.push(JsonRow {
-                            path: format!("{}/_close", path),
-                            indent: 0,
-                            is_expandable: false,
-                            is_expanded: false,
-                            display_text: "}".to_string(),
-                        });
+                // your existing logic that pretty-prints the value and pushes "/_pretty" + close rows
+                let mut value_opt = self.cache.get(&i).cloned();
+                if value_opt.is_none() {
+                    if let Some(loader) = self.loader.as_mut() {
+                        if let Ok(v) = loader.get(i) {
+                            self.cache.put(i, v.clone());
+                            value_opt = Some(v);
+                        }
                     }
                 }
+                if let Some(value) = value_opt {
+                    let mut pretty = serde_json::to_string_pretty(&value)
+                        .unwrap_or_else(|_| "<pretty-print error>".into());
+                    // Optional: cap very large nodes for speed
+                    const MAX_PRETTY_CHARS: usize = 512 * 1024;
+                    if pretty.len() > MAX_PRETTY_CHARS {
+                        pretty.truncate(MAX_PRETTY_CHARS);
+                        pretty.push_str("\n…truncated");
+                    }
+                    self.rows.push(JsonRow {
+                        path: format!("{}/_pretty", path),
+                        indent: 1,
+                        is_expandable: false,
+                        is_expanded: false,
+                        display_text: pretty,
+                    });
+                }
+                self.rows.push(JsonRow {
+                    path: format!("{}/_close", path),
+                    indent: 0,
+                    is_expandable: false,
+                    is_expanded: false,
+                    display_text: "}".to_string(),
+                });
             }
         }
     }
@@ -194,7 +211,7 @@ impl JsonViewer {
         // collect actions, don't mutate `self` inside the paint closure
         let mut toggles: Vec<String> = Vec::new();
 
-        egui::ScrollArea::vertical()
+        egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show_rows(ui, row_height, row_count, |ui, row_range| {
                 for row_index in row_range.clone() {
@@ -234,5 +251,20 @@ impl JsonViewer {
             }
             self.rebuild_root_rows();
         }
+    }
+
+    /// Limit the viewer to a subset of root indices (search hits). Pass None to clear.
+    pub fn set_root_filter(&mut self, filter: Option<Vec<usize>>) {
+        self.visible_roots = filter.map(|mut v| {
+            v.sort_unstable();
+            v.dedup();
+            v
+        });
+        self.rebuild_root_rows();
+    }
+
+    /// For UI badges etc.
+    pub fn current_filter_len(&self) -> Option<usize> {
+        self.visible_roots.as_ref().map(|v| v.len())
     }
 }
