@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
 use memchr::memmem;
 use rayon::prelude::*;
 
@@ -49,51 +48,45 @@ impl Search {
         };
 
         self.results = results;
+
         self.scanning = false;
     }
 }
 
-/// Parallel over indices: each thread clones the underlying file handle via `raw_slice(&self, idx)`.
-fn parallel_scan(store: Arc<LazyJsonFile>, query: &str, match_case: bool) -> Result<Vec<usize>> {
+fn parallel_scan(
+    store: Arc<LazyJsonFile>,
+    query: &str,
+    match_case: bool,
+) -> anyhow::Result<Vec<usize>> {
     let total = store.len();
     if total == 0 {
         return Ok(Vec::new());
     }
 
-    // Precompute needle bytes
+    // Prepare needle
     let mut needle = query.as_bytes().to_vec();
-    if !match_case {
+    let fold = !match_case;
+    if fold {
         ascii_lower_in_place(&mut needle);
     }
+    let needle = Arc::new(needle);
 
-    let finder = memmem::Finder::new(&needle);
-
-    // Use thread-local buffers to collect hits, then reduce.
-    let hits: Vec<usize> = (0..total)
+    let mut hits: Vec<usize> = (0..total)
         .into_par_iter()
-        .with_min_len(2048)
-        .fold(Vec::<usize>::new, {
-            let store = store.clone();
-            move |mut local: Vec<usize>, i| {
-                if let Ok(mut hay) = store.raw_slice(i) {
-                    if !match_case {
-                        ascii_lower_in_place(&mut hay);
-                    }
-                    if finder.find(&hay).is_some() {
-                        local.push(i);
-                    }
-                }
-                local
+        .filter_map(|i| {
+            let mut hay = store.raw_slice(i).ok()?;
+            if fold {
+                ascii_lower_in_place(&mut hay);
+            }
+            if memmem::find(&hay, &needle).is_some() {
+                Some(i)
+            } else {
+                None
             }
         })
-        .reduce(Vec::new, |mut a, mut b| {
-            if b.len() > a.len() {
-                std::mem::swap(&mut a, &mut b);
-            }
-            a.extend(b);
-            a
-        });
+        .collect();
 
+    hits.sort_unstable();
     Ok(hits)
 }
 

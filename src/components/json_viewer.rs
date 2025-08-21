@@ -54,27 +54,31 @@ impl JsonViewer {
         Ok(())
     }
 
-    /// Rebuild only the top-level rows (0..N). Subtrees are injected when expanded.
     fn rebuild_root_rows(&mut self) {
         self.rows.clear();
+
         let Some(loader) = self.loader.as_ref() else {
             return;
         };
 
-        // Use filtered list if present, else 0..len
-        let indices: Box<dyn Iterator<Item = usize>> = if let Some(list) = &self.visible_roots {
-            Box::new(list.iter().copied())
+        // Which root indices to render: filtered (search) or all
+        let total = loader.len();
+        let indices: Vec<usize> = if let Some(list) = self.visible_roots.as_ref() {
+            list.clone()
         } else {
-            Box::new(0..loader.len())
+            (0..total).collect()
         };
 
         for i in indices {
-            let path = i.to_string();
+            let path = i.to_string(); // "0", "1", ...
             let is_expanded = self.expanded.contains(&path);
+
+            // Lightweight stub until expanded
             let display_text = if is_expanded {
-                format!("[{i}]: {{…}}")
+                // We'll append children using build_rows_from_value and then a closing brace
+                format!("[{}]: {{", i)
             } else {
-                format!("[{i}]: (…) ")
+                format!("[{}]: (…) ", i)
             };
 
             self.rows.push(JsonRow {
@@ -86,33 +90,18 @@ impl JsonViewer {
             });
 
             if is_expanded {
-                // your existing logic that pretty-prints the value and pushes "/_pretty" + close rows
-                let mut value_opt = self.cache.get(&i).cloned();
-                if value_opt.is_none() {
-                    if let Some(loader) = self.loader.as_mut() {
-                        if let Ok(v) = loader.get(i) {
-                            self.cache.put(i, v.clone());
-                            value_opt = Some(v);
-                        }
+                // Load root value (from cache or loader), then expand children
+                if let Some(mut value) = self.cache.get(&i).cloned() {
+                    self.build_rows_from_value(&mut value, &path, 1);
+                } else if let Some(loader_mut) = self.loader.as_mut() {
+                    if let Ok(v) = loader_mut.get(i) {
+                        let mut v_owned = v;
+                        self.cache.put(i, v_owned.clone());
+                        self.build_rows_from_value(&mut v_owned, &path, 1);
                     }
                 }
-                if let Some(value) = value_opt {
-                    let mut pretty = serde_json::to_string_pretty(&value)
-                        .unwrap_or_else(|_| "<pretty-print error>".into());
-                    // Optional: cap very large nodes for speed
-                    const MAX_PRETTY_CHARS: usize = 512 * 1024;
-                    if pretty.len() > MAX_PRETTY_CHARS {
-                        pretty.truncate(MAX_PRETTY_CHARS);
-                        pretty.push_str("\n…truncated");
-                    }
-                    self.rows.push(JsonRow {
-                        path: format!("{}/_pretty", path),
-                        indent: 1,
-                        is_expandable: false,
-                        is_expanded: false,
-                        display_text: pretty,
-                    });
-                }
+
+                // Closing row (visual balance for "{")
                 self.rows.push(JsonRow {
                     path: format!("{}/_close", path),
                     indent: 0,
