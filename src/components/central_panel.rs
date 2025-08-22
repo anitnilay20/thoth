@@ -10,6 +10,7 @@ pub struct CentralPanel {
     loaded_path: Option<PathBuf>,
     loaded_type: Option<FileType>,
     last_open_err: Option<String>,
+    searching: bool,
 }
 
 impl CentralPanel {
@@ -24,9 +25,10 @@ impl CentralPanel {
         // Open / close viewer once on change
         match (path, self.loaded_path.as_ref(), self.loaded_type) {
             (Some(new_path), Some(curr_path), Some(curr_ty))
-                if curr_path == new_path && curr_ty == *file_type => {
-                    // no change
-                }
+                if curr_path == new_path && curr_ty == *file_type =>
+            {
+                // no change
+            }
             (Some(new_path), _, _) => {
                 self.last_open_err = None;
                 match self.json_viewer.open(new_path, file_type) {
@@ -55,8 +57,11 @@ impl CentralPanel {
             (None, None, _) => { /* nothing selected */ }
         }
 
+
         // React to search messages
         if let Some(msg) = search_message {
+            self.searching = msg.is_searching();
+
             match msg {
                 search::SearchMessage::StartSearch(s) => {
                     // Apply the filter to the viewer using returned indices.
@@ -82,12 +87,20 @@ impl CentralPanel {
                 ui.separator();
             }
 
+            if self.searching {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new().size(16.0));
+                    ui.label("Searching…");
+                });
+                ui.add_space(6.0);
+                return;
+            }
+
             if self.loaded_path.is_none() {
                 ui.label("Open a JSON/NDJSON file from the top bar to begin.");
                 return;
             }
 
-            // Optional: show filter badge and clear button
             if let Some(count) = self.json_viewer.current_filter_len() {
                 ui.horizontal(|ui| {
                     ui.label(format!("Filtered to {} record(s)", count));
@@ -98,7 +111,7 @@ impl CentralPanel {
                 ui.separator();
             }
 
-            // Render the viewer (it manages its own scrolling)
+            // Render the viewer
             self.json_viewer.ui(ui);
         });
     }

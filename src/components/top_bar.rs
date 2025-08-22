@@ -3,10 +3,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 use rfd::FileDialog;
 
-use crate::{
-    file::lazy_loader::FileType,
-    search::{Search, SearchMessage},
-};
+use crate::{file::lazy_loader::FileType, search::SearchMessage};
 
 #[derive(Default)]
 pub struct TopBar {
@@ -22,9 +19,9 @@ impl TopBar {
         file_path: &mut Option<PathBuf>,
         file_type: &mut FileType,
         error: &mut Option<String>,
+        dark_mode: &mut bool,
     ) -> Option<SearchMessage> {
         let mut search_message = None;
-        let mut search = Search::default();
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -55,16 +52,15 @@ impl TopBar {
                     || (text_box_response.lost_focus()
                         && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                 {
-                    search.query = self.search_query.clone();
-                    search.match_case = self.match_case;
-                    search_message = Some(SearchMessage::StartSearch(search));
+                    search_message =
+                        SearchMessage::create_search(self.search_query.clone(), self.match_case);
                 }
 
                 if ui.button("Stop").clicked() {
                     search_message = Some(SearchMessage::StopSearch);
                 }
 
-                egui::ComboBox::from_label("Mention File Type")
+                egui::ComboBox::from_label("")
                     .selected_text(format!("{:?}", file_type))
                     .show_ui(ui, |ui| {
                         ui.selectable_value(file_type, FileType::Json, "JSON");
@@ -75,16 +71,19 @@ impl TopBar {
                     self.previous_file_type = *file_type;
                 }
 
-                if let Some(p) = file_path {
-                    ui.label(format!(
-                        "File: {}",
-                        p.file_name()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("<unknown>")
-                    ));
-                } else {
-                    ui.label("File: <none>");
-                }
+                ui.separator();
+                ui.checkbox(dark_mode, "🌙 Dark");
+
+                // if let Some(p) = file_path {
+                //     ui.label(format!(
+                //         "File: {}",
+                //         p.file_name()
+                //             .and_then(|s| s.to_str())
+                //             .unwrap_or("<unknown>")
+                //     ));
+                // } else {
+                //     ui.label("File: <none>");
+                // }
             });
         });
 
