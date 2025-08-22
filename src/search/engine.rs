@@ -1,5 +1,6 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::mpsc};
 use std::sync::Arc;
+use std::thread;
 
 use memchr::memmem;
 use rayon::prelude::*;
@@ -15,9 +16,31 @@ pub struct Search {
 }
 
 impl Search {
+    /// Spawn in background and return a channel to receive the finished Search.
+    pub fn start_scanning(
+        &self,
+        file: &Option<PathBuf>,
+        file_type: &FileType,
+    ) -> mpsc::Receiver<Search> {
+        let (tx, rx) = mpsc::channel();
+        let mut job = self.clone();
+        let file = file.clone();
+        let file_type = *file_type;
+
+        // mark as scanning for the first UI update
+        job.scanning = true;
+
+        thread::spawn(move || {
+            job.start_scanning_internal(&file, &file_type);
+            let _ = tx.send(job); // send finished (scanning=false, results filled)
+        });
+
+        rx
+    }
+
     /// Parallel substring scan over the file's records.
     /// Populates `self.results` with matching root indices, then sets `scanning = false`.
-    pub fn start_scanning(&mut self, file: &Option<PathBuf>, _file_type: &FileType) {
+    pub fn start_scanning_internal(&mut self, file: &Option<PathBuf>, _file_type: &FileType) {
         self.scanning = true;
         self.results.clear();
 

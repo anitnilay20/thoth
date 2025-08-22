@@ -6,6 +6,8 @@ use eframe::{
     egui::{self},
 };
 
+use crate::components::theme;
+
 mod components;
 mod file;
 mod helpers;
@@ -19,13 +21,18 @@ struct ThothApp {
     file_path: Option<PathBuf>,
     file_type: file::lazy_loader::FileType,
 
-    // Own the engine here
+    // search engine state
     search: search::Search,
+    search_rx: Option<std::sync::mpsc::Receiver<search::Search>>,
+
+    // UI
+    dark_mode: bool,
 }
 
 impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
-        // Window title
+        self.dark_mode = ctx.style().visuals.dark_mode;
+
         if let Some(path) = &self.file_path {
             let file_name = std::path::Path::new(path)
                 .file_name()
@@ -42,32 +49,50 @@ impl App for ThothApp {
         }
 
         // Get user's action from TopBar (open file / change type / search / stop)
-        let incoming_msg = self
-            .top_bar
-            .ui(ctx, &mut self.file_path, &mut self.file_type, &mut self.error);
+        let incoming_msg = self.top_bar.ui(
+            ctx,
+            &mut self.file_path,
+            &mut self.file_type,
+            &mut self.error,
+            &mut self.dark_mode,
+        );
 
         // We will forward a processed message (with results) to the CentralPanel
         let mut msg_to_central: Option<search::SearchMessage> = None;
-        
-        if let Some(msg) = incoming_msg {
-            println!("TopBar message: {:?}", msg);
-            match msg {
-                // StartSearch carries query, match_case (and maybe empty results)
-                search::SearchMessage::StartSearch(s) => {
-                    // Run the engine HERE (parent owns side effects / file access)
-                    self.search.query = s.query;
-                    self.search.match_case = s.match_case;
-                    self.search.start_scanning(&self.file_path, &self.file_type);
 
-                    // Now forward a StartSearch with the *filled* results
+        if let Some(rx) = &self.search_rx {
+            if let Ok(done) = rx.try_recv() {
+                self.search = done.clone(); // finished: scanning=false, results filled
+                msg_to_central = Some(search::SearchMessage::StartSearch(done));
+                self.search_rx = None; // finished
+            }
+        }
+
+        if let Some(msg) = incoming_msg {
+            match msg {
+                search::SearchMessage::StartSearch(s) => {
+                    // kick off background
+                    self.search = s.clone();
+                    self.search.scanning = true;
+
+                    // tell CentralPanel to show loader NOW
                     msg_to_central = Some(search::SearchMessage::StartSearch(self.search.clone()));
+
+                    // spawn and keep receiver
+                    self.search_rx =
+                        Some(self.search.start_scanning(&self.file_path, &self.file_type));
+
+                    // keep UI repainting while scanning
+                    ctx.request_repaint();
                 }
                 search::SearchMessage::StopSearch => {
-                    // Clear any filter in the viewer
+                    self.search_rx = None; // optional: drop pending result
                     msg_to_central = Some(search::SearchMessage::StopSearch);
                 }
             }
         }
+
+        theme::apply_theme(ctx, self.dark_mode); // Always dark mode
 
         // Render the central panel, passing the processed search message (if any)
         self.central_panel.ui(
@@ -82,6 +107,7 @@ impl App for ThothApp {
 
 fn main() -> Result<()> {
     let options = eframe::NativeOptions::default();
+
     if let Err(e) = eframe::run_native(
         "Thoth — JSON & NDJSON Viewer",
         options,

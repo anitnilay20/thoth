@@ -1,10 +1,11 @@
+use crate::components::theme::row_fill;
 use crate::helpers::LruCache;
 use crate::{
     file::lazy_loader::{FileType, LazyJsonFile, load_file_auto},
     helpers::{format_simple_kv, preview_value},
 };
 use eframe::egui;
-use egui::{RichText, Ui};
+use egui::Ui;
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -212,20 +213,33 @@ impl JsonViewer {
                         let path = row.path.clone();
                         let display = row.display_text.clone();
 
-                        ui.horizontal(|ui| {
-                            ui.add_space(indent as f32 * 12.0);
+                        egui::Frame::new()
+                            .fill(row_fill(row_index, ui))
+                            // .inner_margin(egui::Margin {
+                            //     left: indent as i8 * 12,
+                            //     right: 4,
+                            //     top: 0,
+                            //     bottom: 0,
+                            // })
+                            .show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.horizontal(|ui| {
+                                    ui.add_space(indent as f32 * 12.0);
 
-                            if is_expandable {
-                                let toggle_icon = if is_expanded { " - " } else { "+" };
-                                if ui.selectable_label(false, toggle_icon).clicked() {
-                                    toggles.push(path.clone());
-                                }
-                            } else {
-                                ui.add_space(23.0);
-                            }
+                                    if is_expandable {
+                                        let toggle_icon = if is_expanded { " - " } else { "+" };
+                                        if ui.selectable_label(false, toggle_icon).clicked() {
+                                            toggles.push(path.clone());
+                                        }
+                                    } else {
+                                        ui.add_space(23.0);
+                                    }
 
-                            ui.label(RichText::new(display).monospace());
-                        });
+                                    ui.add(egui::Label::new(
+                                        egui::RichText::new(display).monospace(),
+                                    ));
+                                });
+                            });
                     }
                 }
             });
