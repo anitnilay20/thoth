@@ -1,4 +1,4 @@
-use crate::components::theme::row_fill;
+use crate::components::theme::{TextPalette, TextToken, row_fill};
 use crate::helpers::LruCache;
 use crate::{
     file::lazy_loader::{FileType, LazyJsonFile, load_file_auto},
@@ -30,6 +30,7 @@ struct JsonRow {
     is_expandable: bool,
     is_expanded: bool,
     display_text: String,
+    text_token: (TextToken, Option<TextToken>),
 }
 
 impl JsonViewer {
@@ -88,6 +89,7 @@ impl JsonViewer {
                 is_expandable: true,
                 is_expanded,
                 display_text,
+                text_token: (TextToken::Key, Some(TextToken::Bracket)),
             });
 
             if is_expanded {
@@ -109,6 +111,7 @@ impl JsonViewer {
                     is_expandable: false,
                     is_expanded: false,
                     display_text: "}".to_string(),
+                    text_token: (TextToken::Bracket, None),
                 });
             }
         }
@@ -135,6 +138,14 @@ impl JsonViewer {
                         is_expandable,
                         is_expanded,
                         display_text,
+                        text_token: (
+                            TextToken::Key,
+                            Some(if is_expandable {
+                                TextToken::Bracket
+                            } else {
+                                TextToken::from(&mut val.clone())
+                            }),
+                        ),
                     });
 
                     if is_expanded {
@@ -145,6 +156,7 @@ impl JsonViewer {
                             is_expandable: false,
                             is_expanded: false,
                             display_text: "}".to_string(),
+                            text_token: (TextToken::Bracket, None),
                         });
                     }
                 }
@@ -167,6 +179,7 @@ impl JsonViewer {
                         is_expandable,
                         is_expanded,
                         display_text,
+                        text_token: (TextToken::Key, Some(TextToken::Bracket)),
                     });
 
                     if is_expanded {
@@ -177,6 +190,7 @@ impl JsonViewer {
                             is_expandable: false,
                             is_expanded: false,
                             display_text: "]".to_string(),
+                            text_token: (TextToken::Bracket, None),
                         });
                     }
                 }
@@ -189,6 +203,7 @@ impl JsonViewer {
                     is_expandable: false,
                     is_expanded: false,
                     display_text: preview_value(value).to_string(),
+                    text_token: (TextToken::from(value), None),
                 });
             }
         }
@@ -204,6 +219,9 @@ impl JsonViewer {
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show_rows(ui, row_height, row_count, |ui, row_range| {
+                let visuals = ui.visuals();
+                let palette = TextPalette::for_visuals(visuals);
+
                 for row_index in row_range.clone() {
                     if let Some(row) = self.rows.get(row_index) {
                         // Copy small bits we need (avoids borrowing self later)
@@ -212,15 +230,13 @@ impl JsonViewer {
                         let is_expanded = row.is_expanded;
                         let path = row.path.clone();
                         let display = row.display_text.clone();
+                        let mut parts = display.splitn(2, ':');
+                        let display1 = parts.next().unwrap_or("");
+                        let display2 = parts.next().unwrap_or("");
+                        let is_key_display = !display2.is_empty() && row.text_token.1.is_some();
 
                         egui::Frame::new()
                             .fill(row_fill(row_index, ui))
-                            // .inner_margin(egui::Margin {
-                            //     left: indent as i8 * 12,
-                            //     right: 4,
-                            //     top: 0,
-                            //     bottom: 0,
-                            // })
                             .show(ui, |ui| {
                                 ui.set_min_width(ui.available_width());
                                 ui.horizontal(|ui| {
@@ -236,8 +252,22 @@ impl JsonViewer {
                                     }
 
                                     ui.add(egui::Label::new(
-                                        egui::RichText::new(display).monospace(),
+                                        egui::RichText::new(format!(
+                                            "{}{}",
+                                            display1,
+                                            if is_key_display { ":" } else { "" }
+                                        ))
+                                        .monospace()
+                                        .color(palette.color(row.text_token.0)),
                                     ));
+
+                                    if is_key_display {
+                                        ui.add(egui::Label::new(
+                                            egui::RichText::new(display2)
+                                                .monospace()
+                                                .color(palette.color(row.text_token.1.unwrap())),
+                                        ));
+                                    }
                                 });
                             });
                     }
