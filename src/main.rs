@@ -2,11 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use eframe::{
-    App, Frame,
-    egui::{self},
+    egui::{self}, App, Frame, NativeOptions
 };
 
-use crate::components::theme;
+use crate::{components::theme, helpers::load_icon};
 
 mod components;
 mod file;
@@ -106,7 +105,12 @@ impl App for ThothApp {
 }
 
 fn main() -> Result<()> {
-    let options = eframe::NativeOptions::default();
+    let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png")); 
+    let options = NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_icon(icon),
+        ..Default::default()
+    };
 
     if let Err(e) = eframe::run_native(
         "Thoth — JSON & NDJSON Viewer",
