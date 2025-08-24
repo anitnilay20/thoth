@@ -1,8 +1,13 @@
-# Thoth - JSON & NDJSON Viewer
-
-![Thoth](https://i.imgur.com/logo_placeholder.png)
+<div align="center">
+  <h1>
+    <img src="assets/thoth_icon_256.png" alt="Thoth Icon" width="75" style="vertical-align: middle;"/>
+    Thoth - JSON & NDJSON Viewer
+  </h1>
+</div>
 
 Thoth is a high-performance, feature-rich desktop application for viewing and exploring JSON and NDJSON files with a clean, intuitive interface.
+
+---
 
 ## Features
 
@@ -14,6 +19,8 @@ Thoth is a high-performance, feature-rich desktop application for viewing and ex
 - **Copy Support**: Easy copying of JSON paths and values
 - **Dark/Light Modes**: Comfortable viewing in any environment
 - **Keyboard Navigation**: Efficiently navigate through large JSON structures
+
+---
 
 ## Installation
 
@@ -35,6 +42,8 @@ cargo build --release
 # The binary will be available in target/release/thoth
 ```
 
+---
+
 ## Usage
 
 1. Launch the application
@@ -43,6 +52,8 @@ cargo build --release
 4. Use the search functionality to find specific values
 5. Toggle between dark and light mode as needed
 
+---
+
 ## Project Structure
 
 - `src/main.rs`: Application entry point and core logic
@@ -50,6 +61,8 @@ cargo build --release
 - `src/file/`: File handling, lazy loading, and type detection
 - `src/search/`: Search functionality
 - `src/helpers/`: Utility functions and shared code
+
+---
 
 ## Architecture
 
@@ -98,11 +111,15 @@ User Interaction → TopBar → ThothApp → File Loading/Search Operations → 
 - Graceful degradation with user-friendly error messages
 - Robust file type detection to prevent parsing errors
 
+---
+
 ## Technologies
 
 - [Rust](https://www.rust-lang.org/): Primary language
 - [egui](https://github.com/emilk/egui): Immediate mode GUI library
 - [serde_json](https://github.com/serde-rs/json): JSON serialization/deserialization
+
+---
 
 ## Roadmap
 
@@ -119,6 +136,8 @@ Key features planned for future development:
 - Cross-platform packages (macOS, Windows, Linux)
 - Plugin system for extensibility
 
+---
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -129,9 +148,13 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+---
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
 
 ## Acknowledgments
 
