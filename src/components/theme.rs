@@ -130,3 +130,11 @@ impl TextPalette {
         }
     }
 }
+
+pub fn selected_row_bg(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(0x3a, 0x3f, 0x49) // dark mode selection color
+    } else {
+        Color32::from_rgb(0xB0, 0xC4, 0xE0) // light mode selection color
+    }
+}

@@ -1,10 +1,10 @@
-use crate::components::theme::{TextPalette, TextToken, row_fill};
-use crate::helpers::LruCache;
+use crate::components::theme::{TextPalette, TextToken, row_fill, selected_row_bg};
+use crate::helpers::{get_object_string, split_root_rel, LruCache};
 use crate::{
     file::lazy_loader::{FileType, LazyJsonFile, load_file_auto},
     helpers::{format_simple_kv, preview_value},
 };
-use eframe::egui;
+use eframe::egui::{self, RichText};
 use egui::Ui;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -21,6 +21,9 @@ pub struct JsonViewer {
 
     // (Optional) tiny cache to avoid re-parsing when toggling the same item
     cache: LruCache<usize, Value>, // cache top-level items only; nested gets are cheap to rewalk
+
+    //select
+    selected: Option<String>,
 }
 
 #[derive(Clone)]
@@ -41,6 +44,7 @@ impl JsonViewer {
             rows: Vec::new(),
             cache: LruCache::new(32),
             visible_roots: None,
+            selected: None,
         }
     }
 
@@ -54,6 +58,23 @@ impl JsonViewer {
         self.rows.clear();
         self.rebuild_root_rows();
         Ok(())
+    }
+
+    // Load root value (from cache or loader)
+    fn check_cache(&mut self, index: usize) -> Option<serde_json::Value> {
+        if let Some(value) = self.cache.get(&index).cloned() {
+            Some(value)
+        } else if let Some(loader_mut) = self.loader.as_mut() {
+            if let Ok(v) = loader_mut.get(index) {
+                let v_owned = v;
+                self.cache.put(index, v_owned.clone());
+                Some(v_owned)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     fn rebuild_root_rows(&mut self) {
@@ -93,15 +114,8 @@ impl JsonViewer {
             });
 
             if is_expanded {
-                // Load root value (from cache or loader), then expand children
-                if let Some(mut value) = self.cache.get(&i).cloned() {
+                if let Some(mut value) = self.check_cache(i) {
                     self.build_rows_from_value(&mut value, &path, 1);
-                } else if let Some(loader_mut) = self.loader.as_mut() {
-                    if let Ok(v) = loader_mut.get(i) {
-                        let mut v_owned = v;
-                        self.cache.put(i, v_owned.clone());
-                        self.build_rows_from_value(&mut v_owned, &path, 1);
-                    }
                 }
 
                 // Closing row (visual balance for "{")
@@ -213,8 +227,9 @@ impl JsonViewer {
         let row_count = self.rows.len();
         let row_height = 20.0;
 
-        // collect actions, don't mutate `self` inside the paint closure
         let mut toggles: Vec<String> = Vec::new();
+        let mut new_selected: Option<String> = None;
+        let mut copy_clipboard: Option<String> = None;
 
         egui::ScrollArea::both()
             .auto_shrink([false, false])
@@ -222,9 +237,10 @@ impl JsonViewer {
                 let visuals = ui.visuals();
                 let palette = TextPalette::for_visuals(visuals);
 
+                let rows = self.rows.clone();
+
                 for row_index in row_range.clone() {
-                    if let Some(row) = self.rows.get(row_index) {
-                        // Copy small bits we need (avoids borrowing self later)
+                    if let Some(row) = rows.get(row_index) {
                         let indent = row.indent;
                         let is_expandable = row.is_expandable;
                         let is_expanded = row.is_expanded;
@@ -234,45 +250,122 @@ impl JsonViewer {
                         let display1 = parts.next().unwrap_or("");
                         let display2 = parts.next().unwrap_or("");
                         let is_key_display = !display2.is_empty() && row.text_token.1.is_some();
+                        let mut clicked = false;
+                        let mut right_clicked = false;
 
-                        egui::Frame::new()
-                            .fill(row_fill(row_index, ui))
-                            .show(ui, |ui| {
-                                ui.set_min_width(ui.available_width());
-                                ui.horizontal(|ui| {
-                                    ui.add_space(indent as f32 * 12.0);
+                        // NEW: selected background
+                        let is_selected = self.selected.as_deref() == Some(path.as_str());
+                        let bg = if is_selected {
+                            selected_row_bg(ui)
+                        } else {
+                            row_fill(row_index, ui)
+                        };
 
-                                    if is_expandable {
-                                        let toggle_icon = if is_expanded { " - " } else { "+" };
-                                        if ui.selectable_label(false, toggle_icon).clicked() {
-                                            toggles.push(path.clone());
-                                        }
-                                    } else {
-                                        ui.add_space(23.0);
+                        egui::Frame::new().fill(bg).show(ui, |ui| {
+                            // NEW: make the whole row clickable (works for expandable & leaf rows)
+                            let rect = ui.max_rect();
+                            let id = ui.id().with(&path);
+                            let resp = ui.interact(rect, id, egui::Sense::click());
+                            clicked = resp.clicked();
+                            right_clicked |= resp.clicked_by(egui::PointerButton::Secondary);
+
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.add_space(indent as f32 * 12.0);
+
+                                if is_expandable {
+                                    let toggle_icon = if is_expanded { "-" } else { "+" };
+                                    if ui
+                                        .selectable_label(
+                                            false,
+                                            RichText::new(toggle_icon).monospace(),
+                                        )
+                                        .clicked()
+                                    {
+                                        toggles.push(path.clone());
                                     }
+                                } else {
+                                    ui.add_space(23.0);
+                                }
 
-                                    ui.add(egui::Label::new(
-                                        egui::RichText::new(format!(
-                                            "{}{}",
-                                            display1,
-                                            if is_key_display { ":" } else { "" }
-                                        ))
-                                        .monospace()
-                                        .color(palette.color(row.text_token.0)),
+                                let label_resp = ui.add(egui::Label::new(
+                                    egui::RichText::new(format!(
+                                        "{}{}",
+                                        display1,
+                                        if is_key_display { ":" } else { "" }
+                                    ))
+                                    .monospace()
+                                    .color(palette.color(row.text_token.0)),
+                                ));
+
+                                clicked |= label_resp.clicked();
+                                right_clicked |=
+                                    label_resp.clicked_by(egui::PointerButton::Secondary);
+
+                                if is_key_display {
+                                    let key_resp = ui.add(egui::Label::new(
+                                        egui::RichText::new(display2)
+                                            .monospace()
+                                            .color(palette.color(row.text_token.1.unwrap())),
                                     ));
-
-                                    if is_key_display {
-                                        ui.add(egui::Label::new(
-                                            egui::RichText::new(display2)
-                                                .monospace()
-                                                .color(palette.color(row.text_token.1.unwrap())),
-                                        ));
-                                    }
-                                });
+                                    clicked |= key_resp.clicked();
+                                    right_clicked |=
+                                        key_resp.clicked_by(egui::PointerButton::Secondary);
+                                }
                             });
+
+                            if clicked || right_clicked {
+                                new_selected = Some(path.clone());
+                            }
+
+                            resp.context_menu(|ui| {
+                                if ui.button("Copy key").clicked() {
+                                    let path_clone = path.clone();
+                                    let split =
+                                        path_clone.split_inclusive('.').next_back().unwrap_or("");
+                                    copy_clipboard = Some(split.to_string());
+                                    ui.close();
+                                }
+
+                                let show_value_menu = is_key_display
+                                    && !display2.starts_with(" [")
+                                    && !display2.starts_with(" {")
+                                    && !display2.starts_with(" (");
+
+                                if show_value_menu && ui.button("Copy Value").clicked() {
+                                    copy_clipboard = Some(display2.trim().to_string());
+                                    ui.close();
+                                }
+
+                                if ui.button("Copy Object").clicked() {
+                                    // let obj = self.copy_subtree_to_clipboard(&path, ui);
+                                    // copy_clipboard = obj;
+
+                                    if let Some((root_idx, rel)) = split_root_rel(&path) {
+                                        if let Some(value) = self.check_cache(root_idx) {
+                                            copy_clipboard = get_object_string(value, rel);
+                                        };
+                                    }
+                                    ui.close();
+                                }
+
+                                if ui.button("Copy path").clicked() {
+                                    copy_clipboard = Some(path.clone());
+                                    ui.close();
+                                }
+                            });
+                        });
                     }
                 }
             });
+
+        if let Some(sel) = new_selected {
+            self.selected = Some(sel);
+        }
+
+        if let Some(text) = copy_clipboard {
+            ui.output_mut(|o| o.commands.push(egui::OutputCommand::CopyText(text)));
+        }
 
         // Now mutate state once, outside the paint closure
         if !toggles.is_empty() {
