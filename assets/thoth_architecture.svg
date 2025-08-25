@@ -1,0 +1,81 @@
+<?xml version="1.0" ?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto-start-reverse">
+      <path d="M0,0 L12,6 L0,12 z" fill="#8ab4f8"/>
+    </marker>
+    <marker id="arrow2" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto-start-reverse">
+      <path d="M0,0 L12,6 L0,12 z" fill="#8ab4f8"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1600" height="1000" fill="#0b0f17"/>
+  <text x="800" y="60" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="36" font-weight="700" text-anchor="middle">Thoth — Architecture Overview</text>
+  <path d="M94,120 h272 a14,14 0 0 1 14,14 v52 a14,14 0 0 1 -14,14 h-272 a14,14 0 0 1 -14,-14 v-52 a14,14 0 0 1 14,-14 z" fill="#0f172a" stroke="#1f2b46" stroke-width="2"/>
+  <text x="100" y="155" fill="#82AAFF" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="22" font-weight="600" text-anchor="start">User Interaction</text>
+  <text x="100" y="185" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">Clicks • Search • Open file</text>
+  <path d="M94,220 h272 a14,14 0 0 1 14,14 v252 a14,14 0 0 1 -14,14 h-272 a14,14 0 0 1 -14,-14 v-252 a14,14 0 0 1 14,-14 z" fill="#0f172a" stroke="#1f2b46" stroke-width="2"/>
+  <text x="100" y="252" fill="#82AAFF" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="22" font-weight="600" text-anchor="start">UI Components</text>
+  <text x="104" y="290" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• TopBar</text>
+  <text x="124" y="312" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Open file • Type • Search</text>
+  <text x="104" y="344" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• CentralPanel</text>
+  <text x="124" y="366" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Main content area</text>
+  <text x="104" y="398" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• JsonViewer</text>
+  <text x="124" y="420" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Tree view • Expand/collapse • Context menu</text>
+  <text x="104" y="452" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Theme</text>
+  <text x="124" y="474" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Light/Dark • Andromeda palette</text>
+  <path d="M536,160 h528 a16,16 0 0 1 16,16 v108 a16,16 0 0 1 -16,16 h-528 a16,16 0 0 1 -16,-16 v-108 a16,16 0 0 1 16,-16 z" fill="#0f172a" stroke="#B39DDB" id="core" stroke-width="3"/>
+  <text x="540" y="200" fill="#B39DDB" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="24" font-weight="600" text-anchor="start">Application Core (ThothApp)</text>
+  <text x="540" y="236" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">State, routing, coordination</text>
+  <text x="540" y="264" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">Manages theme, errors, file paths</text>
+  <path d="M1136,140 h348 a16,16 0 0 1 16,16 v228 a16,16 0 0 1 -16,16 h-348 a16,16 0 0 1 -16,-16 v-228 a16,16 0 0 1 16,-16 z" fill="#0f172a" stroke="#89DDFF" stroke-width="3"/>
+  <text x="1140" y="176" fill="#89DDFF" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="24" font-weight="600" text-anchor="start">File Handling System</text>
+  <text x="1144" y="212" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Lazy Loading</text>
+  <text x="1164" y="232" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Parse on demand (visible nodes only)</text>
+  <text x="1144" y="258" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• File Type Detection</text>
+  <text x="1164" y="278" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">JSON / JSON array / NDJSON</text>
+  <text x="1144" y="304" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• LRU Cache</text>
+  <text x="1164" y="324" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Recently accessed roots &amp; nodes</text>
+  <text x="1144" y="350" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Offsets</text>
+  <text x="1164" y="370" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Memory‑efficient: track file offsets</text>
+  <path d="M1136,440 h348 a16,16 0 0 1 16,16 v168 a16,16 0 0 1 -16,16 h-348 a16,16 0 0 1 -16,-16 v-168 a16,16 0 0 1 16,-16 z" fill="#0f172a" stroke="#F78C6C" stroke-width="3"/>
+  <text x="1140" y="476" fill="#F78C6C" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="24" font-weight="600" text-anchor="start">Search Engine</text>
+  <text x="1144" y="512" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Parallel search</text>
+  <text x="1164" y="532" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Rayon for concurrency</text>
+  <text x="1144" y="558" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Fast substring</text>
+  <text x="1164" y="578" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">memchr &amp; streaming scan</text>
+  <text x="1144" y="604" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Background tasks</text>
+  <text x="1164" y="624" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Keeps UI responsive</text>
+  <path d="M434,360 h332 a14,14 0 0 1 14,14 v92 a14,14 0 0 1 -14,14 h-332 a14,14 0 0 1 -14,-14 v-92 a14,14 0 0 1 14,-14 z" fill="#0f172a" stroke="#C3E88D" stroke-width="3"/>
+  <text x="440" y="400" fill="#C3E88D" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="22" font-weight="600" text-anchor="start">CentralPanel</text>
+  <text x="440" y="432" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="16" font-weight="400" text-anchor="start">Hosts JsonViewer &amp; results</text>
+  <path d="M436,520 h728 a16,16 0 0 1 16,16 v308 a16,16 0 0 1 -16,16 h-728 a16,16 0 0 1 -16,-16 v-308 a16,16 0 0 1 16,-16 z" fill="#0f172a" stroke="#C3E88D" stroke-width="2"/>
+  <text x="440" y="560" fill="#C3E88D" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="24" font-weight="600" text-anchor="start">JsonViewer</text>
+  <text x="444" y="598" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Flattened rows</text>
+  <text x="464" y="620" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Stable paths (e.g., 0.user.items[2])</text>
+  <text x="444" y="652" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Expand/collapse</text>
+  <text x="464" y="674" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">On‑demand parsing</text>
+  <text x="444" y="706" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Single‑selection</text>
+  <text x="464" y="728" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Row highlight + context menu</text>
+  <text x="444" y="760" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Copy actions</text>
+  <text x="464" y="782" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Key • Value • Path • Subtree</text>
+  <path d="M94,540 h272 a14,14 0 0 1 14,14 v292 a14,14 0 0 1 -14,14 h-272 a14,14 0 0 1 -14,-14 v-292 a14,14 0 0 1 14,-14 z" fill="#0f172a" stroke="#1f2b46" stroke-width="2"/>
+  <text x="100" y="572" fill="#82AAFF" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="22" font-weight="600" text-anchor="start">Performance &amp; Errors</text>
+  <text x="104" y="610" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Lazy parsing</text>
+  <text x="124" y="630" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Only expanded nodes are parsed</text>
+  <text x="104" y="656" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Background processing</text>
+  <text x="124" y="676" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Long ops off UI thread</text>
+  <text x="104" y="702" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Memory efficiency</text>
+  <text x="124" y="722" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Offsets, not whole file in RAM</text>
+  <text x="104" y="748" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• LRU caching</text>
+  <text x="124" y="768" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">Hot roots &amp; nodes</text>
+  <text x="104" y="794" fill="#e5e7eb" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="18" font-weight="600" text-anchor="start">• Error handling</text>
+  <text x="124" y="814" fill="#cbd5e1" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="400" text-anchor="start">anyhow + friendly messages</text>
+  <line x1="380" y1="160.0" x2="520" y2="190" stroke="#8ab4f8" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="380" y1="300" x2="520" y2="230" stroke="#8ab4f8" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="1080" y1="230" x2="1120" y2="190" stroke="#8ab4f8" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="1080" y1="270" x2="1120" y2="470" stroke="#8ab4f8" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="800.0" y1="300" x2="460" y2="360" stroke="#8ab4f8" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="600.0" y1="480" x2="800.0" y2="520" stroke="#8ab4f8" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="1180" y1="640" x2="1120" y2="280" stroke="#8ab4f8" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="1120" y1="540.0" x2="1180" y2="740" stroke="#8ab4f8" stroke-width="2" marker-end="url(#arrow)"/>
+</svg>

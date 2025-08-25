@@ -5,6 +5,10 @@
   </h1>
 </div>
 
+<div align="center">
+  <img src="assets/app_sreen_recording.gif"/>
+</div>
+
 Thoth is a high-performance, feature-rich desktop application for viewing and exploring JSON and NDJSON files with a clean, intuitive interface.
 
 ---
@@ -25,9 +29,11 @@ Thoth is a high-performance, feature-rich desktop application for viewing and ex
 ## Installation
 
 ### Prerequisites
+
 - Rust (latest stable version recommended)
 
 ### Building from Source
+
 ```bash
 # Clone the repository
 git clone https://github.com/anitnilay20/thoth.git
@@ -70,18 +76,21 @@ Thoth is built with a modular architecture that emphasizes performance and flexi
 
 ### Core Components
 
-1. **Application Core (`ThothApp`)**: 
+1. **Application Core (`ThothApp`)**:
+
    - The central controller that manages the application state
    - Coordinates between UI components and data handling
    - Manages the theme, file paths, and error states
 
 2. **UI Components**:
+
    - **TopBar**: Handles file opening, type selection, and search inputs
    - **CentralPanel**: Main content area with the JSON viewer
    - **JsonViewer**: Tree-based visualization of JSON structures with expandable nodes
    - **Theme**: Manages dark/light mode and styling
 
 3. **File Handling System**:
+
    - **Lazy Loading**: Only parses the parts of the file that are being viewed
    - **File Type Detection**: Automatically identifies JSON, JSON arrays, and NDJSON formats
    - **LRU Cache**: Optimizes performance by caching recently accessed nodes
