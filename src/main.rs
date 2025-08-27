@@ -32,6 +32,64 @@ impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         self.dark_mode = ctx.style().visuals.dark_mode;
 
+        // -------- Drag & Drop (hover preview + accept drop) --------
+        // Show overlay when hovering files
+        let hovering_files = ctx.input(|i| i.raw.hovered_files.clone());
+        if !hovering_files.is_empty() {
+            let mut text = String::from("Drop file to open:\n");
+            for file in &hovering_files {
+                if let Some(path) = &file.path {
+                    use std::fmt::Write as _;
+                    let _ = write!(text, "\n{}", path.display());
+                } else if !file.mime.is_empty() {
+                    use std::fmt::Write as _;
+                    let _ = write!(text, "\n{}", file.mime);
+                }
+            }
+
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("file_drop_overlay"),
+            ));
+            let screen_rect = ctx.screen_rect();
+            painter.rect_filled(
+                screen_rect,
+                0.0,
+                egui::Color32::from_black_alpha(180),
+            );
+            painter.text(
+                screen_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                text,
+                egui::TextStyle::Heading.resolve(&ctx.style()),
+                egui::Color32::WHITE,
+            );
+        }
+
+        // Handle dropped files (take first valid JSON/NDJSON)
+        let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+        if !dropped_files.is_empty() {
+            for file in dropped_files {
+                if let Some(path) = file.path {
+                    match file::detect_file_type::sniff_file_type(&path) {
+                        Ok(detected) => {
+                            let ft: file::lazy_loader::FileType = detected.into();
+                            self.file_type = ft;
+                            self.file_path = Some(path);
+                            self.error = None;
+                            self.top_bar.previous_file_type = ft;
+                        }
+                        Err(e) => {
+                            self.error = Some(format!(
+                                "Failed to detect file type (expect JSON / NDJSON): {e}"
+                            ));
+                        }
+                    }
+                    break; // only process first dropped file
+                }
+            }
+        }
+
         if let Some(path) = &self.file_path {
             let file_name = std::path::Path::new(path)
                 .file_name()
