@@ -2,6 +2,14 @@
 name = "thoth"
 version = "0.1.0"
 edition = "2024"
+repository = "https://github.com/anitnilay20/thoth"
+authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
+
+[package.metadata.wix]
+upgrade-guid = "A84B5002-DF40-4C9B-9F55-8B6D6DB09EED"
+path-guid = "71BCD4D1-76D1-4564-ACB3-B6D4E92E27CC"
+license = false
+eula = false
 
 [dependencies]
 eframe = "0.32.0"
@@ -15,3 +23,8 @@ memchr = "2.7"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 pprof = { version = "0.15.0", features = ["flamegraph"] }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
