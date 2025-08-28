@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use eframe::{
-    egui::{self}, App, Frame, NativeOptions
+    App, Frame, NativeOptions,
+    egui::{self},
 };
 
 use crate::{components::theme, helpers::load_icon};
@@ -105,10 +106,9 @@ impl App for ThothApp {
 }
 
 fn main() -> Result<()> {
-    let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png")); 
+    let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
     let options = NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_icon(icon),
+        viewport: egui::ViewportBuilder::default().with_icon(icon),
         ..Default::default()
     };
 
