@@ -32,6 +32,8 @@ impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         self.dark_mode = ctx.style().visuals.dark_mode;
 
+        self.handle_file_drop(ctx);
+        
         if let Some(path) = &self.file_path {
             let file_name = std::path::Path::new(path)
                 .file_name()
