@@ -40,10 +40,14 @@ impl App for ThothApp {
             for file in &hovering_files {
                 if let Some(path) = &file.path {
                     use std::fmt::Write as _;
-                    let _ = write!(text, "\n{}", path.display());
+                    if let Err(e) = write!(text, "\n{}", path.display()) {
+                        self.error = Some(format!("Failed to format file path: {e}"));
+                    }
                 } else if !file.mime.is_empty() {
                     use std::fmt::Write as _;
-                    let _ = write!(text, "\n{}", file.mime);
+                    if let Err(e) = write!(text, "\n{}", file.mime) {
+                        self.error = Some(format!("Failed to format MIME type: {e}"));
+                    }
                 }
             }
 
@@ -80,8 +84,7 @@ impl App for ThothApp {
                             self.top_bar.previous_file_type = ft;
                         }
                         Err(e) => {
-                            self.error = Some(format!(
-                                "Failed to detect file type (expect JSON / NDJSON): {e}"
+                                "Failed to detect file type (expected JSON / NDJSON): {e}"
                             ));
                         }
                     }
