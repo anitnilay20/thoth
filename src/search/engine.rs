@@ -1,6 +1,6 @@
-use std::{path::PathBuf, sync::mpsc};
 use std::sync::Arc;
 use std::thread;
+use std::{path::PathBuf, sync::mpsc};
 
 use memchr::memmem;
 use rayon::prelude::*;
