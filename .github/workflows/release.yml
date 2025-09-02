@@ -50,6 +50,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+          
+      # Ensure we have the right target for cross-compilation
+      - name: Add target for cross-compilation
+        run: rustup target add ${{ matrix.target }}
 
       # Install cargo-bundle
       - name: Install cargo-bundle
