@@ -69,6 +69,7 @@
 
         <Package Id='*'
             Keywords='Installer'
+            Description='Thoth is a fast, desktop JSON/NDJSON viewer built with Rust + egui. It opens ~500 MB files by lazily parsing only visible/expanded nodes, keeps the UI responsive with an LRU cache and parallel search, and ships with an Andromeda-themed light/dark UI.'
             Manufacturer='Anit Nilay'
             InstallerVersion='450'
             Languages='1033'

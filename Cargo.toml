@@ -4,6 +4,23 @@ version = "0.1.0"
 edition = "2024"
 repository = "https://github.com/anitnilay20/thoth"
 authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
+description = "Thoth is a fast, desktop JSON/NDJSON viewer built with Rust + egui. It opens ~500 MB files by lazily parsing only visible/expanded nodes, keeps the UI responsive with an LRU cache and parallel search, and ships with an Andromeda-themed light/dark UI."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+rust-version = "1.85"                                                                                                                                                                                                                                                      # or keep 1.87 if you truly need it
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[package.metadata.dist]
+dist = true
+
+[package.metadata.bundle]
+name = "Thoth"
+identifier = "com.example.thoth"
+icon = ["assets/Thoth.icns"]
+resources = ["assets/"]
 
 [package.metadata.wix]
 upgrade-guid = "A84B5002-DF40-4C9B-9F55-8B6D6DB09EED"
@@ -13,7 +30,10 @@ eula = false
 
 [dependencies]
 eframe = "0.32.0"
-image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "ico",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rfd = "0.15.4"
@@ -23,8 +43,3 @@ memchr = "2.7"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 pprof = { version = "0.15.0", features = ["flamegraph"] }
-
-# The profile that 'dist' will build with
-[profile.dist]
-inherits = "release"
-lto = "thin"
