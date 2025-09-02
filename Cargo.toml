@@ -35,7 +35,7 @@ wix_path = "C:\\Program Files (x86)\\WiX Toolset v3.11\\bin"
 
 # Linux specific  
 [package.metadata.bundle.linux]
-depends = ["libgtk-3-0", "libwebkit2gtk-4.0-37"]
+depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
 
 
 [dependencies]
