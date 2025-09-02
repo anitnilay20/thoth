@@ -29,7 +29,7 @@ jobs:
             bundle-name: Thoth.app
             
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: macos-14  # Use Apple Silicon runner for native ARM64 builds
             artifact-name: thoth-macos-arm64
             bundle-name: Thoth.app
             
@@ -85,6 +85,8 @@ jobs:
           cargo bundle --release --target ${{ matrix.target }}
           mkdir -p artifacts
           cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
+          # Remove quarantine attributes that might prevent running
+          xattr -cr artifacts/Thoth.app || true
 
       - name: Create Linux bundle
         if: runner.os == 'Linux'
