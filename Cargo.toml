@@ -7,26 +7,34 @@ authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
 description = "Thoth is a fast, desktop JSON/NDJSON viewer built with Rust + egui. It opens ~500 MB files by lazily parsing only visible/expanded nodes, keeps the UI responsive with an LRU cache and parallel search, and ships with an Andromeda-themed light/dark UI."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-rust-version = "1.85"                                                                                                                                                                                                                                                      # or keep 1.87 if you truly need it
+rust-version = "1.85"
 
-[profile.dist]
-inherits = "release"
-lto = "thin"
+[[bin]]
+name = "thoth"
+path = "src/main.rs"
 
-[package.metadata.dist]
-dist = true
 
 [package.metadata.bundle]
 name = "Thoth"
-identifier = "com.example.thoth"
+identifier = "com.thoth.app"
+version = "0.1.2"
+copyright = "Copyright (c) Anit Nilay 2024. All rights reserved."
+category = "Developer Tool"
+short_description = "Fast JSON/NDJSON viewer for large files"
+long_description = "Thoth is a fast, desktop JSON/NDJSON viewer built with Rust + egui. It opens ~500 MB files by lazily parsing only visible/expanded nodes, keeps the UI responsive with an LRU cache and parallel search, and ships with an Andromeda-themed light/dark UI."
+
+# macOS specific
 icon = ["assets/Thoth.icns"]
 resources = ["assets/"]
 
-[package.metadata.wix]
-upgrade-guid = "A84B5002-DF40-4C9B-9F55-8B6D6DB09EED"
-path-guid = "71BCD4D1-76D1-4564-ACB3-B6D4E92E27CC"
-license = false
-eula = false
+# Windows specific
+[package.metadata.bundle.windows]
+wix_path = "C:\\Program Files (x86)\\WiX Toolset v3.11\\bin"
+
+# Linux specific  
+[package.metadata.bundle.linux]
+depends = ["libgtk-3-0", "libwebkit2gtk-4.0-37"]
+
 
 [dependencies]
 eframe = "0.32.0"
@@ -43,3 +51,4 @@ memchr = "2.7"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 pprof = { version = "0.15.0", features = ["flamegraph"] }
+
