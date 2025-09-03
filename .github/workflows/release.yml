@@ -105,8 +105,10 @@ jobs:
           cargo bundle --release --target ${{ matrix.target }}
           mkdir -p artifacts
           cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
-          # Remove quarantine attributes that might prevent running
+          # Remove all extended attributes and quarantine flags
           xattr -cr artifacts/Thoth.app || true
+          # Also remove quarantine from all files within the bundle
+          find artifacts/Thoth.app -type f -exec xattr -c {} \; || true
 
       - name: Create macOS ARM64 bundle
         if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
@@ -115,8 +117,10 @@ jobs:
           cargo bundle --release --target ${{ matrix.target }}
           mkdir -p artifacts
           cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
-          # Remove quarantine attributes
+          # Remove all extended attributes and quarantine flags
           xattr -cr artifacts/Thoth.app || true
+          # Also remove quarantine from all files within the bundle
+          find artifacts/Thoth.app -type f -exec xattr -c {} \; || true
 
       - name: Create Linux bundle
         if: runner.os == 'Linux'
