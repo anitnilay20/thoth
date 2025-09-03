@@ -57,7 +57,6 @@ impl CentralPanel {
             (None, None, _) => { /* nothing selected */ }
         }
 
-
         // React to search messages
         if let Some(msg) = search_message {
             self.searching = msg.is_searching();
