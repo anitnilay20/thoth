@@ -84,13 +84,20 @@ jobs:
           copy target\${{ matrix.target }}\release\thoth.exe artifacts\
           
       - name: Create macOS bundle
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
         run: |
           cargo bundle --release --target ${{ matrix.target }}
           mkdir -p artifacts
           cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
           # Remove quarantine attributes that might prevent running
           xattr -cr artifacts/Thoth.app || true
+
+      - name: Create macOS ARM64 binary (no bundle)
+        if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
+        run: |
+          mkdir -p artifacts
+          cp target/${{ matrix.target }}/release/thoth artifacts/thoth-arm64
+          chmod +x artifacts/thoth-arm64
 
       - name: Create Linux bundle
         if: runner.os == 'Linux'
@@ -110,8 +117,10 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           cd artifacts
-          if [ "${{ runner.os }}" = "macOS" ]; then
+          if [ "${{ runner.os }}" = "macOS" ] && [ "${{ matrix.target }}" = "x86_64-apple-darwin" ]; then
             tar -czf ../thoth-${{ matrix.target }}.tar.gz Thoth.app
+          elif [ "${{ runner.os }}" = "macOS" ] && [ "${{ matrix.target }}" = "aarch64-apple-darwin" ]; then
+            tar -czf ../thoth-${{ matrix.target }}.tar.gz thoth-arm64
           else
             tar -czf ../thoth-${{ matrix.target }}.tar.gz thoth
           fi
