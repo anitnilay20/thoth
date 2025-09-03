@@ -1,0 +1,244 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - '*.*.*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact-name: thoth-windows-x64
+            bundle-name: thoth.exe
+            
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact-name: thoth-macos-x64
+            bundle-name: Thoth.app
+            
+          - target: aarch64-apple-darwin
+            os: macos-15  # macOS Sequoia 15.x Apple Silicon runners
+            artifact-name: thoth-macos-arm64
+            bundle-name: Thoth.app
+            
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact-name: thoth-linux-x64
+            bundle-name: thoth
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for changelog
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          
+      # Ensure we have the right target for cross-compilation
+      - name: Add target for cross-compilation
+        run: rustup target add ${{ matrix.target }}
+
+      # Print system info for verification
+      - name: Verify build environment
+        run: |
+          echo "=== System Details ==="
+          uname -a
+          echo ""
+          echo "=== Rust Host Target ==="
+          rustc --version --verbose | grep host
+          echo ""
+          echo "=== Architecture ==="
+          uname -m && arch
+          echo ""
+          echo "=== Matrix Config ==="
+          echo "Matrix Target: ${{ matrix.target }}"
+          echo "Matrix OS: ${{ matrix.os }}"
+
+      # Install cargo-bundle
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle
+
+      # Linux-specific dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # Windows-specific setup
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          # Install Visual Studio Build Tools if needed
+          echo "Setting up Windows build environment"
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Create bundles for each platform
+      - name: Create Windows bundle
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p artifacts
+          copy target\${{ matrix.target }}\release\thoth.exe artifacts\
+          
+      - name: Create macOS bundle
+        if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
+        run: |
+          cargo bundle --release --target ${{ matrix.target }}
+          mkdir -p artifacts
+          cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
+          # Remove all extended attributes and quarantine flags
+          xattr -cr artifacts/Thoth.app || true
+          # Also remove quarantine from all files within the bundle
+          find artifacts/Thoth.app -type f -exec xattr -c {} \; || true
+
+      - name: Create macOS ARM64 bundle
+        if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
+        run: |
+          # Try cargo-bundle first since we're on native ARM64 runners
+          cargo bundle --release --target ${{ matrix.target }}
+          mkdir -p artifacts
+          cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
+          # Remove all extended attributes and quarantine flags
+          xattr -cr artifacts/Thoth.app || true
+          # Also remove quarantine from all files within the bundle
+          find artifacts/Thoth.app -type f -exec xattr -c {} \; || true
+
+      - name: Create Linux bundle
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p artifacts
+          cp target/${{ matrix.target }}/release/thoth artifacts/
+          chmod +x artifacts/thoth
+
+      # Create compressed archives
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd artifacts
+          7z a ../thoth-${{ matrix.target }}.zip *
+          
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd artifacts
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            tar -czf ../thoth-${{ matrix.target }}.tar.gz Thoth.app
+          else
+            tar -czf ../thoth-${{ matrix.target }}.tar.gz thoth
+          fi
+
+      # Upload artifacts
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: |
+            *.zip
+            *.tar.gz
+
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | head -2 | tail -1)
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+          echo "Previous tag: $PREV_TAG"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          echo "# Changelog" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "## Changes from ${{ steps.prev_tag.outputs.prev_tag }} to ${{ steps.get_version.outputs.version }}" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          # Get commit messages between tags
+          git log --pretty=format:"- %s (%an)" ${{ steps.prev_tag.outputs.prev_tag }}..${{ github.sha }} >> CHANGELOG.md
+          
+          echo "" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "## Installation Instructions" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### macOS" >> CHANGELOG.md
+          echo "1. Download the appropriate file:" >> CHANGELOG.md
+          echo "   - **Apple Silicon (M1/M2/M3)**: \`thoth-aarch64-apple-darwin.tar.gz\`" >> CHANGELOG.md
+          echo "   - **Intel**: \`thoth-x86_64-apple-darwin.tar.gz\`" >> CHANGELOG.md
+          echo "2. Extract: \`tar -xzf thoth-*.tar.gz\`" >> CHANGELOG.md
+          echo "3. **Important**: Remove quarantine: \`xattr -cr Thoth.app\`" >> CHANGELOG.md
+          echo "4. Move to Applications: \`mv Thoth.app /Applications/\`" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### Windows" >> CHANGELOG.md
+          echo "1. Download \`thoth-x86_64-pc-windows-msvc.zip\`" >> CHANGELOG.md
+          echo "2. Extract and run \`thoth.exe\`" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### Linux" >> CHANGELOG.md
+          echo "1. Download \`thoth-x86_64-unknown-linux-gnu.tar.gz\`" >> CHANGELOG.md
+          echo "2. Extract: \`tar -xzf thoth-x86_64-unknown-linux-gnu.tar.gz\`" >> CHANGELOG.md
+          echo "3. Make executable: \`chmod +x thoth\`" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.prev_tag }}...${{ steps.get_version.outputs.version }}" >> CHANGELOG.md
+          
+          cat CHANGELOG.md
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: false
+
+      - name: Display structure of downloaded files
+        run: ls -la artifacts/
+
+      - name: Move artifacts to release directory
+        run: |
+          mkdir -p release
+          find artifacts -name "*.zip" -exec cp {} release/ \;
+          find artifacts -name "*.tar.gz" -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ steps.get_version.outputs.version }} \
+            --title "Release ${{ steps.get_version.outputs.version }}" \
+            --notes-file CHANGELOG.md \
+            release/*
