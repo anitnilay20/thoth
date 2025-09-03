@@ -28,11 +28,31 @@ Thoth is a high-performance, feature-rich desktop application for viewing and ex
 
 ## Installation
 
-### Prerequisites
+### Download Pre-built Binaries
 
-- Rust (latest stable version recommended)
+Download the latest release from [GitHub Releases](https://github.com/anitnilay20/thoth/releases).
+
+#### macOS
+After downloading the `.tar.gz` file:
+1. Extract: `tar -xzf thoth-aarch64-apple-darwin.tar.gz` (or `thoth-x86_64-apple-darwin.tar.gz` for Intel Macs)
+2. Remove quarantine: `xattr -cr Thoth.app`
+3. Move to Applications: `mv Thoth.app /Applications/`
+4. Double-click to open
+
+#### Windows
+1. Download `thoth-x86_64-pc-windows-msvc.zip`
+2. Extract and run `thoth.exe`
+
+#### Linux
+1. Download `thoth-x86_64-unknown-linux-gnu.tar.gz`
+2. Extract: `tar -xzf thoth-x86_64-unknown-linux-gnu.tar.gz`
+3. Make executable: `chmod +x thoth`
+4. Run: `./thoth`
 
 ### Building from Source
+
+#### Prerequisites
+- Rust (latest stable version recommended)
 
 ```bash
 # Clone the repository

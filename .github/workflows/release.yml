@@ -195,6 +195,25 @@ jobs:
           
           echo "" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
+          echo "## Installation Instructions" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### macOS" >> CHANGELOG.md
+          echo "1. Download the appropriate file:" >> CHANGELOG.md
+          echo "   - **Apple Silicon (M1/M2/M3)**: \`thoth-aarch64-apple-darwin.tar.gz\`" >> CHANGELOG.md
+          echo "   - **Intel**: \`thoth-x86_64-apple-darwin.tar.gz\`" >> CHANGELOG.md
+          echo "2. Extract: \`tar -xzf thoth-*.tar.gz\`" >> CHANGELOG.md
+          echo "3. **Important**: Remove quarantine: \`xattr -cr Thoth.app\`" >> CHANGELOG.md
+          echo "4. Move to Applications: \`mv Thoth.app /Applications/\`" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### Windows" >> CHANGELOG.md
+          echo "1. Download \`thoth-x86_64-pc-windows-msvc.zip\`" >> CHANGELOG.md
+          echo "2. Extract and run \`thoth.exe\`" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### Linux" >> CHANGELOG.md
+          echo "1. Download \`thoth-x86_64-unknown-linux-gnu.tar.gz\`" >> CHANGELOG.md
+          echo "2. Extract: \`tar -xzf thoth-x86_64-unknown-linux-gnu.tar.gz\`" >> CHANGELOG.md
+          echo "3. Make executable: \`chmod +x thoth\`" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
           echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.prev_tag }}...${{ steps.get_version.outputs.version }}" >> CHANGELOG.md
           
           cat CHANGELOG.md
