@@ -29,7 +29,7 @@ jobs:
             bundle-name: Thoth.app
             
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: macos-15  # macOS Sequoia 15.x Apple Silicon runners
             artifact-name: thoth-macos-arm64
             bundle-name: Thoth.app
             
@@ -54,6 +54,22 @@ jobs:
       # Ensure we have the right target for cross-compilation
       - name: Add target for cross-compilation
         run: rustup target add ${{ matrix.target }}
+
+      # Print system info for verification
+      - name: Verify build environment
+        run: |
+          echo "=== System Details ==="
+          uname -a
+          echo ""
+          echo "=== Rust Host Target ==="
+          rustc --version --verbose | grep host
+          echo ""
+          echo "=== Architecture ==="
+          uname -m && arch
+          echo ""
+          echo "=== Matrix Config ==="
+          echo "Matrix Target: ${{ matrix.target }}"
+          echo "Matrix OS: ${{ matrix.os }}"
 
       # Install cargo-bundle
       - name: Install cargo-bundle
@@ -95,50 +111,10 @@ jobs:
       - name: Create macOS ARM64 bundle
         if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
         run: |
-          # Get version from Cargo.toml
-          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          
-          # Create app bundle manually to avoid cargo-bundle conflicts
-          mkdir -p artifacts/Thoth.app/Contents/MacOS
-          mkdir -p artifacts/Thoth.app/Contents/Resources
-          
-          # Copy binary
-          cp target/${{ matrix.target }}/release/thoth artifacts/Thoth.app/Contents/MacOS/Thoth
-          chmod +x artifacts/Thoth.app/Contents/MacOS/Thoth
-          
-          # Create Info.plist with dynamic version
-          cat > artifacts/Thoth.app/Contents/Info.plist << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>
-              <string>Thoth</string>
-              <key>CFBundleIdentifier</key>
-              <string>com.thoth.app</string>
-              <key>CFBundleName</key>
-              <string>Thoth</string>
-              <key>CFBundleVersion</key>
-              <string>$VERSION</string>
-              <key>CFBundleShortVersionString</key>
-              <string>$VERSION</string>
-              <key>CFBundleInfoDictionaryVersion</key>
-              <string>6.0</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>LSMinimumSystemVersion</key>
-              <string>10.13</string>
-              <key>NSHighResolutionCapable</key>
-              <true/>$(if [ -f "assets/Thoth.icns" ]; then echo -e "\n              <key>CFBundleIconFile</key>\n              <string>Thoth.icns</string>"; fi)
-          </dict>
-          </plist>
-          EOF
-          
-          # Copy icon if it exists
-          if [ -f "assets/Thoth.icns" ]; then
-            cp assets/Thoth.icns artifacts/Thoth.app/Contents/Resources/
-          fi
-          
+          # Try cargo-bundle first since we're on native ARM64 runners
+          cargo bundle --release --target ${{ matrix.target }}
+          mkdir -p artifacts
+          cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
           # Remove quarantine attributes
           xattr -cr artifacts/Thoth.app || true
 
