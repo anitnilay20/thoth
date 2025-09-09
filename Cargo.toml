@@ -19,7 +19,7 @@ path = "src/main.rs"
 [package.metadata.bundle]
 name = "Thoth"
 identifier = "com.thoth.app"
-version = "0.1.2"
+version = "0.1.11"
 copyright = "Copyright (c) Anit Nilay 2024. All rights reserved."
 category = "Developer Tool"
 short_description = "Fast JSON/NDJSON viewer for large files"
