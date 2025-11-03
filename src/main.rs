@@ -90,6 +90,12 @@ impl App for ThothApp {
             ));
         }
 
+        // Check if update is available
+        let update_available = matches!(
+            self.update_status.state,
+            update::UpdateState::UpdateAvailable { .. }
+        );
+
         // Get user's action from Toolbar (open file / change type / search / stop)
         let incoming_msg = self.toolbar.ui(
             ctx,
@@ -98,6 +104,7 @@ impl App for ThothApp {
             &mut self.error,
             &mut self.dark_mode,
             &mut self.settings_panel.show,
+            update_available,
         );
 
         // We will forward a processed message (with results) to the CentralPanel

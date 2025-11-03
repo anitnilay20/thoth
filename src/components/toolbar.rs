@@ -21,6 +21,7 @@ impl Toolbar {
         error: &mut Option<String>,
         dark_mode: &mut bool,
         show_settings: &mut bool,
+        update_available: bool,
     ) -> Option<SearchMessage> {
         let mut search_message = None;
 
@@ -61,8 +62,23 @@ impl Toolbar {
 
                 // Spacer to push right-side items to the right
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Settings button (rightmost)
-                    if ui.button("⚙").clicked() {
+                    // Settings button (rightmost) with update notification
+                    let settings_text = if update_available {
+                        "⚙ 🔴" // Red dot indicator when update available
+                    } else {
+                        "⚙"
+                    };
+
+                    let settings_button = if update_available {
+                        egui::Button::new(
+                            egui::RichText::new(settings_text)
+                                .color(egui::Color32::from_rgb(255, 200, 100)),
+                        )
+                    } else {
+                        egui::Button::new(settings_text)
+                    };
+
+                    if ui.add(settings_button).clicked() {
                         *show_settings = !*show_settings;
                     }
 
