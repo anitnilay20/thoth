@@ -101,12 +101,14 @@ impl App for ThothApp {
         // Get user's action from Toolbar (open file / change type / search / stop)
         let incoming_msg = self.toolbar.ui(
             ctx,
-            &mut self.file_path,
-            &mut self.file_type,
-            &mut self.error,
-            &mut self.dark_mode,
-            &mut self.settings_panel.show,
-            update_available,
+            &mut components::toolbar::ToolbarState {
+                file_path: &mut self.file_path,
+                file_type: &mut self.file_type,
+                error: &mut self.error,
+                dark_mode: &mut self.dark_mode,
+                show_settings: &mut self.settings_panel.show,
+                update_available,
+            },
         );
 
         // We will forward a processed message (with results) to the CentralPanel
@@ -231,7 +233,6 @@ impl ThothApp {
                         self.update_status.state = update::UpdateState::Error(e);
                     }
                 },
-                _ => {}
             }
         }
     }

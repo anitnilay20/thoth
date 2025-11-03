@@ -78,7 +78,7 @@ impl SettingsPanel {
         });
         ui.add_space(16.0);
 
-        let action = match update_state {
+        match update_state {
             UpdateState::Idle => {
                 ui.label("💤 No update check performed yet.");
                 ui.add_space(8.0);
@@ -185,9 +185,7 @@ impl SettingsPanel {
                     None
                 }
             }
-        };
-
-        action
+        }
     }
 
     fn render_release_info_static(ui: &mut egui::Ui, release: &ReleaseInfo) {

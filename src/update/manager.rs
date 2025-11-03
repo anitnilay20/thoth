@@ -8,12 +8,9 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone)]
 pub enum UpdateMessage {
-    CheckForUpdates,
     UpdateCheckComplete(Result<Vec<ReleaseInfo>, String>),
-    DownloadUpdate(String), // version to download
     DownloadProgress(f32),
     DownloadComplete(Result<std::path::PathBuf, String>),
-    InstallUpdate(std::path::PathBuf),
     InstallComplete(Result<(), String>),
 }
 
@@ -32,10 +29,6 @@ impl UpdateManager {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
         Self { tx, rx }
-    }
-
-    pub fn sender(&self) -> Sender<UpdateMessage> {
-        self.tx.clone()
     }
 
     pub fn receiver(&mut self) -> &mut Receiver<UpdateMessage> {

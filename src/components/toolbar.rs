@@ -12,17 +12,17 @@ pub struct Toolbar {
     match_case: bool,
 }
 
+pub struct ToolbarState<'a> {
+    pub file_path: &'a mut Option<PathBuf>,
+    pub file_type: &'a mut FileType,
+    pub error: &'a mut Option<String>,
+    pub dark_mode: &'a mut bool,
+    pub show_settings: &'a mut bool,
+    pub update_available: bool,
+}
+
 impl Toolbar {
-    pub fn ui(
-        &mut self,
-        ctx: &egui::Context,
-        file_path: &mut Option<PathBuf>,
-        file_type: &mut FileType,
-        error: &mut Option<String>,
-        dark_mode: &mut bool,
-        show_settings: &mut bool,
-        update_available: bool,
-    ) -> Option<SearchMessage> {
+    pub fn ui(&mut self, ctx: &egui::Context, state: &mut ToolbarState) -> Option<SearchMessage> {
         let mut search_message = None;
 
         // Top bar with essential actions
@@ -34,30 +34,30 @@ impl Toolbar {
                         .add_filter("JSON", &["json", "ndjson"])
                         .pick_file()
                     {
-                        *file_type = infer_file_type(&path).unwrap_or(*file_type);
-                        *file_path = Some(path);
-                        *error = None;
-                        self.previous_file_type = *file_type;
+                        *state.file_type = infer_file_type(&path).unwrap_or(*state.file_type);
+                        *state.file_path = Some(path);
+                        *state.error = None;
+                        self.previous_file_type = *state.file_type;
                     }
                 }
 
                 if ui.button("✖ Clear").clicked() {
-                    *file_path = None;
-                    *error = None;
+                    *state.file_path = None;
+                    *state.error = None;
                 }
 
                 ui.separator();
 
                 // File type selector
                 egui::ComboBox::from_label("Type")
-                    .selected_text(format!("{:?}", file_type))
+                    .selected_text(format!("{:?}", state.file_type))
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(file_type, FileType::Json, "JSON");
-                        ui.selectable_value(file_type, FileType::Ndjson, "NDJSON");
+                        ui.selectable_value(state.file_type, FileType::Json, "JSON");
+                        ui.selectable_value(state.file_type, FileType::Ndjson, "NDJSON");
                     });
 
-                if self.previous_file_type != *file_type {
-                    self.previous_file_type = *file_type;
+                if self.previous_file_type != *state.file_type {
+                    self.previous_file_type = *state.file_type;
                 }
 
                 // Spacer to push right-side items to the right
@@ -66,7 +66,7 @@ impl Toolbar {
                     let settings_response = ui.add(egui::Button::new("⚙"));
 
                     // Draw notification badge if update available
-                    if update_available {
+                    if state.update_available {
                         let button_rect = settings_response.rect;
                         let badge_center =
                             egui::pos2(button_rect.right() - 6.0, button_rect.top() + 6.0);
@@ -87,13 +87,13 @@ impl Toolbar {
                     }
 
                     if settings_response.clicked() {
-                        *show_settings = !*show_settings;
+                        *state.show_settings = !*state.show_settings;
                     }
 
                     ui.separator();
 
                     // Dark mode toggle
-                    ui.checkbox(dark_mode, "🌙");
+                    ui.checkbox(state.dark_mode, "🌙");
                 });
             });
         });
