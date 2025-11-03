@@ -252,13 +252,15 @@ jobs:
           echo "" >> CHANGELOG.md
           echo "## Installation Instructions" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
+          echo "> **Note for existing users**: Thoth includes automatic over-the-air (OTA) updates! You'll be notified when new versions are available and can update with one click directly from the app. The installers below are primarily for first-time installation." >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
           echo "### macOS (Recommended: DMG Installer)" >> CHANGELOG.md
           echo "1. Download the appropriate DMG:" >> CHANGELOG.md
           echo "   - **Apple Silicon (M1/M2/M3)**: \`Thoth-aarch64-apple-darwin.dmg\`" >> CHANGELOG.md
           echo "   - **Intel**: \`Thoth-x86_64-apple-darwin.dmg\`" >> CHANGELOG.md
           echo "2. Open the DMG and drag Thoth.app to Applications" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          echo "**Alternative (Manual Installation)**:" >> CHANGELOG.md
+          echo "**Manual Installation**:" >> CHANGELOG.md
           echo "1. Download: \`thoth-aarch64-apple-darwin.tar.gz\` or \`thoth-x86_64-apple-darwin.tar.gz\`" >> CHANGELOG.md
           echo "2. Extract: \`tar -xzf thoth-*.tar.gz\`" >> CHANGELOG.md
           echo "3. **Important**: Remove quarantine: \`xattr -cr Thoth.app\`" >> CHANGELOG.md
@@ -268,7 +270,7 @@ jobs:
           echo "1. Download \`Thoth.msi\`" >> CHANGELOG.md
           echo "2. Double-click to install" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          echo "**Alternative (Portable)**:" >> CHANGELOG.md
+          echo "**Portable Version**:" >> CHANGELOG.md
           echo "1. Download \`thoth-x86_64-pc-windows-msvc.zip\`" >> CHANGELOG.md
           echo "2. Extract and run \`thoth.exe\`" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
@@ -276,10 +278,20 @@ jobs:
           echo "1. Download \`thoth_*_amd64.deb\`" >> CHANGELOG.md
           echo "2. Install: \`sudo dpkg -i thoth_*_amd64.deb\`" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          echo "**Alternative (Portable)**:" >> CHANGELOG.md
+          echo "**Portable Version**:" >> CHANGELOG.md
           echo "1. Download \`thoth-x86_64-unknown-linux-gnu.tar.gz\`" >> CHANGELOG.md
           echo "2. Extract: \`tar -xzf thoth-x86_64-unknown-linux-gnu.tar.gz\`" >> CHANGELOG.md
           echo "3. Make executable: \`chmod +x thoth\`" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "---" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### 🔄 Automatic Updates" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "Thoth checks for updates automatically on startup and every 24 hours. When an update is available:" >> CHANGELOG.md
+          echo "- You'll see a red notification badge on the settings button (⚙)" >> CHANGELOG.md
+          echo "- The settings panel will open automatically to show the update details" >> CHANGELOG.md
+          echo "- Click \"Download Update\" and then \"Install Update\" to upgrade seamlessly" >> CHANGELOG.md
+          echo "- The update happens in the background with automatic binary replacement" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
           echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.prev_tag }}...${{ steps.get_version.outputs.version }}" >> CHANGELOG.md
 
