@@ -33,6 +33,7 @@ struct ThothApp {
     update_status: update::UpdateStatus,
     pending_download_release: Option<update::ReleaseInfo>,
     pending_install_path: Option<PathBuf>,
+    update_notification_shown: bool,
 
     // UI
     dark_mode: bool,
@@ -54,6 +55,7 @@ impl Default for ThothApp {
             update_status: Default::default(),
             pending_download_release: None,
             pending_install_path: None,
+            update_notification_shown: false,
             dark_mode: false,
         }
     }
@@ -180,6 +182,12 @@ impl ThothApp {
                                         .to_string(),
                                     releases: newer_releases,
                                 };
+
+                                // Auto-open settings panel on first update notification
+                                if !self.update_notification_shown {
+                                    self.settings_panel.show = true;
+                                    self.update_notification_shown = true;
+                                }
                             }
                         } else {
                             self.update_status.state = update::UpdateState::Idle;

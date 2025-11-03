@@ -196,24 +196,58 @@ impl UpdateManager {
     }
 
     fn get_platform_asset(release: &ReleaseInfo) -> Result<super::types::ReleaseAsset> {
-        let target_name = if cfg!(target_os = "windows") {
-            "thoth-x86_64-pc-windows-msvc.zip"
+        // Prefer installers, fallback to archives for compatibility
+        let (preferred_name, fallback_name) = if cfg!(target_os = "windows") {
+            // Prefer MSI installer, fallback to zip
+            ("Thoth.msi", "thoth-x86_64-pc-windows-msvc.zip")
         } else if cfg!(target_os = "macos") {
+            // Prefer DMG installer, fallback to tar.gz
             if cfg!(target_arch = "aarch64") {
-                "thoth-aarch64-apple-darwin.tar.gz"
+                (
+                    "Thoth-aarch64-apple-darwin.dmg",
+                    "thoth-aarch64-apple-darwin.tar.gz",
+                )
             } else {
-                "thoth-x86_64-apple-darwin.tar.gz"
+                (
+                    "Thoth-x86_64-apple-darwin.dmg",
+                    "thoth-x86_64-apple-darwin.tar.gz",
+                )
             }
         } else if cfg!(target_os = "linux") {
-            "thoth-x86_64-unknown-linux-gnu.tar.gz"
+            // Prefer deb package, fallback to tar.gz
+            // Note: deb filenames include version, so we need to match by extension
+            ("", "thoth-x86_64-unknown-linux-gnu.tar.gz")
         } else {
             anyhow::bail!("Unsupported platform");
         };
 
+        // Try to find preferred installer first
+        if !preferred_name.is_empty() {
+            if let Some(asset) = release
+                .assets
+                .iter()
+                .find(|asset| asset.name == preferred_name)
+            {
+                return Ok(asset.clone());
+            }
+        }
+
+        // For Linux, try to find any .deb file
+        if cfg!(target_os = "linux") {
+            if let Some(asset) = release
+                .assets
+                .iter()
+                .find(|asset| asset.name.ends_with(".deb"))
+            {
+                return Ok(asset.clone());
+            }
+        }
+
+        // Fallback to archive
         release
             .assets
             .iter()
-            .find(|asset| asset.name == target_name)
+            .find(|asset| asset.name == fallback_name)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("No asset found for current platform"))
     }
@@ -232,14 +266,35 @@ impl UpdateManager {
     }
 
     fn extract_and_install(archive_path: std::path::PathBuf) -> Result<()> {
+        // Detect file type and handle accordingly
+        let file_name = archive_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Invalid file name"))?;
+
+        // Handle installer formats - launch them instead of extracting
+        if file_name.ends_with(".msi") {
+            // Windows MSI installer - launch it
+            return Self::launch_msi_installer(&archive_path);
+        } else if file_name.ends_with(".dmg") {
+            // macOS DMG - mount and open
+            return Self::launch_dmg_installer(&archive_path);
+        } else if file_name.ends_with(".deb") {
+            // Linux DEB package - launch with pkexec/gdebi
+            return Self::launch_deb_installer(&archive_path);
+        }
+
+        // Handle archive formats - extract and replace binary
         let temp_dir = std::env::temp_dir().join("thoth_update_extracted");
         std::fs::create_dir_all(&temp_dir)?;
 
         // Extract archive
-        if cfg!(target_os = "windows") {
+        if file_name.ends_with(".zip") {
             Self::extract_zip(&archive_path, &temp_dir)?;
-        } else {
+        } else if file_name.ends_with(".tar.gz") {
             Self::extract_tar_gz(&archive_path, &temp_dir)?;
+        } else {
+            anyhow::bail!("Unsupported archive format: {}", file_name);
         }
 
         // Get current executable path
@@ -252,6 +307,81 @@ impl UpdateManager {
         Self::replace_executable(&new_exe, &current_exe)?;
 
         Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn launch_msi_installer(msi_path: &std::path::Path) -> Result<()> {
+        // Launch MSI installer using msiexec
+        std::process::Command::new("msiexec")
+            .args(["/i", msi_path.to_str().unwrap()])
+            .spawn()
+            .context("Failed to launch MSI installer")?;
+
+        // Exit the current application so installer can proceed
+        std::process::exit(0);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn launch_msi_installer(_msi_path: &std::path::Path) -> Result<()> {
+        anyhow::bail!("MSI installer not supported on this platform")
+    }
+
+    #[cfg(target_os = "macos")]
+    fn launch_dmg_installer(dmg_path: &std::path::Path) -> Result<()> {
+        // Open the DMG file - macOS will mount it and show Finder
+        std::process::Command::new("open")
+            .arg(dmg_path)
+            .spawn()
+            .context("Failed to open DMG installer")?;
+
+        // Exit the current application
+        std::process::exit(0);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn launch_dmg_installer(_dmg_path: &std::path::Path) -> Result<()> {
+        anyhow::bail!("DMG installer not supported on this platform")
+    }
+
+    #[cfg(target_os = "linux")]
+    fn launch_deb_installer(deb_path: &std::path::Path) -> Result<()> {
+        // Try to use gdebi if available (better than dpkg for dependencies)
+        if std::process::Command::new("which")
+            .arg("gdebi-gtk")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            std::process::Command::new("gdebi-gtk")
+                .arg(deb_path)
+                .spawn()
+                .context("Failed to launch gdebi")?;
+        } else if std::process::Command::new("which")
+            .arg("pkexec")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            // Use pkexec with dpkg
+            std::process::Command::new("pkexec")
+                .args(["dpkg", "-i", deb_path.to_str().unwrap()])
+                .spawn()
+                .context("Failed to launch dpkg with pkexec")?;
+        } else {
+            // Fallback: just open the file with default handler
+            std::process::Command::new("xdg-open")
+                .arg(deb_path)
+                .spawn()
+                .context("Failed to open deb package")?;
+        }
+
+        // Exit the current application
+        std::process::exit(0);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn launch_deb_installer(_deb_path: &std::path::Path) -> Result<()> {
+        anyhow::bail!("DEB installer not supported on this platform")
     }
 
     #[cfg(target_os = "windows")]

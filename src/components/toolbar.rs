@@ -62,23 +62,31 @@ impl Toolbar {
 
                 // Spacer to push right-side items to the right
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Settings button (rightmost) with update notification
-                    let settings_text = if update_available {
-                        "⚙ 🔴" // Red dot indicator when update available
-                    } else {
-                        "⚙"
-                    };
+                    // Settings button (rightmost) with update notification badge
+                    let settings_response = ui.add(egui::Button::new("⚙"));
 
-                    let settings_button = if update_available {
-                        egui::Button::new(
-                            egui::RichText::new(settings_text)
-                                .color(egui::Color32::from_rgb(255, 200, 100)),
-                        )
-                    } else {
-                        egui::Button::new(settings_text)
-                    };
+                    // Draw notification badge if update available
+                    if update_available {
+                        let button_rect = settings_response.rect;
+                        let badge_center =
+                            egui::pos2(button_rect.right() - 6.0, button_rect.top() + 6.0);
+                        let badge_radius = 2.0;
 
-                    if ui.add(settings_button).clicked() {
+                        ui.painter().circle_filled(
+                            badge_center,
+                            badge_radius,
+                            egui::Color32::from_rgb(255, 80, 80),
+                        );
+
+                        // Optional: Add white border around badge
+                        ui.painter().circle_stroke(
+                            badge_center,
+                            badge_radius,
+                            egui::Stroke::new(1.5, egui::Color32::WHITE),
+                        );
+                    }
+
+                    if settings_response.clicked() {
                         *show_settings = !*show_settings;
                     }
 
