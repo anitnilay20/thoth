@@ -6,13 +6,13 @@ use rfd::FileDialog;
 use crate::{file::lazy_loader::FileType, search::SearchMessage};
 
 #[derive(Default)]
-pub struct TopBar {
+pub struct Toolbar {
     pub previous_file_type: FileType,
     search_query: String,
     match_case: bool,
 }
 
-impl TopBar {
+impl Toolbar {
     pub fn ui(
         &mut self,
         ctx: &egui::Context,
@@ -20,13 +20,15 @@ impl TopBar {
         file_type: &mut FileType,
         error: &mut Option<String>,
         dark_mode: &mut bool,
+        show_settings: &mut bool,
     ) -> Option<SearchMessage> {
         let mut search_message = None;
 
+        // Top bar with essential actions
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // Pick file, but don't load it here
-                if ui.button("Open File").clicked() {
+                // File actions
+                if ui.button("📂 Open").clicked() {
                     if let Some(path) = FileDialog::new()
                         .add_filter("JSON", &["json", "ndjson"])
                         .pick_file()
@@ -38,15 +40,52 @@ impl TopBar {
                     }
                 }
 
-                if ui.button("Clear").clicked() {
+                if ui.button("✖ Clear").clicked() {
                     *file_path = None;
                     *error = None;
                 }
 
                 ui.separator();
-                ui.label("Search:");
-                let text_box_response = ui.text_edit_singleline(&mut self.search_query);
-                ui.checkbox(&mut self.match_case, "Aa");
+
+                // File type selector
+                egui::ComboBox::from_label("Type")
+                    .selected_text(format!("{:?}", file_type))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(file_type, FileType::Json, "JSON");
+                        ui.selectable_value(file_type, FileType::Ndjson, "NDJSON");
+                    });
+
+                if self.previous_file_type != *file_type {
+                    self.previous_file_type = *file_type;
+                }
+
+                // Spacer to push right-side items to the right
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Settings button (rightmost)
+                    if ui.button("⚙").clicked() {
+                        *show_settings = !*show_settings;
+                    }
+
+                    ui.separator();
+
+                    // Dark mode toggle
+                    ui.checkbox(dark_mode, "🌙");
+                });
+            });
+        });
+
+        // Bottom bar with search
+        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("🔍 Search:");
+
+                let text_box_response = ui.add(
+                    egui::TextEdit::singleline(&mut self.search_query)
+                        .desired_width(300.0)
+                        .hint_text("Enter search term..."),
+                );
+
+                ui.checkbox(&mut self.match_case, "Match case");
 
                 if ui.button("Search").clicked()
                     || (text_box_response.lost_focus()
@@ -59,31 +98,6 @@ impl TopBar {
                 if ui.button("Stop").clicked() {
                     search_message = Some(SearchMessage::StopSearch);
                 }
-
-                egui::ComboBox::from_label("")
-                    .selected_text(format!("{:?}", file_type))
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(file_type, FileType::Json, "JSON");
-                        ui.selectable_value(file_type, FileType::Ndjson, "NDJSON");
-                    });
-
-                if self.previous_file_type != *file_type {
-                    self.previous_file_type = *file_type;
-                }
-
-                ui.separator();
-                ui.checkbox(dark_mode, "🌙 Dark");
-
-                // if let Some(p) = file_path {
-                //     ui.label(format!(
-                //         "File: {}",
-                //         p.file_name()
-                //             .and_then(|s| s.to_str())
-                //             .unwrap_or("<unknown>")
-                //     ));
-                // } else {
-                //     ui.label("File: <none>");
-                // }
             });
         });
 
