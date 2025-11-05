@@ -19,6 +19,7 @@ pub struct ToolbarState<'a> {
     pub dark_mode: &'a mut bool,
     pub show_settings: &'a mut bool,
     pub update_available: bool,
+    pub new_window_requested: &'a mut bool,
 }
 
 impl Toolbar {
@@ -39,6 +40,10 @@ impl Toolbar {
                         *state.error = None;
                         self.previous_file_type = *state.file_type;
                     }
+                }
+
+                if ui.button("🪟 New Window").clicked() {
+                    *state.new_window_requested = true;
                 }
 
                 if ui.button("✖ Clear").clicked() {
