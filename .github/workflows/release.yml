@@ -136,6 +136,9 @@ jobs:
             "artifacts/Thoth-${{ matrix.target }}.dmg" \
             "target/${{ matrix.target }}/release/bundle/osx/Thoth.app" || true
 
+          # Remove quarantine attributes from DMG
+          xattr -cr "artifacts/Thoth-${{ matrix.target }}.dmg" || true
+
           # Also keep the .app bundle as fallback
           cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
 
@@ -163,6 +166,9 @@ jobs:
             --no-internet-enable \
             "artifacts/Thoth-${{ matrix.target }}.dmg" \
             "target/${{ matrix.target }}/release/bundle/osx/Thoth.app" || true
+
+          # Remove quarantine attributes from DMG
+          xattr -cr "artifacts/Thoth-${{ matrix.target }}.dmg" || true
 
           # Also keep the .app bundle as fallback
           cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
