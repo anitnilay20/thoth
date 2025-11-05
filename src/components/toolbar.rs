@@ -109,7 +109,7 @@ impl Toolbar {
                         .hint_text("Enter search term..."),
                 );
 
-                ui.checkbox(&mut self.match_case, "Match case");
+                ui.checkbox(&mut self.match_case, "Match Case");
 
                 if ui.button("Search").clicked()
                     || (text_box_response.lost_focus()
