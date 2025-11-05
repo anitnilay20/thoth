@@ -51,7 +51,7 @@ impl ThothApp {
                             self.file_type = ft;
                             self.file_path = Some(path);
                             self.error = None;
-                            self.top_bar.previous_file_type = ft;
+                            self.toolbar.previous_file_type = ft;
                         }
                         Err(e) => {
                             self.error = Some(format!(
