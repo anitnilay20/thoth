@@ -311,6 +311,9 @@ jobs:
           mkdir -p release
           find artifacts -name "*.zip" -exec cp {} release/ \;
           find artifacts -name "*.tar.gz" -exec cp {} release/ \;
+          find artifacts -name "*.dmg" -exec cp {} release/ \;
+          find artifacts -name "*.msi" -exec cp {} release/ \;
+          find artifacts -name "*.deb" -exec cp {} release/ \;
           ls -la release/
 
       - name: Create GitHub Release
