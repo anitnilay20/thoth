@@ -295,7 +295,7 @@ impl UpdateManager {
 
     #[cfg(target_os = "windows")]
     fn extract_tar_gz(_archive_path: &std::path::Path, _dest_dir: &std::path::Path) -> Result<()> {
-        anyhow::bail!("tar.gz extraction not needed on Windows")
+        anyhow::bail!("Attempted to extract tar.gz on Windows platform")
     }
 
     #[cfg(not(target_os = "windows"))]
