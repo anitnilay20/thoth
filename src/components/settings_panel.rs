@@ -118,8 +118,7 @@ impl SettingsPanel {
                 ui.add_space(16.0);
 
                 ui.separator();
-                ui.add_space(8.0);
-                ui.add_space(16.0);
+                ui.add_space(24.0);
                 ui.label(
                     egui::RichText::new("📦 Available Versions")
                         .size(16.0)
