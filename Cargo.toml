@@ -33,7 +33,7 @@ resources = ["assets/"]
 [package.metadata.bundle.windows]
 wix_path = "C:\\Program Files (x86)\\WiX Toolset v3.11\\bin"
 
-# Linux specific  
+# Linux specific
 [package.metadata.bundle.linux]
 depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
 
@@ -50,6 +50,14 @@ rfd = "0.15.4"
 anyhow = "1.0"
 rayon = "1.11.0"
 memchr = "2.7"
+self_update = { version = "0.41", features = ["archive-tar", "archive-zip", "compression-flate2"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+tokio = { version = "1.42", features = ["rt", "sync"] }
+chrono = "0.4"
+flate2 = "1.0"
+tar = "0.4"
+zip = "0.6"
+open = "5.0"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 pprof = { version = "0.15.0", features = ["flamegraph"] }

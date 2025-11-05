@@ -3,8 +3,8 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
-      - '*.*.*'
+      - "v*.*.*"
+      - "*.*.*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,35 +22,35 @@ jobs:
             os: windows-latest
             artifact-name: thoth-windows-x64
             bundle-name: thoth.exe
-            
+
           - target: x86_64-apple-darwin
             os: macos-latest
             artifact-name: thoth-macos-x64
             bundle-name: Thoth.app
-            
+
           - target: aarch64-apple-darwin
-            os: macos-15  # macOS Sequoia 15.x Apple Silicon runners
+            os: macos-15 # macOS Sequoia 15.x Apple Silicon runners
             artifact-name: thoth-macos-arm64
             bundle-name: Thoth.app
-            
+
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact-name: thoth-linux-x64
             bundle-name: thoth
 
     runs-on: ${{ matrix.os }}
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for changelog
+          fetch-depth: 0 # Full history for changelog
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-          
+
       # Ensure we have the right target for cross-compilation
       - name: Add target for cross-compilation
         run: rustup target add ${{ matrix.target }}
@@ -75,6 +75,12 @@ jobs:
       - name: Install cargo-bundle
         run: cargo install cargo-bundle
 
+      # macOS-specific dependencies for DMG creation
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install create-dmg
+
       # Linux-specific dependencies
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -82,50 +88,96 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      # Windows-specific setup
+      # Windows-specific setup - Install WiX for MSI creation
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
         run: |
-          # Install Visual Studio Build Tools if needed
-          echo "Setting up Windows build environment"
+          # Install WiX Toolset for MSI creation
+          choco install wixtoolset -y
+          echo "C:\Program Files (x86)\WiX Toolset v3.14\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
 
       # Create bundles for each platform
-      - name: Create Windows bundle
+      - name: Create Windows MSI installer
         if: runner.os == 'Windows'
         run: |
+          # Create MSI installer using cargo-bundle
+          cargo bundle --release --target ${{ matrix.target }} --format msi
           mkdir -p artifacts
+          # Copy the MSI installer
+          copy "target\${{ matrix.target }}\release\bundle\msi\*.msi" artifacts\ || echo "MSI not found, falling back to exe"
+          # Also copy the exe as fallback
           copy target\${{ matrix.target }}\release\thoth.exe artifacts\
-          
-      - name: Create macOS bundle
+
+      - name: Create macOS DMG installer
         if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
         run: |
+          # Build .app bundle
           cargo bundle --release --target ${{ matrix.target }}
           mkdir -p artifacts
-          cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
-          # Remove all extended attributes and quarantine flags
-          xattr -cr artifacts/Thoth.app || true
-          # Also remove quarantine from all files within the bundle
-          find artifacts/Thoth.app -type f -exec xattr -c {} \; || true
 
-      - name: Create macOS ARM64 bundle
+          # Remove all extended attributes and quarantine flags
+          xattr -cr target/${{ matrix.target }}/release/bundle/osx/Thoth.app || true
+          find target/${{ matrix.target }}/release/bundle/osx/Thoth.app -type f -exec xattr -c {} \; || true
+
+          # Create DMG with drag-to-Applications UI
+          create-dmg \
+            --volname "Thoth" \
+            --volicon "assets/Thoth.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Thoth.app" 175 190 \
+            --hide-extension "Thoth.app" \
+            --app-drop-link 425 185 \
+            --no-internet-enable \
+            "artifacts/Thoth-${{ matrix.target }}.dmg" \
+            "target/${{ matrix.target }}/release/bundle/osx/Thoth.app" || true
+
+          # Also keep the .app bundle as fallback
+          cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
+
+      - name: Create macOS ARM64 DMG installer
         if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
         run: |
-          # Try cargo-bundle first since we're on native ARM64 runners
+          # Build .app bundle
           cargo bundle --release --target ${{ matrix.target }}
           mkdir -p artifacts
-          cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
-          # Remove all extended attributes and quarantine flags
-          xattr -cr artifacts/Thoth.app || true
-          # Also remove quarantine from all files within the bundle
-          find artifacts/Thoth.app -type f -exec xattr -c {} \; || true
 
-      - name: Create Linux bundle
+          # Remove all extended attributes and quarantine flags
+          xattr -cr target/${{ matrix.target }}/release/bundle/osx/Thoth.app || true
+          find target/${{ matrix.target }}/release/bundle/osx/Thoth.app -type f -exec xattr -c {} \; || true
+
+          # Create DMG with drag-to-Applications UI
+          create-dmg \
+            --volname "Thoth" \
+            --volicon "assets/Thoth.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Thoth.app" 175 190 \
+            --hide-extension "Thoth.app" \
+            --app-drop-link 425 185 \
+            --no-internet-enable \
+            "artifacts/Thoth-${{ matrix.target }}.dmg" \
+            "target/${{ matrix.target }}/release/bundle/osx/Thoth.app" || true
+
+          # Also keep the .app bundle as fallback
+          cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
+
+      - name: Create Linux packages (deb)
         if: runner.os == 'Linux'
         run: |
+          # Create deb package using cargo-bundle
+          cargo bundle --release --target ${{ matrix.target }} --format deb
           mkdir -p artifacts
+
+          # Copy the deb package
+          find target/${{ matrix.target }}/release/bundle/deb -name "*.deb" -exec cp {} artifacts/ \;
+
+          # Also copy raw binary as fallback
           cp target/${{ matrix.target }}/release/thoth artifacts/
           chmod +x artifacts/thoth
 
@@ -135,7 +187,7 @@ jobs:
         run: |
           cd artifacts
           7z a ../thoth-${{ matrix.target }}.zip *
-          
+
       - name: Create archive (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -154,11 +206,14 @@ jobs:
           path: |
             *.zip
             *.tar.gz
+            *.dmg
+            *.msi
+            *.deb
 
   create-release:
     needs: build
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -189,33 +244,57 @@ jobs:
           echo "" >> CHANGELOG.md
           echo "## Changes from ${{ steps.prev_tag.outputs.prev_tag }} to ${{ steps.get_version.outputs.version }}" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          
+
           # Get commit messages between tags
           git log --pretty=format:"- %s (%an)" ${{ steps.prev_tag.outputs.prev_tag }}..${{ github.sha }} >> CHANGELOG.md
-          
+
           echo "" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
           echo "## Installation Instructions" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          echo "### macOS" >> CHANGELOG.md
-          echo "1. Download the appropriate file:" >> CHANGELOG.md
-          echo "   - **Apple Silicon (M1/M2/M3)**: \`thoth-aarch64-apple-darwin.tar.gz\`" >> CHANGELOG.md
-          echo "   - **Intel**: \`thoth-x86_64-apple-darwin.tar.gz\`" >> CHANGELOG.md
+          echo "> **Note for existing users**: Thoth includes automatic over-the-air (OTA) updates! You'll be notified when new versions are available and can update with one click directly from the app. The installers below are primarily for first-time installation." >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### macOS (Recommended: DMG Installer)" >> CHANGELOG.md
+          echo "1. Download the appropriate DMG:" >> CHANGELOG.md
+          echo "   - **Apple Silicon (M1/M2/M3)**: \`Thoth-aarch64-apple-darwin.dmg\`" >> CHANGELOG.md
+          echo "   - **Intel**: \`Thoth-x86_64-apple-darwin.dmg\`" >> CHANGELOG.md
+          echo "2. Open the DMG and drag Thoth.app to Applications" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "**Manual Installation**:" >> CHANGELOG.md
+          echo "1. Download: \`thoth-aarch64-apple-darwin.tar.gz\` or \`thoth-x86_64-apple-darwin.tar.gz\`" >> CHANGELOG.md
           echo "2. Extract: \`tar -xzf thoth-*.tar.gz\`" >> CHANGELOG.md
           echo "3. **Important**: Remove quarantine: \`xattr -cr Thoth.app\`" >> CHANGELOG.md
           echo "4. Move to Applications: \`mv Thoth.app /Applications/\`" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          echo "### Windows" >> CHANGELOG.md
+          echo "### Windows (Recommended: MSI Installer)" >> CHANGELOG.md
+          echo "1. Download \`Thoth.msi\`" >> CHANGELOG.md
+          echo "2. Double-click to install" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "**Portable Version**:" >> CHANGELOG.md
           echo "1. Download \`thoth-x86_64-pc-windows-msvc.zip\`" >> CHANGELOG.md
           echo "2. Extract and run \`thoth.exe\`" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          echo "### Linux" >> CHANGELOG.md
+          echo "### Linux (Recommended: DEB Package)" >> CHANGELOG.md
+          echo "1. Download \`thoth_*_amd64.deb\`" >> CHANGELOG.md
+          echo "2. Install: \`sudo dpkg -i thoth_*_amd64.deb\`" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "**Portable Version**:" >> CHANGELOG.md
           echo "1. Download \`thoth-x86_64-unknown-linux-gnu.tar.gz\`" >> CHANGELOG.md
           echo "2. Extract: \`tar -xzf thoth-x86_64-unknown-linux-gnu.tar.gz\`" >> CHANGELOG.md
           echo "3. Make executable: \`chmod +x thoth\`" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
+          echo "---" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "### 🔄 Automatic Updates" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "Thoth checks for updates automatically on startup and every 24 hours. When an update is available:" >> CHANGELOG.md
+          echo "- You'll see a red notification badge on the settings button (⚙)" >> CHANGELOG.md
+          echo "- The settings panel will open automatically to show the update details" >> CHANGELOG.md
+          echo "- Click \"Download Update\" and then \"Install Update\" to upgrade seamlessly" >> CHANGELOG.md
+          echo "- The update happens in the background with automatic binary replacement" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
           echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.prev_tag }}...${{ steps.get_version.outputs.version }}" >> CHANGELOG.md
-          
+
           cat CHANGELOG.md
 
       - name: Download all artifacts
