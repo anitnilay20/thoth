@@ -1,6 +1,6 @@
 [package]
 name = "thoth"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 repository = "https://github.com/anitnilay20/thoth"
 authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
@@ -19,7 +19,7 @@ path = "src/main.rs"
 [package.metadata.bundle]
 name = "Thoth"
 identifier = "com.thoth.app"
-version = "0.2.1"
+version = "0.2.2"
 copyright = "Copyright (c) Anit Nilay 2024. All rights reserved."
 category = "Developer Tool"
 short_description = "Fast JSON/NDJSON viewer for large files"
