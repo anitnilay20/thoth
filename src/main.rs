@@ -37,6 +37,10 @@ struct ThothApp {
 
     // UI
     dark_mode: bool,
+
+    // Multi-window support
+    show_new_windows: Vec<usize>,
+    next_window_id: usize,
 }
 
 impl Default for ThothApp {
@@ -57,6 +61,8 @@ impl Default for ThothApp {
             pending_install_path: None,
             update_notification_shown: false,
             dark_mode: false,
+            show_new_windows: Vec::new(),
+            next_window_id: 1,
         }
     }
 }
@@ -76,6 +82,15 @@ impl App for ThothApp {
         self.handle_update_messages(ctx);
 
         self.handle_file_drop(ctx);
+
+        // Check for Ctrl/Cmd+N to open new window
+        ctx.input(|i| {
+            if i.modifiers.command && i.key_pressed(egui::Key::N) {
+                let new_id = self.next_window_id;
+                self.next_window_id += 1;
+                self.show_new_windows.push(new_id);
+            }
+        });
 
         if let Some(path) = &self.file_path {
             let file_name = std::path::Path::new(path)
@@ -165,10 +180,56 @@ impl App for ThothApp {
             &mut self.error,
             msg_to_central,
         );
+
+        // Render child windows
+        self.render_child_windows(ctx);
     }
 }
 
 impl ThothApp {
+    fn render_child_windows(&mut self, ctx: &egui::Context) {
+        // Keep track of which windows should be closed
+        let mut windows_to_remove = Vec::new();
+
+        for window_id in &self.show_new_windows {
+            let mut should_close = false;
+
+            ctx.show_viewport_immediate(
+                egui::ViewportId::from_hash_of(("child_window", *window_id)),
+                egui::ViewportBuilder::default()
+                    .with_title("Thoth — JSON & NDJSON Viewer")
+                    .with_inner_size([1200.0, 800.0]),
+                |ctx, _class| {
+                    // Apply theme
+                    theme::apply_theme(ctx, ctx.style().visuals.dark_mode);
+
+                    // Check if window should close
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        should_close = true;
+                        return;
+                    }
+
+                    // Render a simple placeholder UI for the child window
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.heading("New Window");
+                        ui.label("This is a new Thoth window.");
+                        ui.separator();
+                        ui.label("You can drag and drop a JSON/NDJSON file here to open it.");
+                        ui.label("Press Cmd/Ctrl+N in the main window to open more windows.");
+                    });
+                },
+            );
+
+            if should_close {
+                windows_to_remove.push(*window_id);
+            }
+        }
+
+        // Remove closed windows
+        self.show_new_windows
+            .retain(|id| !windows_to_remove.contains(id));
+    }
+
     fn handle_update_messages(&mut self, ctx: &egui::Context) {
         while let Ok(msg) = self.update_manager.receiver().try_recv() {
             match msg {
