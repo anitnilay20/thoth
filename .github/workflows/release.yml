@@ -136,9 +136,6 @@ jobs:
             "artifacts/Thoth-${{ matrix.target }}.dmg" \
             "target/${{ matrix.target }}/release/bundle/osx/Thoth.app" || true
 
-          # Remove quarantine attributes from DMG
-          xattr -cr "artifacts/Thoth-${{ matrix.target }}.dmg" || true
-
           # Also keep the .app bundle as fallback
           cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
 
@@ -166,9 +163,6 @@ jobs:
             --no-internet-enable \
             "artifacts/Thoth-${{ matrix.target }}.dmg" \
             "target/${{ matrix.target }}/release/bundle/osx/Thoth.app" || true
-
-          # Remove quarantine attributes from DMG
-          xattr -cr "artifacts/Thoth-${{ matrix.target }}.dmg" || true
 
           # Also keep the .app bundle as fallback
           cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
@@ -265,6 +259,10 @@ jobs:
           echo "   - **Apple Silicon (M1/M2/M3)**: \`Thoth-aarch64-apple-darwin.dmg\`" >> CHANGELOG.md
           echo "   - **Intel**: \`Thoth-x86_64-apple-darwin.dmg\`" >> CHANGELOG.md
           echo "2. Open the DMG and drag Thoth.app to Applications" >> CHANGELOG.md
+          echo "3. **Important**: Right-click on Thoth.app in Applications and select \"Open\" (first time only)" >> CHANGELOG.md
+          echo "   - Or run: \`xattr -cr /Applications/Thoth.app\` to remove quarantine" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "> ⚠️ **Gatekeeper Warning**: Since the app is not code-signed, macOS will show a security warning. Use right-click > Open to bypass it." >> CHANGELOG.md
           echo "" >> CHANGELOG.md
           echo "**Manual Installation**:" >> CHANGELOG.md
           echo "1. Download: \`thoth-aarch64-apple-darwin.tar.gz\` or \`thoth-x86_64-apple-darwin.tar.gz\`" >> CHANGELOG.md
