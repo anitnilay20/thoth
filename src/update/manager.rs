@@ -300,7 +300,7 @@ impl UpdateManager {
 
     #[cfg(not(target_os = "windows"))]
     fn extract_zip(_archive_path: &std::path::Path, _dest_dir: &std::path::Path) -> Result<()> {
-        anyhow::bail!("zip extraction not needed on Unix")
+        anyhow::bail!("Attempted to extract zip on Unix platform")
     }
 
     fn find_executable(dir: &std::path::Path) -> Result<std::path::PathBuf> {
