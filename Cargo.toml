@@ -25,8 +25,8 @@ category = "Developer Tool"
 short_description = "Fast JSON/NDJSON viewer for large files"
 long_description = "Thoth is a fast, desktop JSON/NDJSON viewer built with Rust + egui. It opens ~500 MB files by lazily parsing only visible/expanded nodes, keeps the UI responsive with an LRU cache and parallel search, and ships with an Andromeda-themed light/dark UI."
 
-# macOS specific
-icon = ["assets/Thoth.icns"]
+# Icon configuration - PNG for Linux, ICNS for macOS, ICO for Windows
+icon = ["assets/thoth_icon_256.png", "assets/Thoth.icns", "assets/thoth_icon_256.ico"]
 resources = ["assets/"]
 
 # Windows specific
