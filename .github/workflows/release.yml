@@ -206,9 +206,9 @@ jobs:
           path: |
             *.zip
             *.tar.gz
-            *.dmg
-            *.msi
-            *.deb
+            artifacts/*.dmg
+            artifacts/*.msi
+            artifacts/*.deb
 
   create-release:
     needs: build
