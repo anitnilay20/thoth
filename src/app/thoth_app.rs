@@ -1,61 +1,62 @@
 use eframe::{App, Frame, egui};
 
-use crate::{components, settings, state, window};
+use crate::{components, settings, state};
 
 use super::{search_handler::SearchHandler, update_handler::UpdateHandler};
 
 pub struct ThothApp {
-    // Shared state across all windows
-    pub shared_state: state::SharedState,
+    // Settings for this window
+    pub settings: settings::Settings,
 
-    // Main window state
+    // Window state
     pub window_state: state::WindowState,
 
-    // Window manager for additional windows
-    pub window_manager: window::WindowManager,
-
-    // Update state (global for now, could be per-window later)
+    // Update state
     pub update_state: state::ApplicationUpdateState,
 
-    // Settings panel (global UI)
+    // Settings panel (UI)
     pub settings_panel: components::settings_panel::SettingsPanel,
 }
 
 impl ThothApp {
     /// Create a new ThothApp with loaded settings
     pub fn new(settings: settings::Settings) -> Self {
-        let shared_state = state::SharedState::new(settings);
         Self {
-            window_manager: window::WindowManager::new(shared_state.clone()),
-            shared_state,
+            settings,
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
             settings_panel: components::settings_panel::SettingsPanel::default(),
         }
     }
 
-    /// Create a new window
+    /// Create a new window as an independent process
     pub fn create_new_window(&mut self) {
-        self.window_manager.request_new_window();
+        use std::process::Command;
+
+        // Get the current executable path
+        if let Ok(exe_path) = std::env::current_exe() {
+            // Spawn a new instance of Thoth as an independent process
+            match Command::new(exe_path).spawn() {
+                Ok(_) => {
+                    eprintln!("New Thoth window spawned successfully");
+                }
+                Err(e) => {
+                    eprintln!("Failed to spawn new window: {}", e);
+                }
+            }
+        } else {
+            eprintln!("Failed to get current executable path");
+        }
     }
 }
 
 impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
-        // Show all windows every frame (required for deferred viewports)
-        // This also handles cleanup of closed windows internally
-        self.window_manager.show_windows(ctx);
-
-        // Get settings (lock for minimal time)
-        let settings = {
-            let mut settings = self.shared_state.settings.lock().unwrap();
-            // Sync dark mode from context (in case it was changed externally)
-            settings.dark_mode = ctx.style().visuals.dark_mode;
-            settings.clone()
-        };
+        // Sync dark mode from context (in case it was changed externally)
+        self.settings.dark_mode = ctx.style().visuals.dark_mode;
 
         // Check for updates based on settings
-        if UpdateHandler::should_check_updates(&self.update_state, &settings) {
+        if UpdateHandler::should_check_updates(&self.update_state, &self.settings) {
             UpdateHandler::check_for_updates(&mut self.update_state);
         }
 
@@ -85,10 +86,10 @@ impl App for ThothApp {
         );
 
         // Apply theme and font settings
-        crate::theme::apply_theme(ctx, &settings);
+        crate::theme::apply_theme(ctx, &self.settings);
 
         // Save settings when dark mode changes
-        self.save_settings_if_changed(ctx, &settings);
+        self.save_settings_if_changed(ctx);
 
         // Render the settings panel and handle actions
         self.render_settings_panel(ctx);
@@ -123,7 +124,6 @@ impl ThothApp {
     fn render_toolbar(&mut self, ctx: &egui::Context) -> Option<crate::search::SearchMessage> {
         let update_available = UpdateHandler::is_update_available(&self.update_state);
 
-        let mut dark_mode = self.shared_state.settings.lock().unwrap().dark_mode;
         let mut new_window_requested = false;
 
         let result = self.window_state.toolbar.ui(
@@ -132,15 +132,12 @@ impl ThothApp {
                 file_path: &mut self.window_state.file_path,
                 file_type: &mut self.window_state.file_type,
                 error: &mut self.window_state.error,
-                dark_mode: &mut dark_mode,
+                dark_mode: &mut self.settings.dark_mode,
                 show_settings: &mut self.settings_panel.show,
                 update_available,
                 new_window_requested: &mut new_window_requested,
             },
         );
-
-        // Update settings if dark mode changed
-        self.shared_state.settings.lock().unwrap().dark_mode = dark_mode;
 
         // Handle new window request
         if new_window_requested {
@@ -151,9 +148,9 @@ impl ThothApp {
     }
 
     /// Save settings if they have changed
-    fn save_settings_if_changed(&mut self, ctx: &egui::Context, settings: &settings::Settings) {
-        if ctx.style().visuals.dark_mode != settings.dark_mode {
-            if let Err(e) = settings.save() {
+    fn save_settings_if_changed(&mut self, ctx: &egui::Context) {
+        if ctx.style().visuals.dark_mode != self.settings.dark_mode {
+            if let Err(e) = self.settings.save() {
                 eprintln!("Failed to save settings: {}", e);
             }
         }

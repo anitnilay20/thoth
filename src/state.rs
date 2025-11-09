@@ -1,25 +1,6 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
-use crate::{components, file, search, settings, update};
-
-// ============================================================================
-// Shared State - Shared across all windows
-// ============================================================================
-
-/// Shared state across all windows (settings, theme, etc.)
-#[derive(Clone)]
-pub struct SharedState {
-    pub settings: Arc<Mutex<settings::Settings>>,
-}
-
-impl SharedState {
-    pub fn new(settings: settings::Settings) -> Self {
-        Self {
-            settings: Arc::new(Mutex::new(settings)),
-        }
-    }
-}
+use crate::{components, file, search, update};
 
 // ============================================================================
 // Window State - Per-window state (file, search, UI)

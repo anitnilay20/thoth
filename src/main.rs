@@ -14,7 +14,6 @@ mod settings;
 mod state;
 mod theme;
 mod update;
-mod window;
 
 fn main() -> Result<()> {
     // Load settings first

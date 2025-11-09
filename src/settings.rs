@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn test_default_settings() {
         let settings = Settings::default();
-        assert_eq!(settings.dark_mode, true);
+        assert!(settings.dark_mode);
         assert_eq!(settings.font_size, 14.0);
         assert_eq!(settings.window.default_width, 1200.0);
         assert_eq!(settings.window.default_height, 800.0);
