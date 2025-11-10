@@ -1,10 +1,10 @@
 use crate::{
-    ThothApp,
+    app,
     file::{detect_file_type::sniff_file_type, lazy_loader::FileType},
 };
 use eframe::egui::{self};
 
-impl ThothApp {
+impl app::ThothApp {
     pub fn handle_file_drop(&mut self, ctx: &egui::Context) {
         // -------- Drag & Drop (hover preview + accept drop) --------
         // Show overlay when hovering files
@@ -15,12 +15,12 @@ impl ThothApp {
                 if let Some(path) = &file.path {
                     use std::fmt::Write as _;
                     if let Err(e) = write!(text, "\n{}", path.display()) {
-                        self.error = Some(format!("Failed to format file path: {e}"));
+                        self.window_state.error = Some(format!("Failed to format file path: {e}"));
                     }
                 } else if !file.mime.is_empty() {
                     use std::fmt::Write as _;
                     if let Err(e) = write!(text, "\n{}", file.mime) {
-                        self.error = Some(format!("Failed to format MIME type: {e}"));
+                        self.window_state.error = Some(format!("Failed to format MIME type: {e}"));
                     }
                 }
             }
@@ -48,13 +48,13 @@ impl ThothApp {
                     match sniff_file_type(&path) {
                         Ok(detected) => {
                             let ft: FileType = detected.into();
-                            self.file_type = ft;
-                            self.file_path = Some(path);
-                            self.error = None;
-                            self.toolbar.previous_file_type = ft;
+                            self.window_state.file_type = ft;
+                            self.window_state.file_path = Some(path);
+                            self.window_state.error = None;
+                            self.window_state.toolbar.previous_file_type = ft;
                         }
                         Err(e) => {
-                            self.error = Some(format!(
+                            self.window_state.error = Some(format!(
                                 "Failed to detect file type (expect JSON / NDJSON): {e}"
                             ));
                         }
