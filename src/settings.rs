@@ -11,7 +11,7 @@ pub struct Settings {
     /// Font size for UI
     pub font_size: f32,
 
-    /// Window settings (for future multi-window support)
+    /// Window settings for multi-window support
     pub window: WindowSettings,
 
     /// Auto-update settings
