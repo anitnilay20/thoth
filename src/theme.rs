@@ -1,19 +1,46 @@
 use eframe::egui::{self, Color32};
 use serde_json::Value;
 
-pub fn apply_theme(ctx: &egui::Context, dark: bool) {
-    if dark {
+use crate::settings::Settings;
+
+/// Apply theme settings including visuals and fonts
+pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
+    // Apply visual theme (dark/light mode)
+    if settings.dark_mode {
         ctx.set_visuals(andromeda_visuals());
-        // small spacing/rounding polish
-        let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-        // style.visuals.widgets.inactive.rounding = egui::Rounding::same(6.0);
-        // style.visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
-        // style.visuals.widgets.active.rounding = egui::Rounding::same(6.0);
-        ctx.set_style(style);
     } else {
         ctx.set_visuals(egui::Visuals::light());
     }
+
+    // Apply style settings (spacing, fonts, etc.)
+    let mut style = (*ctx.style()).clone();
+
+    // Spacing polish
+    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+
+    // Apply font sizes
+    let font_size = settings.font_size;
+    style.text_styles.insert(
+        egui::TextStyle::Small,
+        egui::FontId::proportional(font_size * 0.85),
+    );
+    style
+        .text_styles
+        .insert(egui::TextStyle::Body, egui::FontId::proportional(font_size));
+    style.text_styles.insert(
+        egui::TextStyle::Button,
+        egui::FontId::proportional(font_size),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Heading,
+        egui::FontId::proportional(font_size * 1.2),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Monospace,
+        egui::FontId::monospace(font_size),
+    );
+
+    ctx.set_style(style);
 }
 
 fn andromeda_visuals() -> egui::Visuals {

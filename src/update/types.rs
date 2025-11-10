@@ -56,13 +56,19 @@ impl Default for UpdateStatus {
 }
 
 impl UpdateStatus {
-    pub fn should_check(&self) -> bool {
+    /// Check if we should check for updates based on settings
+    pub fn should_check(&self, check_interval_hours: u64, auto_check: bool) -> bool {
+        // Don't check if auto-check is disabled
+        if !auto_check {
+            return false;
+        }
+
         match self.last_check {
-            None => true,
+            None => true, // Never checked before
             Some(last_check) => {
                 let now = Utc::now();
                 let duration = now.signed_duration_since(last_check);
-                duration.num_hours() >= 24
+                duration.num_hours() >= check_interval_hours as i64
             }
         }
     }

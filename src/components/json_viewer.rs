@@ -1,5 +1,5 @@
-use crate::components::theme::{TextPalette, TextToken, row_fill, selected_row_bg};
 use crate::helpers::{LruCache, get_object_string, split_root_rel};
+use crate::theme::{TextPalette, TextToken, row_fill, selected_row_bg};
 use crate::{
     file::lazy_loader::{FileType, LazyJsonFile, load_file_auto},
     helpers::{format_simple_kv, preview_value},

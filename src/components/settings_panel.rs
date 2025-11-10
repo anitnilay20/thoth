@@ -1,4 +1,5 @@
-use crate::update::{ReleaseInfo, UpdateState};
+use crate::helpers::{format_date, format_date_static};
+use crate::update::{ReleaseInfo, UpdateState, UpdateStatus};
 use eframe::egui;
 
 #[derive(Debug, Clone)]
@@ -18,7 +19,7 @@ impl SettingsPanel {
     pub fn render(
         &mut self,
         ctx: &egui::Context,
-        update_state: &UpdateState,
+        update_status: &UpdateStatus,
         current_version: &str,
     ) -> Option<SettingsAction> {
         if !self.show {
@@ -32,13 +33,17 @@ impl SettingsPanel {
         egui::Area::new("settings_backdrop".into())
             .fixed_pos(egui::pos2(0.0, 0.0))
             .interactable(true)
+            .order(egui::Order::Background)
             .show(ctx, |ui| {
                 let screen_rect = ctx.screen_rect();
                 let painter = ui.painter();
                 painter.rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(180));
 
-                // Consume clicks on the backdrop
-                ui.allocate_response(screen_rect.size(), egui::Sense::click());
+                // Consume clicks on the backdrop to close settings
+                let response = ui.allocate_response(screen_rect.size(), egui::Sense::click());
+                if response.clicked() {
+                    show = false;
+                }
             });
 
         // Draw settings window on top
@@ -51,7 +56,7 @@ impl SettingsPanel {
             .open(&mut show)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    action = Self::render_update_section_static(ui, update_state, current_version);
+                    action = Self::render_update_section_static(ui, update_status, current_version);
                 });
             });
 
@@ -61,7 +66,7 @@ impl SettingsPanel {
 
     fn render_update_section_static(
         ui: &mut egui::Ui,
-        update_state: &UpdateState,
+        update_status: &UpdateStatus,
         current_version: &str,
     ) -> Option<SettingsAction> {
         ui.heading(egui::RichText::new("🔄 Updates").size(20.0));
@@ -78,9 +83,14 @@ impl SettingsPanel {
         });
         ui.add_space(16.0);
 
-        match update_state {
+        match &update_status.state {
             UpdateState::Idle => {
-                ui.label("💤 No update check performed yet.");
+                match update_status.last_check {
+                    Some(v) => {
+                        ui.label(format!("Last check performed: {}", format_date_static(&v)))
+                    }
+                    None => ui.label("💤 No update check performed yet."),
+                };
                 ui.add_space(8.0);
                 if ui
                     .button(egui::RichText::new("🔍 Check for Updates").size(14.0))
@@ -137,7 +147,7 @@ impl SettingsPanel {
                 ui.label(format!("⬇ Downloading version {}...", version));
                 ui.add_space(8.0);
 
-                let progress_bar = egui::ProgressBar::new(*progress / 100.0)
+                let progress_bar = egui::ProgressBar::new(progress / 100.0)
                     .show_percentage()
                     .animate(true);
                 ui.add(progress_bar);
@@ -206,7 +216,7 @@ impl SettingsPanel {
                 ui.separator();
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("📅 Published:").strong());
-                ui.label(Self::format_date_static(&release.published_at));
+                ui.label(format_date(&release.published_at));
             });
 
             ui.add_space(8.0);
@@ -231,14 +241,5 @@ impl SettingsPanel {
                 let _ = open::that(&release.html_url);
             }
         });
-    }
-
-    fn format_date_static(date_str: &str) -> String {
-        // Parse ISO 8601 date format and convert to human-readable
-        if let Ok(datetime) = chrono::DateTime::parse_from_rfc3339(date_str) {
-            datetime.format("%B %d, %Y").to_string()
-        } else {
-            date_str.to_string()
-        }
     }
 }

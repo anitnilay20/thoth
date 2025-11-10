@@ -3,7 +3,7 @@ mod json_copy_to_clipboard;
 mod lru_cache;
 
 use eframe::egui::IconData;
-pub use format::{format_simple_kv, preview_value};
+pub use format::{format_date, format_date_static, format_simple_kv, preview_value};
 pub use json_copy_to_clipboard::{get_object_string, split_root_rel};
 pub use lru_cache::LruCache;
 
