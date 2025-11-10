@@ -52,9 +52,6 @@ impl ThothApp {
 
 impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
-        // Sync dark mode from context (in case it was changed externally)
-        self.settings.dark_mode = ctx.style().visuals.dark_mode;
-
         // Check for updates based on settings
         if UpdateHandler::should_check_updates(&self.update_state, &self.settings) {
             UpdateHandler::check_for_updates(&mut self.update_state);

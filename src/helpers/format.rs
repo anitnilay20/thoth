@@ -28,6 +28,14 @@ pub fn preview_value(val: &Value) -> String {
     }
 }
 
+pub fn format_date(date: &str) -> String {
+    if let Ok(datetime) = chrono::DateTime::parse_from_rfc3339(date) {
+        format_date_static(&datetime)
+    } else {
+        "".to_string()
+    }
+}
+
 pub fn format_date_static<Tz: chrono::TimeZone>(datetime: &chrono::DateTime<Tz>) -> String
 where
     Tz::Offset: std::fmt::Display,

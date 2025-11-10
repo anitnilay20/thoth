@@ -1,4 +1,4 @@
-use crate::helpers::format_date_static;
+use crate::helpers::{format_date, format_date_static};
 use crate::update::{ReleaseInfo, UpdateState, UpdateStatus};
 use eframe::egui;
 
@@ -85,14 +85,6 @@ impl SettingsPanel {
 
         match &update_status.state {
             UpdateState::Idle => {
-                // if update_status.last_check.is_some() {
-                //     ui.label(format!(
-                //         "Last check performed at {:?}",
-                //         format_date_static(update_status.last_check.unwrap().to_string())
-                //     ));
-                // } else {
-                //     ui.label("💤 No update check performed yet.");
-                // }
                 match update_status.last_check {
                     Some(v) => {
                         ui.label(format!("Last check performed: {}", format_date_static(&v)))
@@ -224,7 +216,7 @@ impl SettingsPanel {
                 ui.separator();
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new("📅 Published:").strong());
-                ui.label(&release.published_at);
+                ui.label(format_date(&release.published_at));
             });
 
             ui.add_space(8.0);
