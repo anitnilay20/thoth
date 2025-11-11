@@ -22,7 +22,9 @@ Thoth is a high-performance, feature-rich desktop application for viewing and ex
 - **Interactive Exploration**: Expandable tree view to navigate nested structures
 - **Copy Support**: Easy copying of JSON paths and values
 - **Dark/Light Modes**: Comfortable viewing in any environment
-- **Keyboard Navigation**: Efficiently navigate through large JSON structures
+- **Multi-Window Support**: Open multiple independent windows to compare files
+- **Keyboard Shortcuts**: Comprehensive keyboard shortcuts for efficient workflow ([see all shortcuts](docs/KEYBOARD_SHORTCUTS.md))
+- **Customizable**: All shortcuts and settings configurable via TOML
 
 ---
 
@@ -33,17 +35,21 @@ Thoth is a high-performance, feature-rich desktop application for viewing and ex
 Download the latest release from [GitHub Releases](https://github.com/anitnilay20/thoth/releases).
 
 #### macOS
+
 After downloading the `.tar.gz` file:
+
 1. Extract: `tar -xzf thoth-aarch64-apple-darwin.tar.gz` (or `thoth-x86_64-apple-darwin.tar.gz` for Intel Macs)
 2. Remove quarantine: `xattr -cr Thoth.app`
 3. Move to Applications: `mv Thoth.app /Applications/`
 4. Double-click to open
 
 #### Windows
+
 1. Download `thoth-x86_64-pc-windows-msvc.zip`
 2. Extract and run `thoth.exe`
 
 #### Linux
+
 1. Download `thoth-x86_64-unknown-linux-gnu.tar.gz`
 2. Extract: `tar -xzf thoth-x86_64-unknown-linux-gnu.tar.gz`
 3. Make executable: `chmod +x thoth`
@@ -52,6 +58,7 @@ After downloading the `.tar.gz` file:
 ### Building from Source
 
 #### Prerequisites
+
 - Rust (latest stable version recommended)
 
 ```bash
@@ -73,10 +80,13 @@ cargo build --release
 ## Usage
 
 1. Launch the application
-2. Use the top bar to open a JSON or NDJSON file
+2. Use the top bar to open a JSON or NDJSON file (or press `Cmd/Ctrl+O`)
 3. Navigate through the file using the tree view
-4. Use the search functionality to find specific values
-5. Toggle between dark and light mode as needed
+4. Use the search functionality to find specific values (`Cmd/Ctrl+F` to focus)
+5. Toggle between dark and light mode as needed (`Cmd/Ctrl+Shift+T`)
+6. Open new windows to compare multiple files (`Cmd/Ctrl+N`)
+
+For a complete list of keyboard shortcuts, see the [Keyboard Shortcuts Guide](docs/KEYBOARD_SHORTCUTS.md).
 
 ---
 
@@ -97,20 +107,17 @@ Thoth is built with a modular architecture that emphasizes performance and flexi
 ### Core Components
 
 1. **Application Core (`ThothApp`)**:
-
    - The central controller that manages the application state
    - Coordinates between UI components and data handling
    - Manages the theme, file paths, and error states
 
 2. **UI Components**:
-
    - **TopBar**: Handles file opening, type selection, and search inputs
    - **CentralPanel**: Main content area with the JSON viewer
    - **JsonViewer**: Tree-based visualization of JSON structures with expandable nodes
    - **Theme**: Manages dark/light mode and styling
 
 3. **File Handling System**:
-
    - **Lazy Loading**: Only parses the parts of the file that are being viewed
    - **File Type Detection**: Automatically identifies JSON, JSON arrays, and NDJSON formats
    - **LRU Cache**: Optimizes performance by caching recently accessed nodes

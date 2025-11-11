@@ -126,8 +126,14 @@ impl ThothApp {
                     }
                 }
                 ShortcutAction::ClearFile => {
-                    self.window_state.file_path = None;
-                    self.window_state.error = None;
+                    if self.window_state.file_path.is_some() {
+                        // If a file is open, clear it
+                        self.window_state.file_path = None;
+                        self.window_state.error = None;
+                    } else {
+                        // If no file is open, close the window
+                        std::process::exit(0);
+                    }
                 }
                 ShortcutAction::NewWindow => {
                     self.create_new_window();
@@ -140,7 +146,8 @@ impl ThothApp {
                 }
                 // Navigation shortcuts - handled by JSON viewer or search
                 ShortcutAction::FocusSearch => {
-                    // TODO: Implement search focus
+                    // Request focus on search box
+                    self.window_state.toolbar.request_search_focus = true;
                 }
                 ShortcutAction::NextMatch => {
                     // TODO: Implement next match navigation

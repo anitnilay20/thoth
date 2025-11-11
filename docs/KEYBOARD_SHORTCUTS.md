@@ -12,11 +12,11 @@ Thoth supports keyboard shortcuts for efficient navigation and operation. All sh
 
 ### File Operations ✅
 
-| Action     | macOS | Windows/Linux | Description                | Status     |
-| ---------- | ----- | ------------- | -------------------------- | ---------- |
-| Open File  | `⌘O`  | `Ctrl+O`      | Open a JSON or NDJSON file | ✅ Working |
-| Clear File | `⌘W`  | `Ctrl+W`      | Close the current file     | ✅ Working |
-| New Window | `⌘N`  | `Ctrl+N`      | Open a new Thoth window    | ✅ Working |
+| Action                    | macOS | Windows/Linux | Description                                                | Status     |
+| ------------------------- | ----- | ------------- | ---------------------------------------------------------- | ---------- |
+| Open File                 | `⌘O`  | `Ctrl+O`      | Open a JSON or NDJSON file                                 | ✅ Working |
+| Clear File / Close Window | `⌘W`  | `Ctrl+W`      | Close the current file, or close window if no file is open | ✅ Working |
+| New Window                | `⌘N`  | `Ctrl+N`      | Open a new Thoth window                                    | ✅ Working |
 
 ### UI Controls ✅
 
@@ -28,13 +28,13 @@ Thoth supports keyboard shortcuts for efficient navigation and operation. All sh
 
 ### Navigation 🚧
 
-| Action         | macOS | Windows/Linux  | Description                   | Status  |
-| -------------- | ----- | -------------- | ----------------------------- | ------- |
-| Focus Search   | `⌘F`  | `Ctrl+F`       | Focus the search input        | 🚧 TODO |
-| Next Match     | `⌘G`  | `Ctrl+G`       | Jump to next search match     | 🚧 TODO |
-| Previous Match | `⌘⇧G` | `Ctrl+Shift+G` | Jump to previous search match | 🚧 TODO |
+| Action         | macOS | Windows/Linux  | Description                   | Status     |
+| -------------- | ----- | -------------- | ----------------------------- | ---------- |
+| Focus Search   | `⌘F`  | `Ctrl+F`       | Focus the search input        | ✅ Working |
+| Next Match     | `⌘G`  | `Ctrl+G`       | Jump to next search match     | 🚧 TODO    |
+| Previous Match | `⌘⇧G` | `Ctrl+Shift+G` | Jump to previous search match | 🚧 TODO    |
 
-**Note**: Navigation shortcuts are configured but require search box focus management implementation.
+**Note**: Search focus is fully working. Match navigation requires additional search result tracking.
 
 ### Tree Operations 📋
 

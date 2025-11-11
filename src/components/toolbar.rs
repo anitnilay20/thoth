@@ -10,6 +10,7 @@ pub struct Toolbar {
     pub previous_file_type: FileType,
     search_query: String,
     match_case: bool,
+    pub request_search_focus: bool,
 }
 
 pub struct ToolbarState<'a> {
@@ -141,6 +142,12 @@ impl Toolbar {
                         .desired_width(300.0)
                         .hint_text("Enter search term..."),
                 );
+
+                // Request focus if needed
+                if self.request_search_focus {
+                    text_box_response.request_focus();
+                    self.request_search_focus = false;
+                }
 
                 ui.checkbox(&mut self.match_case, "Match Case");
 
