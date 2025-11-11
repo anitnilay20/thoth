@@ -114,4 +114,58 @@ impl CentralPanel {
             self.file_viewer.ui(ui);
         });
     }
+
+    // ========================================================================
+    // Keyboard Shortcut Support - Wrapper methods
+    // ========================================================================
+
+    /// Expand the currently selected node (for keyboard shortcuts)
+    pub fn expand_selected_node(&mut self) {
+        self.file_viewer.expand_selected_node();
+    }
+
+    /// Collapse the currently selected node (for keyboard shortcuts)
+    pub fn collapse_selected_node(&mut self) {
+        self.file_viewer.collapse_selected_node();
+    }
+
+    /// Expand all nodes in the tree (for keyboard shortcuts)
+    pub fn expand_all_nodes(&mut self) {
+        self.file_viewer.expand_all_nodes();
+    }
+
+    /// Collapse all nodes in the tree (for keyboard shortcuts)
+    pub fn collapse_all_nodes(&mut self) {
+        self.file_viewer.collapse_all_nodes();
+    }
+
+    /// Move selection up to previous item (for keyboard shortcuts)
+    pub fn move_selection_up(&mut self) {
+        self.file_viewer.move_selection_up();
+    }
+
+    /// Move selection down to next item (for keyboard shortcuts)
+    pub fn move_selection_down(&mut self) {
+        self.file_viewer.move_selection_down();
+    }
+
+    /// Copy the key of the currently selected item (for keyboard shortcuts)
+    pub fn copy_selected_key(&mut self) -> Option<String> {
+        self.file_viewer.copy_selected_key()
+    }
+
+    /// Copy the value of the currently selected item (for keyboard shortcuts)
+    pub fn copy_selected_value(&mut self) -> Option<String> {
+        self.file_viewer.copy_selected_value()
+    }
+
+    /// Copy the entire object of the currently selected item (for keyboard shortcuts)
+    pub fn copy_selected_object(&mut self) -> Option<String> {
+        self.file_viewer.copy_selected_object()
+    }
+
+    /// Copy the path of the currently selected item (for keyboard shortcuts)
+    pub fn copy_selected_path(&mut self) -> Option<String> {
+        self.file_viewer.copy_selected_path()
+    }
 }

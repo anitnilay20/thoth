@@ -155,6 +155,10 @@ pub struct KeyboardShortcuts {
     pub copy_object: Shortcut,
     pub copy_path: Shortcut,
 
+    // Movement
+    pub move_up: Shortcut,
+    pub move_down: Shortcut,
+
     // UI
     pub settings: Shortcut,
     pub toggle_theme: Shortcut,
@@ -185,6 +189,10 @@ impl Default for KeyboardShortcuts {
             copy_value: Shortcut::new("C").command().shift(),
             copy_object: Shortcut::new("C").command().alt(),
             copy_path: Shortcut::new("P").command().shift(),
+
+            // Movement
+            move_up: Shortcut::new("ArrowUp"),
+            move_down: Shortcut::new("ArrowDown"),
 
             // UI
             settings: Shortcut::new("Comma").command(),

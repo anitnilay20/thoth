@@ -28,6 +28,10 @@ pub enum ShortcutAction {
     CopyObject,
     CopyPath,
 
+    // Movement
+    MoveUp,
+    MoveDown,
+
     // UI
     Settings,
     ToggleTheme,
@@ -106,6 +110,15 @@ impl ShortcutHandler {
 
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_path.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::CopyPath);
+        }
+
+        // Movement
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.move_up.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::MoveUp);
+        }
+
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.move_down.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::MoveDown);
         }
 
         // UI
