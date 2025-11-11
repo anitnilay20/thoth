@@ -1,34 +1,28 @@
-use crate::helpers::{LruCache, get_object_string, split_root_rel};
-use crate::theme::{TextPalette, TextToken, row_fill, selected_row_bg};
-use crate::{
-    file::lazy_loader::{FileType, LazyJsonFile, load_file_auto},
-    helpers::{format_simple_kv, preview_value},
+use crate::file::lazy_loader::LazyJsonFile;
+use crate::helpers::{
+    LruCache, format_simple_kv, get_object_string, preview_value, split_root_rel,
 };
-use eframe::egui::{self, RichText};
-use egui::Ui;
+use crate::theme::{TextPalette, TextToken, row_fill, selected_row_bg};
+use eframe::egui::{self, RichText, Ui};
 use serde_json::Value;
 use std::collections::HashSet;
 
-#[derive(Default)]
-pub struct JsonViewer {
-    // Data source
-    loader: Option<LazyJsonFile>,
-    visible_roots: Option<Vec<usize>>, // filter for root indices (e.g. search results)
+use super::viewer_trait::FileFormatViewer;
 
-    // UI state
-    expanded: HashSet<String>, // paths like "0", "0.user", "0.items[2]"
-    rows: Vec<JsonRow>,        // flattened render list
+/// JSON-specific tree viewer that handles expansion and rendering
+///
+/// Implements `FileFormatViewer` trait to integrate with the FileViewer architecture.
+pub struct JsonTreeViewer {
+    /// Tree expansion state (paths like "0", "0.user", "0.items[2]")
+    expanded: HashSet<String>,
 
-    // (Optional) tiny cache to avoid re-parsing when toggling the same item
-    cache: LruCache<usize, Value>, // cache top-level items only; nested gets are cheap to rewalk
-
-    //select
-    selected: Option<String>,
+    /// Flattened render list
+    rows: Vec<JsonRow>,
 }
 
 #[derive(Clone)]
 struct JsonRow {
-    path: String, // stable key
+    path: String,
     indent: usize,
     is_expandable: bool,
     is_expanded: bool,
@@ -36,69 +30,42 @@ struct JsonRow {
     text_token: (TextToken, Option<TextToken>),
 }
 
-impl JsonViewer {
+impl Default for JsonTreeViewer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl JsonTreeViewer {
     pub fn new() -> Self {
         Self {
-            loader: None,
             expanded: HashSet::new(),
             rows: Vec::new(),
-            cache: LruCache::new(32),
-            visible_roots: None,
-            selected: None,
         }
     }
 
-    /// Open a file lazily. This does NOT parse the whole file.
-    pub fn open(&mut self, path: &std::path::Path, file_type: &mut FileType) -> anyhow::Result<()> {
-        let resp = load_file_auto(path)?;
-        self.loader = Some(resp.1);
-        *file_type = resp.0.into();
-
-        self.expanded.clear();
-        self.rows.clear();
-        self.rebuild_root_rows();
-        Ok(())
-    }
-
-    // Load root value (from cache or loader)
-    fn check_cache(&mut self, index: usize) -> Option<serde_json::Value> {
-        if let Some(value) = self.cache.get(&index).cloned() {
-            Some(value)
-        } else if let Some(loader_mut) = self.loader.as_mut() {
-            if let Ok(v) = loader_mut.get(index) {
-                let v_owned = v;
-                self.cache.put(index, v_owned.clone());
-                Some(v_owned)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    fn rebuild_root_rows(&mut self) {
+    /// Rebuild rows based on visible roots and cache
+    pub fn rebuild_rows(
+        &mut self,
+        visible_roots: &Option<Vec<usize>>,
+        cache: &mut LruCache<usize, Value>,
+        loader: &mut LazyJsonFile,
+        total_len: usize,
+    ) {
         self.rows.clear();
 
-        let Some(loader) = self.loader.as_ref() else {
-            return;
-        };
-
-        // Which root indices to render: filtered (search) or all
-        let total = loader.len();
-        let indices: Vec<usize> = if let Some(list) = self.visible_roots.as_ref() {
+        // Determine which root indices to render
+        let indices: Vec<usize> = if let Some(list) = visible_roots.as_ref() {
             list.clone()
         } else {
-            (0..total).collect()
+            (0..total_len).collect()
         };
 
         for i in indices {
-            let path = i.to_string(); // "0", "1", ...
+            let path = i.to_string();
             let is_expanded = self.expanded.contains(&path);
 
-            // Lightweight stub until expanded
             let display_text = if is_expanded {
-                // We'll append children using build_rows_from_value and then a closing brace
                 format!("[{}]: {{", i)
             } else {
                 format!("[{}]: (…) ", i)
@@ -114,11 +81,22 @@ impl JsonViewer {
             });
 
             if is_expanded {
-                if let Some(mut value) = self.check_cache(i) {
-                    self.build_rows_from_value(&mut value, &path, 1);
-                }
+                // Try to get from cache, or load from file
+                let value = if let Some(v) = cache.get(&i) {
+                    v.clone()
+                } else {
+                    match loader.get(i) {
+                        Ok(v) => {
+                            cache.put(i, v.clone());
+                            v
+                        }
+                        Err(_) => continue,
+                    }
+                };
 
-                // Closing row (visual balance for "{")
+                self.build_rows_from_value(&value, &path, 1);
+
+                // Closing brace
                 self.rows.push(JsonRow {
                     path: format!("{}/_close", path),
                     indent: 0,
@@ -131,17 +109,17 @@ impl JsonViewer {
         }
     }
 
-    /// Depth-first row builder; only called for expanded nodes.
-    fn build_rows_from_value(&mut self, value: &mut Value, path: &str, indent: usize) {
+    /// Build rows from a JSON value recursively
+    fn build_rows_from_value(&mut self, value: &Value, path: &str, indent: usize) {
         match value {
             Value::Object(map) => {
-                for (key, val) in map.iter_mut() {
-                    let new_path = format!("{}.{key}", path);
+                for (key, val) in map.iter() {
+                    let new_path = format!("{}.{}", path, key);
                     let is_expandable = matches!(val, Value::Object(_) | Value::Array(_));
                     let is_expanded = self.expanded.contains(&new_path);
 
                     let display_text = if is_expandable {
-                        format!("\"{key}\": {}", if is_expanded { "{" } else { "{}" })
+                        format!("\"{}\": {}", key, if is_expanded { "{" } else { "{}" })
                     } else {
                         format_simple_kv(key, val)
                     };
@@ -176,15 +154,15 @@ impl JsonViewer {
                 }
             }
             Value::Array(arr) => {
-                for (idx, val) in arr.iter_mut().enumerate() {
-                    let new_path = format!("{path}[{idx}]");
+                for (idx, val) in arr.iter().enumerate() {
+                    let new_path = format!("{}[{}]", path, idx);
                     let is_expandable = matches!(val, Value::Object(_) | Value::Array(_));
                     let is_expanded = self.expanded.contains(&new_path);
 
                     let display_text = if is_expandable {
-                        format!("[{idx}]: {}", if is_expanded { "[" } else { "[]" })
+                        format!("[{}]: {}", idx, if is_expanded { "[" } else { "[]" })
                     } else {
-                        format!("[{idx}]: {}", preview_value(val))
+                        format!("[{}]: {}", idx, preview_value(val))
                     };
 
                     self.rows.push(JsonRow {
@@ -209,21 +187,28 @@ impl JsonViewer {
                     }
                 }
             }
-            // Primitives are shown only when the parent is expanded
             _ => {
+                // Primitives
                 self.rows.push(JsonRow {
                     path: path.to_string(),
                     indent,
                     is_expandable: false,
                     is_expanded: false,
                     display_text: preview_value(value).to_string(),
-                    text_token: (TextToken::from(value), None),
+                    text_token: (TextToken::from(&mut value.clone()), None),
                 });
             }
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui) {
+    /// Render the JSON tree and return whether rows need to be rebuilt
+    pub fn render(
+        &mut self,
+        ui: &mut Ui,
+        selected: &mut Option<String>,
+        cache: &mut LruCache<usize, Value>,
+        _loader: &mut LazyJsonFile,
+    ) -> bool {
         let row_count = self.rows.len();
         let row_height = 20.0;
 
@@ -243,7 +228,6 @@ impl JsonViewer {
                     if let Some(row) = rows.get(row_index) {
                         let indent = row.indent;
                         let is_expandable = row.is_expandable;
-                        let is_expanded = row.is_expanded;
                         let path = row.path.clone();
                         let display = row.display_text.clone();
                         let mut parts = display.splitn(2, ':');
@@ -253,8 +237,8 @@ impl JsonViewer {
                         let mut clicked = false;
                         let mut right_clicked = false;
 
-                        // NEW: selected background
-                        let is_selected = self.selected.as_deref() == Some(path.as_str());
+                        // Selected background
+                        let is_selected = selected.as_deref() == Some(path.as_str());
                         let bg = if is_selected {
                             selected_row_bg(ui)
                         } else {
@@ -262,7 +246,6 @@ impl JsonViewer {
                         };
 
                         egui::Frame::new().fill(bg).show(ui, |ui| {
-                            // NEW: make the whole row clickable (works for expandable & leaf rows)
                             let rect = ui.max_rect();
                             let id = ui.id().with(&path);
                             let resp = ui.interact(rect, id, egui::Sense::click());
@@ -274,7 +257,7 @@ impl JsonViewer {
                                 ui.add_space(indent as f32 * 12.0);
 
                                 if is_expandable {
-                                    let toggle_icon = if is_expanded { "-" } else { "+" };
+                                    let toggle_icon = if row.is_expanded { "-" } else { "+" };
                                     if ui
                                         .selectable_label(
                                             false,
@@ -289,7 +272,7 @@ impl JsonViewer {
                                 }
 
                                 let label_resp = ui.add(egui::Label::new(
-                                    egui::RichText::new(format!(
+                                    RichText::new(format!(
                                         "{}{}",
                                         display1,
                                         if is_key_display { ":" } else { "" }
@@ -304,7 +287,7 @@ impl JsonViewer {
 
                                 if is_key_display {
                                     let key_resp = ui.add(egui::Label::new(
-                                        egui::RichText::new(display2)
+                                        RichText::new(display2)
                                             .monospace()
                                             .color(palette.color(row.text_token.1.unwrap())),
                                     ));
@@ -338,13 +321,10 @@ impl JsonViewer {
                                 }
 
                                 if ui.button("Copy Object").clicked() {
-                                    // let obj = self.copy_subtree_to_clipboard(&path, ui);
-                                    // copy_clipboard = obj;
-
                                     if let Some((root_idx, rel)) = split_root_rel(&path) {
-                                        if let Some(value) = self.check_cache(root_idx) {
+                                        if let Some(value) = cache.get(&root_idx).cloned() {
                                             copy_clipboard = get_object_string(value, rel);
-                                        };
+                                        }
                                     }
                                     ui.close();
                                 }
@@ -360,37 +340,51 @@ impl JsonViewer {
             });
 
         if let Some(sel) = new_selected {
-            self.selected = Some(sel);
+            *selected = Some(sel);
         }
 
         if let Some(text) = copy_clipboard {
             ui.output_mut(|o| o.commands.push(egui::OutputCommand::CopyText(text)));
         }
 
-        // Now mutate state once, outside the paint closure
-        if !toggles.is_empty() {
+        // Handle toggles
+        let needs_rebuild = !toggles.is_empty();
+        if needs_rebuild {
             for path in toggles {
                 if !self.expanded.insert(path.clone()) {
-                    // was already present; remove to toggle closed
                     self.expanded.remove(&path);
                 }
             }
-            self.rebuild_root_rows();
         }
+
+        needs_rebuild
+    }
+}
+
+// Implement FileFormatViewer trait for JsonTreeViewer
+impl FileFormatViewer for JsonTreeViewer {
+    fn reset(&mut self) {
+        self.expanded.clear();
+        self.rows.clear();
     }
 
-    /// Limit the viewer to a subset of root indices (search hits). Pass None to clear.
-    pub fn set_root_filter(&mut self, filter: Option<Vec<usize>>) {
-        self.visible_roots = filter.map(|mut v| {
-            v.sort_unstable();
-            v.dedup();
-            v
-        });
-        self.rebuild_root_rows();
+    fn rebuild_view(
+        &mut self,
+        visible_roots: &Option<Vec<usize>>,
+        cache: &mut LruCache<usize, Value>,
+        loader: &mut LazyJsonFile,
+        total_len: usize,
+    ) {
+        self.rebuild_rows(visible_roots, cache, loader, total_len);
     }
 
-    /// For UI badges etc.
-    pub fn current_filter_len(&self) -> Option<usize> {
-        self.visible_roots.as_ref().map(|v| v.len())
+    fn render(
+        &mut self,
+        ui: &mut Ui,
+        selected: &mut Option<String>,
+        cache: &mut LruCache<usize, Value>,
+        loader: &mut LazyJsonFile,
+    ) -> bool {
+        self.render(ui, selected, cache, loader)
     }
 }
