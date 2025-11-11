@@ -1,50 +1,62 @@
 # Keyboard Shortcuts
 
-Thoth supports comprehensive keyboard shortcuts for efficient navigation and operation. All shortcuts are customizable through the settings file.
+Thoth supports keyboard shortcuts for efficient navigation and operation. All shortcuts are customizable through the settings file.
+
+## Implementation Status
+
+✅ **Fully Implemented** - Working in current version
+🚧 **Partially Implemented** - Configured but needs UI integration
+📋 **Planned** - Defined for future implementation
 
 ## Default Shortcuts
 
-### File Operations
+### File Operations ✅
 
-| Action | macOS | Windows/Linux | Description |
-|--------|-------|---------------|-------------|
-| Open File | `⌘O` | `Ctrl+O` | Open a JSON or NDJSON file |
-| Clear File | `⌘W` | `Ctrl+W` | Close the current file |
-| New Window | `⌘N` | `Ctrl+N` | Open a new Thoth window |
+| Action     | macOS | Windows/Linux | Description                | Status     |
+| ---------- | ----- | ------------- | -------------------------- | ---------- |
+| Open File  | `⌘O`  | `Ctrl+O`      | Open a JSON or NDJSON file | ✅ Working |
+| Clear File | `⌘W`  | `Ctrl+W`      | Close the current file     | ✅ Working |
+| New Window | `⌘N`  | `Ctrl+N`      | Open a new Thoth window    | ✅ Working |
 
-### Navigation
+### UI Controls ✅
 
-| Action | macOS | Windows/Linux | Description |
-|--------|-------|---------------|-------------|
-| Focus Search | `⌘F` | `Ctrl+F` | Focus the search input |
-| Next Match | `⌘G` | `Ctrl+G` | Jump to next search match |
-| Previous Match | `⌘⇧G` | `Ctrl+Shift+G` | Jump to previous search match |
-| Escape | `Esc` | `Esc` | Clear search or close panels |
+| Action       | macOS | Windows/Linux  | Description                     | Status     |
+| ------------ | ----- | -------------- | ------------------------------- | ---------- |
+| Settings     | `⌘,`  | `Ctrl+,`       | Open/close settings panel       | ✅ Working |
+| Toggle Theme | `⌘⇧T` | `Ctrl+Shift+T` | Switch between dark/light theme | ✅ Working |
+| Escape       | `Esc` | `Esc`          | Close settings panel            | ✅ Working |
 
-### Tree Operations
+### Navigation 🚧
 
-| Action | Shortcut | Description |
-|--------|----------|-------------|
-| Expand Node | `→` | Expand the selected node |
-| Collapse Node | `←` | Collapse the selected node |
-| Expand All | `⌘→` / `Ctrl+→` | Expand all child nodes |
-| Collapse All | `⌘←` / `Ctrl+←` | Collapse all child nodes |
+| Action         | macOS | Windows/Linux  | Description                   | Status  |
+| -------------- | ----- | -------------- | ----------------------------- | ------- |
+| Focus Search   | `⌘F`  | `Ctrl+F`       | Focus the search input        | 🚧 TODO |
+| Next Match     | `⌘G`  | `Ctrl+G`       | Jump to next search match     | 🚧 TODO |
+| Previous Match | `⌘⇧G` | `Ctrl+Shift+G` | Jump to previous search match | 🚧 TODO |
 
-### Clipboard
+**Note**: Navigation shortcuts are configured but require search box focus management implementation.
 
-| Action | macOS | Windows/Linux | Description |
-|--------|-------|---------------|-------------|
-| Copy Key | `⌘C` | `Ctrl+C` | Copy the selected key |
-| Copy Value | `⌘⇧C` | `Ctrl+Shift+C` | Copy the selected value |
-| Copy Object | `⌘⌥C` | `Ctrl+Alt+C` | Copy entire JSON object |
-| Copy Path | `⌘⇧P` | `Ctrl+Shift+P` | Copy the JSON path |
+### Tree Operations 📋
 
-### UI
+| Action        | Shortcut        | Description                | Status     |
+| ------------- | --------------- | -------------------------- | ---------- |
+| Expand Node   | `→`             | Expand the selected node   | 📋 Planned |
+| Collapse Node | `←`             | Collapse the selected node | 📋 Planned |
+| Expand All    | `⌘→` / `Ctrl+→` | Expand all child nodes     | 📋 Planned |
+| Collapse All  | `⌘←` / `Ctrl+←` | Collapse all child nodes   | 📋 Planned |
 
-| Action | macOS | Windows/Linux | Description |
-|--------|-------|---------------|-------------|
-| Settings | `⌘,` | `Ctrl+,` | Open settings panel |
-| Toggle Theme | `⌘⇧T` | `Ctrl+Shift+T` | Switch between dark/light theme |
+**Note**: Tree operations require JSON viewer keyboard navigation integration.
+
+### Clipboard Operations 📋
+
+| Action      | macOS | Windows/Linux  | Description             | Status     |
+| ----------- | ----- | -------------- | ----------------------- | ---------- |
+| Copy Key    | `⌘C`  | `Ctrl+C`       | Copy the selected key   | 📋 Planned |
+| Copy Value  | `⌘⇧C` | `Ctrl+Shift+C` | Copy the selected value | 📋 Planned |
+| Copy Object | `⌘⌥C` | `Ctrl+Alt+C`   | Copy entire JSON object | 📋 Planned |
+| Copy Path   | `⌘⇧P` | `Ctrl+Shift+P` | Copy the JSON path      | 📋 Planned |
+
+**Note**: Clipboard operations require JSON viewer selection state integration. Currently available via right-click context menu.
 
 ## Customizing Shortcuts
 
@@ -96,11 +108,13 @@ copy_path = { key = "P", ctrl = false, alt = false, shift = true, command = true
 **Numbers**: `0` through `9`
 
 **Special Keys**:
+
 - `Escape`, `Enter`, `Tab`, `Space`, `Backspace`, `Delete`
 - `ArrowLeft`, `ArrowRight`, `ArrowUp`, `ArrowDown`
 - `F1` through `F12`
 
 **Punctuation**:
+
 - `Comma` (,), `Period` (.), `Slash` (/), `Backslash` (\)
 - `Semicolon` (;), `Quote` ('), `Backtick` (\`)
 - `Minus` (-), `Equal` (=)
@@ -109,18 +123,21 @@ copy_path = { key = "P", ctrl = false, alt = false, shift = true, command = true
 ### Example Customizations
 
 #### Use Vim-style navigation
+
 ```toml
 expand_node = { key = "L", ctrl = false, alt = false, shift = false, command = false }
 collapse_node = { key = "H", ctrl = false, alt = false, shift = false, command = false }
 ```
 
 #### Use F-keys for common actions
+
 ```toml
 open_file = { key = "F1", ctrl = false, alt = false, shift = false, command = false }
 settings = { key = "F2", ctrl = false, alt = false, shift = false, command = false }
 ```
 
 #### Alternative search shortcuts
+
 ```toml
 focus_search = { key = "S", ctrl = false, alt = false, shift = false, command = true }
 next_match = { key = "N", ctrl = false, alt = false, shift = false, command = true }
@@ -150,6 +167,7 @@ The keyboard shortcut system is built using native egui functionality with zero 
 ### Cross-Platform Support
 
 The system uses `egui::Modifiers::COMMAND` which automatically maps to:
+
 - **⌘ (Command)** on macOS
 - **Ctrl** on Windows and Linux
 
@@ -160,6 +178,7 @@ This ensures shortcuts feel native on each platform while using a single configu
 To add a new keyboard shortcut:
 
 1. Add the shortcut to `KeyboardShortcuts` in `src/shortcuts.rs`:
+
 ```rust
 pub struct KeyboardShortcuts {
     // ... existing shortcuts ...
@@ -177,6 +196,7 @@ impl Default for KeyboardShortcuts {
 ```
 
 2. Add the action to `ShortcutAction` in `src/app/shortcut_handler.rs`:
+
 ```rust
 pub enum ShortcutAction {
     // ... existing actions ...
@@ -185,6 +205,7 @@ pub enum ShortcutAction {
 ```
 
 3. Add detection in `ShortcutHandler::handle_shortcuts()`:
+
 ```rust
 if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.my_new_shortcut.to_keyboard_shortcut())) {
     actions.push(ShortcutAction::MyNewAction);
@@ -192,6 +213,7 @@ if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.my_new_shortcut.to_keyboard_s
 ```
 
 4. Handle the action in `ThothApp::handle_shortcut_actions()`:
+
 ```rust
 ShortcutAction::MyNewAction => {
     // Your action implementation
