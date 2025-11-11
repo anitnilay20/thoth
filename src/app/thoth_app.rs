@@ -2,7 +2,10 @@ use eframe::{App, Frame, egui};
 
 use crate::{components, settings, state};
 
-use super::{search_handler::SearchHandler, update_handler::UpdateHandler};
+use super::{
+    ShortcutAction, search_handler::SearchHandler, shortcut_handler::ShortcutHandler,
+    update_handler::UpdateHandler,
+};
 
 pub struct ThothApp {
     // Settings for this window
@@ -52,6 +55,10 @@ impl ThothApp {
 
 impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // Handle keyboard shortcuts
+        let shortcut_actions = ShortcutHandler::handle_shortcuts(ctx, &self.settings.shortcuts);
+        self.handle_shortcut_actions(shortcut_actions);
+
         // Check for updates based on settings
         if UpdateHandler::should_check_updates(&self.update_state, &self.settings) {
             UpdateHandler::check_for_updates(&mut self.update_state);
@@ -103,6 +110,68 @@ impl App for ThothApp {
 }
 
 impl ThothApp {
+    /// Handle keyboard shortcut actions
+    fn handle_shortcut_actions(&mut self, actions: Vec<ShortcutAction>) {
+        use rfd::FileDialog;
+
+        for action in actions {
+            match action {
+                ShortcutAction::OpenFile => {
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("JSON", &["json", "ndjson"])
+                        .pick_file()
+                    {
+                        self.window_state.file_path = Some(path);
+                        self.window_state.error = None;
+                    }
+                }
+                ShortcutAction::ClearFile => {
+                    self.window_state.file_path = None;
+                    self.window_state.error = None;
+                }
+                ShortcutAction::NewWindow => {
+                    self.create_new_window();
+                }
+                ShortcutAction::Settings => {
+                    self.settings_panel.show = !self.settings_panel.show;
+                }
+                ShortcutAction::ToggleTheme => {
+                    self.settings.dark_mode = !self.settings.dark_mode;
+                }
+                // Navigation shortcuts - handled by JSON viewer or search
+                ShortcutAction::FocusSearch => {
+                    // TODO: Implement search focus
+                }
+                ShortcutAction::NextMatch => {
+                    // TODO: Implement next match navigation
+                }
+                ShortcutAction::PrevMatch => {
+                    // TODO: Implement previous match navigation
+                }
+                ShortcutAction::Escape => {
+                    // Clear search or close panels
+                    if self.settings_panel.show {
+                        self.settings_panel.show = false;
+                    }
+                }
+                // Tree operations - will be handled by JSON viewer
+                ShortcutAction::ExpandNode
+                | ShortcutAction::CollapseNode
+                | ShortcutAction::ExpandAll
+                | ShortcutAction::CollapseAll => {
+                    // TODO: Pass to JSON viewer
+                }
+                // Clipboard operations - will be handled by JSON viewer
+                ShortcutAction::CopyKey
+                | ShortcutAction::CopyValue
+                | ShortcutAction::CopyObject
+                | ShortcutAction::CopyPath => {
+                    // TODO: Pass to JSON viewer
+                }
+            }
+        }
+    }
+
     /// Update window title based on current file
     fn update_window_title(&self, ctx: &egui::Context) {
         let title = if let Some(path) = &self.window_state.file_path {
@@ -133,6 +202,7 @@ impl ThothApp {
                 show_settings: &mut self.settings_panel.show,
                 update_available,
                 new_window_requested: &mut new_window_requested,
+                shortcuts: &self.settings.shortcuts,
             },
         );
 
