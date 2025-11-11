@@ -53,4 +53,89 @@ pub trait FileFormatViewer {
         cache: &mut LruCache<usize, Value>,
         loader: &mut LazyJsonFile,
     ) -> bool;
+
+    // ========================================================================
+    // Navigation & Tree Operations (for keyboard shortcuts)
+    // ========================================================================
+
+    /// Expand the currently selected node
+    /// Returns true if a rebuild is needed
+    fn expand_selected(&mut self, selected: &Option<String>) -> bool {
+        let _ = selected;
+        false // Default: no-op
+    }
+
+    /// Collapse the currently selected node
+    /// Returns true if a rebuild is needed
+    fn collapse_selected(&mut self, selected: &Option<String>) -> bool {
+        let _ = selected;
+        false // Default: no-op
+    }
+
+    /// Expand all nodes in the tree
+    /// Returns true if a rebuild is needed
+    fn expand_all(&mut self) -> bool {
+        false // Default: no-op
+    }
+
+    /// Collapse all nodes in the tree
+    /// Returns true if a rebuild is needed
+    fn collapse_all(&mut self) -> bool {
+        false // Default: no-op
+    }
+
+    /// Move selection up to previous visible item
+    /// Returns the new selection path, or None if can't move up
+    fn move_selection_up(&self, current: &Option<String>) -> Option<String> {
+        let _ = current;
+        None // Default: no-op
+    }
+
+    /// Move selection down to next visible item
+    /// Returns the new selection path, or None if can't move down
+    fn move_selection_down(&self, current: &Option<String>) -> Option<String> {
+        let _ = current;
+        None // Default: no-op
+    }
+
+    // ========================================================================
+    // Clipboard Operations (for keyboard shortcuts)
+    // ========================================================================
+
+    /// Copy the key of the currently selected item to clipboard
+    /// Returns the text to copy, or None if not applicable
+    fn copy_selected_key(&self, selected: &Option<String>) -> Option<String> {
+        let _ = selected;
+        None // Default: no-op
+    }
+
+    /// Copy the value of the currently selected item to clipboard
+    /// Returns the text to copy, or None if not applicable
+    fn copy_selected_value(
+        &self,
+        selected: &Option<String>,
+        cache: &mut LruCache<usize, Value>,
+        loader: &mut LazyJsonFile,
+    ) -> Option<String> {
+        let _ = (selected, cache, loader);
+        None // Default: no-op
+    }
+
+    /// Copy the entire object of the currently selected item to clipboard (formatted JSON)
+    /// Returns the text to copy, or None if not applicable
+    fn copy_selected_object(
+        &self,
+        selected: &Option<String>,
+        cache: &mut LruCache<usize, Value>,
+        loader: &mut LazyJsonFile,
+    ) -> Option<String> {
+        let _ = (selected, cache, loader);
+        None // Default: no-op
+    }
+
+    /// Copy the path of the currently selected item to clipboard
+    /// Returns the text to copy, or None if not applicable
+    fn copy_selected_path(&self, selected: &Option<String>) -> Option<String> {
+        selected.clone() // Default: return the path itself
+    }
 }

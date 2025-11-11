@@ -122,6 +122,166 @@ impl FileViewer {
     pub fn current_filter_len(&self) -> Option<usize> {
         self.state.visible_roots.as_ref().map(|v| v.len())
     }
+
+    // ========================================================================
+    // Keyboard Shortcut Support - Navigation & Tree Operations
+    // ========================================================================
+
+    /// Expand the currently selected node (for keyboard shortcuts)
+    /// Returns true if view needs to be rebuilt
+    pub fn expand_selected_node(&mut self) -> bool {
+        if let Some(viewer) = self.viewer.as_mut() {
+            let result = viewer.as_viewer_mut().expand_selected(&self.state.selected);
+            if result && self.loader.is_some() {
+                // Rebuild if needed
+                let loader = self.loader.as_mut().unwrap();
+                let total_len = loader.len();
+                viewer.as_viewer_mut().rebuild_view(
+                    &self.state.visible_roots,
+                    &mut self.cache,
+                    loader,
+                    total_len,
+                );
+            }
+            return result;
+        }
+        false
+    }
+
+    /// Collapse the currently selected node (for keyboard shortcuts)
+    /// Returns true if view needs to be rebuilt
+    pub fn collapse_selected_node(&mut self) -> bool {
+        if let Some(viewer) = self.viewer.as_mut() {
+            let result = viewer
+                .as_viewer_mut()
+                .collapse_selected(&self.state.selected);
+            if result && self.loader.is_some() {
+                // Rebuild if needed
+                let loader = self.loader.as_mut().unwrap();
+                let total_len = loader.len();
+                viewer.as_viewer_mut().rebuild_view(
+                    &self.state.visible_roots,
+                    &mut self.cache,
+                    loader,
+                    total_len,
+                );
+            }
+            return result;
+        }
+        false
+    }
+
+    /// Expand all nodes in the tree (for keyboard shortcuts)
+    pub fn expand_all_nodes(&mut self) -> bool {
+        if let Some(viewer) = self.viewer.as_mut() {
+            let result = viewer.as_viewer_mut().expand_all();
+            if result && self.loader.is_some() {
+                // Rebuild if needed
+                let loader = self.loader.as_mut().unwrap();
+                let total_len = loader.len();
+                viewer.as_viewer_mut().rebuild_view(
+                    &self.state.visible_roots,
+                    &mut self.cache,
+                    loader,
+                    total_len,
+                );
+            }
+            return result;
+        }
+        false
+    }
+
+    /// Collapse all nodes in the tree (for keyboard shortcuts)
+    pub fn collapse_all_nodes(&mut self) -> bool {
+        if let Some(viewer) = self.viewer.as_mut() {
+            let result = viewer.as_viewer_mut().collapse_all();
+            if result && self.loader.is_some() {
+                // Rebuild if needed
+                let loader = self.loader.as_mut().unwrap();
+                let total_len = loader.len();
+                viewer.as_viewer_mut().rebuild_view(
+                    &self.state.visible_roots,
+                    &mut self.cache,
+                    loader,
+                    total_len,
+                );
+            }
+            return result;
+        }
+        false
+    }
+
+    /// Move selection up to previous item (for keyboard shortcuts)
+    pub fn move_selection_up(&mut self) {
+        if let Some(viewer) = self.viewer.as_mut() {
+            if let Some(new_selection) = viewer
+                .as_viewer_mut()
+                .move_selection_up(&self.state.selected)
+            {
+                self.state.selected = Some(new_selection);
+            }
+        }
+    }
+
+    /// Move selection down to next item (for keyboard shortcuts)
+    pub fn move_selection_down(&mut self) {
+        if let Some(viewer) = self.viewer.as_mut() {
+            if let Some(new_selection) = viewer
+                .as_viewer_mut()
+                .move_selection_down(&self.state.selected)
+            {
+                self.state.selected = Some(new_selection);
+            }
+        }
+    }
+
+    // ========================================================================
+    // Keyboard Shortcut Support - Clipboard Operations
+    // ========================================================================
+
+    /// Copy the key of the currently selected item (for keyboard shortcuts)
+    /// Returns the text to copy, or None
+    pub fn copy_selected_key(&mut self) -> Option<String> {
+        self.viewer
+            .as_mut()?
+            .as_viewer_mut()
+            .copy_selected_key(&self.state.selected)
+    }
+
+    /// Copy the value of the currently selected item (for keyboard shortcuts)
+    /// Returns the text to copy, or None
+    pub fn copy_selected_value(&mut self) -> Option<String> {
+        if let (Some(viewer), Some(loader)) = (self.viewer.as_mut(), self.loader.as_mut()) {
+            return viewer.as_viewer_mut().copy_selected_value(
+                &self.state.selected,
+                &mut self.cache,
+                loader,
+            );
+        }
+        None
+    }
+
+    /// Copy the entire object of the currently selected item (for keyboard shortcuts)
+    /// Returns the text to copy (formatted JSON), or None
+    pub fn copy_selected_object(&mut self) -> Option<String> {
+        if let (Some(viewer), Some(loader)) = (self.viewer.as_mut(), self.loader.as_mut()) {
+            return viewer.as_viewer_mut().copy_selected_object(
+                &self.state.selected,
+                &mut self.cache,
+                loader,
+            );
+        }
+        None
+    }
+
+    /// Copy the path of the currently selected item (for keyboard shortcuts)
+    /// Returns the text to copy, or None
+    pub fn copy_selected_path(&mut self) -> Option<String> {
+        self.viewer
+            .as_mut()?
+            .as_viewer_mut()
+            .copy_selected_path(&self.state.selected)
+    }
 }
 
 impl Default for FileViewer {

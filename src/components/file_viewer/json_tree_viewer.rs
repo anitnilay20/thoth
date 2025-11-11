@@ -387,4 +387,159 @@ impl FileFormatViewer for JsonTreeViewer {
     ) -> bool {
         self.render(ui, selected, cache, loader)
     }
+
+    // ========================================================================
+    // Navigation & Tree Operations
+    // ========================================================================
+
+    fn expand_selected(&mut self, selected: &Option<String>) -> bool {
+        if let Some(path) = selected {
+            // Insert returns false if already present
+            if self.expanded.insert(path.clone()) {
+                return true; // Need rebuild
+            }
+        }
+        false
+    }
+
+    fn collapse_selected(&mut self, selected: &Option<String>) -> bool {
+        if let Some(path) = selected {
+            // Remove returns true if was present
+            if self.expanded.remove(path) {
+                return true; // Need rebuild
+            }
+        }
+        false
+    }
+
+    fn expand_all(&mut self) -> bool {
+        // Expand all expandable rows
+        let paths_to_expand: Vec<String> = self
+            .rows
+            .iter()
+            .filter(|row| row.is_expandable && !row.is_expanded)
+            .map(|row| row.path.clone())
+            .collect();
+
+        if !paths_to_expand.is_empty() {
+            for path in paths_to_expand {
+                self.expanded.insert(path);
+            }
+            return true; // Need rebuild
+        }
+        false
+    }
+
+    fn collapse_all(&mut self) -> bool {
+        if !self.expanded.is_empty() {
+            self.expanded.clear();
+            return true; // Need rebuild
+        }
+        false
+    }
+
+    fn move_selection_up(&self, current: &Option<String>) -> Option<String> {
+        if self.rows.is_empty() {
+            return None;
+        }
+
+        if let Some(current_path) = current {
+            // Find current index
+            if let Some(idx) = self.rows.iter().position(|r| r.path == *current_path) {
+                if idx > 0 {
+                    // Move to previous row
+                    return Some(self.rows[idx - 1].path.clone());
+                }
+            }
+        } else {
+            // No selection, select last item
+            return Some(self.rows.last()?.path.clone());
+        }
+        None
+    }
+
+    fn move_selection_down(&self, current: &Option<String>) -> Option<String> {
+        if self.rows.is_empty() {
+            return None;
+        }
+
+        if let Some(current_path) = current {
+            // Find current index
+            if let Some(idx) = self.rows.iter().position(|r| r.path == *current_path) {
+                if idx < self.rows.len() - 1 {
+                    // Move to next row
+                    return Some(self.rows[idx + 1].path.clone());
+                }
+            }
+        } else {
+            // No selection, select first item
+            return Some(self.rows.first()?.path.clone());
+        }
+        None
+    }
+
+    // ========================================================================
+    // Clipboard Operations
+    // ========================================================================
+
+    fn copy_selected_key(&self, selected: &Option<String>) -> Option<String> {
+        if let Some(path) = selected {
+            // Extract the key from the path (last segment)
+            let split = path.split_inclusive('.').next_back()?;
+            return Some(split.to_string());
+        }
+        None
+    }
+
+    fn copy_selected_value(
+        &self,
+        selected: &Option<String>,
+        cache: &mut LruCache<usize, Value>,
+        loader: &mut LazyJsonFile,
+    ) -> Option<String> {
+        if let Some(path) = selected {
+            // Find the row to get display text
+            if let Some(row) = self.rows.iter().find(|r| r.path == *path) {
+                // Parse display text to extract value part
+                let parts: Vec<&str> = row.display_text.splitn(2, ':').collect();
+                if parts.len() == 2 {
+                    return Some(parts[1].trim().to_string());
+                }
+            }
+        }
+        let _ = (cache, loader); // Suppress unused warnings for now
+        None
+    }
+
+    fn copy_selected_object(
+        &self,
+        selected: &Option<String>,
+        cache: &mut LruCache<usize, Value>,
+        loader: &mut LazyJsonFile,
+    ) -> Option<String> {
+        if let Some(path) = selected {
+            if let Some((root_idx, rel)) = split_root_rel(path) {
+                // Try to get from cache first
+                let value = if let Some(v) = cache.get(&root_idx) {
+                    v.clone()
+                } else {
+                    // Load from file
+                    match loader.get(root_idx) {
+                        Ok(v) => {
+                            cache.put(root_idx, v.clone());
+                            v
+                        }
+                        Err(_) => return None,
+                    }
+                };
+
+                return get_object_string(value, rel);
+            }
+        }
+        None
+    }
+
+    fn copy_selected_path(&self, selected: &Option<String>) -> Option<String> {
+        selected.clone()
+    }
 }
