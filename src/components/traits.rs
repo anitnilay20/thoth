@@ -14,19 +14,6 @@ pub trait StatelessComponent {
     fn render(ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output;
 }
 
-/// Trait for stateful UI components
-///
-/// Stateful components maintain internal state that persists between renders.
-/// They manage their own state and update it during rendering.
-///
-/// Example: Text inputs, counters, expandable sections, file viewers
-pub trait StatefulComponent {
-    type Output;
-
-    /// Render the component and return any output
-    fn render(&mut self, ui: &mut egui::Ui) -> Self::Output;
-}
-
 /// Trait for context-level components (panels)
 ///
 /// Context components need access to the full egui::Context to create
