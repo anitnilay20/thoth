@@ -5,13 +5,13 @@ use eframe::egui;
 /// Stateless components are pure functions of their inputs.
 /// They don't maintain any internal state between renders.
 ///
-/// Example: Simple buttons, labels, icons
+/// Example: Simple buttons, labels, icons, row renderers
 pub trait StatelessComponent {
-    type Props;
+    type Props<'a>;
     type Output;
 
     /// Render the component with the given properties
-    fn render(ui: &mut egui::Ui, props: Self::Props) -> Self::Output;
+    fn render(ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output;
 }
 
 /// Trait for stateful UI components
