@@ -11,6 +11,7 @@ mod file;
 mod helpers;
 mod search;
 mod settings;
+mod shortcuts;
 mod state;
 mod theme;
 mod update;

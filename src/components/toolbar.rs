@@ -3,13 +3,14 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 use rfd::FileDialog;
 
-use crate::{file::lazy_loader::FileType, search::SearchMessage};
+use crate::{file::lazy_loader::FileType, search::SearchMessage, shortcuts::KeyboardShortcuts};
 
 #[derive(Default)]
 pub struct Toolbar {
     pub previous_file_type: FileType,
     search_query: String,
     match_case: bool,
+    pub request_search_focus: bool,
 }
 
 pub struct ToolbarState<'a> {
@@ -20,6 +21,7 @@ pub struct ToolbarState<'a> {
     pub show_settings: &'a mut bool,
     pub update_available: bool,
     pub new_window_requested: &'a mut bool,
+    pub shortcuts: &'a KeyboardShortcuts,
 }
 
 impl Toolbar {
@@ -30,7 +32,14 @@ impl Toolbar {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 // File actions
-                if ui.button("📂 Open").clicked() {
+                if ui
+                    .button("📂 Open")
+                    .on_hover_text(format!(
+                        "Open file ({})",
+                        state.shortcuts.open_file.format()
+                    ))
+                    .clicked()
+                {
                     if let Some(path) = FileDialog::new()
                         .add_filter("JSON", &["json", "ndjson"])
                         .pick_file()
@@ -42,12 +51,26 @@ impl Toolbar {
                     }
                 }
 
-                if ui.button("✖ Clear").clicked() {
+                if ui
+                    .button("✖ Clear")
+                    .on_hover_text(format!(
+                        "Clear file ({})",
+                        state.shortcuts.clear_file.format()
+                    ))
+                    .clicked()
+                {
                     *state.file_path = None;
                     *state.error = None;
                 }
 
-                if ui.button("🪟 New Window").clicked() {
+                if ui
+                    .button("🪟 New Window")
+                    .on_hover_text(format!(
+                        "New window ({})",
+                        state.shortcuts.new_window.format()
+                    ))
+                    .clicked()
+                {
                     *state.new_window_requested = true;
                 }
 
@@ -68,7 +91,9 @@ impl Toolbar {
                 // Spacer to push right-side items to the right
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Settings button (rightmost) with update notification badge
-                    let settings_response = ui.add(egui::Button::new("⚙"));
+                    let settings_response = ui
+                        .add(egui::Button::new("⚙"))
+                        .on_hover_text(format!("Settings ({})", state.shortcuts.settings.format()));
 
                     // Draw notification badge if update available
                     if state.update_available {
@@ -98,7 +123,11 @@ impl Toolbar {
                     ui.separator();
 
                     // Dark mode toggle
-                    ui.checkbox(state.dark_mode, "🌙");
+                    let theme_response = ui.checkbox(state.dark_mode, "🌙");
+                    theme_response.on_hover_text(format!(
+                        "Toggle theme ({})",
+                        state.shortcuts.toggle_theme.format()
+                    ));
                 });
             });
         });
@@ -113,6 +142,12 @@ impl Toolbar {
                         .desired_width(300.0)
                         .hint_text("Enter search term..."),
                 );
+
+                // Request focus if needed
+                if self.request_search_focus {
+                    text_box_response.request_focus();
+                    self.request_search_focus = false;
+                }
 
                 ui.checkbox(&mut self.match_case, "Match Case");
 

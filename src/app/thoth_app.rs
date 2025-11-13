@@ -2,7 +2,10 @@ use eframe::{App, Frame, egui};
 
 use crate::{components, settings, state};
 
-use super::{search_handler::SearchHandler, update_handler::UpdateHandler};
+use super::{
+    ShortcutAction, search_handler::SearchHandler, shortcut_handler::ShortcutHandler,
+    update_handler::UpdateHandler,
+};
 
 pub struct ThothApp {
     // Settings for this window
@@ -16,6 +19,9 @@ pub struct ThothApp {
 
     // Settings panel (UI)
     pub settings_panel: components::settings_panel::SettingsPanel,
+
+    // Clipboard text to copy (set by shortcuts, copied in update loop)
+    clipboard_text: Option<String>,
 }
 
 impl ThothApp {
@@ -26,6 +32,7 @@ impl ThothApp {
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
             settings_panel: components::settings_panel::SettingsPanel::default(),
+            clipboard_text: None,
         }
     }
 
@@ -52,6 +59,15 @@ impl ThothApp {
 
 impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // Handle keyboard shortcuts
+        let shortcut_actions = ShortcutHandler::handle_shortcuts(ctx, &self.settings.shortcuts);
+        self.handle_shortcut_actions(ctx, shortcut_actions);
+
+        // Handle clipboard operations
+        if let Some(text) = self.clipboard_text.take() {
+            ctx.copy_text(text);
+        }
+
         // Check for updates based on settings
         if UpdateHandler::should_check_updates(&self.update_state, &self.settings) {
             UpdateHandler::check_for_updates(&mut self.update_state);
@@ -103,6 +119,102 @@ impl App for ThothApp {
 }
 
 impl ThothApp {
+    /// Handle keyboard shortcut actions
+    fn handle_shortcut_actions(&mut self, ctx: &egui::Context, actions: Vec<ShortcutAction>) {
+        use rfd::FileDialog;
+
+        for action in actions {
+            match action {
+                ShortcutAction::OpenFile => {
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("JSON", &["json", "ndjson"])
+                        .pick_file()
+                    {
+                        self.window_state.file_path = Some(path);
+                        self.window_state.error = None;
+                    }
+                }
+                ShortcutAction::ClearFile => {
+                    if self.window_state.file_path.is_some() {
+                        // If a file is open, clear it
+                        self.window_state.file_path = None;
+                        self.window_state.error = None;
+                    } else {
+                        // If no file is open, close the window using egui's proper mechanism
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                }
+                ShortcutAction::NewWindow => {
+                    self.create_new_window();
+                }
+                ShortcutAction::Settings => {
+                    self.settings_panel.show = !self.settings_panel.show;
+                }
+                ShortcutAction::ToggleTheme => {
+                    self.settings.dark_mode = !self.settings.dark_mode;
+                }
+                // Navigation shortcuts - handled by JSON viewer or search
+                ShortcutAction::FocusSearch => {
+                    // Request focus on search box
+                    self.window_state.toolbar.request_search_focus = true;
+                }
+                ShortcutAction::NextMatch => {
+                    // TODO: Implement next match navigation
+                }
+                ShortcutAction::PrevMatch => {
+                    // TODO: Implement previous match navigation
+                }
+                ShortcutAction::Escape => {
+                    // Clear search or close panels
+                    if self.settings_panel.show {
+                        self.settings_panel.show = false;
+                    }
+                }
+                // Tree operations
+                ShortcutAction::ExpandNode => {
+                    self.window_state.central_panel.expand_selected_node();
+                }
+                ShortcutAction::CollapseNode => {
+                    self.window_state.central_panel.collapse_selected_node();
+                }
+                ShortcutAction::ExpandAll => {
+                    self.window_state.central_panel.expand_all_nodes();
+                }
+                ShortcutAction::CollapseAll => {
+                    self.window_state.central_panel.collapse_all_nodes();
+                }
+                // Movement operations
+                ShortcutAction::MoveUp => {
+                    self.window_state.central_panel.move_selection_up();
+                }
+                ShortcutAction::MoveDown => {
+                    self.window_state.central_panel.move_selection_down();
+                }
+                // Clipboard operations
+                ShortcutAction::CopyKey => {
+                    if let Some(text) = self.window_state.central_panel.copy_selected_key() {
+                        self.clipboard_text = Some(text);
+                    }
+                }
+                ShortcutAction::CopyValue => {
+                    if let Some(text) = self.window_state.central_panel.copy_selected_value() {
+                        self.clipboard_text = Some(text);
+                    }
+                }
+                ShortcutAction::CopyObject => {
+                    if let Some(text) = self.window_state.central_panel.copy_selected_object() {
+                        self.clipboard_text = Some(text);
+                    }
+                }
+                ShortcutAction::CopyPath => {
+                    if let Some(text) = self.window_state.central_panel.copy_selected_path() {
+                        self.clipboard_text = Some(text);
+                    }
+                }
+            }
+        }
+    }
+
     /// Update window title based on current file
     fn update_window_title(&self, ctx: &egui::Context) {
         let title = if let Some(path) = &self.window_state.file_path {
@@ -133,6 +245,7 @@ impl ThothApp {
                 show_settings: &mut self.settings_panel.show,
                 update_available,
                 new_window_requested: &mut new_window_requested,
+                shortcuts: &self.settings.shortcuts,
             },
         );
 
