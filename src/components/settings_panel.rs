@@ -25,7 +25,7 @@ pub struct SettingsPanelOutput {
 }
 
 #[derive(Default)]
-pub struct SettingsPanel {}
+pub struct SettingsPanel;
 
 impl ContextComponent for SettingsPanel {
     type Props<'a> = SettingsPanelProps<'a>;
@@ -244,6 +244,7 @@ impl SettingsPanel {
                 ui.add_space(3.0);
 
                 egui::ScrollArea::vertical()
+                    .id_salt(format!("changelog_{}", release.tag_name))
                     .max_height(200.0)
                     .show(ui, |ui| {
                         ui.label(&release.body);
