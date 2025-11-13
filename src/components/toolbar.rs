@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 use rfd::FileDialog;
 
-use crate::{file::lazy_loader::FileType, search::SearchMessage, shortcuts::KeyboardShortcuts};
+use crate::{
+    components::traits::ContextComponent, file::lazy_loader::FileType, search::SearchMessage,
+    shortcuts::KeyboardShortcuts,
+};
 
 #[derive(Default)]
 pub struct Toolbar {
@@ -13,19 +16,51 @@ pub struct Toolbar {
     pub request_search_focus: bool,
 }
 
-pub struct ToolbarState<'a> {
-    pub file_path: &'a mut Option<PathBuf>,
-    pub file_type: &'a mut FileType,
-    pub error: &'a mut Option<String>,
-    pub dark_mode: &'a mut bool,
-    pub show_settings: &'a mut bool,
+/// Props passed down to the Toolbar (immutable, one-way binding)
+pub struct ToolbarProps<'a> {
+    pub file_type: &'a FileType,
+    pub dark_mode: bool,
     pub update_available: bool,
-    pub new_window_requested: &'a mut bool,
     pub shortcuts: &'a KeyboardShortcuts,
 }
 
+/// Events emitted by the toolbar (bottom-to-top communication)
+pub enum ToolbarEvent {
+    FileOpen { path: PathBuf, file_type: FileType },
+    FileClear,
+    NewWindow,
+    FileTypeChange(FileType),
+    ToggleSettings,
+    ToggleTheme,
+}
+
+pub struct ToolbarOutput {
+    pub search_message: Option<SearchMessage>,
+    pub events: Vec<ToolbarEvent>,
+}
+
+impl ContextComponent for Toolbar {
+    type Props<'a> = ToolbarProps<'a>;
+    type Output = ToolbarOutput;
+
+    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+        let mut events = Vec::new();
+        let search_message = self.render_ui(ctx, props, &mut events);
+
+        ToolbarOutput {
+            search_message,
+            events,
+        }
+    }
+}
+
 impl Toolbar {
-    pub fn ui(&mut self, ctx: &egui::Context, state: &mut ToolbarState) -> Option<SearchMessage> {
+    fn render_ui(
+        &mut self,
+        ctx: &egui::Context,
+        props: ToolbarProps<'_>,
+        events: &mut Vec<ToolbarEvent>,
+    ) -> Option<SearchMessage> {
         let mut search_message = None;
 
         // Top bar with essential actions
@@ -36,7 +71,7 @@ impl Toolbar {
                     .button("📂 Open")
                     .on_hover_text(format!(
                         "Open file ({})",
-                        state.shortcuts.open_file.format()
+                        props.shortcuts.open_file.format()
                     ))
                     .clicked()
                 {
@@ -44,10 +79,9 @@ impl Toolbar {
                         .add_filter("JSON", &["json", "ndjson"])
                         .pick_file()
                     {
-                        *state.file_type = infer_file_type(&path).unwrap_or(*state.file_type);
-                        *state.file_path = Some(path);
-                        *state.error = None;
-                        self.previous_file_type = *state.file_type;
+                        let file_type = infer_file_type(&path).unwrap_or(*props.file_type);
+                        events.push(ToolbarEvent::FileOpen { path, file_type });
+                        self.previous_file_type = file_type;
                     }
                 }
 
@@ -55,37 +89,40 @@ impl Toolbar {
                     .button("✖ Clear")
                     .on_hover_text(format!(
                         "Clear file ({})",
-                        state.shortcuts.clear_file.format()
+                        props.shortcuts.clear_file.format()
                     ))
                     .clicked()
                 {
-                    *state.file_path = None;
-                    *state.error = None;
+                    events.push(ToolbarEvent::FileClear);
                 }
 
                 if ui
                     .button("🪟 New Window")
                     .on_hover_text(format!(
                         "New window ({})",
-                        state.shortcuts.new_window.format()
+                        props.shortcuts.new_window.format()
                     ))
                     .clicked()
                 {
-                    *state.new_window_requested = true;
+                    events.push(ToolbarEvent::NewWindow);
                 }
 
                 ui.separator();
 
                 // File type selector
+                let mut current_file_type = *props.file_type;
                 egui::ComboBox::from_label("Type")
-                    .selected_text(format!("{:?}", state.file_type))
+                    .selected_text(format!("{:?}", current_file_type))
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(state.file_type, FileType::Json, "JSON");
-                        ui.selectable_value(state.file_type, FileType::Ndjson, "NDJSON");
+                        ui.selectable_value(&mut current_file_type, FileType::Json, "JSON");
+                        ui.selectable_value(&mut current_file_type, FileType::Ndjson, "NDJSON");
                     });
 
-                if self.previous_file_type != *state.file_type {
-                    self.previous_file_type = *state.file_type;
+                if self.previous_file_type != current_file_type
+                    && current_file_type != *props.file_type
+                {
+                    events.push(ToolbarEvent::FileTypeChange(current_file_type));
+                    self.previous_file_type = current_file_type;
                 }
 
                 // Spacer to push right-side items to the right
@@ -93,10 +130,10 @@ impl Toolbar {
                     // Settings button (rightmost) with update notification badge
                     let settings_response = ui
                         .add(egui::Button::new("⚙"))
-                        .on_hover_text(format!("Settings ({})", state.shortcuts.settings.format()));
+                        .on_hover_text(format!("Settings ({})", props.shortcuts.settings.format()));
 
                     // Draw notification badge if update available
-                    if state.update_available {
+                    if props.update_available {
                         let button_rect = settings_response.rect;
                         let badge_center =
                             egui::pos2(button_rect.right() - 6.0, button_rect.top() + 6.0);
@@ -117,16 +154,20 @@ impl Toolbar {
                     }
 
                     if settings_response.clicked() {
-                        *state.show_settings = !*state.show_settings;
+                        events.push(ToolbarEvent::ToggleSettings);
                     }
 
                     ui.separator();
 
                     // Dark mode toggle
-                    let theme_response = ui.checkbox(state.dark_mode, "🌙");
+                    let mut dark_mode = props.dark_mode;
+                    let theme_response = ui.checkbox(&mut dark_mode, "🌙");
+                    if dark_mode != props.dark_mode {
+                        events.push(ToolbarEvent::ToggleTheme);
+                    }
                     theme_response.on_hover_text(format!(
                         "Toggle theme ({})",
-                        state.shortcuts.toggle_theme.format()
+                        props.shortcuts.toggle_theme.format()
                     ));
                 });
             });

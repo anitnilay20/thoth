@@ -32,10 +32,15 @@ pub trait StatefulComponent {
 /// Context components need access to the full egui::Context to create
 /// top-level panels (TopBottomPanel, SidePanel, CentralPanel, etc.)
 ///
+/// Follows one-way data binding pattern:
+/// - Props flow down from parent to child (immutable)
+/// - Events/callbacks flow up from child to parent (mutations)
+///
 /// Example: Toolbar, Settings panel, Central panel
 pub trait ContextComponent {
+    type Props<'a>;
     type Output;
 
-    /// Render the component with access to the full egui Context
-    fn render(&mut self, ctx: &egui::Context) -> Self::Output;
+    /// Render the component with access to the full egui Context and props
+    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output;
 }

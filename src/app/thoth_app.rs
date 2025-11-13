@@ -1,6 +1,6 @@
 use eframe::{App, Frame, egui};
 
-use crate::{components, settings, state};
+use crate::{components, components::traits::ContextComponent, settings, state};
 
 use super::{
     ShortcutAction, search_handler::SearchHandler, shortcut_handler::ShortcutHandler,
@@ -233,28 +233,45 @@ impl ThothApp {
     fn render_toolbar(&mut self, ctx: &egui::Context) -> Option<crate::search::SearchMessage> {
         let update_available = UpdateHandler::is_update_available(&self.update_state);
 
-        let mut new_window_requested = false;
-
-        let result = self.window_state.toolbar.ui(
+        // Render toolbar using ContextComponent trait with one-way binding
+        let output = self.window_state.toolbar.render(
             ctx,
-            &mut components::toolbar::ToolbarState {
-                file_path: &mut self.window_state.file_path,
-                file_type: &mut self.window_state.file_type,
-                error: &mut self.window_state.error,
-                dark_mode: &mut self.settings.dark_mode,
-                show_settings: &mut self.settings_panel.show,
+            components::toolbar::ToolbarProps {
+                file_type: &self.window_state.file_type,
+                dark_mode: self.settings.dark_mode,
                 update_available,
-                new_window_requested: &mut new_window_requested,
                 shortcuts: &self.settings.shortcuts,
             },
         );
 
-        // Handle new window request
-        if new_window_requested {
-            self.create_new_window();
+        // Handle events emitted by the toolbar (bottom-to-top communication)
+        for event in output.events {
+            match event {
+                components::toolbar::ToolbarEvent::FileOpen { path, file_type } => {
+                    self.window_state.file_path = Some(path);
+                    self.window_state.file_type = file_type;
+                    self.window_state.error = None;
+                }
+                components::toolbar::ToolbarEvent::FileClear => {
+                    self.window_state.file_path = None;
+                    self.window_state.error = None;
+                }
+                components::toolbar::ToolbarEvent::NewWindow => {
+                    self.create_new_window();
+                }
+                components::toolbar::ToolbarEvent::FileTypeChange(file_type) => {
+                    self.window_state.file_type = file_type;
+                }
+                components::toolbar::ToolbarEvent::ToggleSettings => {
+                    self.settings_panel.show = !self.settings_panel.show;
+                }
+                components::toolbar::ToolbarEvent::ToggleTheme => {
+                    self.settings.dark_mode = !self.settings.dark_mode;
+                }
+            }
         }
 
-        result
+        output.search_message
     }
 
     /// Save settings if they have changed
