@@ -33,7 +33,7 @@ impl ThothApp {
             settings,
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
-            settings_panel: components::settings_panel::SettingsPanel::default(),
+            settings_panel: components::settings_panel::SettingsPanel,
             show_settings: false,
             clipboard_text: None,
         }
@@ -298,37 +298,15 @@ impl ThothApp {
 
         // Handle events emitted by the settings panel (bottom-to-top communication)
         for event in output.events {
-            match event {
+            match &event {
                 components::settings_panel::SettingsPanelEvent::Close => {
                     self.show_settings = false;
                 }
-                components::settings_panel::SettingsPanelEvent::CheckForUpdates => {
-                    UpdateHandler::handle_settings_action(
-                        components::settings_panel::SettingsPanelEvent::CheckForUpdates,
-                        &mut self.update_state,
-                        ctx,
-                    );
-                }
-                components::settings_panel::SettingsPanelEvent::DownloadUpdate => {
-                    UpdateHandler::handle_settings_action(
-                        components::settings_panel::SettingsPanelEvent::DownloadUpdate,
-                        &mut self.update_state,
-                        ctx,
-                    );
-                }
-                components::settings_panel::SettingsPanelEvent::InstallUpdate => {
-                    UpdateHandler::handle_settings_action(
-                        components::settings_panel::SettingsPanelEvent::InstallUpdate,
-                        &mut self.update_state,
-                        ctx,
-                    );
-                }
-                components::settings_panel::SettingsPanelEvent::RetryUpdate => {
-                    UpdateHandler::handle_settings_action(
-                        components::settings_panel::SettingsPanelEvent::RetryUpdate,
-                        &mut self.update_state,
-                        ctx,
-                    );
+                components::settings_panel::SettingsPanelEvent::CheckForUpdates
+                | components::settings_panel::SettingsPanelEvent::DownloadUpdate
+                | components::settings_panel::SettingsPanelEvent::InstallUpdate
+                | components::settings_panel::SettingsPanelEvent::RetryUpdate => {
+                    UpdateHandler::handle_settings_action(event, &mut self.update_state, ctx);
                 }
             }
         }

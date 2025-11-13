@@ -244,7 +244,7 @@ impl SettingsPanel {
                 ui.add_space(3.0);
 
                 egui::ScrollArea::vertical()
-                    .id_salt(format!("changelog_{}", release.tag_name))
+                    .id_salt(egui::Id::new(("changelog", &release.tag_name)))
                     .max_height(200.0)
                     .show(ui, |ui| {
                         ui.label(&release.body);
