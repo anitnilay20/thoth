@@ -283,22 +283,21 @@ impl JsonTreeViewer {
                         new_selected = Some(path.clone());
                     }
 
-                    // Context menu (needs to be added separately since DataRow is stateless)
-                    ui.interact(ui.max_rect(), ui.id().with(path), egui::Sense::click())
-                        .context_menu(|ui| {
-                            let config = ContextMenuConfig::from_display(is_key_display, display2);
-                            render_context_menu(ui, &config, |action| {
-                                if let Some(text) = execute_context_menu_action(
-                                    action,
-                                    self,
-                                    &Some(path.clone()),
-                                    cache,
-                                    loader,
-                                ) {
-                                    copy_clipboard = Some(text);
-                                }
-                            });
+                    // Context menu using the response from DataRow
+                    output.response.context_menu(|ui| {
+                        let config = ContextMenuConfig::from_display(is_key_display, display2);
+                        render_context_menu(ui, &config, |action| {
+                            if let Some(text) = execute_context_menu_action(
+                                action,
+                                self,
+                                &Some(path.clone()),
+                                cache,
+                                loader,
+                            ) {
+                                copy_clipboard = Some(text);
+                            }
                         });
+                    });
                 }
             }
         });

@@ -31,6 +31,7 @@ pub struct DataRowOutput {
     pub clicked: bool,
     pub right_clicked: bool,
     pub toggle_clicked: bool,
+    pub response: egui::Response,
 }
 
 /// DataRow is a stateless component that renders a single tree row for any file format
@@ -50,8 +51,6 @@ impl StatelessComponent for DataRow {
     type Output = DataRowOutput;
 
     fn render(ui: &mut Ui, props: Self::Props<'_>) -> Self::Output {
-        let mut clicked = false;
-        let mut right_clicked = false;
         let mut toggle_clicked = false;
 
         let visuals = ui.visuals();
@@ -63,14 +62,7 @@ impl StatelessComponent for DataRow {
         let value_part = parts.next().unwrap_or("");
         let has_colon = !value_part.is_empty() && props.text_tokens.1.is_some();
 
-        egui::Frame::new().fill(props.background).show(ui, |ui| {
-            let rect = ui.max_rect();
-            let id = ui.id().with(props.row_id);
-            let resp = ui.interact(rect, id, egui::Sense::click());
-
-            clicked = resp.clicked();
-            right_clicked = resp.clicked_by(egui::PointerButton::Secondary);
-
+        let frame_response = egui::Frame::new().fill(props.background).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 // Indentation
@@ -107,10 +99,15 @@ impl StatelessComponent for DataRow {
             });
         });
 
+        // Now interact with the final rect after layout is complete
+        let id = ui.id().with(props.row_id);
+        let resp = ui.interact(frame_response.response.rect, id, egui::Sense::click());
+
         DataRowOutput {
-            clicked,
-            right_clicked,
+            clicked: resp.clicked(),
+            right_clicked: resp.secondary_clicked(),
             toggle_clicked,
+            response: resp,
         }
     }
 }
