@@ -61,7 +61,7 @@ impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         // Handle keyboard shortcuts
         let shortcut_actions = ShortcutHandler::handle_shortcuts(ctx, &self.settings.shortcuts);
-        self.handle_shortcut_actions(shortcut_actions);
+        self.handle_shortcut_actions(ctx, shortcut_actions);
 
         // Handle clipboard operations
         if let Some(text) = self.clipboard_text.take() {
@@ -120,7 +120,7 @@ impl App for ThothApp {
 
 impl ThothApp {
     /// Handle keyboard shortcut actions
-    fn handle_shortcut_actions(&mut self, actions: Vec<ShortcutAction>) {
+    fn handle_shortcut_actions(&mut self, ctx: &egui::Context, actions: Vec<ShortcutAction>) {
         use rfd::FileDialog;
 
         for action in actions {
@@ -140,8 +140,8 @@ impl ThothApp {
                         self.window_state.file_path = None;
                         self.window_state.error = None;
                     } else {
-                        // If no file is open, close the window
-                        std::process::exit(0);
+                        // If no file is open, close the window using egui's proper mechanism
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 }
                 ShortcutAction::NewWindow => {

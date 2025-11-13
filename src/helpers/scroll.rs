@@ -1,14 +1,21 @@
 use eframe::egui::{self, Ui};
 use std::ops::Range;
 
-/// Scroll to the currently selected item in a list view
+/// Automatically scrolls the view to keep the selected item visible when navigating with keyboard.
+///
+/// This function implements smooth scrolling behavior with margins: when the selection moves
+/// near the top or bottom edge of the visible area, the view scrolls to maintain context.
+/// The scroll is only triggered once per selection change (controlled by `should_scroll_to_selection`).
+///
+/// After scrolling, the caller should reset `should_scroll_to_selection` to prevent continuous
+/// scrolling on subsequent frames.
 ///
 /// # Arguments
 /// * `ui` - The egui UI context
 /// * `row_range` - The range of currently visible rows
 /// * `current_index` - The index of the currently selected item
 /// * `row_height` - The height of each row in pixels
-/// * `should_scroll_to_selection` - Whether to scroll to the selected item (mutable, will be reset after scrolling)
+/// * `should_scroll_to_selection` - Whether to scroll to the selected item (mutable flag)
 pub fn scroll_to_selection(
     ui: &mut Ui,
     row_range: &Range<usize>,
