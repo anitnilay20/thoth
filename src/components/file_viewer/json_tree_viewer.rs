@@ -1,12 +1,16 @@
 use crate::file::lazy_loader::LazyJsonFile;
 use crate::helpers::{
-    LruCache, format_simple_kv, get_object_string, preview_value, split_root_rel,
+    LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_selection,
+    split_root_rel,
 };
 use crate::theme::{TextPalette, TextToken, row_fill, selected_row_bg};
 use eframe::egui::{self, RichText, Ui};
 use serde_json::Value;
 use std::collections::HashSet;
 
+use super::context_menu::{
+    ContextMenuConfig, ContextMenuHandler, execute_context_menu_action, render_context_menu,
+};
 use super::viewer_trait::FileFormatViewer;
 
 /// JSON-specific tree viewer that handles expansion and rendering
@@ -207,7 +211,8 @@ impl JsonTreeViewer {
         ui: &mut Ui,
         selected: &mut Option<String>,
         cache: &mut LruCache<usize, Value>,
-        _loader: &mut LazyJsonFile,
+        loader: &mut LazyJsonFile,
+        should_scroll_to_selection: &mut bool,
     ) -> bool {
         let row_count = self.rows.len();
         let row_height = 20.0;
@@ -216,128 +221,120 @@ impl JsonTreeViewer {
         let mut new_selected: Option<String> = None;
         let mut copy_clipboard: Option<String> = None;
 
-        egui::ScrollArea::both()
+        let scroll_area = egui::ScrollArea::both()
             .auto_shrink([false, false])
-            .show_rows(ui, row_height, row_count, |ui, row_range| {
-                let visuals = ui.visuals();
-                let palette = TextPalette::for_visuals(visuals);
+            .id_salt("json_tree_scroll");
 
-                let rows = self.rows.clone();
+        scroll_area.show_rows(ui, row_height, row_count, |ui, row_range| {
+            let visuals = ui.visuals();
+            let palette = TextPalette::for_visuals(visuals);
 
-                for row_index in row_range.clone() {
-                    if let Some(row) = rows.get(row_index) {
-                        let indent = row.indent;
-                        let is_expandable = row.is_expandable;
-                        let path = row.path.clone();
-                        let display = row.display_text.clone();
-                        let mut parts = display.splitn(2, ':');
-                        let display1 = parts.next().unwrap_or("");
-                        let display2 = parts.next().unwrap_or("");
-                        let is_key_display = !display2.is_empty() && row.text_token.1.is_some();
-                        let mut clicked = false;
-                        let mut right_clicked = false;
+            let rows = self.rows.clone();
 
-                        // Selected background
-                        let is_selected = selected.as_deref() == Some(path.as_str());
-                        let bg = if is_selected {
-                            selected_row_bg(ui)
-                        } else {
-                            row_fill(row_index, ui)
-                        };
+            if let Some(selected_path) = selected.as_ref() {
+                if let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
+                    scroll_to_selection(
+                        ui,
+                        &row_range,
+                        row_idx,
+                        row_height,
+                        should_scroll_to_selection,
+                    );
+                }
+            }
 
-                        egui::Frame::new().fill(bg).show(ui, |ui| {
-                            let rect = ui.max_rect();
-                            let id = ui.id().with(&path);
-                            let resp = ui.interact(rect, id, egui::Sense::click());
-                            clicked = resp.clicked();
-                            right_clicked |= resp.clicked_by(egui::PointerButton::Secondary);
+            for row_index in row_range.clone() {
+                if let Some(row) = rows.get(row_index) {
+                    let indent = row.indent;
+                    let is_expandable = row.is_expandable;
+                    let path = row.path.clone();
+                    let display = row.display_text.clone();
+                    let mut parts = display.splitn(2, ':');
+                    let display1 = parts.next().unwrap_or("");
+                    let display2 = parts.next().unwrap_or("");
+                    let is_key_display = !display2.is_empty() && row.text_token.1.is_some();
+                    let mut clicked = false;
+                    let mut right_clicked = false;
 
-                            ui.set_min_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                ui.add_space(indent as f32 * 12.0);
+                    // Selected background
+                    let is_selected = selected.as_deref() == Some(path.as_str());
+                    let bg = if is_selected {
+                        selected_row_bg(ui)
+                    } else {
+                        row_fill(row_index, ui)
+                    };
 
-                                if is_expandable {
-                                    let toggle_icon = if row.is_expanded { "-" } else { "+" };
-                                    if ui
-                                        .selectable_label(
-                                            false,
-                                            RichText::new(toggle_icon).monospace(),
-                                        )
-                                        .clicked()
-                                    {
-                                        toggles.push(path.clone());
-                                    }
-                                } else {
-                                    ui.add_space(23.0);
+                    egui::Frame::new().fill(bg).show(ui, |ui| {
+                        let rect = ui.max_rect();
+                        let id = ui.id().with(&path);
+                        let resp = ui.interact(rect, id, egui::Sense::click());
+                        clicked = resp.clicked();
+                        right_clicked |= resp.clicked_by(egui::PointerButton::Secondary);
+
+                        ui.set_min_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.add_space(indent as f32 * 12.0);
+
+                            if is_expandable {
+                                let toggle_icon = if row.is_expanded { "-" } else { "+" };
+                                if ui
+                                    .selectable_label(false, RichText::new(toggle_icon).monospace())
+                                    .clicked()
+                                {
+                                    toggles.push(path.clone());
                                 }
-
-                                let label_resp = ui.add(egui::Label::new(
-                                    RichText::new(format!(
-                                        "{}{}",
-                                        display1,
-                                        if is_key_display { ":" } else { "" }
-                                    ))
-                                    .monospace()
-                                    .color(palette.color(row.text_token.0)),
-                                ));
-
-                                clicked |= label_resp.clicked();
-                                right_clicked |=
-                                    label_resp.clicked_by(egui::PointerButton::Secondary);
-
-                                if is_key_display {
-                                    let key_resp = ui.add(egui::Label::new(
-                                        RichText::new(display2)
-                                            .monospace()
-                                            .color(palette.color(row.text_token.1.unwrap())),
-                                    ));
-                                    clicked |= key_resp.clicked();
-                                    right_clicked |=
-                                        key_resp.clicked_by(egui::PointerButton::Secondary);
-                                }
-                            });
-
-                            if clicked || right_clicked {
-                                new_selected = Some(path.clone());
+                            } else {
+                                ui.add_space(23.0);
                             }
 
-                            resp.context_menu(|ui| {
-                                if ui.button("Copy key").clicked() {
-                                    let path_clone = path.clone();
-                                    let split =
-                                        path_clone.split_inclusive('.').next_back().unwrap_or("");
-                                    copy_clipboard = Some(split.to_string());
-                                    ui.close();
-                                }
+                            let label_resp = ui.add(egui::Label::new(
+                                RichText::new(format!(
+                                    "{}{}",
+                                    display1,
+                                    if is_key_display { ":" } else { "" }
+                                ))
+                                .monospace()
+                                .color(palette.color(row.text_token.0)),
+                            ));
 
-                                let show_value_menu = is_key_display
-                                    && !display2.starts_with(" [")
-                                    && !display2.starts_with(" {")
-                                    && !display2.starts_with(" (");
+                            clicked |= label_resp.clicked();
+                            right_clicked |= label_resp.clicked_by(egui::PointerButton::Secondary);
 
-                                if show_value_menu && ui.button("Copy Value").clicked() {
-                                    copy_clipboard = Some(display2.trim().to_string());
-                                    ui.close();
-                                }
+                            if is_key_display {
+                                let key_resp = ui.add(egui::Label::new(
+                                    RichText::new(display2)
+                                        .monospace()
+                                        .color(palette.color(row.text_token.1.unwrap())),
+                                ));
+                                clicked |= key_resp.clicked();
+                                right_clicked |=
+                                    key_resp.clicked_by(egui::PointerButton::Secondary);
+                            }
+                        });
 
-                                if ui.button("Copy Object").clicked() {
-                                    if let Some((root_idx, rel)) = split_root_rel(&path) {
-                                        if let Some(value) = cache.get(&root_idx).cloned() {
-                                            copy_clipboard = get_object_string(value, rel);
-                                        }
-                                    }
-                                    ui.close();
-                                }
+                        if clicked || right_clicked {
+                            new_selected = Some(path.clone());
+                        }
 
-                                if ui.button("Copy path").clicked() {
-                                    copy_clipboard = Some(path.clone());
-                                    ui.close();
+                        // Context menu
+                        resp.context_menu(|ui| {
+                            let config = ContextMenuConfig::from_display(is_key_display, display2);
+                            render_context_menu(ui, &config, |action| {
+                                if let Some(text) = execute_context_menu_action(
+                                    action,
+                                    self,
+                                    &Some(path.clone()),
+                                    cache,
+                                    loader,
+                                ) {
+                                    copy_clipboard = Some(text);
                                 }
                             });
                         });
-                    }
+                    });
                 }
-            });
+            }
+        });
 
         if let Some(sel) = new_selected {
             *selected = Some(sel);
@@ -346,6 +343,9 @@ impl JsonTreeViewer {
         if let Some(text) = copy_clipboard {
             ui.output_mut(|o| o.commands.push(egui::OutputCommand::CopyText(text)));
         }
+
+        // Reset scroll flag after rendering
+        *should_scroll_to_selection = false;
 
         // Handle toggles
         let needs_rebuild = !toggles.is_empty();
@@ -358,6 +358,70 @@ impl JsonTreeViewer {
         }
 
         needs_rebuild
+    }
+}
+
+// Implement ContextMenuHandler trait for JsonTreeViewer
+impl ContextMenuHandler for JsonTreeViewer {
+    fn copy_selected_key(&self, selected: &Option<String>) -> Option<String> {
+        if let Some(path) = selected {
+            // Extract the key from the path (last segment)
+            let split = path.split_inclusive('.').next_back()?;
+            return Some(split.to_string());
+        }
+        None
+    }
+
+    fn copy_selected_value(
+        &self,
+        selected: &Option<String>,
+        cache: &mut LruCache<usize, Value>,
+        loader: &mut LazyJsonFile,
+    ) -> Option<String> {
+        if let Some(path) = selected {
+            // Find the row to get display text
+            if let Some(row) = self.rows.iter().find(|r| r.path == *path) {
+                // Parse display text to extract value part
+                let parts: Vec<&str> = row.display_text.splitn(2, ':').collect();
+                if parts.len() == 2 {
+                    return Some(parts[1].trim().to_string());
+                }
+            }
+        }
+        let _ = (cache, loader); // Suppress unused warnings for now
+        None
+    }
+
+    fn copy_selected_object(
+        &self,
+        selected: &Option<String>,
+        cache: &mut LruCache<usize, Value>,
+        loader: &mut LazyJsonFile,
+    ) -> Option<String> {
+        if let Some(path) = selected {
+            if let Some((root_idx, rel)) = split_root_rel(path) {
+                // Try to get from cache first
+                let value = if let Some(v) = cache.get(&root_idx) {
+                    v.clone()
+                } else {
+                    // Load from file
+                    match loader.get(root_idx) {
+                        Ok(v) => {
+                            cache.put(root_idx, v.clone());
+                            v
+                        }
+                        Err(_) => return None,
+                    }
+                };
+
+                return get_object_string(value, rel);
+            }
+        }
+        None
+    }
+
+    fn copy_selected_path(&self, selected: &Option<String>) -> Option<String> {
+        selected.clone()
     }
 }
 
@@ -384,8 +448,9 @@ impl FileFormatViewer for JsonTreeViewer {
         selected: &mut Option<String>,
         cache: &mut LruCache<usize, Value>,
         loader: &mut LazyJsonFile,
+        should_scroll_to_selection: &mut bool,
     ) -> bool {
-        self.render(ui, selected, cache, loader)
+        self.render(ui, selected, cache, loader, should_scroll_to_selection)
     }
 
     // ========================================================================
@@ -449,13 +514,18 @@ impl FileFormatViewer for JsonTreeViewer {
                 if idx > 0 {
                     // Move to previous row
                     return Some(self.rows[idx - 1].path.clone());
+                } else {
+                    // Already at first item, stay there
+                    return Some(current_path.clone());
                 }
             }
-        } else {
-            // No selection, select last item
+            // Current selection not found in rows (perhaps view was rebuilt)
+            // Start from last item
             return Some(self.rows.last()?.path.clone());
         }
-        None
+
+        // No selection, select last item
+        Some(self.rows.last()?.path.clone())
     }
 
     fn move_selection_down(&self, current: &Option<String>) -> Option<String> {
@@ -469,26 +539,28 @@ impl FileFormatViewer for JsonTreeViewer {
                 if idx < self.rows.len() - 1 {
                     // Move to next row
                     return Some(self.rows[idx + 1].path.clone());
+                } else {
+                    // Already at last item, stay there
+                    return Some(current_path.clone());
                 }
             }
-        } else {
-            // No selection, select first item
+            // Current selection not found in rows (perhaps view was rebuilt)
+            // Start from first item
             return Some(self.rows.first()?.path.clone());
         }
-        None
+
+        // No selection, select first item
+        Some(self.rows.first()?.path.clone())
     }
 
     // ========================================================================
     // Clipboard Operations
     // ========================================================================
+    // Note: Clipboard operations are now handled by the ContextMenuHandler trait
+    // These methods delegate to that implementation
 
     fn copy_selected_key(&self, selected: &Option<String>) -> Option<String> {
-        if let Some(path) = selected {
-            // Extract the key from the path (last segment)
-            let split = path.split_inclusive('.').next_back()?;
-            return Some(split.to_string());
-        }
-        None
+        ContextMenuHandler::copy_selected_key(self, selected)
     }
 
     fn copy_selected_value(
@@ -497,18 +569,7 @@ impl FileFormatViewer for JsonTreeViewer {
         cache: &mut LruCache<usize, Value>,
         loader: &mut LazyJsonFile,
     ) -> Option<String> {
-        if let Some(path) = selected {
-            // Find the row to get display text
-            if let Some(row) = self.rows.iter().find(|r| r.path == *path) {
-                // Parse display text to extract value part
-                let parts: Vec<&str> = row.display_text.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    return Some(parts[1].trim().to_string());
-                }
-            }
-        }
-        let _ = (cache, loader); // Suppress unused warnings for now
-        None
+        ContextMenuHandler::copy_selected_value(self, selected, cache, loader)
     }
 
     fn copy_selected_object(
@@ -517,29 +578,10 @@ impl FileFormatViewer for JsonTreeViewer {
         cache: &mut LruCache<usize, Value>,
         loader: &mut LazyJsonFile,
     ) -> Option<String> {
-        if let Some(path) = selected {
-            if let Some((root_idx, rel)) = split_root_rel(path) {
-                // Try to get from cache first
-                let value = if let Some(v) = cache.get(&root_idx) {
-                    v.clone()
-                } else {
-                    // Load from file
-                    match loader.get(root_idx) {
-                        Ok(v) => {
-                            cache.put(root_idx, v.clone());
-                            v
-                        }
-                        Err(_) => return None,
-                    }
-                };
-
-                return get_object_string(value, rel);
-            }
-        }
-        None
+        ContextMenuHandler::copy_selected_object(self, selected, cache, loader)
     }
 
     fn copy_selected_path(&self, selected: &Option<String>) -> Option<String> {
-        selected.clone()
+        ContextMenuHandler::copy_selected_path(self, selected)
     }
 }

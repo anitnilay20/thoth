@@ -7,4 +7,7 @@ pub struct ViewerState {
 
     /// Currently selected item path
     pub selected: Option<String>,
+
+    /// Flag to indicate if we should scroll to the selected item on next render
+    pub should_scroll_to_selection: bool,
 }

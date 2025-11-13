@@ -48,6 +48,9 @@ impl ShortcutHandler {
     ) -> Vec<ShortcutAction> {
         let mut actions = Vec::new();
 
+        // Check if any text input has focus - if so, skip navigation shortcuts
+        let text_input_has_focus = ctx.memory(|mem| mem.focused().is_some());
+
         // File operations
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.open_file.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::OpenFile);
@@ -78,47 +81,55 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::Escape);
         }
 
-        // Tree operations
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.expand_node.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::ExpandNode);
-        }
+        // Skip tree operations, clipboard, and movement shortcuts when text input has focus
+        if !text_input_has_focus {
+            // Tree operations
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.expand_node.to_keyboard_shortcut()))
+            {
+                actions.push(ShortcutAction::ExpandNode);
+            }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.collapse_node.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::CollapseNode);
-        }
+            if ctx
+                .input_mut(|i| i.consume_shortcut(&shortcuts.collapse_node.to_keyboard_shortcut()))
+            {
+                actions.push(ShortcutAction::CollapseNode);
+            }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.expand_all.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::ExpandAll);
-        }
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.expand_all.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::ExpandAll);
+            }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.collapse_all.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::CollapseAll);
-        }
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.collapse_all.to_keyboard_shortcut()))
+            {
+                actions.push(ShortcutAction::CollapseAll);
+            }
 
-        // Clipboard
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_key.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::CopyKey);
-        }
+            // Clipboard
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_key.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::CopyKey);
+            }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_value.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::CopyValue);
-        }
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_value.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::CopyValue);
+            }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_object.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::CopyObject);
-        }
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_object.to_keyboard_shortcut()))
+            {
+                actions.push(ShortcutAction::CopyObject);
+            }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_path.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::CopyPath);
-        }
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_path.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::CopyPath);
+            }
 
-        // Movement
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.move_up.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::MoveUp);
-        }
+            // Movement
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.move_up.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::MoveUp);
+            }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.move_down.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::MoveDown);
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.move_down.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::MoveDown);
+            }
         }
 
         // UI

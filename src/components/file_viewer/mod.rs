@@ -1,3 +1,4 @@
+pub mod context_menu;
 pub mod json_tree_viewer;
 pub mod types;
 pub mod viewer_trait;
@@ -105,7 +106,13 @@ impl FileViewer {
         );
 
         // Render the viewer and check if rebuild is needed (due to user interaction)
-        let needs_rebuild = viewer.render(ui, &mut self.state.selected, &mut self.cache, loader);
+        let needs_rebuild = viewer.render(
+            ui,
+            &mut self.state.selected,
+            &mut self.cache,
+            loader,
+            &mut self.state.should_scroll_to_selection,
+        );
 
         // Rebuild if needed (e.g., user toggled expansion)
         if needs_rebuild {
@@ -219,6 +226,7 @@ impl FileViewer {
                 .move_selection_up(&self.state.selected)
             {
                 self.state.selected = Some(new_selection);
+                self.state.should_scroll_to_selection = true;
             }
         }
     }
@@ -231,6 +239,7 @@ impl FileViewer {
                 .move_selection_down(&self.state.selected)
             {
                 self.state.selected = Some(new_selection);
+                self.state.should_scroll_to_selection = true;
             }
         }
     }
