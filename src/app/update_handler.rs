@@ -47,17 +47,17 @@ impl UpdateHandler {
         }
     }
 
-    /// Handle settings panel actions related to updates
+    /// Handle settings panel events related to updates
     pub fn handle_settings_action(
-        action: components::settings_panel::SettingsAction,
+        event: components::settings_panel::SettingsPanelEvent,
         update_state: &mut state::ApplicationUpdateState,
         ctx: &egui::Context,
     ) {
-        match action {
-            components::settings_panel::SettingsAction::CheckForUpdates => {
+        match event {
+            components::settings_panel::SettingsPanelEvent::CheckForUpdates => {
                 Self::check_for_updates(update_state);
             }
-            components::settings_panel::SettingsAction::DownloadUpdate => {
+            components::settings_panel::SettingsPanelEvent::DownloadUpdate => {
                 if let update::UpdateState::UpdateAvailable { releases, .. } =
                     &update_state.update_status.state
                 {
@@ -66,14 +66,17 @@ impl UpdateHandler {
                     }
                 }
             }
-            components::settings_panel::SettingsAction::InstallUpdate => {
+            components::settings_panel::SettingsPanelEvent::InstallUpdate => {
                 if let Some(path) = update_state.pending_install_path.take() {
                     update_state.update_status.state = update::UpdateState::Installing;
                     update_state.update_manager.install_update(path);
                 }
             }
-            components::settings_panel::SettingsAction::RetryUpdate => {
+            components::settings_panel::SettingsPanelEvent::RetryUpdate => {
                 Self::check_for_updates(update_state);
+            }
+            components::settings_panel::SettingsPanelEvent::Close => {
+                // Close event is handled by the parent, nothing to do here
             }
         }
     }

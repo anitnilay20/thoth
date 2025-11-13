@@ -6,6 +6,7 @@ use super::{
     ShortcutAction, search_handler::SearchHandler, shortcut_handler::ShortcutHandler,
     update_handler::UpdateHandler,
 };
+use crate::components::settings_panel::SettingsPanelProps;
 
 pub struct ThothApp {
     // Settings for this window
@@ -285,12 +286,51 @@ impl ThothApp {
 
     /// Render settings panel and handle actions
     fn render_settings_panel(&mut self, ctx: &egui::Context) {
-        if let Some(action) = self.settings_panel.render(
+        // Render settings panel using ContextComponent trait with one-way binding
+        let output = self.settings_panel.render(
             ctx,
-            &self.update_state.update_status,
-            crate::update::UpdateManager::get_current_version(),
-        ) {
-            UpdateHandler::handle_settings_action(action, &mut self.update_state, ctx);
+            SettingsPanelProps {
+                show: self.settings_panel.show,
+                update_status: &self.update_state.update_status,
+                current_version: crate::update::UpdateManager::get_current_version(),
+            },
+        );
+
+        // Handle events emitted by the settings panel (bottom-to-top communication)
+        for event in output.events {
+            match event {
+                components::settings_panel::SettingsPanelEvent::Close => {
+                    self.settings_panel.show = false;
+                }
+                components::settings_panel::SettingsPanelEvent::CheckForUpdates => {
+                    UpdateHandler::handle_settings_action(
+                        components::settings_panel::SettingsPanelEvent::CheckForUpdates,
+                        &mut self.update_state,
+                        ctx,
+                    );
+                }
+                components::settings_panel::SettingsPanelEvent::DownloadUpdate => {
+                    UpdateHandler::handle_settings_action(
+                        components::settings_panel::SettingsPanelEvent::DownloadUpdate,
+                        &mut self.update_state,
+                        ctx,
+                    );
+                }
+                components::settings_panel::SettingsPanelEvent::InstallUpdate => {
+                    UpdateHandler::handle_settings_action(
+                        components::settings_panel::SettingsPanelEvent::InstallUpdate,
+                        &mut self.update_state,
+                        ctx,
+                    );
+                }
+                components::settings_panel::SettingsPanelEvent::RetryUpdate => {
+                    UpdateHandler::handle_settings_action(
+                        components::settings_panel::SettingsPanelEvent::RetryUpdate,
+                        &mut self.update_state,
+                        ctx,
+                    );
+                }
+            }
         }
     }
 }

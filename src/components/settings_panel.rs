@@ -1,13 +1,27 @@
+use crate::components::traits::ContextComponent;
 use crate::helpers::{format_date, format_date_static};
 use crate::update::{ReleaseInfo, UpdateState, UpdateStatus};
 use eframe::egui;
 
+/// Props passed down to the SettingsPanel (immutable, one-way binding)
+pub struct SettingsPanelProps<'a> {
+    pub show: bool,
+    pub update_status: &'a UpdateStatus,
+    pub current_version: &'a str,
+}
+
+/// Events emitted by the settings panel (bottom-to-top communication)
 #[derive(Debug, Clone)]
-pub enum SettingsAction {
+pub enum SettingsPanelEvent {
+    Close,
     CheckForUpdates,
     DownloadUpdate,
     InstallUpdate,
     RetryUpdate,
+}
+
+pub struct SettingsPanelOutput {
+    pub events: Vec<SettingsPanelEvent>,
 }
 
 #[derive(Default)]
@@ -15,19 +29,30 @@ pub struct SettingsPanel {
     pub show: bool,
 }
 
-impl SettingsPanel {
-    pub fn render(
-        &mut self,
-        ctx: &egui::Context,
-        update_status: &UpdateStatus,
-        current_version: &str,
-    ) -> Option<SettingsAction> {
-        if !self.show {
-            return None;
+impl ContextComponent for SettingsPanel {
+    type Props<'a> = SettingsPanelProps<'a>;
+    type Output = SettingsPanelOutput;
+
+    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+        if !props.show {
+            return SettingsPanelOutput { events: Vec::new() };
         }
 
-        let mut action = None;
-        let mut show = self.show;
+        let mut events = Vec::new();
+        self.render_ui(ctx, props, &mut events);
+
+        SettingsPanelOutput { events }
+    }
+}
+
+impl SettingsPanel {
+    fn render_ui(
+        &mut self,
+        ctx: &egui::Context,
+        props: SettingsPanelProps<'_>,
+        events: &mut Vec<SettingsPanelEvent>,
+    ) {
+        let mut show = props.show;
 
         // Draw semi-transparent backdrop
         egui::Area::new("settings_backdrop".into())
@@ -56,19 +81,27 @@ impl SettingsPanel {
             .open(&mut show)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    action = Self::render_update_section_static(ui, update_status, current_version);
+                    Self::render_update_section(
+                        ui,
+                        props.update_status,
+                        props.current_version,
+                        events,
+                    );
                 });
             });
 
-        self.show = show;
-        action
+        // Emit close event if show state changed
+        if show != props.show {
+            events.push(SettingsPanelEvent::Close);
+        }
     }
 
-    fn render_update_section_static(
+    fn render_update_section(
         ui: &mut egui::Ui,
         update_status: &UpdateStatus,
         current_version: &str,
-    ) -> Option<SettingsAction> {
+        events: &mut Vec<SettingsPanelEvent>,
+    ) {
         ui.heading(egui::RichText::new("🔄 Updates").size(20.0));
         ui.add_space(16.0);
 
@@ -96,15 +129,12 @@ impl SettingsPanel {
                     .button(egui::RichText::new("🔍 Check for Updates").size(14.0))
                     .clicked()
                 {
-                    Some(SettingsAction::CheckForUpdates)
-                } else {
-                    None
+                    events.push(SettingsPanelEvent::CheckForUpdates);
                 }
             }
             UpdateState::Checking => {
                 ui.spinner();
                 ui.label("Checking for updates...");
-                None
             }
             UpdateState::UpdateAvailable {
                 latest_version,
@@ -117,14 +147,12 @@ impl SettingsPanel {
                 );
                 ui.add_space(16.0);
 
-                let action = if ui
+                if ui
                     .button(egui::RichText::new("⬇ Download Update").size(14.0))
                     .clicked()
                 {
-                    Some(SettingsAction::DownloadUpdate)
-                } else {
-                    None
-                };
+                    events.push(SettingsPanelEvent::DownloadUpdate);
+                }
                 ui.add_space(16.0);
 
                 ui.separator();
@@ -137,11 +165,9 @@ impl SettingsPanel {
                 ui.add_space(16.0);
 
                 for release in releases {
-                    Self::render_release_info_static(ui, release);
+                    Self::render_release_info(ui, release);
                     ui.add_space(15.0);
                 }
-
-                action
             }
             UpdateState::Downloading { progress, version } => {
                 ui.label(format!("⬇ Downloading version {}...", version));
@@ -151,7 +177,6 @@ impl SettingsPanel {
                     .show_percentage()
                     .animate(true);
                 ui.add(progress_bar);
-                None
             }
             UpdateState::ReadyToInstall { version, path: _ } => {
                 ui.colored_label(
@@ -167,9 +192,7 @@ impl SettingsPanel {
                     .button(egui::RichText::new("🚀 Install Now").size(14.0))
                     .clicked()
                 {
-                    Some(SettingsAction::InstallUpdate)
-                } else {
-                    None
+                    events.push(SettingsPanelEvent::InstallUpdate);
                 }
             }
             UpdateState::Installing => {
@@ -177,7 +200,6 @@ impl SettingsPanel {
                 ui.label("⚙ Installing update...");
                 ui.add_space(8.0);
                 ui.label("Please wait, the application will restart automatically.");
-                None
             }
             UpdateState::Error(error) => {
                 ui.colored_label(egui::Color32::from_rgb(200, 0, 0), "❌ Update Error");
@@ -189,15 +211,13 @@ impl SettingsPanel {
                     .button(egui::RichText::new("🔄 Try Again").size(14.0))
                     .clicked()
                 {
-                    Some(SettingsAction::RetryUpdate)
-                } else {
-                    None
+                    events.push(SettingsPanelEvent::RetryUpdate);
                 }
             }
         }
     }
 
-    fn render_release_info_static(ui: &mut egui::Ui, release: &ReleaseInfo) {
+    fn render_release_info(ui: &mut egui::Ui, release: &ReleaseInfo) {
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&release.name).size(16.0).strong());
