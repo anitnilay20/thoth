@@ -12,6 +12,10 @@ rust-version = "1.85"
 [package.metadata.release]
 publish = false
 
+[lib]
+name = "thoth"
+path = "src/lib.rs"
+
 [[bin]]
 name = "thoth"
 path = "src/main.rs"

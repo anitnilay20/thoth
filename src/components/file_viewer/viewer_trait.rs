@@ -6,7 +6,7 @@ use crate::helpers::LruCache;
 
 /// Trait that all file format viewers must implement
 ///
-/// This trait defines the common interface for rendering different file formats.
+/// This is a specialized stateful component for rendering file content.
 /// New file format viewers should implement this trait to integrate with FileViewer.
 ///
 /// # Example
@@ -17,9 +17,9 @@ use crate::helpers::LruCache;
 ///     fn render(&mut self, ...) -> bool { ... }
 /// }
 /// ```
-#[allow(dead_code)]
 pub trait FileFormatViewer {
     /// Reset the viewer state (called when opening a new file)
+    #[allow(dead_code)]
     fn reset(&mut self);
 
     /// Rebuild the view based on visible items and cache

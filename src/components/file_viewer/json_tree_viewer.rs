@@ -1,10 +1,12 @@
+use crate::components::data_row::{DataRow, DataRowProps};
+use crate::components::traits::StatelessComponent;
 use crate::file::lazy_loader::LazyJsonFile;
 use crate::helpers::{
     LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_selection,
     split_root_rel,
 };
-use crate::theme::{TextPalette, TextToken, row_fill, selected_row_bg};
-use eframe::egui::{self, RichText, Ui};
+use crate::theme::{TextToken, row_fill, selected_row_bg};
+use eframe::egui::{self, Ui};
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -226,9 +228,6 @@ impl JsonTreeViewer {
             .id_salt("json_tree_scroll");
 
         scroll_area.show_rows(ui, row_height, row_count, |ui, row_range| {
-            let visuals = ui.visuals();
-            let palette = TextPalette::for_visuals(visuals);
-
             let rows = self.rows.clone();
 
             if let Some(selected_path) = selected.as_ref() {
@@ -245,79 +244,48 @@ impl JsonTreeViewer {
 
             for row_index in row_range.clone() {
                 if let Some(row) = rows.get(row_index) {
-                    let indent = row.indent;
-                    let is_expandable = row.is_expandable;
-                    let path = row.path.clone();
-                    let display = row.display_text.clone();
-                    let mut parts = display.splitn(2, ':');
-                    let display1 = parts.next().unwrap_or("");
-                    let display2 = parts.next().unwrap_or("");
-                    let is_key_display = !display2.is_empty() && row.text_token.1.is_some();
-                    let mut clicked = false;
-                    let mut right_clicked = false;
+                    let path = &row.path;
+                    let display = &row.display_text;
+                    let display2_parts: Vec<&str> = display.splitn(2, ':').collect();
+                    let is_key_display = display2_parts.len() == 2 && row.text_token.1.is_some();
+                    let display2 = if is_key_display {
+                        display2_parts.get(1).unwrap_or(&"")
+                    } else {
+                        ""
+                    };
 
                     // Selected background
-                    let is_selected = selected.as_deref() == Some(path.as_str());
-                    let bg = if is_selected {
+                    let bg = if selected.as_deref() == Some(path.as_str()) {
                         selected_row_bg(ui)
                     } else {
                         row_fill(row_index, ui)
                     };
 
-                    egui::Frame::new().fill(bg).show(ui, |ui| {
-                        let rect = ui.max_rect();
-                        let id = ui.id().with(&path);
-                        let resp = ui.interact(rect, id, egui::Sense::click());
-                        clicked = resp.clicked();
-                        right_clicked |= resp.clicked_by(egui::PointerButton::Secondary);
+                    // Use the DataRow component
+                    let output = DataRow::render(
+                        ui,
+                        DataRowProps {
+                            display_text: display,
+                            indent: row.indent,
+                            is_expandable: row.is_expandable,
+                            is_expanded: row.is_expanded,
+                            text_tokens: row.text_token,
+                            background: bg,
+                            row_id: path,
+                        },
+                    );
 
-                        ui.set_min_width(ui.available_width());
-                        ui.horizontal(|ui| {
-                            ui.add_space(indent as f32 * 12.0);
+                    if output.toggle_clicked {
+                        toggles.push(path.clone());
+                    }
 
-                            if is_expandable {
-                                let toggle_icon = if row.is_expanded { "-" } else { "+" };
-                                if ui
-                                    .selectable_label(false, RichText::new(toggle_icon).monospace())
-                                    .clicked()
-                                {
-                                    toggles.push(path.clone());
-                                }
-                            } else {
-                                ui.add_space(23.0);
-                            }
+                    if output.clicked || output.right_clicked {
+                        new_selected = Some(path.clone());
+                    }
 
-                            let label_resp = ui.add(egui::Label::new(
-                                RichText::new(format!(
-                                    "{}{}",
-                                    display1,
-                                    if is_key_display { ":" } else { "" }
-                                ))
-                                .monospace()
-                                .color(palette.color(row.text_token.0)),
-                            ));
-
-                            clicked |= label_resp.clicked();
-                            right_clicked |= label_resp.clicked_by(egui::PointerButton::Secondary);
-
-                            if is_key_display {
-                                let key_resp = ui.add(egui::Label::new(
-                                    RichText::new(display2)
-                                        .monospace()
-                                        .color(palette.color(row.text_token.1.unwrap())),
-                                ));
-                                clicked |= key_resp.clicked();
-                                right_clicked |=
-                                    key_resp.clicked_by(egui::PointerButton::Secondary);
-                            }
-                        });
-
-                        if clicked || right_clicked {
-                            new_selected = Some(path.clone());
-                        }
-
-                        // Context menu
-                        resp.context_menu(|ui| {
+                    // Context menu (needs to be added separately since DataRow is stateless)
+                    ui.interact(ui.max_rect(), ui.id().with(path), egui::Sense::click())
+                        .context_menu(|ui| {
                             let config = ContextMenuConfig::from_display(is_key_display, display2);
                             render_context_menu(ui, &config, |action| {
                                 if let Some(text) = execute_context_menu_action(
@@ -331,7 +299,6 @@ impl JsonTreeViewer {
                                 }
                             });
                         });
-                    });
                 }
             }
         });
