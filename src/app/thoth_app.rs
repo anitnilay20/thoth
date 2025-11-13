@@ -111,6 +111,15 @@ impl App for ThothApp {
 
         // Render the central panel and handle events
         self.render_central_panel(ctx, msg_to_central);
+
+        // Show profiler if enabled
+        if self.settings.dev.show_profiler {
+            egui::Window::new("🔍 Profiler")
+                .default_open(true)
+                .show(ctx, |ui| {
+                    ctx.settings_ui(ui);
+                });
+        }
     }
 }
 
@@ -148,6 +157,9 @@ impl ThothApp {
                 }
                 ShortcutAction::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
+                }
+                ShortcutAction::ToggleProfiler => {
+                    self.settings.dev.show_profiler = !self.settings.dev.show_profiler;
                 }
                 // Navigation shortcuts - handled by JSON viewer or search
                 ShortcutAction::FocusSearch => {
