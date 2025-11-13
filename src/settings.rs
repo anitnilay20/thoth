@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::shortcuts::KeyboardShortcuts;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -16,6 +18,9 @@ pub struct Settings {
 
     /// Auto-update settings
     pub updates: UpdateSettings,
+
+    /// Keyboard shortcuts
+    pub shortcuts: KeyboardShortcuts,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +50,7 @@ impl Default for Settings {
             font_size: 14.0,
             window: WindowSettings::default(),
             updates: UpdateSettings::default(),
+            shortcuts: KeyboardShortcuts::default(),
         }
     }
 }
