@@ -1,8 +1,30 @@
 use crate::components::file_viewer::FileViewer;
+use crate::components::traits::ContextComponent;
 use crate::file::lazy_loader::FileType;
 use crate::search;
 use eframe::egui;
 use std::path::PathBuf;
+
+/// Props passed down to the CentralPanel (immutable, one-way binding)
+pub struct CentralPanelProps<'a> {
+    pub file_path: &'a Option<PathBuf>,
+    pub file_type: FileType,
+    pub error: &'a Option<String>,
+    pub search_message: Option<search::SearchMessage>,
+}
+
+/// Events emitted by the central panel (bottom-to-top communication)
+pub enum CentralPanelEvent {
+    FileOpened { path: PathBuf, file_type: FileType },
+    FileOpenError(String),
+    FileClosed,
+    FileTypeChanged(FileType),
+    ErrorCleared,
+}
+
+pub struct CentralPanelOutput {
+    pub events: Vec<CentralPanelEvent>,
+}
 
 #[derive(Default)]
 pub struct CentralPanel {
@@ -13,36 +35,55 @@ pub struct CentralPanel {
     searching: bool,
 }
 
+impl ContextComponent for CentralPanel {
+    type Props<'a> = CentralPanelProps<'a>;
+    type Output = CentralPanelOutput;
+
+    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+        let mut events = Vec::new();
+        self.render_ui(ctx, props, &mut events);
+        CentralPanelOutput { events }
+    }
+}
+
 impl CentralPanel {
-    pub fn ui(
+    fn render_ui(
         &mut self,
         ctx: &egui::Context,
-        path: &Option<std::path::PathBuf>,
-        file_type: &mut FileType,
-        error: &mut Option<String>,
-        search_message: Option<search::SearchMessage>,
+        props: CentralPanelProps<'_>,
+        events: &mut Vec<CentralPanelEvent>,
     ) {
         // Open / close viewer once on change
-        match (path, self.loaded_path.as_ref(), self.loaded_type) {
+        match (props.file_path, self.loaded_path.as_ref(), self.loaded_type) {
             (Some(new_path), Some(curr_path), Some(curr_ty))
-                if curr_path == new_path && curr_ty == *file_type =>
+                if curr_path == new_path && curr_ty == props.file_type =>
             {
                 // no change
             }
             (Some(new_path), _, _) => {
                 self.last_open_err = None;
-                match self.file_viewer.open(new_path, file_type) {
+                let mut file_type = props.file_type;
+                match self.file_viewer.open(new_path, &mut file_type) {
                     Ok(()) => {
                         self.loaded_path = Some(new_path.clone());
-                        self.loaded_type = Some(*file_type);
-                        *error = None;
+                        self.loaded_type = Some(file_type);
+                        events.push(CentralPanelEvent::FileOpened {
+                            path: new_path.clone(),
+                            file_type,
+                        });
+                        events.push(CentralPanelEvent::ErrorCleared);
                         // clear any prior search filter on new file
                         self.file_viewer.set_root_filter(None);
+
+                        // Emit event if file type changed during opening
+                        if file_type != props.file_type {
+                            events.push(CentralPanelEvent::FileTypeChanged(file_type));
+                        }
                     }
                     Err(e) => {
                         let msg = format!("Failed to open file: {e}");
                         self.last_open_err = Some(msg.clone());
-                        *error = Some(msg);
+                        events.push(CentralPanelEvent::FileOpenError(msg));
                         self.loaded_path = None;
                         self.loaded_type = None;
                     }
@@ -53,12 +94,13 @@ impl CentralPanel {
                 self.loaded_path = None;
                 self.loaded_type = None;
                 self.last_open_err = None;
+                events.push(CentralPanelEvent::FileClosed);
             }
             (None, None, _) => { /* nothing selected */ }
         }
 
         // React to search messages
-        if let Some(msg) = search_message {
+        if let Some(msg) = props.search_message {
             self.searching = msg.is_searching();
 
             match msg {
@@ -80,8 +122,8 @@ impl CentralPanel {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Show any error (either from TopBar or open attempt)
-            if let Some(err) = error.as_ref().or(self.last_open_err.as_ref()) {
+            // Show any error (either from props or open attempt)
+            if let Some(err) = props.error.as_ref().or(self.last_open_err.as_ref()) {
                 ui.colored_label(egui::Color32::RED, err);
                 ui.separator();
             }

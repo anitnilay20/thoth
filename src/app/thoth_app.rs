@@ -6,6 +6,7 @@ use super::{
     ShortcutAction, search_handler::SearchHandler, shortcut_handler::ShortcutHandler,
     update_handler::UpdateHandler,
 };
+use crate::components::central_panel::CentralPanelProps;
 use crate::components::settings_panel::SettingsPanelProps;
 
 pub struct ThothApp {
@@ -108,14 +109,8 @@ impl App for ThothApp {
         // Render the settings panel and handle actions
         self.render_settings_panel(ctx);
 
-        // Render the central panel
-        self.window_state.central_panel.ui(
-            ctx,
-            &self.window_state.file_path,
-            &mut self.window_state.file_type,
-            &mut self.window_state.error,
-            msg_to_central,
-        );
+        // Render the central panel and handle events
+        self.render_central_panel(ctx, msg_to_central);
     }
 }
 
@@ -280,6 +275,46 @@ impl ThothApp {
         if ctx.style().visuals.dark_mode != self.settings.dark_mode {
             if let Err(e) = self.settings.save() {
                 eprintln!("Failed to save settings: {}", e);
+            }
+        }
+    }
+
+    /// Render central panel and handle events
+    fn render_central_panel(
+        &mut self,
+        ctx: &egui::Context,
+        search_message: Option<crate::search::SearchMessage>,
+    ) {
+        // Render central panel using ContextComponent trait with one-way binding
+        let output = self.window_state.central_panel.render(
+            ctx,
+            CentralPanelProps {
+                file_path: &self.window_state.file_path,
+                file_type: self.window_state.file_type,
+                error: &self.window_state.error,
+                search_message,
+            },
+        );
+
+        // Handle events emitted by the central panel (bottom-to-top communication)
+        for event in output.events {
+            match event {
+                components::central_panel::CentralPanelEvent::FileOpened { path, file_type } => {
+                    self.window_state.file_path = Some(path);
+                    self.window_state.file_type = file_type;
+                }
+                components::central_panel::CentralPanelEvent::FileOpenError(msg) => {
+                    self.window_state.error = Some(msg);
+                }
+                components::central_panel::CentralPanelEvent::FileClosed => {
+                    self.window_state.file_path = None;
+                }
+                components::central_panel::CentralPanelEvent::FileTypeChanged(file_type) => {
+                    self.window_state.file_type = file_type;
+                }
+                components::central_panel::CentralPanelEvent::ErrorCleared => {
+                    self.window_state.error = None;
+                }
             }
         }
     }
