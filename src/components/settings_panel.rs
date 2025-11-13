@@ -25,9 +25,7 @@ pub struct SettingsPanelOutput {
 }
 
 #[derive(Default)]
-pub struct SettingsPanel {
-    pub show: bool,
-}
+pub struct SettingsPanel {}
 
 impl ContextComponent for SettingsPanel {
     type Props<'a> = SettingsPanelProps<'a>;

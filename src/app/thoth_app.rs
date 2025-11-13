@@ -20,6 +20,7 @@ pub struct ThothApp {
 
     // Settings panel (UI)
     pub settings_panel: components::settings_panel::SettingsPanel,
+    pub show_settings: bool,
 
     // Clipboard text to copy (set by shortcuts, copied in update loop)
     clipboard_text: Option<String>,
@@ -33,6 +34,7 @@ impl ThothApp {
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
             settings_panel: components::settings_panel::SettingsPanel::default(),
+            show_settings: false,
             clipboard_text: None,
         }
     }
@@ -75,11 +77,9 @@ impl App for ThothApp {
         }
 
         // Handle update messages
-        UpdateHandler::handle_update_messages(
-            &mut self.update_state,
-            &mut self.settings_panel,
-            ctx,
-        );
+        if UpdateHandler::handle_update_messages(&mut self.update_state, ctx) {
+            self.show_settings = true;
+        }
 
         // Handle file drops
         self.handle_file_drop(ctx);
@@ -149,7 +149,7 @@ impl ThothApp {
                     self.create_new_window();
                 }
                 ShortcutAction::Settings => {
-                    self.settings_panel.show = !self.settings_panel.show;
+                    self.show_settings = !self.show_settings;
                 }
                 ShortcutAction::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
@@ -167,8 +167,8 @@ impl ThothApp {
                 }
                 ShortcutAction::Escape => {
                     // Clear search or close panels
-                    if self.settings_panel.show {
-                        self.settings_panel.show = false;
+                    if self.show_settings {
+                        self.show_settings = false;
                     }
                 }
                 // Tree operations
@@ -264,7 +264,7 @@ impl ThothApp {
                     self.window_state.file_type = file_type;
                 }
                 components::toolbar::ToolbarEvent::ToggleSettings => {
-                    self.settings_panel.show = !self.settings_panel.show;
+                    self.show_settings = !self.show_settings;
                 }
                 components::toolbar::ToolbarEvent::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
@@ -290,7 +290,7 @@ impl ThothApp {
         let output = self.settings_panel.render(
             ctx,
             SettingsPanelProps {
-                show: self.settings_panel.show,
+                show: self.show_settings,
                 update_status: &self.update_state.update_status,
                 current_version: crate::update::UpdateManager::get_current_version(),
             },
@@ -300,7 +300,7 @@ impl ThothApp {
         for event in output.events {
             match event {
                 components::settings_panel::SettingsPanelEvent::Close => {
-                    self.settings_panel.show = false;
+                    self.show_settings = false;
                 }
                 components::settings_panel::SettingsPanelEvent::CheckForUpdates => {
                     UpdateHandler::handle_settings_action(
