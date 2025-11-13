@@ -6,7 +6,7 @@ use crate::helpers::{
     split_root_rel,
 };
 use crate::theme::{TextToken, row_fill, selected_row_bg};
-use eframe::egui::{self, Ui};
+use eframe::egui::{self, RichText, Ui};
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -261,41 +261,58 @@ impl JsonTreeViewer {
                         row_fill(row_index, ui)
                     };
 
-                    // Use the DataRow component
-                    let output = DataRow::render(
-                        ui,
-                        DataRowProps {
-                            display_text: display,
-                            indent: row.indent,
-                            is_expandable: row.is_expandable,
-                            is_expanded: row.is_expanded,
-                            text_tokens: row.text_token,
-                            background: bg,
-                            row_id: path,
-                        },
-                    );
+                    // Render the row with toggle button (if expandable) and content
+                    let mut toggle_clicked = false;
 
-                    if output.toggle_clicked {
-                        toggles.push(path.clone());
-                    }
+                    ui.horizontal(|ui| {
+                        // Indentation
+                        ui.add_space(row.indent as f32 * 12.0);
 
-                    if output.clicked || output.right_clicked {
-                        new_selected = Some(path.clone());
-                    }
-
-                    // Context menu using the response from DataRow
-                    output.response.context_menu(|ui| {
-                        let config = ContextMenuConfig::from_display(is_key_display, display2);
-                        render_context_menu(ui, &config, |action| {
-                            if let Some(text) = execute_context_menu_action(
-                                action,
-                                self,
-                                &Some(path.clone()),
-                                cache,
-                                loader,
-                            ) {
-                                copy_clipboard = Some(text);
+                        // Toggle button for expandable rows
+                        if row.is_expandable {
+                            let toggle_icon = if row.is_expanded { "-" } else { "+" };
+                            if ui
+                                .selectable_label(false, RichText::new(toggle_icon).monospace())
+                                .clicked()
+                            {
+                                toggle_clicked = true;
                             }
+                        } else {
+                            ui.add_space(23.0);
+                        }
+
+                        // Use DataRow component for the content (without extra indentation since we handled it above)
+                        let output = DataRow::render(
+                            ui,
+                            DataRowProps {
+                                display_text: display,
+                                indent: 0, // No extra indent, already added above
+                                text_tokens: row.text_token,
+                                background: bg,
+                                row_id: path,
+                            },
+                        );
+
+                        if toggle_clicked {
+                            toggles.push(path.clone());
+                        } else if output.clicked || output.right_clicked {
+                            new_selected = Some(path.clone());
+                        }
+
+                        // Context menu using the response from DataRow
+                        output.response.context_menu(|ui| {
+                            let config = ContextMenuConfig::from_display(is_key_display, display2);
+                            render_context_menu(ui, &config, |action| {
+                                if let Some(text) = execute_context_menu_action(
+                                    action,
+                                    self,
+                                    &Some(path.clone()),
+                                    cache,
+                                    loader,
+                                ) {
+                                    copy_clipboard = Some(text);
+                                }
+                            });
                         });
                     });
                 }

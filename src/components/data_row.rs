@@ -7,14 +7,8 @@ pub struct DataRowProps<'a> {
     /// Display text for the row (already formatted)
     pub display_text: &'a str,
 
-    /// Indentation level
+    /// Indentation level (in pixels or units)
     pub indent: usize,
-
-    /// Whether this row is expandable (shows +/- icon)
-    pub is_expandable: bool,
-
-    /// Whether this row is currently expanded
-    pub is_expanded: bool,
 
     /// Text tokens for syntax coloring (key_token, value_token)
     pub text_tokens: (TextToken, Option<TextToken>),
@@ -30,7 +24,6 @@ pub struct DataRowProps<'a> {
 pub struct DataRowOutput {
     pub clicked: bool,
     pub right_clicked: bool,
-    pub toggle_clicked: bool,
     pub response: egui::Response,
 }
 
@@ -51,8 +44,6 @@ impl StatelessComponent for DataRow {
     type Output = DataRowOutput;
 
     fn render(ui: &mut Ui, props: Self::Props<'_>) -> Self::Output {
-        let mut toggle_clicked = false;
-
         let visuals = ui.visuals();
         let palette = TextPalette::for_visuals(visuals);
 
@@ -67,19 +58,6 @@ impl StatelessComponent for DataRow {
             ui.horizontal(|ui| {
                 // Indentation
                 ui.add_space(props.indent as f32 * 12.0);
-
-                // Expand/collapse icon
-                if props.is_expandable {
-                    let toggle_icon = if props.is_expanded { "-" } else { "+" };
-                    if ui
-                        .selectable_label(false, RichText::new(toggle_icon).monospace())
-                        .clicked()
-                    {
-                        toggle_clicked = true;
-                    }
-                } else {
-                    ui.add_space(23.0);
-                }
 
                 // Key part (with syntax highlighting)
                 ui.add(egui::Label::new(
@@ -99,14 +77,13 @@ impl StatelessComponent for DataRow {
             });
         });
 
-        // Now interact with the final rect after layout is complete
+        // Interact with the row for clicks
         let id = ui.id().with(props.row_id);
         let resp = ui.interact(frame_response.response.rect, id, egui::Sense::click());
 
         DataRowOutput {
             clicked: resp.clicked(),
             right_clicked: resp.secondary_clicked(),
-            toggle_clicked,
             response: resp,
         }
     }
