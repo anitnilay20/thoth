@@ -26,10 +26,11 @@ pub struct Settings {
     pub dev: DeveloperSettings,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DeveloperSettings {
     /// Show profiling UI (puffin/egui profiler)
+    #[serde(default)]
     pub show_profiler: bool,
 }
 
@@ -62,14 +63,6 @@ impl Default for Settings {
             updates: UpdateSettings::default(),
             shortcuts: KeyboardShortcuts::default(),
             dev: DeveloperSettings::default(),
-        }
-    }
-}
-
-impl Default for DeveloperSettings {
-    fn default() -> Self {
-        Self {
-            show_profiler: false,
         }
     }
 }

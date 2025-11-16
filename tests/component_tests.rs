@@ -12,15 +12,13 @@ use thoth::theme::TextToken;
 // ============================================================================
 
 #[test]
-fn test_data_row_non_expandable() {
+fn test_data_row_basic() {
     run_ui_test(|ui| {
         let output = DataRow::render(
             ui,
             DataRowProps {
                 display_text: "key: value",
                 indent: 0,
-                is_expandable: false,
-                is_expanded: false,
                 text_tokens: (TextToken::Key, Some(TextToken::Str)),
                 background: ui.visuals().widgets.noninteractive.bg_fill,
                 row_id: "test-row",
@@ -30,20 +28,17 @@ fn test_data_row_non_expandable() {
         // Initially not clicked
         assert!(!output.clicked);
         assert!(!output.right_clicked);
-        assert!(!output.toggle_clicked);
     });
 }
 
 #[test]
-fn test_data_row_expandable_collapsed() {
+fn test_data_row_with_brackets() {
     run_ui_test(|ui| {
         let output = DataRow::render(
             ui,
             DataRowProps {
                 display_text: "array: []",
                 indent: 1,
-                is_expandable: true,
-                is_expanded: false,
                 text_tokens: (TextToken::Key, Some(TextToken::Bracket)),
                 background: ui.visuals().widgets.noninteractive.bg_fill,
                 row_id: "array-row",
@@ -51,28 +46,6 @@ fn test_data_row_expandable_collapsed() {
         );
 
         assert!(!output.clicked);
-        assert!(!output.toggle_clicked);
-    });
-}
-
-#[test]
-fn test_data_row_expandable_expanded() {
-    run_ui_test(|ui| {
-        let output = DataRow::render(
-            ui,
-            DataRowProps {
-                display_text: "object: {",
-                indent: 2,
-                is_expandable: true,
-                is_expanded: true,
-                text_tokens: (TextToken::Key, Some(TextToken::Bracket)),
-                background: ui.visuals().widgets.noninteractive.bg_fill,
-                row_id: "object-row",
-            },
-        );
-
-        assert!(!output.clicked);
-        assert!(!output.toggle_clicked);
     });
 }
 
@@ -86,8 +59,6 @@ fn test_data_row_with_indentation() {
                 DataRowProps {
                     display_text: &format!("level{}: value", indent),
                     indent,
-                    is_expandable: false,
-                    is_expanded: false,
                     text_tokens: (TextToken::Key, Some(TextToken::Str)),
                     background: ui.visuals().widgets.noninteractive.bg_fill,
                     row_id: &format!("indent-{}", indent),
@@ -115,8 +86,6 @@ fn test_data_row_different_text_tokens() {
                 DataRowProps {
                     display_text: "test: value",
                     indent: 0,
-                    is_expandable: false,
-                    is_expanded: false,
                     text_tokens: (*token1, *token2),
                     background: ui.visuals().widgets.noninteractive.bg_fill,
                     row_id: &format!("token-{}", i),
@@ -138,8 +107,6 @@ fn test_data_row_with_selection_background() {
             DataRowProps {
                 display_text: "selected: item",
                 indent: 0,
-                is_expandable: false,
-                is_expanded: false,
                 text_tokens: (TextToken::Key, Some(TextToken::Str)),
                 background: selected_bg,
                 row_id: "selected-row",
