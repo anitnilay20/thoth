@@ -22,6 +22,7 @@ Choose the type of release based on semantic versioning:
 ### 3. Optional: Dry Run
 
 Check the **Dry run** checkbox to preview what will happen without making any changes:
+
 - Shows what the new version will be
 - Displays what files will be modified
 - No commits, tags, or releases are created
@@ -30,11 +31,24 @@ Check the **Dry run** checkbox to preview what will happen without making any ch
 
 Uncheck **Dry run** and click **Run workflow** to create the actual release.
 
+## Setup Required
+
+Before using the automated release workflow, you need to set up a Personal Access Token:
+
+1. Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Generate new token with `repo` and `workflow` permissions
+3. Copy the token
+4. Go to repository → Settings → Secrets and variables → Actions
+5. Create new secret named `RELEASE_TOKEN` with your PAT
+
+This allows the workflow to bypass branch protection rules and push directly to main.
+
 ## What Happens Automatically
 
 When you trigger the workflow, the following happens automatically:
 
 ### Step 1: Version Bump (create-release.yml)
+
 ```
 1. Checkout code
 2. Install cargo-release
@@ -47,6 +61,7 @@ When you trigger the workflow, the following happens automatically:
 ```
 
 ### Step 2: Build & Release (release.yml - triggered by tag)
+
 ```
 1. Detects new tag (v*)
 2. Builds binaries for all platforms:
@@ -64,11 +79,13 @@ When you trigger the workflow, the following happens automatically:
 If you need to create a release locally for testing:
 
 ### Prerequisites
+
 ```bash
 cargo install cargo-release
 ```
 
 ### Dry Run (Preview Changes)
+
 ```bash
 # See what would happen without making changes
 cargo release patch --dry-run
@@ -77,6 +94,7 @@ cargo release major --dry-run
 ```
 
 ### Create Release
+
 ```bash
 # Patch release (0.2.4 → 0.2.5)
 cargo release patch --no-publish --execute
@@ -89,6 +107,7 @@ cargo release major --no-publish --execute
 ```
 
 This will:
+
 1. Bump version in Cargo.toml
 2. Update Cargo.lock
 3. Create commit and tag
@@ -98,6 +117,7 @@ This will:
 ## Semantic Versioning Guidelines
 
 ### Patch (0.0.X)
+
 - Bug fixes
 - Performance improvements
 - Documentation updates
@@ -105,6 +125,7 @@ This will:
 - Dependency updates (non-breaking)
 
 ### Minor (0.X.0)
+
 - New features
 - New settings/options
 - UI improvements
@@ -112,6 +133,7 @@ This will:
 - Backward-compatible changes
 
 ### Major (X.0.0)
+
 - Breaking changes
 - Complete redesigns
 - Removed features
@@ -121,21 +143,25 @@ This will:
 ## Troubleshooting
 
 ### Workflow fails at "cargo release"
+
 - Check that version bumping is valid
 - Ensure no uncommitted changes exist
 - Verify git is properly configured
 
 ### Tag already exists
+
 - Delete the tag locally: `git tag -d v0.2.5`
 - Delete remote tag: `git push origin :refs/tags/v0.2.5`
 - Run the workflow again
 
 ### Release workflow not triggered
+
 - Check that the tag follows pattern `v*.*.*`
 - Verify the tag was pushed to GitHub
 - Check GitHub Actions is enabled for the repo
 
 ### Build failures
+
 - Check the build logs in the release.yml workflow
 - Verify all platforms are building correctly
 - Test builds locally first if needed
@@ -150,6 +176,7 @@ If you need to rollback a release:
    - Click "Delete release"
 
 2. **Delete the Git Tag**:
+
    ```bash
    git tag -d v0.2.5
    git push origin :refs/tags/v0.2.5
@@ -186,5 +213,6 @@ pre-release-commit-message = "chore: release v{{version}}"
 ```
 
 Workflow files:
+
 - `.github/workflows/create-release.yml` - Manual release trigger
 - `.github/workflows/release.yml` - Build and publish release artifacts

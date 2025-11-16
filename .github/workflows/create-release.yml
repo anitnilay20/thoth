@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_type:
-        description: 'Release type (major, minor, patch)'
+        description: "Release type (major, minor, patch)"
         required: true
         type: choice
         options:
@@ -12,7 +12,7 @@ on:
           - minor
           - major
       dry_run:
-        description: 'Dry run (preview changes without creating release)'
+        description: "Dry run (preview changes without creating release)"
         required: false
         type: boolean
         default: false
@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Configure Git
         run: |
@@ -48,11 +48,11 @@ jobs:
       - name: Dry run preview
         if: ${{ inputs.dry_run }}
         run: |
-          echo "🔍 DRY RUN MODE - No changes will be made"
+          echo "🔍 DRY RUN MODE - Previewing version bump"
           echo ""
-          cargo release ${{ inputs.release_type }} --no-publish --no-push --no-tag --execute
+          cargo release ${{ inputs.release_type }} --no-publish --no-push --no-tag --no-commit
           echo ""
-          echo "✅ Dry run complete. Review the changes above."
+          echo "✅ Dry run complete. The above shows what version will be created."
           echo "To create the actual release, run this workflow again with 'Dry run' unchecked."
 
       - name: Create release
@@ -66,7 +66,7 @@ jobs:
           # 2. Update Cargo.lock
           # 3. Create release commit
           # 4. Create git tag
-          # 5. Push tag (which triggers the release.yml workflow)
+          # 5. Push to main and push tag (using RELEASE_TOKEN which can bypass branch protection)
           cargo release ${{ inputs.release_type }} \
             --no-publish \
             --execute \
