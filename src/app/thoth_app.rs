@@ -63,6 +63,9 @@ impl ThothApp {
 
 impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         // Handle keyboard shortcuts
         let shortcut_actions = ShortcutHandler::handle_shortcuts(ctx, &self.settings.shortcuts);
         self.handle_shortcut_actions(ctx, shortcut_actions);
@@ -112,12 +115,31 @@ impl App for ThothApp {
         // Render the central panel and handle events
         self.render_central_panel(ctx, msg_to_central);
 
-        // Show profiler if enabled
+        // Show profiler if enabled (only when profiling feature is enabled)
+        #[cfg(feature = "profiling")]
         if self.settings.dev.show_profiler {
+            // Enable puffin profiling
+            puffin::GlobalProfiler::lock().new_frame();
+
             egui::Window::new("🔍 Profiler")
                 .default_open(true)
                 .show(ctx, |ui| {
-                    ctx.settings_ui(ui);
+                    // Show puffin profiler UI with per-component breakdown
+                    puffin_egui::profiler_ui(ui);
+
+                    ui.separator();
+
+                    // Show frame statistics
+                    ui.collapsing("Frame Stats", |ui| {
+                        ctx.inspection_ui(ui);
+                    });
+
+                    ui.separator();
+
+                    // Show additional egui settings
+                    ui.collapsing("Advanced Settings", |ui| {
+                        ctx.settings_ui(ui);
+                    });
                 });
         }
     }
@@ -239,6 +261,9 @@ impl ThothApp {
 
     /// Render toolbar and return any search messages
     fn render_toolbar(&mut self, ctx: &egui::Context) -> Option<crate::search::SearchMessage> {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let update_available = UpdateHandler::is_update_available(&self.update_state);
 
         // Render toolbar using ContextComponent trait with one-way binding
@@ -297,6 +322,9 @@ impl ThothApp {
         ctx: &egui::Context,
         search_message: Option<crate::search::SearchMessage>,
     ) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         // Render central panel using ContextComponent trait with one-way binding
         let output = self.window_state.central_panel.render(
             ctx,
@@ -333,6 +361,9 @@ impl ThothApp {
 
     /// Render settings panel and handle actions
     fn render_settings_panel(&mut self, ctx: &egui::Context) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         // Render settings panel using ContextComponent trait with one-way binding
         let output = self.settings_panel.render(
             ctx,

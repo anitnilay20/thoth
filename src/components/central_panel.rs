@@ -40,6 +40,9 @@ impl ContextComponent for CentralPanel {
     type Output = CentralPanelOutput;
 
     fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let mut events = Vec::new();
         self.render_ui(ctx, props, &mut events);
         CentralPanelOutput { events }

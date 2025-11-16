@@ -58,6 +58,9 @@ impl JsonTreeViewer {
         loader: &mut LazyJsonFile,
         total_len: usize,
     ) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         self.rows.clear();
 
         // Determine which root indices to render
@@ -117,6 +120,9 @@ impl JsonTreeViewer {
 
     /// Build rows from a JSON value recursively
     fn build_rows_from_value(&mut self, value: &Value, path: &str, indent: usize) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         match value {
             Value::Object(map) => {
                 for (key, val) in map.iter() {
@@ -216,6 +222,9 @@ impl JsonTreeViewer {
         loader: &mut LazyJsonFile,
         should_scroll_to_selection: &mut bool,
     ) -> bool {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let row_count = self.rows.len();
         let row_height = 20.0;
 

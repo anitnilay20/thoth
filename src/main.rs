@@ -17,6 +17,10 @@ mod theme;
 mod update;
 
 fn main() -> Result<()> {
+    // Initialize puffin profiler (only when profiling feature is enabled)
+    #[cfg(feature = "profiling")]
+    puffin::set_scopes_on(true);
+
     // Load settings first
     let settings = settings::Settings::load().unwrap_or_else(|e| {
         eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);

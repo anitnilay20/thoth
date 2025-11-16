@@ -65,5 +65,14 @@ tar = "0.4"
 zip = "0.6"
 open = "5.0"
 
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-pprof = { version = "0.15.0", features = ["flamegraph"] }
+[dependencies.puffin]
+git = "https://github.com/EmbarkStudios/puffin"
+optional = true
+
+[dependencies.puffin_egui]
+git = "https://github.com/EmbarkStudios/puffin"
+optional = true
+
+[features]
+default = []
+profiling = ["puffin", "puffin_egui"]

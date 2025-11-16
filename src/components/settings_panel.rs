@@ -32,6 +32,9 @@ impl ContextComponent for SettingsPanel {
     type Output = SettingsPanelOutput;
 
     fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         if !props.show {
             return SettingsPanelOutput { events: Vec::new() };
         }

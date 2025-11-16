@@ -44,6 +44,9 @@ impl StatelessComponent for DataRow {
     type Output = DataRowOutput;
 
     fn render(ui: &mut Ui, props: Self::Props<'_>) -> Self::Output {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let visuals = ui.visuals();
         let palette = TextPalette::for_visuals(visuals);
 
