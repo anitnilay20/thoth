@@ -73,6 +73,10 @@ optional = true
 git = "https://github.com/EmbarkStudios/puffin"
 optional = true
 
+[dependencies.dhat]
+version = "0.3"
+optional = true
+
 [features]
 default = []
-profiling = ["puffin", "puffin_egui"]
+profiling = ["puffin", "puffin_egui", "dhat"]

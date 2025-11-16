@@ -106,6 +106,7 @@ For a complete list of keyboard shortcuts, see the [Keyboard Shortcuts Guide](do
 - **[Component Architecture](docs/COMPONENT_ARCHITECTURE.md)**: Detailed guide on Thoth's component system and one-way data binding pattern
 - **[Keyboard Shortcuts](docs/KEYBOARD_SHORTCUTS.md)**: Complete reference of all keyboard shortcuts
 - **[Design System](docs/DESIGN_SYSTEM.md)**: UI design guidelines and patterns
+- **[Profiling](/docs/PROFILING.md)**: Performance profiling and optimization techniques used in Thoth
 
 ---
 

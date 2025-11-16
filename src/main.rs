@@ -1,5 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// Set up dhat allocator for memory profiling (only when profiling feature is enabled)
+#[cfg(feature = "profiling")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 use anyhow::Result;
 use eframe::{NativeOptions, egui};
 
@@ -17,6 +22,13 @@ mod theme;
 mod update;
 
 fn main() -> Result<()> {
+    // Initialize dhat heap profiler (only when profiling feature is enabled)
+    // When the app exits, dhat writes 'dhat-heap.json' which can be viewed at:
+    // https://nnethercote.github.io/dh_view/dh_view.html
+    // This shows per-component memory allocations with full call stacks
+    #[cfg(feature = "profiling")]
+    let _profiler = dhat::Profiler::new_heap();
+
     // Initialize puffin profiler (only when profiling feature is enabled)
     #[cfg(feature = "profiling")]
     puffin::set_scopes_on(true);
@@ -40,11 +52,19 @@ fn main() -> Result<()> {
         ..Default::default()
     };
 
-    if let Err(e) = eframe::run_native(
+    let result = eframe::run_native(
         "Thoth — JSON & NDJSON Viewer",
         options,
         Box::new(move |_cc| Ok(Box::new(app::ThothApp::new(settings)))),
-    ) {
+    );
+
+    // When profiling is enabled, remind user about dhat output
+    #[cfg(feature = "profiling")]
+    eprintln!("\n📊 Profiling data saved to dhat-heap.json");
+    #[cfg(feature = "profiling")]
+    eprintln!("   View at: https://nnethercote.github.io/dh_view/dh_view.html\n");
+
+    if let Err(e) = result {
         eprintln!("Error running application: {e:?}");
         return Err(anyhow::anyhow!("Failed to run application"));
     }
