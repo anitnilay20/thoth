@@ -28,10 +28,9 @@ tag-name = "v{{version}}"
 # Commit message template
 pre-release-commit-message = "chore: release v{{version}}"
 
-# Ensure Cargo.lock is updated
+# Update bundle metadata version to match package version
 pre-release-replacements = [
-  # Update version in bundle metadata to match package version
-  {file="Cargo.toml", search="version = \"[^\"]*\"", replace="version = \"{{version}}\"", exactly=2},
+  {file="Cargo.toml", search="\\[package.metadata.bundle\\]\\nname = \"Thoth\"\\nidentifier = \"com.thoth.app\"\\nversion = \"[^\"]*\"", replace="[package.metadata.bundle]\\nname = \"Thoth\"\\nidentifier = \"com.thoth.app\"\\nversion = \"{{version}}\""},
 ]
 
 # Don't run any pre-release hooks
