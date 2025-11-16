@@ -21,7 +21,7 @@ sign-tag = false
 push = true
 
 # Create git tag with 'v' prefix (e.g., v0.2.5)
-tag-prefix = "v"
+tag-name = "v{{version}}"
 
 # Commit message template
 pre-release-commit-message = "chore: release v{{version}}"
