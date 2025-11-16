@@ -10,7 +10,36 @@ readme = "README.md"
 rust-version = "1.85"
 
 [package.metadata.release]
+# Don't publish to crates.io (this is a desktop app)
 publish = false
+
+# Sign commits and tags
+sign-commit = false
+sign-tag = false
+
+# Push to remote after tagging
+push = true
+push-remote = "origin"
+
+# Create git tag with 'v' prefix (e.g., v0.2.5)
+tag-prefix = "v"
+tag-name = "v{{version}}"
+
+# Commit message template
+pre-release-commit-message = "chore: release v{{version}}"
+
+# Ensure Cargo.lock is updated
+pre-release-replacements = [
+  # Update version in bundle metadata to match package version
+  {file="Cargo.toml", search="version = \"[^\"]*\"", replace="version = \"{{version}}\"", exactly=2},
+]
+
+# Don't run any pre-release hooks
+pre-release-hook = []
+
+[lib]
+name = "thoth"
+path = "src/lib.rs"
 
 [[bin]]
 name = "thoth"
@@ -61,5 +90,18 @@ tar = "0.4"
 zip = "0.6"
 open = "5.0"
 
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-pprof = { version = "0.15.0", features = ["flamegraph"] }
+[dependencies.puffin]
+git = "https://github.com/EmbarkStudios/puffin"
+optional = true
+
+[dependencies.puffin_egui]
+git = "https://github.com/EmbarkStudios/puffin"
+optional = true
+
+[dependencies.dhat]
+version = "0.3"
+optional = true
+
+[features]
+default = []
+profiling = ["puffin", "puffin_egui", "dhat"]

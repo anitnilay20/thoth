@@ -1,11 +1,13 @@
 use eframe::{App, Frame, egui};
 
-use crate::{components, settings, state};
+use crate::{components, components::traits::ContextComponent, settings, state};
 
 use super::{
     ShortcutAction, search_handler::SearchHandler, shortcut_handler::ShortcutHandler,
     update_handler::UpdateHandler,
 };
+use crate::components::central_panel::CentralPanelProps;
+use crate::components::settings_panel::SettingsPanelProps;
 
 pub struct ThothApp {
     // Settings for this window
@@ -19,6 +21,7 @@ pub struct ThothApp {
 
     // Settings panel (UI)
     pub settings_panel: components::settings_panel::SettingsPanel,
+    pub show_settings: bool,
 
     // Clipboard text to copy (set by shortcuts, copied in update loop)
     clipboard_text: Option<String>,
@@ -31,7 +34,8 @@ impl ThothApp {
             settings,
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
-            settings_panel: components::settings_panel::SettingsPanel::default(),
+            settings_panel: components::settings_panel::SettingsPanel,
+            show_settings: false,
             clipboard_text: None,
         }
     }
@@ -59,6 +63,9 @@ impl ThothApp {
 
 impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         // Handle keyboard shortcuts
         let shortcut_actions = ShortcutHandler::handle_shortcuts(ctx, &self.settings.shortcuts);
         self.handle_shortcut_actions(ctx, shortcut_actions);
@@ -74,11 +81,9 @@ impl App for ThothApp {
         }
 
         // Handle update messages
-        UpdateHandler::handle_update_messages(
-            &mut self.update_state,
-            &mut self.settings_panel,
-            ctx,
-        );
+        if UpdateHandler::handle_update_messages(&mut self.update_state, ctx) {
+            self.show_settings = true;
+        }
 
         // Handle file drops
         self.handle_file_drop(ctx);
@@ -107,14 +112,52 @@ impl App for ThothApp {
         // Render the settings panel and handle actions
         self.render_settings_panel(ctx);
 
-        // Render the central panel
-        self.window_state.central_panel.ui(
-            ctx,
-            &self.window_state.file_path,
-            &mut self.window_state.file_type,
-            &mut self.window_state.error,
-            msg_to_central,
-        );
+        // Render the central panel and handle events
+        self.render_central_panel(ctx, msg_to_central);
+
+        // Show profiler if enabled (only when profiling feature is enabled)
+        #[cfg(feature = "profiling")]
+        if self.settings.dev.show_profiler {
+            // Enable puffin profiling
+            puffin::GlobalProfiler::lock().new_frame();
+
+            egui::Window::new("🔍 Profiler")
+                .default_open(true)
+                .show(ctx, |ui| {
+                    // Memory profiling info
+                    ui.collapsing("Memory Profiling (dhat)", |ui| {
+                        ui.label("📊 Memory allocations are being tracked.");
+                        ui.label("When you close the app, dhat-heap.json will be generated.");
+                        ui.separator();
+                        ui.label("To view per-component memory usage:");
+                        ui.label("1. Close the app normally");
+                        ui.label("2. Open https://nnethercote.github.io/dh_view/dh_view.html");
+                        ui.label("3. Load dhat-heap.json");
+                        ui.separator();
+                        ui.label("The viewer shows which components allocate the most memory,");
+                        ui.label("with full call stacks for each allocation.");
+                    });
+
+                    ui.separator();
+
+                    // Show puffin profiler UI with per-component breakdown
+                    puffin_egui::profiler_ui(ui);
+
+                    ui.separator();
+
+                    // Show frame statistics
+                    ui.collapsing("Frame Stats", |ui| {
+                        ctx.inspection_ui(ui);
+                    });
+
+                    ui.separator();
+
+                    // Show additional egui settings
+                    ui.collapsing("Advanced Settings", |ui| {
+                        ctx.settings_ui(ui);
+                    });
+                });
+        }
     }
 }
 
@@ -148,10 +191,13 @@ impl ThothApp {
                     self.create_new_window();
                 }
                 ShortcutAction::Settings => {
-                    self.settings_panel.show = !self.settings_panel.show;
+                    self.show_settings = !self.show_settings;
                 }
                 ShortcutAction::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
+                }
+                ShortcutAction::ToggleProfiler => {
+                    self.settings.dev.show_profiler = !self.settings.dev.show_profiler;
                 }
                 // Navigation shortcuts - handled by JSON viewer or search
                 ShortcutAction::FocusSearch => {
@@ -166,8 +212,8 @@ impl ThothApp {
                 }
                 ShortcutAction::Escape => {
                     // Clear search or close panels
-                    if self.settings_panel.show {
-                        self.settings_panel.show = false;
+                    if self.show_settings {
+                        self.show_settings = false;
                     }
                 }
                 // Tree operations
@@ -231,30 +277,50 @@ impl ThothApp {
 
     /// Render toolbar and return any search messages
     fn render_toolbar(&mut self, ctx: &egui::Context) -> Option<crate::search::SearchMessage> {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
         let update_available = UpdateHandler::is_update_available(&self.update_state);
 
-        let mut new_window_requested = false;
-
-        let result = self.window_state.toolbar.ui(
+        // Render toolbar using ContextComponent trait with one-way binding
+        let output = self.window_state.toolbar.render(
             ctx,
-            &mut components::toolbar::ToolbarState {
-                file_path: &mut self.window_state.file_path,
-                file_type: &mut self.window_state.file_type,
-                error: &mut self.window_state.error,
-                dark_mode: &mut self.settings.dark_mode,
-                show_settings: &mut self.settings_panel.show,
+            components::toolbar::ToolbarProps {
+                file_type: &self.window_state.file_type,
+                dark_mode: self.settings.dark_mode,
                 update_available,
-                new_window_requested: &mut new_window_requested,
                 shortcuts: &self.settings.shortcuts,
             },
         );
 
-        // Handle new window request
-        if new_window_requested {
-            self.create_new_window();
+        // Handle events emitted by the toolbar (bottom-to-top communication)
+        for event in output.events {
+            match event {
+                components::toolbar::ToolbarEvent::FileOpen { path, file_type } => {
+                    self.window_state.file_path = Some(path);
+                    self.window_state.file_type = file_type;
+                    self.window_state.error = None;
+                }
+                components::toolbar::ToolbarEvent::FileClear => {
+                    self.window_state.file_path = None;
+                    self.window_state.error = None;
+                }
+                components::toolbar::ToolbarEvent::NewWindow => {
+                    self.create_new_window();
+                }
+                components::toolbar::ToolbarEvent::FileTypeChange(file_type) => {
+                    self.window_state.file_type = file_type;
+                }
+                components::toolbar::ToolbarEvent::ToggleSettings => {
+                    self.show_settings = !self.show_settings;
+                }
+                components::toolbar::ToolbarEvent::ToggleTheme => {
+                    self.settings.dark_mode = !self.settings.dark_mode;
+                }
+            }
         }
 
-        result
+        output.search_message
     }
 
     /// Save settings if they have changed
@@ -266,14 +332,77 @@ impl ThothApp {
         }
     }
 
+    /// Render central panel and handle events
+    fn render_central_panel(
+        &mut self,
+        ctx: &egui::Context,
+        search_message: Option<crate::search::SearchMessage>,
+    ) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        // Render central panel using ContextComponent trait with one-way binding
+        let output = self.window_state.central_panel.render(
+            ctx,
+            CentralPanelProps {
+                file_path: &self.window_state.file_path,
+                file_type: self.window_state.file_type,
+                error: &self.window_state.error,
+                search_message,
+            },
+        );
+
+        // Handle events emitted by the central panel (bottom-to-top communication)
+        for event in output.events {
+            match event {
+                components::central_panel::CentralPanelEvent::FileOpened { path, file_type } => {
+                    self.window_state.file_path = Some(path);
+                    self.window_state.file_type = file_type;
+                }
+                components::central_panel::CentralPanelEvent::FileOpenError(msg) => {
+                    self.window_state.error = Some(msg);
+                }
+                components::central_panel::CentralPanelEvent::FileClosed => {
+                    self.window_state.file_path = None;
+                }
+                components::central_panel::CentralPanelEvent::FileTypeChanged(file_type) => {
+                    self.window_state.file_type = file_type;
+                }
+                components::central_panel::CentralPanelEvent::ErrorCleared => {
+                    self.window_state.error = None;
+                }
+            }
+        }
+    }
+
     /// Render settings panel and handle actions
     fn render_settings_panel(&mut self, ctx: &egui::Context) {
-        if let Some(action) = self.settings_panel.render(
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        // Render settings panel using ContextComponent trait with one-way binding
+        let output = self.settings_panel.render(
             ctx,
-            &self.update_state.update_status,
-            crate::update::UpdateManager::get_current_version(),
-        ) {
-            UpdateHandler::handle_settings_action(action, &mut self.update_state, ctx);
+            SettingsPanelProps {
+                show: self.show_settings,
+                update_status: &self.update_state.update_status,
+                current_version: crate::update::UpdateManager::get_current_version(),
+            },
+        );
+
+        // Handle events emitted by the settings panel (bottom-to-top communication)
+        for event in output.events {
+            match &event {
+                components::settings_panel::SettingsPanelEvent::Close => {
+                    self.show_settings = false;
+                }
+                components::settings_panel::SettingsPanelEvent::CheckForUpdates
+                | components::settings_panel::SettingsPanelEvent::DownloadUpdate
+                | components::settings_panel::SettingsPanelEvent::InstallUpdate
+                | components::settings_panel::SettingsPanelEvent::RetryUpdate => {
+                    UpdateHandler::handle_settings_action(event, &mut self.update_state, ctx);
+                }
+            }
         }
     }
 }

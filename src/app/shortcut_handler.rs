@@ -35,6 +35,9 @@ pub enum ShortcutAction {
     // UI
     Settings,
     ToggleTheme,
+
+    // Developer
+    ToggleProfiler,
 }
 
 /// Handle keyboard shortcuts and return triggered actions
@@ -139,6 +142,12 @@ impl ShortcutHandler {
 
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.toggle_theme.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::ToggleTheme);
+        }
+
+        // Developer
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.toggle_profiler.to_keyboard_shortcut()))
+        {
+            actions.push(ShortcutAction::ToggleProfiler);
         }
 
         actions

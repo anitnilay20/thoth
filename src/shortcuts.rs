@@ -162,6 +162,9 @@ pub struct KeyboardShortcuts {
     // UI
     pub settings: Shortcut,
     pub toggle_theme: Shortcut,
+
+    // Developer
+    pub toggle_profiler: Shortcut,
 }
 
 impl Default for KeyboardShortcuts {
@@ -197,6 +200,9 @@ impl Default for KeyboardShortcuts {
             // UI
             settings: Shortcut::new("Comma").command(),
             toggle_theme: Shortcut::new("T").command().shift(),
+
+            // Developer
+            toggle_profiler: Shortcut::new("P").command().alt(),
         }
     }
 }
