@@ -1,0 +1,77 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type (major, minor, patch)'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: 'Dry run (preview changes without creating release)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-release
+        run: cargo install cargo-release
+
+      - name: Dry run preview
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "🔍 DRY RUN MODE - No changes will be made"
+          echo ""
+          cargo release ${{ inputs.release_type }} --no-publish --no-push --no-tag --execute
+          echo ""
+          echo "✅ Dry run complete. Review the changes above."
+          echo "To create the actual release, run this workflow again with 'Dry run' unchecked."
+
+      - name: Create release
+        if: ${{ !inputs.dry_run }}
+        run: |
+          echo "🚀 Creating ${{ inputs.release_type }} release..."
+          echo ""
+
+          # Run cargo-release to:
+          # 1. Bump version in Cargo.toml
+          # 2. Update Cargo.lock
+          # 3. Create release commit
+          # 4. Create git tag
+          # 5. Push tag (which triggers the release.yml workflow)
+          cargo release ${{ inputs.release_type }} \
+            --no-publish \
+            --execute \
+            --no-confirm
+
+          echo ""
+          echo "✅ Release created successfully!"
+          echo "The release.yml workflow will now build binaries and create the GitHub release."

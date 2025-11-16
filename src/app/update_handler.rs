@@ -24,15 +24,18 @@ impl UpdateHandler {
     }
 
     /// Process incoming update messages
+    /// Returns true if settings panel should be shown
     pub fn handle_update_messages(
         update_state: &mut state::ApplicationUpdateState,
-        settings_panel: &mut components::settings_panel::SettingsPanel,
         ctx: &egui::Context,
-    ) {
+    ) -> bool {
+        let mut should_show_settings = false;
         while let Ok(msg) = update_state.update_manager.receiver().try_recv() {
             match msg {
                 update::manager::UpdateMessage::UpdateCheckComplete(result) => {
-                    Self::handle_check_complete(result, update_state, settings_panel);
+                    if Self::handle_check_complete(result, update_state) {
+                        should_show_settings = true;
+                    }
                 }
                 update::manager::UpdateMessage::DownloadProgress(progress) => {
                     Self::handle_download_progress(progress, update_state, ctx);
@@ -44,20 +47,22 @@ impl UpdateHandler {
                     Self::handle_install_complete(result, update_state, ctx);
                 }
             }
+            ctx.request_repaint();
         }
+        should_show_settings
     }
 
-    /// Handle settings panel actions related to updates
+    /// Handle settings panel events related to updates
     pub fn handle_settings_action(
-        action: components::settings_panel::SettingsAction,
+        event: components::settings_panel::SettingsPanelEvent,
         update_state: &mut state::ApplicationUpdateState,
         ctx: &egui::Context,
     ) {
-        match action {
-            components::settings_panel::SettingsAction::CheckForUpdates => {
+        match event {
+            components::settings_panel::SettingsPanelEvent::CheckForUpdates => {
                 Self::check_for_updates(update_state);
             }
-            components::settings_panel::SettingsAction::DownloadUpdate => {
+            components::settings_panel::SettingsPanelEvent::DownloadUpdate => {
                 if let update::UpdateState::UpdateAvailable { releases, .. } =
                     &update_state.update_status.state
                 {
@@ -66,14 +71,17 @@ impl UpdateHandler {
                     }
                 }
             }
-            components::settings_panel::SettingsAction::InstallUpdate => {
+            components::settings_panel::SettingsPanelEvent::InstallUpdate => {
                 if let Some(path) = update_state.pending_install_path.take() {
                     update_state.update_status.state = update::UpdateState::Installing;
                     update_state.update_manager.install_update(path);
                 }
             }
-            components::settings_panel::SettingsAction::RetryUpdate => {
+            components::settings_panel::SettingsPanelEvent::RetryUpdate => {
                 Self::check_for_updates(update_state);
+            }
+            components::settings_panel::SettingsPanelEvent::Close => {
+                // Close event is handled by the parent, nothing to do here
             }
         }
     }
@@ -91,8 +99,9 @@ impl UpdateHandler {
     fn handle_check_complete(
         result: Result<Vec<update::ReleaseInfo>, String>,
         update_state: &mut state::ApplicationUpdateState,
-        settings_panel: &mut components::settings_panel::SettingsPanel,
-    ) {
+    ) -> bool {
+        let mut should_show_settings = false;
+
         match result {
             Ok(releases) => {
                 if update::UpdateManager::has_newer_version(&releases) {
@@ -107,7 +116,7 @@ impl UpdateHandler {
 
                         // Auto-open settings panel on first update notification
                         if !update_state.update_notification_shown {
-                            settings_panel.show = true;
+                            should_show_settings = true;
                             update_state.update_notification_shown = true;
                         }
                     }
@@ -119,6 +128,8 @@ impl UpdateHandler {
                 update_state.update_status.state = update::UpdateState::Error(e);
             }
         }
+
+        should_show_settings
     }
 
     fn handle_download_progress(

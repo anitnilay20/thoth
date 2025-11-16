@@ -45,6 +45,7 @@ pub enum LazyJsonFile {
 }
 
 impl LazyJsonFile {
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         match self {
             LazyJsonFile::Ndjson(f) => f.len(),
@@ -140,6 +141,7 @@ impl NdjsonFile {
         })
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.line_spans.len()
     }
@@ -211,6 +213,7 @@ impl JsonArrayFile {
         })
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.element_spans.len()
     }

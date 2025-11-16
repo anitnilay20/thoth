@@ -97,6 +97,16 @@ For a complete list of keyboard shortcuts, see the [Keyboard Shortcuts Guide](do
 - `src/file/`: File handling, lazy loading, and type detection
 - `src/search/`: Search functionality
 - `src/helpers/`: Utility functions and shared code
+- `docs/`: Documentation for architecture and design patterns
+
+---
+
+## Documentation
+
+- **[Component Architecture](docs/COMPONENT_ARCHITECTURE.md)**: Detailed guide on Thoth's component system and one-way data binding pattern
+- **[Keyboard Shortcuts](docs/KEYBOARD_SHORTCUTS.md)**: Complete reference of all keyboard shortcuts
+- **[Design System](docs/DESIGN_SYSTEM.md)**: UI design guidelines and patterns
+- **[Profiling](/docs/PROFILING.md)**: Performance profiling and optimization techniques used in Thoth
 
 ---
 
