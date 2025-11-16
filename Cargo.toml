@@ -1,6 +1,6 @@
 [package]
 name = "thoth"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 repository = "https://github.com/anitnilay20/thoth"
 authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
@@ -19,22 +19,12 @@ sign-tag = false
 
 # Push to remote after tagging
 push = true
-push-remote = "origin"
 
 # Create git tag with 'v' prefix (e.g., v0.2.5)
 tag-prefix = "v"
-tag-name = "v{{version}}"
 
 # Commit message template
 pre-release-commit-message = "chore: release v{{version}}"
-
-# Update bundle metadata version to match package version
-pre-release-replacements = [
-  {file="Cargo.toml", search="\\[package.metadata.bundle\\]\\nname = \"Thoth\"\\nidentifier = \"com.thoth.app\"\\nversion = \"[^\"]*\"", replace="[package.metadata.bundle]\\nname = \"Thoth\"\\nidentifier = \"com.thoth.app\"\\nversion = \"{{version}}\""},
-]
-
-# Don't run any pre-release hooks
-pre-release-hook = []
 
 [lib]
 name = "thoth"
