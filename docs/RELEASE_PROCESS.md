@@ -1,0 +1,190 @@
+# Release Process
+
+Thoth uses automated release management via GitHub Actions and `cargo-release`.
+
+## Creating a New Release
+
+### 1. Go to GitHub Actions
+
+1. Navigate to the repository on GitHub
+2. Click on the **Actions** tab
+3. Select **Create Release** workflow from the left sidebar
+4. Click **Run workflow** button
+
+### 2. Select Release Type
+
+Choose the type of release based on semantic versioning:
+
+- **Patch** (0.2.4 → 0.2.5): Bug fixes, minor improvements, no breaking changes
+- **Minor** (0.2.4 → 0.3.0): New features, backward compatible
+- **Major** (0.2.4 → 1.0.0): Breaking changes, major overhaul
+
+### 3. Optional: Dry Run
+
+Check the **Dry run** checkbox to preview what will happen without making any changes:
+- Shows what the new version will be
+- Displays what files will be modified
+- No commits, tags, or releases are created
+
+### 4. Create the Release
+
+Uncheck **Dry run** and click **Run workflow** to create the actual release.
+
+## What Happens Automatically
+
+When you trigger the workflow, the following happens automatically:
+
+### Step 1: Version Bump (create-release.yml)
+```
+1. Checkout code
+2. Install cargo-release
+3. Run: cargo release {type} --no-publish --execute
+   - Updates version in Cargo.toml (package and bundle)
+   - Updates Cargo.lock
+   - Creates commit: "chore: release v0.2.5"
+   - Creates git tag: v0.2.5
+   - Pushes tag to GitHub
+```
+
+### Step 2: Build & Release (release.yml - triggered by tag)
+```
+1. Detects new tag (v*)
+2. Builds binaries for all platforms:
+   - Windows (x64) - MSI installer + portable
+   - macOS (Intel) - DMG installer + .app
+   - macOS (Apple Silicon) - DMG installer + .app
+   - Linux (x64) - DEB package + portable
+3. Generates changelog from git commits
+4. Creates GitHub Release with all artifacts
+5. Uploads installers and archives
+```
+
+## Manual Release (Local Development)
+
+If you need to create a release locally for testing:
+
+### Prerequisites
+```bash
+cargo install cargo-release
+```
+
+### Dry Run (Preview Changes)
+```bash
+# See what would happen without making changes
+cargo release patch --dry-run
+cargo release minor --dry-run
+cargo release major --dry-run
+```
+
+### Create Release
+```bash
+# Patch release (0.2.4 → 0.2.5)
+cargo release patch --no-publish --execute
+
+# Minor release (0.2.4 → 0.3.0)
+cargo release minor --no-publish --execute
+
+# Major release (0.2.4 → 1.0.0)
+cargo release major --no-publish --execute
+```
+
+This will:
+1. Bump version in Cargo.toml
+2. Update Cargo.lock
+3. Create commit and tag
+4. Push to GitHub
+5. Trigger the release workflow
+
+## Semantic Versioning Guidelines
+
+### Patch (0.0.X)
+- Bug fixes
+- Performance improvements
+- Documentation updates
+- Internal refactoring
+- Dependency updates (non-breaking)
+
+### Minor (0.X.0)
+- New features
+- New settings/options
+- UI improvements
+- Enhanced functionality
+- Backward-compatible changes
+
+### Major (X.0.0)
+- Breaking changes
+- Complete redesigns
+- Removed features
+- Changed APIs
+- Migration required
+
+## Troubleshooting
+
+### Workflow fails at "cargo release"
+- Check that version bumping is valid
+- Ensure no uncommitted changes exist
+- Verify git is properly configured
+
+### Tag already exists
+- Delete the tag locally: `git tag -d v0.2.5`
+- Delete remote tag: `git push origin :refs/tags/v0.2.5`
+- Run the workflow again
+
+### Release workflow not triggered
+- Check that the tag follows pattern `v*.*.*`
+- Verify the tag was pushed to GitHub
+- Check GitHub Actions is enabled for the repo
+
+### Build failures
+- Check the build logs in the release.yml workflow
+- Verify all platforms are building correctly
+- Test builds locally first if needed
+
+## Rollback a Release
+
+If you need to rollback a release:
+
+1. **Delete the GitHub Release**:
+   - Go to Releases on GitHub
+   - Click the release
+   - Click "Delete release"
+
+2. **Delete the Git Tag**:
+   ```bash
+   git tag -d v0.2.5
+   git push origin :refs/tags/v0.2.5
+   ```
+
+3. **Revert the Version Commit**:
+   ```bash
+   git revert HEAD
+   git push origin main
+   ```
+
+## Release Checklist
+
+Before creating a release, ensure:
+
+- [ ] All tests pass (`cargo test`)
+- [ ] Code compiles without warnings (`cargo clippy`)
+- [ ] Documentation is up to date
+- [ ] CHANGELOG entries are meaningful
+- [ ] Breaking changes are documented
+- [ ] Version bump type is correct (major/minor/patch)
+- [ ] Consider running a dry run first
+
+## Configuration
+
+Release settings are configured in `Cargo.toml`:
+
+```toml
+[package.metadata.release]
+publish = false              # Don't publish to crates.io
+push = true                  # Push tags after creation
+tag-prefix = "v"            # Tag format: v0.2.5
+pre-release-commit-message = "chore: release v{{version}}"
+```
+
+Workflow files:
+- `.github/workflows/create-release.yml` - Manual release trigger
+- `.github/workflows/release.yml` - Build and publish release artifacts
