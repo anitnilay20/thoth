@@ -21,7 +21,6 @@ pub struct ThothApp {
 
     // UI Components
     pub settings_panel: components::settings_panel::SettingsPanel,
-    pub title_bar: components::title_bar::TitleBar,
     pub show_settings: bool,
 
     // Clipboard text to copy (set by shortcuts, copied in update loop)
@@ -36,7 +35,6 @@ impl ThothApp {
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
             settings_panel: components::settings_panel::SettingsPanel,
-            title_bar: components::title_bar::TitleBar::default(),
             show_settings: false,
             clipboard_text: None,
         }
@@ -92,9 +90,6 @@ impl App for ThothApp {
 
         // Update window title
         self.update_window_title(ctx);
-
-        // Render custom title bar
-        self.render_title_bar(ctx);
 
         // Get user's action from Toolbar
         let incoming_msg = self.render_toolbar(ctx);
@@ -281,48 +276,6 @@ impl ThothApp {
             "Thoth — JSON & NDJSON Viewer".to_owned()
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
-    }
-
-    /// Render custom title bar with platform-specific window controls
-    fn render_title_bar(&mut self, ctx: &egui::Context) {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        // Build title string
-        let title = if let Some(ref path) = self.window_state.file_path {
-            let filename = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Untitled");
-            format!("Thoth — {}", filename)
-        } else {
-            "Thoth — JSON & NDJSON Viewer".to_string()
-        };
-
-        // Render title bar using ContextComponent trait
-        let output = self.title_bar.render(
-            ctx,
-            components::title_bar::TitleBarProps {
-                title: &title,
-                dark_mode: self.settings.dark_mode,
-            },
-        );
-
-        // Handle title bar events
-        for event in output.events {
-            match event {
-                components::title_bar::TitleBarEvent::Close => {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                components::title_bar::TitleBarEvent::Minimize => {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-                }
-                components::title_bar::TitleBarEvent::Maximize => {
-                    let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
-                }
-            }
-        }
     }
 
     /// Render toolbar and return any search messages
