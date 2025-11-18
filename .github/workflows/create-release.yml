@@ -42,8 +42,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # Use Swatinem's rust-cache action for optimized Rust caching
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-tool"
+          cache-targets: true
+
       - name: Install cargo-release
-        run: cargo install cargo-release
+        run: cargo install cargo-release --locked
 
       - name: Dry run preview
         if: ${{ inputs.dry_run }}

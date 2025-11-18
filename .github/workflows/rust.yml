@@ -24,6 +24,13 @@ jobs:
           override: true
           components: rustfmt, clippy
 
+      # Use Swatinem's rust-cache action for optimized Rust caching
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci"
+          cache-targets: true
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 

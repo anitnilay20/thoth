@@ -53,7 +53,7 @@ When you trigger the workflow, the following happens automatically:
 1. Checkout code
 2. Install cargo-release
 3. Run: cargo release {type} --no-publish --execute
-   - Updates version in Cargo.toml (package and bundle)
+   - Updates version in Cargo.toml (package and packager metadata)
    - Updates Cargo.lock
    - Creates commit: "chore: release v0.2.5"
    - Creates git tag: v0.2.5
@@ -64,14 +64,15 @@ When you trigger the workflow, the following happens automatically:
 
 ```
 1. Detects new tag (v*)
-2. Builds binaries for all platforms:
-   - Windows (x64) - MSI installer + portable
-   - macOS (Intel) - DMG installer + .app
-   - macOS (Apple Silicon) - DMG installer + .app
-   - Linux (x64) - DEB package + portable
-3. Generates changelog from git commits
-4. Creates GitHub Release with all artifacts
-5. Uploads installers and archives
+2. Installs cargo-packager (production-ready cross-platform bundler)
+3. Builds binaries for all platforms:
+   - Windows (x64) - MSI installer (via WiX) + portable EXE
+   - macOS (Intel) - DMG installer + .app bundle
+   - macOS (Apple Silicon) - DMG installer + .app bundle
+   - Linux (x64) - DEB package + portable binary
+4. Generates changelog from git commits
+5. Creates GitHub Release with all artifacts
+6. Uploads installers and archives
 ```
 
 ## Manual Release (Local Development)
@@ -210,9 +211,25 @@ publish = false              # Don't publish to crates.io
 push = true                  # Push tags after creation
 tag-prefix = "v"            # Tag format: v0.2.5
 pre-release-commit-message = "chore: release v{{version}}"
+
+[package.metadata.packager]
+product_name = "Thoth"
+identifier = "com.thoth.app"
+category = "DeveloperTool"
+# ... additional packager configuration
 ```
 
 Workflow files:
 
 - `.github/workflows/create-release.yml` - Manual release trigger
 - `.github/workflows/release.yml` - Build and publish release artifacts
+
+## Bundling Tool
+
+Thoth uses [cargo-packager](https://github.com/crabnebula-dev/cargo-packager) for creating installers across all platforms:
+
+- **Windows**: MSI installer using WiX Toolset v3 (automatically installed in CI)
+- **macOS**: DMG disk images with native .app bundles
+- **Linux**: DEB packages for Debian/Ubuntu
+
+cargo-packager is a production-ready tool that evolved from Tauri's bundler and provides stable, reliable packaging for all platforms. It replaced the experimental cargo-bundle to fix MSI corruption issues on Windows.

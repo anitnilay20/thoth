@@ -1,6 +1,6 @@
 [package]
 name = "thoth"
-version = "0.2.7"
+version = "0.2.13"
 edition = "2024"
 repository = "https://github.com/anitnilay20/thoth"
 authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
@@ -34,24 +34,24 @@ path = "src/lib.rs"
 name = "thoth"
 path = "src/main.rs"
 
-[package.metadata.bundle]
-name = "Thoth"
+# cargo-packager configuration (stable cross-platform bundler)
+[package.metadata.packager]
+product_name = "Thoth"
 identifier = "com.thoth.app"
+category = "DeveloperTool"
 copyright = "Copyright (c) Anit Nilay 2024. All rights reserved."
-category = "Developer Tool"
-short_description = "Fast JSON/NDJSON viewer for large files"
-long_description = "Thoth is a fast, desktop JSON/NDJSON viewer built with Rust + egui. It opens ~500 MB files by lazily parsing only visible/expanded nodes, keeps the UI responsive with an LRU cache and parallel search, and ships with an Andromeda-themed light/dark UI."
+publisher = "Anit Nilay"
+homepage = "https://github.com/anitnilay20/thoth"
+license_file = "LICENSE"
 
-# Icon configuration - PNG for Linux, ICNS for macOS, ICO for Windows
-icon = ["assets/thoth_icon_256.png", "assets/Thoth.icns", "assets/thoth_icon_256.ico"]
-resources = ["assets/"]
+# Icon configuration for different platforms
+icons = ["assets/thoth_icon_256.png", "assets/Thoth.icns", "assets/thoth_icon_256.ico"]
 
-# Windows specific
-[package.metadata.bundle.windows]
-wix_path = "C:\\Program Files (x86)\\WiX Toolset v3.11\\bin"
+# Resources to include in the bundle
+resources = ["assets"]
 
-# Linux specific
-[package.metadata.bundle.linux]
+# Debian package configuration
+[package.metadata.packager.deb]
 depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
 
 

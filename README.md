@@ -36,19 +36,50 @@ Download the latest release from [GitHub Releases](https://github.com/anitnilay2
 
 #### macOS
 
-After downloading the `.tar.gz` file:
+**Option 1: DMG Installer (Recommended)**
 
-1. Extract: `tar -xzf thoth-aarch64-apple-darwin.tar.gz` (or `thoth-x86_64-apple-darwin.tar.gz` for Intel Macs)
-2. Remove quarantine: `xattr -cr Thoth.app`
-3. Move to Applications: `mv Thoth.app /Applications/`
-4. Double-click to open
+1. Download the appropriate DMG:
+   - **Apple Silicon (M1/M2/M3)**: `Thoth-aarch64-apple-darwin.dmg`
+   - **Intel**: `Thoth-x86_64-apple-darwin.dmg`
+2. Open the DMG and drag Thoth.app to Applications
+3. **Important**: Open Terminal and run:
+   ```bash
+   xattr -cr /Applications/Thoth.app
+   ```
+4. Launch from Applications
+
+**Option 2: Manual Installation**
+
+1. Download: `thoth-aarch64-apple-darwin.tar.gz` or `thoth-x86_64-apple-darwin.tar.gz`
+2. Extract: `tar -xzf thoth-*.tar.gz`
+3. Remove quarantine: `xattr -cr Thoth.app`
+4. Move to Applications: `mv Thoth.app /Applications/`
+5. Double-click to open
+
+> ⚠️ **Gatekeeper Warning**: This app is not code-signed. You must remove the quarantine attribute using the command above before first launch.
 
 #### Windows
+
+**Option 1: MSI Installer (Recommended)**
+
+1. Download `Thoth.msi`
+2. Double-click to install
+3. Launch from Start Menu
+
+**Option 2: Portable**
 
 1. Download `thoth-x86_64-pc-windows-msvc.zip`
 2. Extract and run `thoth.exe`
 
 #### Linux
+
+**Option 1: DEB Package (Recommended for Debian/Ubuntu)**
+
+1. Download `thoth_*_amd64.deb`
+2. Install: `sudo dpkg -i thoth_*_amd64.deb`
+3. Run: `thoth`
+
+**Option 2: Portable**
 
 1. Download `thoth-x86_64-unknown-linux-gnu.tar.gz`
 2. Extract: `tar -xzf thoth-x86_64-unknown-linux-gnu.tar.gz`
@@ -60,6 +91,7 @@ After downloading the `.tar.gz` file:
 #### Prerequisites
 
 - Rust (latest stable version recommended)
+- For building installers: [cargo-packager](https://github.com/crabnebula-dev/cargo-packager)
 
 ```bash
 # Clone the repository
@@ -74,6 +106,25 @@ cargo build --release
 
 # The binary will be available in target/release/thoth
 ```
+
+#### Building Installers
+
+To create platform-specific installers (MSI, DMG, DEB):
+
+```bash
+# Install cargo-packager
+cargo install cargo-packager --locked
+
+# Build installer for your platform
+cargo packager --release
+
+# Installers will be in the dist/ directory:
+# - Windows: dist/*.msi
+# - macOS: dist/*.dmg and dist/*.app
+# - Linux: dist/*.deb
+```
+
+See [RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) for more details on the release and packaging workflow.
 
 ---
 
