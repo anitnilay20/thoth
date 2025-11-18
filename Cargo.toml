@@ -50,8 +50,9 @@ icons = ["assets/thoth_icon_256.png", "assets/Thoth.icns", "assets/thoth_icon_25
 # Resources to include in the bundle
 resources = ["assets"]
 
-[package.metadata.packager.linux.deb]
-depends = "libgtk-3-0, libwebkit2gtk-4.1-0"
+# Debian package configuration
+[package.metadata.packager.deb]
+depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
 
 
 [dependencies]
