@@ -68,7 +68,7 @@ impl Toolbar {
             ui.horizontal(|ui| {
                 // File actions
                 if ui
-                    .button(format!("{} Open", egui_phosphor::regular::FOLDER_OPEN))
+                    .button(egui_phosphor::regular::FOLDER_OPEN)
                     .on_hover_text(format!(
                         "Open file ({})",
                         props.shortcuts.open_file.format()
@@ -86,7 +86,7 @@ impl Toolbar {
                 }
 
                 if ui
-                    .button(format!("{} Clear", egui_phosphor::regular::X))
+                    .button(egui_phosphor::regular::X)
                     .on_hover_text(format!(
                         "Clear file ({})",
                         props.shortcuts.clear_file.format()
@@ -97,10 +97,7 @@ impl Toolbar {
                 }
 
                 if ui
-                    .button(format!(
-                        "{} New Window",
-                        egui_phosphor::regular::SQUARES_FOUR
-                    ))
+                    .button(egui_phosphor::regular::SQUARES_FOUR)
                     .on_hover_text(format!(
                         "New window ({})",
                         props.shortcuts.new_window.format()
@@ -184,10 +181,7 @@ impl Toolbar {
         // Bottom bar with search
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(format!(
-                    "{} Search:",
-                    egui_phosphor::regular::MAGNIFYING_GLASS
-                ));
+                ui.label(egui_phosphor::regular::MAGNIFYING_GLASS);
 
                 let text_box_response = ui.add(
                     egui::TextEdit::singleline(&mut self.search_query)
