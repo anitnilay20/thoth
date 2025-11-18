@@ -7,9 +7,9 @@ use crate::settings::Settings;
 pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
     // Apply visual theme (dark/light mode)
     if settings.dark_mode {
-        ctx.set_visuals(andromeda_visuals());
+        ctx.set_visuals(catppuccin_mocha_visuals());
     } else {
-        ctx.set_visuals(egui::Visuals::light());
+        ctx.set_visuals(catppuccin_latte_visuals());
     }
 
     // Set system theme for native title bar (macOS traffic lights, Windows title bar, etc.)
@@ -53,7 +53,7 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
     ctx.set_style(style);
 }
 
-/// Catppuccin Mocha theme colors
+/// Catppuccin Mocha theme colors (dark)
 pub mod catppuccin_mocha {
     use eframe::egui::Color32 as C;
 
@@ -94,7 +94,48 @@ pub mod catppuccin_mocha {
     pub const CRUST: C = C::from_rgb(0x11, 0x11, 0x1b);
 }
 
-fn andromeda_visuals() -> egui::Visuals {
+/// Catppuccin Latte theme colors (light)
+pub mod catppuccin_latte {
+    use eframe::egui::Color32 as C;
+
+    // Base colors
+    pub const ROSEWATER: C = C::from_rgb(0xdc, 0x8a, 0x78);
+    pub const FLAMINGO: C = C::from_rgb(0xdd, 0x78, 0x78);
+    pub const PINK: C = C::from_rgb(0xea, 0x76, 0xcb);
+    pub const MAUVE: C = C::from_rgb(0x88, 0x39, 0xef);
+    pub const RED: C = C::from_rgb(0xd2, 0x0f, 0x39);
+    pub const MAROON: C = C::from_rgb(0xe6, 0x45, 0x53);
+    pub const PEACH: C = C::from_rgb(0xfe, 0x64, 0x0b);
+    pub const YELLOW: C = C::from_rgb(0xdf, 0x8e, 0x1d);
+    pub const GREEN: C = C::from_rgb(0x40, 0xa0, 0x2b);
+    pub const TEAL: C = C::from_rgb(0x17, 0x92, 0x99);
+    pub const SKY: C = C::from_rgb(0x04, 0xa5, 0xe5);
+    pub const SAPPHIRE: C = C::from_rgb(0x20, 0x9f, 0xb5);
+    pub const BLUE: C = C::from_rgb(0x1e, 0x66, 0xf5);
+    pub const LAVENDER: C = C::from_rgb(0x72, 0x87, 0xfd);
+
+    // Text colors
+    pub const TEXT: C = C::from_rgb(0x4c, 0x4f, 0x69);
+    pub const SUBTEXT1: C = C::from_rgb(0x5c, 0x5f, 0x77);
+    pub const SUBTEXT0: C = C::from_rgb(0x6c, 0x6f, 0x85);
+
+    // Overlay colors
+    pub const OVERLAY2: C = C::from_rgb(0x7c, 0x7f, 0x93);
+    pub const OVERLAY1: C = C::from_rgb(0x8c, 0x8f, 0xa1);
+    pub const OVERLAY0: C = C::from_rgb(0x9c, 0xa0, 0xb0);
+
+    // Surface colors
+    pub const SURFACE2: C = C::from_rgb(0xac, 0xb0, 0xbe);
+    pub const SURFACE1: C = C::from_rgb(0xbc, 0xc0, 0xcc);
+    pub const SURFACE0: C = C::from_rgb(0xcc, 0xd0, 0xda);
+
+    // Base backgrounds
+    pub const BASE: C = C::from_rgb(0xef, 0xf1, 0xf5);
+    pub const MANTLE: C = C::from_rgb(0xe6, 0xe9, 0xef);
+    pub const CRUST: C = C::from_rgb(0xdc, 0xe0, 0xe8);
+}
+
+fn catppuccin_mocha_visuals() -> egui::Visuals {
     use catppuccin_mocha as ctp;
     let mut v = egui::Visuals::dark();
 
@@ -118,13 +159,37 @@ fn andromeda_visuals() -> egui::Visuals {
     v
 }
 
+fn catppuccin_latte_visuals() -> egui::Visuals {
+    use catppuccin_latte as ctp;
+    let mut v = egui::Visuals::light();
+
+    // Catppuccin Latte palette
+    v.override_text_color = Some(ctp::TEXT);
+    v.panel_fill = ctp::BASE; // Main background
+    v.extreme_bg_color = ctp::MANTLE; // Panels/cards
+    v.faint_bg_color = ctp::SURFACE0; // Alt rows
+
+    // Widget colors
+    v.widgets.noninteractive.bg_fill = ctp::SURFACE0;
+    v.widgets.inactive.bg_fill = ctp::SURFACE0;
+    v.widgets.hovered.bg_fill = ctp::SURFACE1;
+    v.widgets.active.bg_fill = ctp::SURFACE2;
+
+    // Selection and accent colors
+    v.selection.bg_fill = ctp::MAUVE;
+    v.selection.stroke = egui::Stroke::new(1.0, ctp::MAUVE);
+    v.hyperlink_color = ctp::BLUE;
+
+    v
+}
+
 pub fn row_fill(i: usize, ui: &egui::Ui) -> Color32 {
     if i % 2 == 1 {
         // Only paint odd rows
         if ui.visuals().dark_mode {
-            catppuccin_mocha::SURFACE0 // Catppuccin alternating row
+            catppuccin_mocha::SURFACE0 // Catppuccin Mocha alternating row
         } else {
-            Color32::from_rgb(0xEC, 0xEE, 0xF3) // Light stripe for light mode
+            catppuccin_latte::SURFACE0 // Catppuccin Latte alternating row
         }
     } else {
         Color32::TRANSPARENT // even rows = "no fill"
@@ -175,14 +240,15 @@ impl TextPalette {
         }
     }
 
-    /// Light theme colors
+    /// Catppuccin Latte light theme colors
     pub const fn light() -> Self {
+        use catppuccin_latte as ctp;
         Self {
-            key: Color32::from_rgb(0, 16, 128),     // Keys (dark blue)
-            string: Color32::from_rgb(163, 21, 21), // Strings (red)
-            number: Color32::from_rgb(9, 134, 88),  // Numbers (green)
-            boolean: Color32::from_rgb(0, 0, 255),  // Booleans (blue)
-            bracket: Color32::from_rgb(0, 0, 0),    // Brackets (black)
+            key: ctp::BLUE,         // Keys/Properties - Blue
+            string: ctp::GREEN,     // String values - Green
+            number: ctp::PEACH,     // Numbers - Peach
+            boolean: ctp::MAUVE,    // Booleans - Mauve
+            bracket: ctp::OVERLAY2, // Brackets/Punctuation - Overlay2
         }
     }
 
@@ -208,21 +274,21 @@ impl TextPalette {
 
 pub fn selected_row_bg(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        // Catppuccin Mauve with reduced opacity for selection
+        // Catppuccin Mocha Mauve with reduced opacity for selection
         Color32::from_rgba_premultiplied(203, 166, 247, 77)
     } else {
-        // Light mode: similar selection color
-        Color32::from_rgba_premultiplied(14, 99, 156, 102)
+        // Catppuccin Latte Mauve with reduced opacity for selection
+        Color32::from_rgba_premultiplied(136, 57, 239, 77)
     }
 }
 
 /// Hover overlay for rows
 pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        // Catppuccin Surface1 for subtle hover
+        // Catppuccin Mocha Surface1 for subtle hover
         catppuccin_mocha::SURFACE1
     } else {
-        // Light mode: subtle dark overlay
-        Color32::from_rgba_premultiplied(0, 0, 0, 13)
+        // Catppuccin Latte Surface1 for subtle hover
+        catppuccin_latte::SURFACE1
     }
 }

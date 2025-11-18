@@ -51,14 +51,24 @@ impl StatusBarStatus {
         }
     }
 
-    /// Get the color for this status (Catppuccin colors)
-    pub fn color(&self) -> egui::Color32 {
-        use crate::theme::catppuccin_mocha as ctp;
-        match self {
-            StatusBarStatus::Ready => ctp::GREEN,
-            StatusBarStatus::Loading => ctp::YELLOW,
-            StatusBarStatus::Error => ctp::RED,
-            StatusBarStatus::Searching | StatusBarStatus::Filtered => ctp::SAPPHIRE,
+    /// Get the color for this status (Catppuccin colors - same for both themes)
+    pub fn color(&self, dark_mode: bool) -> egui::Color32 {
+        if dark_mode {
+            use crate::theme::catppuccin_mocha as ctp;
+            match self {
+                StatusBarStatus::Ready => ctp::GREEN,
+                StatusBarStatus::Loading => ctp::YELLOW,
+                StatusBarStatus::Error => ctp::RED,
+                StatusBarStatus::Searching | StatusBarStatus::Filtered => ctp::SAPPHIRE,
+            }
+        } else {
+            use crate::theme::catppuccin_latte as ctp;
+            match self {
+                StatusBarStatus::Ready => ctp::GREEN,
+                StatusBarStatus::Loading => ctp::YELLOW,
+                StatusBarStatus::Error => ctp::RED,
+                StatusBarStatus::Searching | StatusBarStatus::Filtered => ctp::SAPPHIRE,
+            }
         }
     }
 }
@@ -75,7 +85,7 @@ impl ContextComponent for StatusBar {
         let bg_color = if props.dark_mode {
             crate::theme::catppuccin_mocha::CRUST
         } else {
-            egui::Color32::from_rgb(0xe8, 0xe8, 0xe8) // Light mode background
+            crate::theme::catppuccin_latte::CRUST
         };
 
         egui::TopBottomPanel::bottom("status_bar")
@@ -91,7 +101,7 @@ impl ContextComponent for StatusBar {
                 let text_color = if props.dark_mode {
                     crate::theme::catppuccin_mocha::TEXT
                 } else {
-                    egui::Color32::from_rgb(0x33, 0x33, 0x33)
+                    crate::theme::catppuccin_latte::TEXT
                 };
                 ui.style_mut().visuals.override_text_color = Some(text_color);
 
@@ -126,7 +136,7 @@ impl ContextComponent for StatusBar {
 
                     // Status indicator
                     let (icon, text) = props.status.icon_and_text();
-                    let status_color = props.status.color();
+                    let status_color = props.status.color(props.dark_mode);
                     ui.colored_label(status_color, format!("{} {}", icon, text));
                 });
             });
