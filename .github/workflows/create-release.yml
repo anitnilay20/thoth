@@ -42,20 +42,12 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # Cache cargo registry, index, and build artifacts
-      - name: Cache cargo build
-        uses: actions/cache@v4
+      # Use Swatinem's rust-cache action for optimized Rust caching
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-release-
-            ${{ runner.os }}-cargo-
+          shared-key: "release-tool"
+          cache-targets: true
 
       - name: Install cargo-release
         run: cargo install cargo-release --locked
