@@ -140,11 +140,14 @@ jobs:
       - name: Create macOS DMG installer
         if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
         run: |
-          # Build DMG using cargo-packager (DMG format includes the .app bundle)
-          cargo packager --release --formats dmg
+          # Build both app bundle and DMG using cargo-packager
+          cargo packager --release --formats app,dmg
           mkdir -p artifacts
 
           # cargo-packager outputs to target/release/ directory
+          echo "Listing target/release/ contents:"
+          ls -la target/release/
+
           # Copy the DMG if it exists
           cp target/release/*.dmg artifacts/ 2>/dev/null || echo "DMG not found"
 
@@ -153,18 +156,21 @@ jobs:
             cp -r target/release/Thoth.app artifacts/
             echo "Copied Thoth.app from target/release/"
           else
-            echo "App bundle not found in target/release/"
-            ls -la target/release/ | grep -i thoth
+            echo "App bundle not found, checking for .app files:"
+            find target/release -name "*.app" -type d
           fi
 
       - name: Create macOS ARM64 DMG installer
         if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
         run: |
-          # Build DMG using cargo-packager (DMG format includes the .app bundle)
-          cargo packager --release --formats dmg
+          # Build both app bundle and DMG using cargo-packager
+          cargo packager --release --formats app,dmg
           mkdir -p artifacts
 
           # cargo-packager outputs to target/release/ directory
+          echo "Listing target/release/ contents:"
+          ls -la target/release/
+
           # Copy the DMG if it exists
           cp target/release/*.dmg artifacts/ 2>/dev/null || echo "DMG not found"
 
@@ -173,8 +179,8 @@ jobs:
             cp -r target/release/Thoth.app artifacts/
             echo "Copied Thoth.app from target/release/"
           else
-            echo "App bundle not found in target/release/"
-            ls -la target/release/ | grep -i thoth
+            echo "App bundle not found, checking for .app files:"
+            find target/release -name "*.app" -type d
           fi
 
       - name: Create Linux packages (deb)
