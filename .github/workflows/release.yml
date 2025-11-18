@@ -135,8 +135,15 @@ jobs:
           # Copy the DMG if it exists
           cp dist/*.dmg artifacts/ 2>/dev/null || echo "DMG creation skipped"
 
-          # Also copy the .app bundle as fallback
-          cp -r dist/*.app artifacts/ 2>/dev/null || echo "App bundle not found"
+          # Copy the .app bundle from dist/ to artifacts/ for tar.gz creation
+          if [ -d "dist/Thoth.app" ]; then
+            cp -r dist/Thoth.app artifacts/
+          elif [ -d "dist/macos/Thoth.app" ]; then
+            cp -r dist/macos/Thoth.app artifacts/
+          else
+            echo "App bundle not found in expected locations"
+            ls -la dist/
+          fi
 
       - name: Create macOS ARM64 DMG installer
         if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
@@ -149,8 +156,15 @@ jobs:
           # Copy the DMG if it exists
           cp dist/*.dmg artifacts/ 2>/dev/null || echo "DMG creation skipped"
 
-          # Also copy the .app bundle as fallback
-          cp -r dist/*.app artifacts/ 2>/dev/null || echo "App bundle not found"
+          # Copy the .app bundle from dist/ to artifacts/ for tar.gz creation
+          if [ -d "dist/Thoth.app" ]; then
+            cp -r dist/Thoth.app artifacts/
+          elif [ -d "dist/macos/Thoth.app" ]; then
+            cp -r dist/macos/Thoth.app artifacts/
+          else
+            echo "App bundle not found in expected locations"
+            ls -la dist/
+          fi
 
       - name: Create Linux packages (deb)
         if: runner.os == 'Linux'
