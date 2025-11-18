@@ -91,6 +91,9 @@ impl App for ThothApp {
         // Update window title
         self.update_window_title(ctx);
 
+        // Render custom title bar
+        self.render_title_bar(ctx);
+
         // Get user's action from Toolbar
         let incoming_msg = self.render_toolbar(ctx);
 
@@ -276,6 +279,35 @@ impl ThothApp {
             "Thoth — JSON & NDJSON Viewer".to_owned()
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+    }
+
+    /// Render custom title bar with platform-specific window controls
+    fn render_title_bar(&self, ctx: &egui::Context) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        egui::TopBottomPanel::top("title_bar")
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                // Build title string
+                let title = if let Some(ref path) = self.window_state.file_path {
+                    let filename = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("Untitled");
+                    format!("Thoth — {}", filename)
+                } else {
+                    "Thoth — JSON & NDJSON Viewer".to_string()
+                };
+
+                components::title_bar::render(
+                    ui,
+                    components::title_bar::TitleBarProps {
+                        title: &title,
+                        dark_mode: self.settings.dark_mode,
+                    },
+                );
+            });
     }
 
     /// Render toolbar and return any search messages

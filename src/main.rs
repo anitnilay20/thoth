@@ -48,7 +48,8 @@ fn main() -> Result<()> {
             .with_inner_size([
                 settings.window.default_width,
                 settings.window.default_height,
-            ]),
+            ])
+            .with_decorations(false), // Remove native window decorations for custom title bar
         ..Default::default()
     };
 
