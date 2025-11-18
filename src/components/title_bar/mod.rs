@@ -8,9 +8,14 @@ mod linux;
 mod macos;
 mod windows;
 
+use crate::components::traits::ContextComponent;
 use eframe::egui;
 
-/// Props for the title bar component
+/// Title bar component with platform-specific rendering
+#[derive(Default)]
+pub struct TitleBar;
+
+/// Props for the title bar component (immutable, one-way binding)
 pub struct TitleBarProps<'a> {
     /// Window title (application name + file name)
     pub title: &'a str,
@@ -19,16 +24,45 @@ pub struct TitleBarProps<'a> {
     pub dark_mode: bool,
 }
 
-/// Render the platform-specific title bar
-pub fn render(ui: &mut egui::Ui, props: TitleBarProps<'_>) {
-    #[cfg(target_os = "macos")]
-    macos::render_title_bar(ui, props);
+/// Events emitted by the title bar (bottom-to-top communication)
+#[derive(Debug, Clone)]
+pub enum TitleBarEvent {
+    /// Window close requested
+    Close,
+    /// Window minimize requested
+    Minimize,
+    /// Window maximize/restore requested
+    Maximize,
+}
 
-    #[cfg(target_os = "windows")]
-    windows::render_title_bar(ui, props);
+/// Output from title bar component
+pub struct TitleBarOutput {
+    /// List of events that occurred during this frame
+    pub events: Vec<TitleBarEvent>,
+}
 
-    #[cfg(target_os = "linux")]
-    linux::render_title_bar(ui, props);
+impl ContextComponent for TitleBar {
+    type Props<'a> = TitleBarProps<'a>;
+    type Output = TitleBarOutput;
+
+    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+        let mut events = Vec::new();
+
+        egui::TopBottomPanel::top("title_bar")
+            .frame(egui::Frame::NONE)
+            .show(ctx, |ui| {
+                #[cfg(target_os = "macos")]
+                macos::render_title_bar(ui, props, &mut events);
+
+                #[cfg(target_os = "windows")]
+                windows::render_title_bar(ui, props, &mut events);
+
+                #[cfg(target_os = "linux")]
+                linux::render_title_bar(ui, props, &mut events);
+            });
+
+        TitleBarOutput { events }
+    }
 }
 
 /// Title bar height constant (32px matches VS Code)

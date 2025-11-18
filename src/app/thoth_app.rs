@@ -19,8 +19,9 @@ pub struct ThothApp {
     // Update state
     pub update_state: state::ApplicationUpdateState,
 
-    // Settings panel (UI)
+    // UI Components
     pub settings_panel: components::settings_panel::SettingsPanel,
+    pub title_bar: components::title_bar::TitleBar,
     pub show_settings: bool,
 
     // Clipboard text to copy (set by shortcuts, copied in update loop)
@@ -35,6 +36,7 @@ impl ThothApp {
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
             settings_panel: components::settings_panel::SettingsPanel,
+            title_bar: components::title_bar::TitleBar::default(),
             show_settings: false,
             clipboard_text: None,
         }
@@ -282,32 +284,45 @@ impl ThothApp {
     }
 
     /// Render custom title bar with platform-specific window controls
-    fn render_title_bar(&self, ctx: &egui::Context) {
+    fn render_title_bar(&mut self, ctx: &egui::Context) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        egui::TopBottomPanel::top("title_bar")
-            .frame(egui::Frame::NONE)
-            .show(ctx, |ui| {
-                // Build title string
-                let title = if let Some(ref path) = self.window_state.file_path {
-                    let filename = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("Untitled");
-                    format!("Thoth — {}", filename)
-                } else {
-                    "Thoth — JSON & NDJSON Viewer".to_string()
-                };
+        // Build title string
+        let title = if let Some(ref path) = self.window_state.file_path {
+            let filename = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Untitled");
+            format!("Thoth — {}", filename)
+        } else {
+            "Thoth — JSON & NDJSON Viewer".to_string()
+        };
 
-                components::title_bar::render(
-                    ui,
-                    components::title_bar::TitleBarProps {
-                        title: &title,
-                        dark_mode: self.settings.dark_mode,
-                    },
-                );
-            });
+        // Render title bar using ContextComponent trait
+        let output = self.title_bar.render(
+            ctx,
+            components::title_bar::TitleBarProps {
+                title: &title,
+                dark_mode: self.settings.dark_mode,
+            },
+        );
+
+        // Handle title bar events
+        for event in output.events {
+            match event {
+                components::title_bar::TitleBarEvent::Close => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                components::title_bar::TitleBarEvent::Minimize => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                }
+                components::title_bar::TitleBarEvent::Maximize => {
+                    let is_maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_maximized));
+                }
+            }
+        }
     }
 
     /// Render toolbar and return any search messages

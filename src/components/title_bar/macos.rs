@@ -1,14 +1,20 @@
 /// macOS-specific title bar implementation with traffic light buttons
 use eframe::egui::{self, Id, PointerButton, Sense, ViewportCommand};
 
-use super::{TITLE_BAR_HEIGHT, TitleBarProps, title_bar_background, title_bar_text_color};
+use super::{
+    TITLE_BAR_HEIGHT, TitleBarEvent, TitleBarProps, title_bar_background, title_bar_text_color,
+};
 
 const TRAFFIC_LIGHT_RADIUS: f32 = 6.0;
 const TRAFFIC_LIGHT_SPACING: f32 = 8.0;
 const TRAFFIC_LIGHT_OFFSET_X: f32 = 12.0;
 
 /// Render macOS-style title bar with traffic light buttons on the left
-pub fn render_title_bar(ui: &mut egui::Ui, props: TitleBarProps<'_>) {
+pub fn render_title_bar(
+    ui: &mut egui::Ui,
+    props: TitleBarProps<'_>,
+    events: &mut Vec<TitleBarEvent>,
+) {
     let available_rect = ui.available_rect_before_wrap();
     let title_bar_rect = egui::Rect::from_min_size(
         available_rect.min,
@@ -49,7 +55,7 @@ pub fn render_title_bar(ui: &mut egui::Ui, props: TitleBarProps<'_>) {
     title_bar_ui.add_space(TRAFFIC_LIGHT_OFFSET_X);
 
     // Render traffic light buttons
-    render_traffic_lights(title_bar_ui, &title_bar_response);
+    render_traffic_lights(title_bar_ui, &title_bar_response, events);
 
     // Center the title
     title_bar_ui.add_space(20.0);
@@ -76,7 +82,11 @@ pub fn render_title_bar(ui: &mut egui::Ui, props: TitleBarProps<'_>) {
 }
 
 /// Render macOS traffic light buttons (close, minimize, maximize)
-fn render_traffic_lights(ui: &mut egui::Ui, title_bar_response: &egui::Response) {
+fn render_traffic_lights(
+    ui: &mut egui::Ui,
+    title_bar_response: &egui::Response,
+    events: &mut Vec<TitleBarEvent>,
+) {
     let button_size = egui::vec2(TRAFFIC_LIGHT_RADIUS * 2.0, TRAFFIC_LIGHT_RADIUS * 2.0);
     let hovered = title_bar_response.hovered();
 
@@ -101,7 +111,7 @@ fn render_traffic_lights(ui: &mut egui::Ui, title_bar_response: &egui::Response)
     );
 
     if close_response.clicked() {
-        ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+        events.push(TitleBarEvent::Close);
     }
 
     ui.add_space(TRAFFIC_LIGHT_SPACING);
@@ -127,7 +137,7 @@ fn render_traffic_lights(ui: &mut egui::Ui, title_bar_response: &egui::Response)
     );
 
     if minimize_response.clicked() {
-        ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
+        events.push(TitleBarEvent::Minimize);
     }
 
     ui.add_space(TRAFFIC_LIGHT_SPACING);
@@ -153,8 +163,6 @@ fn render_traffic_lights(ui: &mut egui::Ui, title_bar_response: &egui::Response)
     );
 
     if maximize_response.clicked() {
-        let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
-        ui.ctx()
-            .send_viewport_cmd(ViewportCommand::Maximized(!is_maximized));
+        events.push(TitleBarEvent::Maximize);
     }
 }

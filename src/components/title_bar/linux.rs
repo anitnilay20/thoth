@@ -1,13 +1,19 @@
 /// Linux-specific title bar implementation with standard controls
 use eframe::egui::{self, Id, PointerButton, Sense, ViewportCommand};
 
-use super::{TITLE_BAR_HEIGHT, TitleBarProps, title_bar_background, title_bar_text_color};
+use super::{
+    TITLE_BAR_HEIGHT, TitleBarEvent, TitleBarProps, title_bar_background, title_bar_text_color,
+};
 
 const BUTTON_SIZE: f32 = 32.0;
 const BUTTON_SPACING: f32 = 4.0;
 
 /// Render Linux-style title bar with controls on the right
-pub fn render_title_bar(ui: &mut egui::Ui, props: TitleBarProps<'_>) {
+pub fn render_title_bar(
+    ui: &mut egui::Ui,
+    props: TitleBarProps<'_>,
+    events: &mut Vec<TitleBarEvent>,
+) {
     let available_rect = ui.available_rect_before_wrap();
     let title_bar_rect = egui::Rect::from_min_size(
         available_rect.min,
@@ -61,7 +67,7 @@ pub fn render_title_bar(ui: &mut egui::Ui, props: TitleBarProps<'_>) {
     // Right side: Window controls
     title_bar_ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         ui.add_space(8.0);
-        render_window_controls(ui, props.dark_mode);
+        render_window_controls(ui, props.dark_mode, events);
     });
 
     // Draw bottom border
@@ -80,7 +86,7 @@ pub fn render_title_bar(ui: &mut egui::Ui, props: TitleBarProps<'_>) {
 
 /// Render Linux window control buttons (minimize, maximize, close)
 /// Similar to Windows but with slightly different styling
-fn render_window_controls(ui: &mut egui::Ui, dark_mode: bool) {
+fn render_window_controls(ui: &mut egui::Ui, dark_mode: bool, events: &mut Vec<TitleBarEvent>) {
     let button_size = egui::vec2(BUTTON_SIZE, BUTTON_SIZE);
 
     let normal_bg = egui::Color32::TRANSPARENT;
@@ -122,7 +128,7 @@ fn render_window_controls(ui: &mut egui::Ui, dark_mode: bool) {
     );
 
     if close_response.clicked() {
-        ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+        events.push(TitleBarEvent::Close);
     }
 
     ui.add_space(BUTTON_SPACING);
@@ -156,8 +162,7 @@ fn render_window_controls(ui: &mut egui::Ui, dark_mode: bool) {
     );
 
     if maximize_response.clicked() {
-        ui.ctx()
-            .send_viewport_cmd(ViewportCommand::Maximized(!is_maximized));
+        events.push(TitleBarEvent::Maximize);
     }
 
     ui.add_space(BUTTON_SPACING);
@@ -184,6 +189,6 @@ fn render_window_controls(ui: &mut egui::Ui, dark_mode: bool) {
     );
 
     if minimize_response.clicked() {
-        ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
+        events.push(TitleBarEvent::Minimize);
     }
 }
