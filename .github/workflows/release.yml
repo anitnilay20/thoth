@@ -51,6 +51,21 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Cache cargo registry, index, and build artifacts
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
+
       # Ensure we have the right target for cross-compilation
       - name: Add target for cross-compilation
         run: rustup target add ${{ matrix.target }}
@@ -105,8 +120,8 @@ jobs:
       - name: Create Windows MSI installer
         if: runner.os == 'Windows'
         run: |
-          # Create MSI installer using cargo-packager
-          cargo packager --release --formats msi
+          # Create MSI installer using cargo-packager (format is 'wix' for MSI)
+          cargo packager --release --formats wix
           mkdir -p artifacts
           # Copy the MSI installer (cargo-packager outputs to dist/ directory)
           copy "dist\*.msi" artifacts\ || echo "MSI not found, falling back to exe"
@@ -116,8 +131,8 @@ jobs:
       - name: Create macOS DMG installer
         if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
         run: |
-          # Build .app bundle and DMG using cargo-packager
-          cargo packager --release --formats app,dmg
+          # Build DMG using cargo-packager (DMG format includes the .app bundle)
+          cargo packager --release --formats dmg
           mkdir -p artifacts
 
           # cargo-packager outputs to dist/ directory
@@ -130,8 +145,8 @@ jobs:
       - name: Create macOS ARM64 DMG installer
         if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
         run: |
-          # Build .app bundle and DMG using cargo-packager
-          cargo packager --release --formats app,dmg
+          # Build DMG using cargo-packager (DMG format includes the .app bundle)
+          cargo packager --release --formats dmg
           mkdir -p artifacts
 
           # cargo-packager outputs to dist/ directory
