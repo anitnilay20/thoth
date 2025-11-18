@@ -226,7 +226,7 @@ impl JsonTreeViewer {
         puffin::profile_function!();
 
         let row_count = self.rows.len();
-        let row_height = 20.0;
+        let row_height = 22.0; // VS Code design system row height
 
         let mut toggles: Vec<String> = Vec::new();
         let mut new_selected: Option<String> = None;
@@ -274,12 +274,12 @@ impl JsonTreeViewer {
                     let mut toggle_clicked = false;
 
                     ui.horizontal(|ui| {
-                        // Indentation
-                        ui.add_space(row.indent as f32 * 12.0);
+                        // Indentation (VS Code design system: 16px per level)
+                        ui.add_space(row.indent as f32 * 16.0);
 
                         // Toggle button for expandable rows
                         if row.is_expandable {
-                            let toggle_icon = if row.is_expanded { "-" } else { "+" };
+                            let toggle_icon = if row.is_expanded { "▾" } else { "▸" };
                             if ui
                                 .selectable_label(false, RichText::new(toggle_icon).monospace())
                                 .clicked()
