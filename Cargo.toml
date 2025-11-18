@@ -42,7 +42,7 @@ category = "DeveloperTool"
 copyright = "Copyright (c) Anit Nilay 2024. All rights reserved."
 publisher = "Anit Nilay"
 homepage = "https://github.com/anitnilay20/thoth"
-license_file = "LICENSE-MIT"
+license_file = "LICENSE"
 
 # Icon configuration for different platforms
 icons = ["assets/thoth_icon_256.png", "assets/Thoth.icns", "assets/thoth_icon_256.ico"]

@@ -114,7 +114,7 @@ jobs:
           }
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release
 
       # Create bundles for each platform
       - name: Create Windows MSI installer
@@ -126,7 +126,7 @@ jobs:
           # Copy the MSI installer (cargo-packager outputs to dist/ directory)
           copy "dist\*.msi" artifacts\ || echo "MSI not found, falling back to exe"
           # Also copy the exe as fallback
-          copy target\${{ matrix.target }}\release\thoth.exe artifacts\
+          copy target\release\thoth.exe artifacts\
 
       - name: Create macOS DMG installer
         if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
@@ -167,7 +167,7 @@ jobs:
           cp dist/*.deb artifacts/ 2>/dev/null || echo "DEB not found"
 
           # Also copy raw binary as fallback
-          cp target/${{ matrix.target }}/release/thoth artifacts/
+          cp target/release/thoth artifacts/
           chmod +x artifacts/thoth
 
       # Create compressed archives
