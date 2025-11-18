@@ -192,7 +192,10 @@ impl Toolbar {
 
                 ui.checkbox(&mut self.match_case, "Match Case");
 
-                if ui.button("Search").clicked()
+                if ui
+                    .button("Search")
+                    .on_hover_text("Search for text in the file (Enter)")
+                    .clicked()
                     || (text_box_response.lost_focus()
                         && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                 {
@@ -200,7 +203,11 @@ impl Toolbar {
                         SearchMessage::create_search(self.search_query.clone(), self.match_case);
                 }
 
-                if ui.button("Stop").clicked() {
+                if ui
+                    .button("Stop")
+                    .on_hover_text("Stop the current search operation")
+                    .clicked()
+                {
                     search_message = Some(SearchMessage::StopSearch);
                 }
             });

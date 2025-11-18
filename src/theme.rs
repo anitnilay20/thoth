@@ -15,8 +15,10 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
     // Apply style settings (spacing, fonts, etc.)
     let mut style = (*ctx.style()).clone();
 
-    // Spacing polish
-    style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+    // Spacing: VS Code design system uses 4px grid
+    style.spacing.item_spacing = egui::vec2(8.0, 4.0);
+    style.spacing.button_padding = egui::vec2(8.0, 4.0);
+    style.spacing.indent = 16.0; // Match our tree indent
 
     // Apply font sizes
     let font_size = settings.font_size;
@@ -115,26 +117,26 @@ pub struct TextPalette {
 }
 
 impl TextPalette {
-    /// Andromeda-flavored picks for a dark UI.
+    /// VS Code-inspired dark theme colors
     pub const fn dark() -> Self {
         Self {
-            // Purples / greens / oranges / blues common in Andromeda-style syntax themes
-            key: Color32::from_rgb(179, 157, 219),
-            string: Color32::from_rgb(195, 232, 141),
-            number: Color32::from_rgb(247, 140, 108),
-            boolean: Color32::from_rgb(130, 170, 255),
-            bracket: Color32::from_rgb(137, 221, 255),
+            // VS Code syntax highlighting colors
+            key: Color32::from_rgb(156, 220, 254), // #9cdcfe - Keys/Properties
+            string: Color32::from_rgb(206, 145, 120), // #ce9178 - String values
+            number: Color32::from_rgb(181, 206, 168), // #b5cea8 - Numbers
+            boolean: Color32::from_rgb(86, 156, 214), // #569cd6 - Booleans
+            bracket: Color32::from_rgb(212, 212, 212), // #d4d4d4 - Brackets/Punctuation
         }
     }
 
-    /// Tuned for good contrast on light backgrounds.
+    /// VS Code-inspired light theme colors
     pub const fn light() -> Self {
         Self {
-            key: Color32::from_rgb(57, 73, 171),
-            string: Color32::from_rgb(34, 139, 34),
-            number: Color32::from_rgb(196, 85, 0),
-            boolean: Color32::from_rgb(21, 101, 192),
-            bracket: Color32::from_rgb(84, 110, 122),
+            key: Color32::from_rgb(0, 16, 128), // #001080 - Keys (dark blue)
+            string: Color32::from_rgb(163, 21, 21), // #a31515 - Strings (red)
+            number: Color32::from_rgb(9, 134, 88), // #098658 - Numbers (green)
+            boolean: Color32::from_rgb(0, 0, 255), // #0000ff - Booleans (blue)
+            bracket: Color32::from_rgb(0, 0, 0), // #000000 - Brackets (black)
         }
     }
 
@@ -160,8 +162,21 @@ impl TextPalette {
 
 pub fn selected_row_bg(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        Color32::from_rgb(0x3a, 0x3f, 0x49) // dark mode selection color
+        // VS Code selection color: #0e639c with 30% opacity (4d = 77/255)
+        Color32::from_rgba_premultiplied(14, 99, 156, 77)
     } else {
-        Color32::from_rgb(0xB0, 0xC4, 0xE0) // light mode selection color
+        // Light mode: similar blue selection with adjusted opacity
+        Color32::from_rgba_premultiplied(14, 99, 156, 102)
+    }
+}
+
+/// Hover overlay for rows (5% white overlay in dark mode)
+pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        // VS Code hover: #ffffff with 5% opacity (0d = 13/255)
+        Color32::from_rgba_premultiplied(255, 255, 255, 13)
+    } else {
+        // Light mode: subtle dark overlay
+        Color32::from_rgba_premultiplied(0, 0, 0, 13)
     }
 }
