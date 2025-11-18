@@ -21,6 +21,7 @@ pub struct ThothApp {
 
     // UI Components
     pub settings_panel: components::settings_panel::SettingsPanel,
+    pub status_bar: components::status_bar::StatusBar,
     pub show_settings: bool,
 
     // Clipboard text to copy (set by shortcuts, copied in update loop)
@@ -35,6 +36,7 @@ impl ThothApp {
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
             settings_panel: components::settings_panel::SettingsPanel,
+            status_bar: components::status_bar::StatusBar::default(),
             show_settings: false,
             clipboard_text: None,
         }
@@ -111,6 +113,9 @@ impl App for ThothApp {
 
         // Render the settings panel and handle actions
         self.render_settings_panel(ctx);
+
+        // Render status bar
+        self.render_status_bar(ctx);
 
         // Render the central panel and handle events
         self.render_central_panel(ctx, msg_to_central);
@@ -333,6 +338,46 @@ impl ThothApp {
                 eprintln!("Failed to save settings: {}", e);
             }
         }
+    }
+
+    /// Render status bar
+    fn render_status_bar(&mut self, ctx: &egui::Context) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        // Determine status based on search state
+        let search = &self.window_state.search_engine_state.search;
+        let status = if search.scanning {
+            components::status_bar::StatusBarStatus::Searching
+        } else if !search.query.is_empty() && !search.results.is_empty() {
+            components::status_bar::StatusBarStatus::Filtered
+        } else if self.window_state.error.is_some() {
+            components::status_bar::StatusBarStatus::Error
+        } else if self.window_state.file_path.is_some() {
+            components::status_bar::StatusBarStatus::Ready
+        } else {
+            components::status_bar::StatusBarStatus::Ready
+        };
+
+        // Get item counts (use search results length for now)
+        let item_count = 0; // TODO: Get from file viewer
+        let filtered_count = if !search.results.is_empty() {
+            Some(search.results.len())
+        } else {
+            None
+        };
+
+        self.status_bar.render(
+            ctx,
+            components::status_bar::StatusBarProps {
+                file_path: self.window_state.file_path.as_deref(),
+                file_type: &self.window_state.file_type,
+                item_count,
+                filtered_count,
+                status,
+                dark_mode: self.settings.dark_mode,
+            },
+        );
     }
 
     /// Render central panel and handle events

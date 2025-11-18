@@ -63,164 +63,196 @@ impl Toolbar {
     ) -> Option<SearchMessage> {
         let mut search_message = None;
 
-        // Top bar with essential actions
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                // On macOS with fullsize_content_view, add padding for traffic light buttons
-                #[cfg(target_os = "macos")]
-                ui.add_space(70.0); // Space for macOS traffic lights
-
-                // File actions
-                if ui
-                    .button(egui_phosphor::regular::FOLDER_OPEN)
-                    .on_hover_text(format!(
-                        "Open file ({})",
-                        props.shortcuts.open_file.format()
-                    ))
-                    .clicked()
-                {
-                    if let Some(path) = FileDialog::new()
-                        .add_filter("JSON", &["json", "ndjson"])
-                        .pick_file()
-                    {
-                        let file_type = infer_file_type(&path).unwrap_or(*props.file_type);
-                        events.push(ToolbarEvent::FileOpen { path, file_type });
-                        self.previous_file_type = file_type;
-                    }
-                }
-
-                if ui
-                    .button(egui_phosphor::regular::X)
-                    .on_hover_text(format!(
-                        "Clear file ({})",
-                        props.shortcuts.clear_file.format()
-                    ))
-                    .clicked()
-                {
-                    events.push(ToolbarEvent::FileClear);
-                }
-
-                if ui
-                    .button(egui_phosphor::regular::SQUARES_FOUR)
-                    .on_hover_text(format!(
-                        "New window ({})",
-                        props.shortcuts.new_window.format()
-                    ))
-                    .clicked()
-                {
-                    events.push(ToolbarEvent::NewWindow);
-                }
-
-                ui.separator();
-
-                // File type selector
-                let mut current_file_type = *props.file_type;
-                egui::ComboBox::from_label("Type")
-                    .selected_text(format!("{:?}", current_file_type))
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut current_file_type, FileType::Json, "JSON");
-                        ui.selectable_value(&mut current_file_type, FileType::Ndjson, "NDJSON");
-                    });
-
-                if self.previous_file_type != current_file_type
-                    && current_file_type != *props.file_type
-                {
-                    events.push(ToolbarEvent::FileTypeChange(current_file_type));
-                    self.previous_file_type = current_file_type;
-                }
-
-                // Spacer to push right-side items to the right
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Settings button (rightmost) with update notification badge
-                    let settings_response = ui
-                        .add(egui::Button::new(egui_phosphor::regular::GEAR))
-                        .on_hover_text(format!("Settings ({})", props.shortcuts.settings.format()));
-
-                    // Draw notification badge if update available
-                    if props.update_available {
-                        let button_rect = settings_response.rect;
-                        let badge_center =
-                            egui::pos2(button_rect.right() - 6.0, button_rect.top() + 6.0);
-                        let badge_radius = 2.0;
-
-                        ui.painter().circle_filled(
-                            badge_center,
-                            badge_radius,
-                            egui::Color32::from_rgb(255, 80, 80),
-                        );
-
-                        // Optional: Add white border around badge
-                        ui.painter().circle_stroke(
-                            badge_center,
-                            badge_radius,
-                            egui::Stroke::new(1.5, egui::Color32::WHITE),
-                        );
-                    }
-
-                    if settings_response.clicked() {
-                        events.push(ToolbarEvent::ToggleSettings);
-                    }
-
-                    ui.separator();
-
-                    // Dark mode toggle
-                    let mut dark_mode = props.dark_mode;
-                    let theme_icon = if dark_mode {
-                        egui_phosphor::regular::MOON
+        // Compact single-row toolbar (40px height) - VS Code style
+        egui::TopBottomPanel::top("top_panel")
+            .exact_height(40.0)
+            .frame(
+                egui::Frame::NONE
+                    .fill(if props.dark_mode {
+                        egui::Color32::from_rgb(0x2d, 0x2d, 0x30) // VS Code dark toolbar
                     } else {
-                        egui_phosphor::regular::SUN
-                    };
-                    let theme_response = ui.checkbox(&mut dark_mode, theme_icon);
-                    if dark_mode != props.dark_mode {
-                        events.push(ToolbarEvent::ToggleTheme);
+                        egui::Color32::from_rgb(0xe8, 0xe8, 0xe8) // VS Code light toolbar
+                    })
+                    .inner_margin(egui::Margin {
+                        left: 8,
+                        right: 8,
+                        top: 0,
+                        bottom: 0,
+                    })
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        if props.dark_mode {
+                            egui::Color32::from_rgb(0x3e, 0x3e, 0x42) // Border color
+                        } else {
+                            egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)
+                        },
+                    )),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    // On macOS with fullsize_content_view, add padding for traffic light buttons
+                    #[cfg(target_os = "macos")]
+                    ui.add_space(70.0);
+
+                    ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
+
+                    // File actions (icon-only buttons)
+                    if ui
+                        .add(egui::Button::new(egui_phosphor::regular::FOLDER_OPEN).frame(false))
+                        .on_hover_text(format!(
+                            "Open file ({})",
+                            props.shortcuts.open_file.format()
+                        ))
+                        .clicked()
+                    {
+                        if let Some(path) = FileDialog::new()
+                            .add_filter("JSON", &["json", "ndjson"])
+                            .pick_file()
+                        {
+                            let file_type = infer_file_type(&path).unwrap_or(*props.file_type);
+                            events.push(ToolbarEvent::FileOpen { path, file_type });
+                            self.previous_file_type = file_type;
+                        }
                     }
-                    theme_response.on_hover_text(format!(
-                        "Toggle theme ({})",
-                        props.shortcuts.toggle_theme.format()
-                    ));
+
+                    if ui
+                        .add(egui::Button::new(egui_phosphor::regular::X).frame(false))
+                        .on_hover_text(format!(
+                            "Clear file ({})",
+                            props.shortcuts.clear_file.format()
+                        ))
+                        .clicked()
+                    {
+                        events.push(ToolbarEvent::FileClear);
+                    }
+
+                    if ui
+                        .add(egui::Button::new(egui_phosphor::regular::SQUARES_FOUR).frame(false))
+                        .on_hover_text(format!(
+                            "New window ({})",
+                            props.shortcuts.new_window.format()
+                        ))
+                        .clicked()
+                    {
+                        events.push(ToolbarEvent::NewWindow);
+                    }
+
+                    ui.add_space(8.0); // Separator spacing
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    // File type selector (compact, no label)
+                    let mut current_file_type = *props.file_type;
+                    egui::ComboBox::from_id_salt("file_type")
+                        .selected_text(format!("{:?}", current_file_type))
+                        .width(80.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut current_file_type, FileType::Json, "JSON");
+                            ui.selectable_value(&mut current_file_type, FileType::Ndjson, "NDJSON");
+                        });
+
+                    if self.previous_file_type != current_file_type
+                        && current_file_type != *props.file_type
+                    {
+                        events.push(ToolbarEvent::FileTypeChange(current_file_type));
+                        self.previous_file_type = current_file_type;
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    // Integrated search box
+                    let text_box_response = ui.add(
+                        egui::TextEdit::singleline(&mut self.search_query)
+                            .desired_width(200.0)
+                            .hint_text("🔍 Search..."),
+                    );
+
+                    // Handle search on Enter
+                    if text_box_response.lost_focus()
+                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    {
+                        search_message = SearchMessage::create_search(
+                            self.search_query.clone(),
+                            self.match_case,
+                        );
+                    }
+
+                    // Request focus if needed
+                    if self.request_search_focus {
+                        text_box_response.request_focus();
+                        self.request_search_focus = false;
+                    }
+
+                    // Match case toggle button (Aa icon)
+                    let match_case_button = ui.add(
+                        egui::Button::new("Aa")
+                            .frame(self.match_case)
+                            .selected(self.match_case),
+                    );
+                    if match_case_button.clicked() {
+                        self.match_case = !self.match_case;
+                    }
+                    match_case_button.on_hover_text("Match case");
+
+                    // Spacer to push right-side items to the right
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
+
+                        // Theme toggle (icon-only)
+                        let theme_icon = if props.dark_mode {
+                            egui_phosphor::regular::MOON
+                        } else {
+                            egui_phosphor::regular::SUN
+                        };
+                        if ui
+                            .add(egui::Button::new(theme_icon).frame(false))
+                            .on_hover_text(format!(
+                                "Toggle theme ({})",
+                                props.shortcuts.toggle_theme.format()
+                            ))
+                            .clicked()
+                        {
+                            events.push(ToolbarEvent::ToggleTheme);
+                        }
+
+                        ui.add_space(4.0);
+
+                        // Settings button with optional update notification badge
+                        let settings_response = ui
+                            .add(egui::Button::new(egui_phosphor::regular::GEAR).frame(false))
+                            .on_hover_text(format!(
+                                "Settings ({})",
+                                props.shortcuts.settings.format()
+                            ));
+
+                        // Draw notification badge if update available
+                        if props.update_available {
+                            let button_rect = settings_response.rect;
+                            let badge_center =
+                                egui::pos2(button_rect.right() - 6.0, button_rect.top() + 6.0);
+                            let badge_radius = 2.0;
+
+                            ui.painter().circle_filled(
+                                badge_center,
+                                badge_radius,
+                                egui::Color32::from_rgb(255, 80, 80),
+                            );
+
+                            ui.painter().circle_stroke(
+                                badge_center,
+                                badge_radius,
+                                egui::Stroke::new(1.5, egui::Color32::WHITE),
+                            );
+                        }
+
+                        if settings_response.clicked() {
+                            events.push(ToolbarEvent::ToggleSettings);
+                        }
+                    });
                 });
             });
-        });
-
-        // Bottom bar with search
-        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(egui_phosphor::regular::MAGNIFYING_GLASS);
-
-                let text_box_response = ui.add(
-                    egui::TextEdit::singleline(&mut self.search_query)
-                        .desired_width(300.0)
-                        .hint_text("Enter search term..."),
-                );
-
-                // Request focus if needed
-                if self.request_search_focus {
-                    text_box_response.request_focus();
-                    self.request_search_focus = false;
-                }
-
-                ui.checkbox(&mut self.match_case, "Match Case");
-
-                if ui
-                    .button("Search")
-                    .on_hover_text("Search for text in the file (Enter)")
-                    .clicked()
-                    || (text_box_response.lost_focus()
-                        && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                {
-                    search_message =
-                        SearchMessage::create_search(self.search_query.clone(), self.match_case);
-                }
-
-                if ui
-                    .button("Stop")
-                    .on_hover_text("Stop the current search operation")
-                    .clicked()
-                {
-                    search_message = Some(SearchMessage::StopSearch);
-                }
-            });
-        });
 
         search_message
     }
