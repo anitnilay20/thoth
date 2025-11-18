@@ -55,7 +55,14 @@ fn main() -> Result<()> {
     let result = eframe::run_native(
         "Thoth — JSON & NDJSON Viewer",
         options,
-        Box::new(move |_cc| Ok(Box::new(app::ThothApp::new(settings)))),
+        Box::new(move |cc| {
+            // Initialize Phosphor icon fonts
+            let mut fonts = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            cc.egui_ctx.set_fonts(fonts);
+
+            Ok(Box::new(app::ThothApp::new(settings)))
+        }),
     );
 
     // When profiling is enabled, remind user about dhat output

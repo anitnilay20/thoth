@@ -121,42 +121,45 @@ impl App for ThothApp {
             // Enable puffin profiling
             puffin::GlobalProfiler::lock().new_frame();
 
-            egui::Window::new("🔍 Profiler")
-                .default_open(true)
-                .show(ctx, |ui| {
-                    // Memory profiling info
-                    ui.collapsing("Memory Profiling (dhat)", |ui| {
-                        ui.label("📊 Memory allocations are being tracked.");
-                        ui.label("When you close the app, dhat-heap.json will be generated.");
-                        ui.separator();
-                        ui.label("To view per-component memory usage:");
-                        ui.label("1. Close the app normally");
-                        ui.label("2. Open https://nnethercote.github.io/dh_view/dh_view.html");
-                        ui.label("3. Load dhat-heap.json");
-                        ui.separator();
-                        ui.label("The viewer shows which components allocate the most memory,");
-                        ui.label("with full call stacks for each allocation.");
-                    });
-
+            egui::Window::new(format!(
+                "{} Profiler",
+                egui_phosphor::regular::MAGNIFYING_GLASS
+            ))
+            .default_open(true)
+            .show(ctx, |ui| {
+                // Memory profiling info
+                ui.collapsing("Memory Profiling (dhat)", |ui| {
+                    ui.label("📊 Memory allocations are being tracked.");
+                    ui.label("When you close the app, dhat-heap.json will be generated.");
                     ui.separator();
-
-                    // Show puffin profiler UI with per-component breakdown
-                    puffin_egui::profiler_ui(ui);
-
+                    ui.label("To view per-component memory usage:");
+                    ui.label("1. Close the app normally");
+                    ui.label("2. Open https://nnethercote.github.io/dh_view/dh_view.html");
+                    ui.label("3. Load dhat-heap.json");
                     ui.separator();
-
-                    // Show frame statistics
-                    ui.collapsing("Frame Stats", |ui| {
-                        ctx.inspection_ui(ui);
-                    });
-
-                    ui.separator();
-
-                    // Show additional egui settings
-                    ui.collapsing("Advanced Settings", |ui| {
-                        ctx.settings_ui(ui);
-                    });
+                    ui.label("The viewer shows which components allocate the most memory,");
+                    ui.label("with full call stacks for each allocation.");
                 });
+
+                ui.separator();
+
+                // Show puffin profiler UI with per-component breakdown
+                puffin_egui::profiler_ui(ui);
+
+                ui.separator();
+
+                // Show frame statistics
+                ui.collapsing("Frame Stats", |ui| {
+                    ctx.inspection_ui(ui);
+                });
+
+                ui.separator();
+
+                // Show additional egui settings
+                ui.collapsing("Advanced Settings", |ui| {
+                    ctx.settings_ui(ui);
+                });
+            });
         }
     }
 }

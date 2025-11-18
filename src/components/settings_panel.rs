@@ -73,7 +73,7 @@ impl SettingsPanel {
             });
 
         // Draw settings window on top
-        egui::Window::new("⚙ Settings")
+        egui::Window::new(format!("{} Settings", egui_phosphor::regular::GEAR))
             .default_width(700.0)
             .default_height(600.0)
             .collapsible(false)
@@ -127,7 +127,13 @@ impl SettingsPanel {
                 };
                 ui.add_space(8.0);
                 if ui
-                    .button(egui::RichText::new("🔍 Check for Updates").size(14.0))
+                    .button(
+                        egui::RichText::new(format!(
+                            "{} Check for Updates",
+                            egui_phosphor::regular::MAGNIFYING_GLASS
+                        ))
+                        .size(14.0),
+                    )
                     .clicked()
                 {
                     events.push(SettingsPanelEvent::CheckForUpdates);
@@ -198,7 +204,10 @@ impl SettingsPanel {
             }
             UpdateState::Installing => {
                 ui.spinner();
-                ui.label("⚙ Installing update...");
+                ui.label(format!(
+                    "{} Installing update...",
+                    egui_phosphor::regular::GEAR
+                ));
                 ui.add_space(8.0);
                 ui.label("Please wait, the application will restart automatically.");
             }

@@ -68,7 +68,7 @@ impl Toolbar {
             ui.horizontal(|ui| {
                 // File actions
                 if ui
-                    .button("📂 Open")
+                    .button(format!("{} Open", egui_phosphor::regular::FOLDER_OPEN))
                     .on_hover_text(format!(
                         "Open file ({})",
                         props.shortcuts.open_file.format()
@@ -86,7 +86,7 @@ impl Toolbar {
                 }
 
                 if ui
-                    .button("✖ Clear")
+                    .button(format!("{} Clear", egui_phosphor::regular::X))
                     .on_hover_text(format!(
                         "Clear file ({})",
                         props.shortcuts.clear_file.format()
@@ -97,7 +97,10 @@ impl Toolbar {
                 }
 
                 if ui
-                    .button("🪟 New Window")
+                    .button(format!(
+                        "{} New Window",
+                        egui_phosphor::regular::SQUARES_FOUR
+                    ))
                     .on_hover_text(format!(
                         "New window ({})",
                         props.shortcuts.new_window.format()
@@ -129,7 +132,7 @@ impl Toolbar {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Settings button (rightmost) with update notification badge
                     let settings_response = ui
-                        .add(egui::Button::new("⚙"))
+                        .add(egui::Button::new(egui_phosphor::regular::GEAR))
                         .on_hover_text(format!("Settings ({})", props.shortcuts.settings.format()));
 
                     // Draw notification badge if update available
@@ -161,7 +164,12 @@ impl Toolbar {
 
                     // Dark mode toggle
                     let mut dark_mode = props.dark_mode;
-                    let theme_response = ui.checkbox(&mut dark_mode, "🌙");
+                    let theme_icon = if dark_mode {
+                        egui_phosphor::regular::MOON
+                    } else {
+                        egui_phosphor::regular::SUN
+                    };
+                    let theme_response = ui.checkbox(&mut dark_mode, theme_icon);
                     if dark_mode != props.dark_mode {
                         events.push(ToolbarEvent::ToggleTheme);
                     }
@@ -176,7 +184,10 @@ impl Toolbar {
         // Bottom bar with search
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("🔍 Search:");
+                ui.label(format!(
+                    "{} Search:",
+                    egui_phosphor::regular::MAGNIFYING_GLASS
+                ));
 
                 let text_box_response = ui.add(
                     egui::TextEdit::singleline(&mut self.search_query)

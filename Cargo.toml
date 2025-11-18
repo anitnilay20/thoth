@@ -57,6 +57,7 @@ depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
 
 [dependencies]
 eframe = "0.32.0"
+egui-phosphor = "0.10"
 image = { version = "0.25", default-features = false, features = [
   "png",
   "ico",
