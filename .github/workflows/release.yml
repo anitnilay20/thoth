@@ -118,11 +118,24 @@ jobs:
         run: |
           # Create MSI installer using cargo-packager (format is 'wix' for MSI)
           cargo packager --release --formats wix
-          mkdir -p artifacts
-          # Copy the MSI installer (cargo-packager outputs to dist/ directory)
-          copy "dist\*.msi" artifacts\ || echo "MSI not found, falling back to exe"
+          New-Item -ItemType Directory -Force -Path artifacts
+
+          # cargo-packager outputs MSI to target/release/ on Windows
+          if (Test-Path "target\release\*.msi") {
+            Copy-Item "target\release\*.msi" artifacts\
+            Write-Host "MSI installer copied to artifacts/"
+          } else {
+            Write-Host "MSI not found, checking dist/ directory"
+            if (Test-Path "dist\*.msi") {
+              Copy-Item "dist\*.msi" artifacts\
+            } else {
+              Write-Host "MSI not found in either location"
+              Get-ChildItem -Path target\release\ -Filter *.msi -Recurse | ForEach-Object { Write-Host $_.FullName }
+            }
+          }
+
           # Also copy the exe as fallback
-          copy target\release\thoth.exe artifacts\
+          Copy-Item target\release\thoth.exe artifacts\
 
       - name: Create macOS DMG installer
         if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
