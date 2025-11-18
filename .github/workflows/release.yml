@@ -71,15 +71,12 @@ jobs:
           echo "Matrix Target: ${{ matrix.target }}"
           echo "Matrix OS: ${{ matrix.os }}"
 
-      # Install cargo-bundle
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle
+      # Install cargo-packager (stable cross-platform bundler)
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
 
-      # macOS-specific dependencies for DMG creation
-      - name: Install macOS dependencies
-        if: runner.os == 'macOS'
-        run: |
-          brew install create-dmg
+      # macOS-specific dependencies
+      # Note: cargo-packager handles DMG creation natively, no extra tools needed
 
       # Linux-specific dependencies
       - name: Install Linux dependencies
@@ -88,13 +85,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      # Windows-specific setup - Install WiX for MSI creation
+      # Windows-specific setup - Install WiX for MSI creation (required by cargo-packager)
       - name: Install Windows dependencies
         if: runner.os == 'Windows'
         run: |
-          # Install WiX Toolset for MSI creation
+          # Install WiX Toolset v3 for MSI creation (cargo-packager requires this)
           choco install wixtoolset -y
-          echo "C:\Program Files (x86)\WiX Toolset v3.14\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Add WiX to PATH (version may vary, using wildcard)
+          $wixPath = Get-ChildItem "C:\Program Files (x86)\WiX Toolset*" | Select-Object -First 1 -ExpandProperty FullName
+          if ($wixPath) {
+            echo "$wixPath\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            Write-Host "WiX Toolset found at: $wixPath"
+          }
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }}
@@ -103,79 +105,51 @@ jobs:
       - name: Create Windows MSI installer
         if: runner.os == 'Windows'
         run: |
-          # Create MSI installer using cargo-bundle
-          cargo bundle --release --target ${{ matrix.target }} --format msi
+          # Create MSI installer using cargo-packager
+          cargo packager --release --formats msi
           mkdir -p artifacts
-          # Copy the MSI installer
-          copy "target\${{ matrix.target }}\release\bundle\msi\*.msi" artifacts\ || echo "MSI not found, falling back to exe"
+          # Copy the MSI installer (cargo-packager outputs to dist/ directory)
+          copy "dist\*.msi" artifacts\ || echo "MSI not found, falling back to exe"
           # Also copy the exe as fallback
           copy target\${{ matrix.target }}\release\thoth.exe artifacts\
 
       - name: Create macOS DMG installer
         if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
         run: |
-          # Build .app bundle
-          cargo bundle --release --target ${{ matrix.target }}
+          # Build .app bundle and DMG using cargo-packager
+          cargo packager --release --formats app,dmg
           mkdir -p artifacts
 
-          # Remove all extended attributes and quarantine flags
-          xattr -cr target/${{ matrix.target }}/release/bundle/osx/Thoth.app || true
-          find target/${{ matrix.target }}/release/bundle/osx/Thoth.app -type f -exec xattr -c {} \; || true
+          # cargo-packager outputs to dist/ directory
+          # Copy the DMG if it exists
+          cp dist/*.dmg artifacts/ 2>/dev/null || echo "DMG creation skipped"
 
-          # Create DMG with drag-to-Applications UI
-          create-dmg \
-            --volname "Thoth" \
-            --volicon "assets/Thoth.icns" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --icon "Thoth.app" 175 190 \
-            --hide-extension "Thoth.app" \
-            --app-drop-link 425 185 \
-            --no-internet-enable \
-            "artifacts/Thoth-${{ matrix.target }}.dmg" \
-            "target/${{ matrix.target }}/release/bundle/osx/Thoth.app" || true
-
-          # Also keep the .app bundle as fallback
-          cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
+          # Also copy the .app bundle as fallback
+          cp -r dist/*.app artifacts/ 2>/dev/null || echo "App bundle not found"
 
       - name: Create macOS ARM64 DMG installer
         if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
         run: |
-          # Build .app bundle
-          cargo bundle --release --target ${{ matrix.target }}
+          # Build .app bundle and DMG using cargo-packager
+          cargo packager --release --formats app,dmg
           mkdir -p artifacts
 
-          # Remove all extended attributes and quarantine flags
-          xattr -cr target/${{ matrix.target }}/release/bundle/osx/Thoth.app || true
-          find target/${{ matrix.target }}/release/bundle/osx/Thoth.app -type f -exec xattr -c {} \; || true
+          # cargo-packager outputs to dist/ directory
+          # Copy the DMG if it exists
+          cp dist/*.dmg artifacts/ 2>/dev/null || echo "DMG creation skipped"
 
-          # Create DMG with drag-to-Applications UI
-          create-dmg \
-            --volname "Thoth" \
-            --volicon "assets/Thoth.icns" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --icon "Thoth.app" 175 190 \
-            --hide-extension "Thoth.app" \
-            --app-drop-link 425 185 \
-            --no-internet-enable \
-            "artifacts/Thoth-${{ matrix.target }}.dmg" \
-            "target/${{ matrix.target }}/release/bundle/osx/Thoth.app" || true
-
-          # Also keep the .app bundle as fallback
-          cp -r target/${{ matrix.target }}/release/bundle/osx/Thoth.app artifacts/
+          # Also copy the .app bundle as fallback
+          cp -r dist/*.app artifacts/ 2>/dev/null || echo "App bundle not found"
 
       - name: Create Linux packages (deb)
         if: runner.os == 'Linux'
         run: |
-          # Create deb package using cargo-bundle
-          cargo bundle --release --target ${{ matrix.target }} --format deb
+          # Create deb package using cargo-packager
+          cargo packager --release --formats deb
           mkdir -p artifacts
 
-          # Copy the deb package
-          find target/${{ matrix.target }}/release/bundle/deb -name "*.deb" -exec cp {} artifacts/ \;
+          # cargo-packager outputs to dist/ directory
+          cp dist/*.deb artifacts/ 2>/dev/null || echo "DEB not found"
 
           # Also copy raw binary as fallback
           cp target/${{ matrix.target }}/release/thoth artifacts/
