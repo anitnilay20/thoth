@@ -144,18 +144,17 @@ jobs:
           cargo packager --release --formats dmg
           mkdir -p artifacts
 
-          # cargo-packager outputs to dist/ directory
+          # cargo-packager outputs to target/release/ directory
           # Copy the DMG if it exists
-          cp dist/*.dmg artifacts/ 2>/dev/null || echo "DMG creation skipped"
+          cp target/release/*.dmg artifacts/ 2>/dev/null || echo "DMG not found"
 
-          # Copy the .app bundle from dist/ to artifacts/ for tar.gz creation
-          if [ -d "dist/Thoth.app" ]; then
-            cp -r dist/Thoth.app artifacts/
-          elif [ -d "dist/macos/Thoth.app" ]; then
-            cp -r dist/macos/Thoth.app artifacts/
+          # Copy the .app bundle to artifacts/ for tar.gz creation
+          if [ -d "target/release/Thoth.app" ]; then
+            cp -r target/release/Thoth.app artifacts/
+            echo "Copied Thoth.app from target/release/"
           else
-            echo "App bundle not found in expected locations"
-            ls -la dist/
+            echo "App bundle not found in target/release/"
+            ls -la target/release/ | grep -i thoth
           fi
 
       - name: Create macOS ARM64 DMG installer
@@ -165,18 +164,17 @@ jobs:
           cargo packager --release --formats dmg
           mkdir -p artifacts
 
-          # cargo-packager outputs to dist/ directory
+          # cargo-packager outputs to target/release/ directory
           # Copy the DMG if it exists
-          cp dist/*.dmg artifacts/ 2>/dev/null || echo "DMG creation skipped"
+          cp target/release/*.dmg artifacts/ 2>/dev/null || echo "DMG not found"
 
-          # Copy the .app bundle from dist/ to artifacts/ for tar.gz creation
-          if [ -d "dist/Thoth.app" ]; then
-            cp -r dist/Thoth.app artifacts/
-          elif [ -d "dist/macos/Thoth.app" ]; then
-            cp -r dist/macos/Thoth.app artifacts/
+          # Copy the .app bundle to artifacts/ for tar.gz creation
+          if [ -d "target/release/Thoth.app" ]; then
+            cp -r target/release/Thoth.app artifacts/
+            echo "Copied Thoth.app from target/release/"
           else
-            echo "App bundle not found in expected locations"
-            ls -la dist/
+            echo "App bundle not found in target/release/"
+            ls -la target/release/ | grep -i thoth
           fi
 
       - name: Create Linux packages (deb)
@@ -186,8 +184,8 @@ jobs:
           cargo packager --release --formats deb
           mkdir -p artifacts
 
-          # cargo-packager outputs to dist/ directory
-          cp dist/*.deb artifacts/ 2>/dev/null || echo "DEB not found"
+          # cargo-packager outputs to target/release/ directory
+          cp target/release/*.deb artifacts/ 2>/dev/null || echo "DEB not found"
 
           # Also copy raw binary as fallback
           cp target/release/thoth artifacts/
