@@ -48,7 +48,12 @@ fn main() -> Result<()> {
             .with_inner_size([
                 settings.window.default_width,
                 settings.window.default_height,
-            ]),
+            ])
+            // macOS-specific: Unified title bar (like VS Code)
+            // This extends content into title bar area, allowing toolbar to share row with traffic lights
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false)
+            .with_title_shown(false),
         ..Default::default()
     };
 

@@ -66,6 +66,10 @@ impl Toolbar {
         // Top bar with essential actions
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                // On macOS with fullsize_content_view, add padding for traffic light buttons
+                #[cfg(target_os = "macos")]
+                ui.add_space(70.0); // Space for macOS traffic lights
+
                 // File actions
                 if ui
                     .button(egui_phosphor::regular::FOLDER_OPEN)

@@ -12,6 +12,14 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
         ctx.set_visuals(egui::Visuals::light());
     }
 
+    // Set system theme for native title bar (macOS traffic lights, Windows title bar, etc.)
+    let system_theme = if settings.dark_mode {
+        egui::viewport::SystemTheme::Dark
+    } else {
+        egui::viewport::SystemTheme::Light
+    };
+    ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(system_theme));
+
     // Apply style settings (spacing, fonts, etc.)
     let mut style = (*ctx.style()).clone();
 
