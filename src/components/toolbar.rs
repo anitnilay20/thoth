@@ -63,30 +63,23 @@ impl Toolbar {
     ) -> Option<SearchMessage> {
         let mut search_message = None;
 
-        // Compact single-row toolbar (40px height) - VS Code style
+        // Compact single-row toolbar (40px height)
+        // Use theme colors from context
+        let bg_color = ctx.style().visuals.extreme_bg_color; // Catppuccin Mantle
+        let border_color = ctx.style().visuals.widgets.noninteractive.bg_stroke.color;
+
         egui::TopBottomPanel::top("top_panel")
             .exact_height(40.0)
             .frame(
                 egui::Frame::NONE
-                    .fill(if props.dark_mode {
-                        egui::Color32::from_rgb(0x2d, 0x2d, 0x30) // VS Code dark toolbar
-                    } else {
-                        egui::Color32::from_rgb(0xe8, 0xe8, 0xe8) // VS Code light toolbar
-                    })
+                    .fill(bg_color)
                     .inner_margin(egui::Margin {
                         left: 8,
                         right: 8,
                         top: 0,
                         bottom: 0,
                     })
-                    .stroke(egui::Stroke::new(
-                        1.0,
-                        if props.dark_mode {
-                            egui::Color32::from_rgb(0x3e, 0x3e, 0x42) // Border color
-                        } else {
-                            egui::Color32::from_rgb(0xcc, 0xcc, 0xcc)
-                        },
-                    )),
+                    .stroke(egui::Stroke::new(1.0, border_color)),
             )
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {

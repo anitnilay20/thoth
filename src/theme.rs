@@ -53,30 +53,68 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
     ctx.set_style(style);
 }
 
+/// Catppuccin Mocha theme colors
+pub mod catppuccin_mocha {
+    use eframe::egui::Color32 as C;
+
+    // Base colors
+    pub const ROSEWATER: C = C::from_rgb(0xf5, 0xe0, 0xdc);
+    pub const FLAMINGO: C = C::from_rgb(0xf2, 0xcd, 0xcd);
+    pub const PINK: C = C::from_rgb(0xf5, 0xc2, 0xe7);
+    pub const MAUVE: C = C::from_rgb(0xcb, 0xa6, 0xf7);
+    pub const RED: C = C::from_rgb(0xf3, 0x8b, 0xa8);
+    pub const MAROON: C = C::from_rgb(0xeb, 0xa0, 0xac);
+    pub const PEACH: C = C::from_rgb(0xfa, 0xb3, 0x87);
+    pub const YELLOW: C = C::from_rgb(0xf9, 0xe2, 0xaf);
+    pub const GREEN: C = C::from_rgb(0xa6, 0xe3, 0xa1);
+    pub const TEAL: C = C::from_rgb(0x94, 0xe2, 0xd5);
+    pub const SKY: C = C::from_rgb(0x89, 0xdc, 0xeb);
+    pub const SAPPHIRE: C = C::from_rgb(0x74, 0xc7, 0xec);
+    pub const BLUE: C = C::from_rgb(0x89, 0xb4, 0xfa);
+    pub const LAVENDER: C = C::from_rgb(0xb4, 0xbe, 0xfe);
+
+    // Text colors
+    pub const TEXT: C = C::from_rgb(0xcd, 0xd6, 0xf4);
+    pub const SUBTEXT1: C = C::from_rgb(0xba, 0xc2, 0xde);
+    pub const SUBTEXT0: C = C::from_rgb(0xa6, 0xad, 0xc8);
+
+    // Overlay colors
+    pub const OVERLAY2: C = C::from_rgb(0x93, 0x99, 0xb2);
+    pub const OVERLAY1: C = C::from_rgb(0x7f, 0x84, 0x9c);
+    pub const OVERLAY0: C = C::from_rgb(0x6c, 0x70, 0x86);
+
+    // Surface colors
+    pub const SURFACE2: C = C::from_rgb(0x58, 0x5b, 0x70);
+    pub const SURFACE1: C = C::from_rgb(0x45, 0x47, 0x5a);
+    pub const SURFACE0: C = C::from_rgb(0x31, 0x32, 0x44);
+
+    // Base backgrounds
+    pub const BASE: C = C::from_rgb(0x1e, 0x1e, 0x2e);
+    pub const MANTLE: C = C::from_rgb(0x18, 0x18, 0x25);
+    pub const CRUST: C = C::from_rgb(0x11, 0x11, 0x1b);
+}
+
 fn andromeda_visuals() -> egui::Visuals {
-    use egui::Color32 as C;
+    use catppuccin_mocha as ctp;
     let mut v = egui::Visuals::dark();
 
-    // Andromeda-ish palette
-    let bg0 = C::from_rgb(0x1f, 0x22, 0x30); // window bg
-    let bg1 = C::from_rgb(0x23, 0x26, 0x2e); // panels / cards
-    let bg2 = C::from_rgb(0x1b, 0x1e, 0x28); // alt rows
-    let txt = C::from_rgb(0xe6, 0xe6, 0xe6);
-    let acc = C::from_rgb(0x82, 0xaa, 0xff);
+    // Catppuccin Mocha palette
+    v.override_text_color = Some(ctp::TEXT);
+    v.panel_fill = ctp::BASE; // Main background
+    v.extreme_bg_color = ctp::MANTLE; // Panels/cards
+    v.faint_bg_color = ctp::SURFACE0; // Alt rows
 
-    v.override_text_color = Some(txt);
-    v.panel_fill = bg0;
-    v.extreme_bg_color = bg1;
-    v.widgets.noninteractive.bg_fill = bg1;
-    v.widgets.inactive.bg_fill = bg1;
-    v.widgets.hovered.bg_fill = C::from_rgb(0x2a, 0x2f, 0x3c);
-    v.widgets.active.bg_fill = C::from_rgb(0x34, 0x3a, 0x49);
-    v.faint_bg_color = bg2;
+    // Widget colors
+    v.widgets.noninteractive.bg_fill = ctp::SURFACE0;
+    v.widgets.inactive.bg_fill = ctp::SURFACE0;
+    v.widgets.hovered.bg_fill = ctp::SURFACE1;
+    v.widgets.active.bg_fill = ctp::SURFACE2;
 
-    v.selection.bg_fill = acc;
-    v.selection.stroke = egui::Stroke::new(1.0, acc);
-    v.hyperlink_color = acc;
-    // v.window_rounding = egui::Rounding::same(10.0);
+    // Selection and accent colors
+    v.selection.bg_fill = ctp::MAUVE;
+    v.selection.stroke = egui::Stroke::new(1.0, ctp::MAUVE);
+    v.hyperlink_color = ctp::BLUE;
+
     v
 }
 
@@ -84,9 +122,9 @@ pub fn row_fill(i: usize, ui: &egui::Ui) -> Color32 {
     if i % 2 == 1 {
         // Only paint odd rows
         if ui.visuals().dark_mode {
-            Color32::from_rgb(0x25, 0x28, 0x33) // lighter stripe
+            catppuccin_mocha::SURFACE0 // Catppuccin alternating row
         } else {
-            Color32::from_rgb(0xEC, 0xEE, 0xF3) // light stripe for light mode
+            Color32::from_rgb(0xEC, 0xEE, 0xF3) // Light stripe for light mode
         }
     } else {
         Color32::TRANSPARENT // even rows = "no fill"
@@ -125,26 +163,26 @@ pub struct TextPalette {
 }
 
 impl TextPalette {
-    /// VS Code-inspired dark theme colors
+    /// Catppuccin Mocha dark theme colors
     pub const fn dark() -> Self {
+        use catppuccin_mocha as ctp;
         Self {
-            // VS Code syntax highlighting colors
-            key: Color32::from_rgb(156, 220, 254), // #9cdcfe - Keys/Properties
-            string: Color32::from_rgb(206, 145, 120), // #ce9178 - String values
-            number: Color32::from_rgb(181, 206, 168), // #b5cea8 - Numbers
-            boolean: Color32::from_rgb(86, 156, 214), // #569cd6 - Booleans
-            bracket: Color32::from_rgb(212, 212, 212), // #d4d4d4 - Brackets/Punctuation
+            key: ctp::BLUE,         // Keys/Properties - Blue
+            string: ctp::GREEN,     // String values - Green
+            number: ctp::PEACH,     // Numbers - Peach
+            boolean: ctp::MAUVE,    // Booleans - Mauve
+            bracket: ctp::OVERLAY2, // Brackets/Punctuation - Overlay2
         }
     }
 
-    /// VS Code-inspired light theme colors
+    /// Light theme colors
     pub const fn light() -> Self {
         Self {
-            key: Color32::from_rgb(0, 16, 128), // #001080 - Keys (dark blue)
-            string: Color32::from_rgb(163, 21, 21), // #a31515 - Strings (red)
-            number: Color32::from_rgb(9, 134, 88), // #098658 - Numbers (green)
-            boolean: Color32::from_rgb(0, 0, 255), // #0000ff - Booleans (blue)
-            bracket: Color32::from_rgb(0, 0, 0), // #000000 - Brackets (black)
+            key: Color32::from_rgb(0, 16, 128),     // Keys (dark blue)
+            string: Color32::from_rgb(163, 21, 21), // Strings (red)
+            number: Color32::from_rgb(9, 134, 88),  // Numbers (green)
+            boolean: Color32::from_rgb(0, 0, 255),  // Booleans (blue)
+            bracket: Color32::from_rgb(0, 0, 0),    // Brackets (black)
         }
     }
 
@@ -170,19 +208,19 @@ impl TextPalette {
 
 pub fn selected_row_bg(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        // VS Code selection color: #0e639c with 30% opacity (4d = 77/255)
-        Color32::from_rgba_premultiplied(14, 99, 156, 77)
+        // Catppuccin Mauve with reduced opacity for selection
+        Color32::from_rgba_premultiplied(203, 166, 247, 77)
     } else {
-        // Light mode: similar blue selection with adjusted opacity
+        // Light mode: similar selection color
         Color32::from_rgba_premultiplied(14, 99, 156, 102)
     }
 }
 
-/// Hover overlay for rows (5% white overlay in dark mode)
+/// Hover overlay for rows
 pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        // VS Code hover: #ffffff with 5% opacity (0d = 13/255)
-        Color32::from_rgba_premultiplied(255, 255, 255, 13)
+        // Catppuccin Surface1 for subtle hover
+        catppuccin_mocha::SURFACE1
     } else {
         // Light mode: subtle dark overlay
         Color32::from_rgba_premultiplied(0, 0, 0, 13)

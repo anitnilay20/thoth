@@ -51,15 +51,14 @@ impl StatusBarStatus {
         }
     }
 
-    /// Get the color for this status
+    /// Get the color for this status (Catppuccin colors)
     pub fn color(&self) -> egui::Color32 {
+        use crate::theme::catppuccin_mocha as ctp;
         match self {
-            StatusBarStatus::Ready => egui::Color32::WHITE,
-            StatusBarStatus::Loading => egui::Color32::from_rgb(0xcc, 0xa7, 0x00), // Yellow
-            StatusBarStatus::Error => egui::Color32::from_rgb(0xf1, 0x4c, 0x4c),   // Red
-            StatusBarStatus::Searching | StatusBarStatus::Filtered => {
-                egui::Color32::from_rgb(0x4e, 0xc9, 0xb0) // Cyan/teal
-            }
+            StatusBarStatus::Ready => ctp::GREEN,
+            StatusBarStatus::Loading => ctp::YELLOW,
+            StatusBarStatus::Error => ctp::RED,
+            StatusBarStatus::Searching | StatusBarStatus::Filtered => ctp::SAPPHIRE,
         }
     }
 }
@@ -72,8 +71,12 @@ impl ContextComponent for StatusBar {
     type Output = StatusBarOutput;
 
     fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
-        // VS Code blue background for status bar
-        let bg_color = egui::Color32::from_rgb(0x00, 0x7a, 0xcc);
+        // Use theme colors - Catppuccin Crust for status bar
+        let bg_color = if props.dark_mode {
+            crate::theme::catppuccin_mocha::CRUST
+        } else {
+            egui::Color32::from_rgb(0xe8, 0xe8, 0xe8) // Light mode background
+        };
 
         egui::TopBottomPanel::bottom("status_bar")
             .exact_height(24.0)
@@ -84,8 +87,13 @@ impl ContextComponent for StatusBar {
                 bottom: 4,
             }))
             .show(ctx, |ui| {
-                // Override text color to white
-                ui.style_mut().visuals.override_text_color = Some(egui::Color32::WHITE);
+                // Use theme text color
+                let text_color = if props.dark_mode {
+                    crate::theme::catppuccin_mocha::TEXT
+                } else {
+                    egui::Color32::from_rgb(0x33, 0x33, 0x33)
+                };
+                ui.style_mut().visuals.override_text_color = Some(text_color);
 
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
