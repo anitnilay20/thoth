@@ -116,6 +116,9 @@ impl App for ThothApp {
         // Render the settings panel and handle actions
         self.render_settings_panel(ctx);
 
+        // Render sidebar and handle events
+        self.render_sidebar(ctx);
+
         // Render status bar
         self.render_status_bar(ctx);
 
@@ -183,6 +186,14 @@ impl ThothApp {
                         .add_filter("JSON", &["json", "ndjson"])
                         .pick_file()
                     {
+                        // Add to recent files
+                        if let Some(path_str) = path.to_str() {
+                            self.window_state
+                                .recent_files
+                                .add_file(path_str.to_string());
+                            let _ = self.window_state.recent_files.save();
+                        }
+
                         self.window_state.file_path = Some(path);
                         self.window_state.error = None;
                     }
@@ -313,6 +324,14 @@ impl ThothApp {
         for event in output.events {
             match event {
                 components::toolbar::ToolbarEvent::FileOpen { path, file_type } => {
+                    // Add to recent files
+                    if let Some(path_str) = path.to_str() {
+                        self.window_state
+                            .recent_files
+                            .add_file(path_str.to_string());
+                        let _ = self.window_state.recent_files.save();
+                    }
+
                     self.window_state.file_path = Some(path);
                     self.window_state.file_type = file_type;
                     self.window_state.error = None;
@@ -433,6 +452,14 @@ impl ThothApp {
                     file_type,
                     total_items,
                 } => {
+                    // Add to recent files
+                    if let Some(path_str) = path.to_str() {
+                        self.window_state
+                            .recent_files
+                            .add_file(path_str.to_string());
+                        let _ = self.window_state.recent_files.save();
+                    }
+
                     self.window_state.file_path = Some(path);
                     self.window_state.file_type = file_type;
                     self.window_state.total_items = total_items;
@@ -480,6 +507,63 @@ impl ThothApp {
                 | components::settings_panel::SettingsPanelEvent::InstallUpdate
                 | components::settings_panel::SettingsPanelEvent::RetryUpdate => {
                     UpdateHandler::handle_settings_action(event, &mut self.update_state, ctx);
+                }
+            }
+        }
+    }
+
+    /// Render sidebar and handle its events
+    fn render_sidebar(&mut self, ctx: &egui::Context) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        use crate::components::traits::ContextComponent;
+
+        // Render sidebar
+        let output = self.window_state.sidebar.render(
+            ctx,
+            components::sidebar::SidebarProps {
+                recent_files: self.window_state.recent_files.get_files(),
+            },
+        );
+
+        // Handle sidebar events
+        for event in output.events {
+            match event {
+                components::sidebar::SidebarEvent::OpenFile(file_path) => {
+                    // Open the file by setting the path
+                    let path = std::path::PathBuf::from(&file_path);
+                    self.window_state.file_path = Some(path);
+                    self.window_state.error = None;
+                }
+                components::sidebar::SidebarEvent::RemoveRecentFile(file_path) => {
+                    // Remove from recent files
+                    self.window_state.recent_files.remove_file(&file_path);
+                    if let Err(e) = self.window_state.recent_files.save() {
+                        eprintln!("Failed to save recent files: {}", e);
+                    }
+                }
+                components::sidebar::SidebarEvent::OpenFilePicker => {
+                    // Open file picker dialog
+                    use rfd::FileDialog;
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("JSON", &["json", "ndjson"])
+                        .pick_file()
+                    {
+                        // Add to recent files
+                        if let Some(path_str) = path.to_str() {
+                            self.window_state
+                                .recent_files
+                                .add_file(path_str.to_string());
+                            let _ = self.window_state.recent_files.save();
+                        }
+
+                        self.window_state.file_path = Some(path);
+                        self.window_state.error = None;
+                    }
+                }
+                components::sidebar::SidebarEvent::SectionSelected(_section) => {
+                    // Section was selected, sidebar will handle the UI
                 }
             }
         }

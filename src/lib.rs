@@ -7,6 +7,7 @@ pub mod app;
 pub mod components;
 pub mod file;
 pub mod helpers;
+pub mod recent_files;
 pub mod search;
 pub mod settings;
 pub mod shortcuts;

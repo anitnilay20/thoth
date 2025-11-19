@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{components, file, search, update};
+use crate::{components, file, recent_files, search, update};
 
 // ============================================================================
 // Window State - Per-window state (file, search, UI)
@@ -18,7 +18,11 @@ pub struct WindowState {
     // Search state
     pub search_engine_state: SearchEngineState,
 
+    // Recent files (loaded from disk on first access via Default)
+    pub recent_files: recent_files::RecentFiles,
+
     // UI components
+    pub sidebar: components::sidebar::Sidebar,
     pub toolbar: components::toolbar::Toolbar,
     pub central_panel: components::central_panel::CentralPanel,
     pub status_bar: components::status_bar::StatusBar,

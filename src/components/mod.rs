@@ -5,6 +5,7 @@ pub mod file_viewer;
 pub mod icon_button;
 pub mod search_dropdown;
 pub mod settings_panel;
+pub mod sidebar;
 pub mod status_bar;
 pub mod toolbar;
 pub mod traits;
