@@ -43,7 +43,7 @@ impl RecentFiles {
                 serde_json::from_str(&contents).context("Failed to parse recent files")?;
             Ok(recent_files)
         } else {
-            Ok(Self::default())
+            Ok(Self { files: Vec::new() })
         }
     }
 
