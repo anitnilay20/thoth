@@ -43,7 +43,102 @@ impl Default for Sidebar {
 }
 
 impl Sidebar {
-    // Methods can be added here as needed
+    /// Render the icon buttons (always visible)
+    fn render_icon_buttons(
+        &mut self,
+        ui: &mut egui::Ui,
+        events: &mut Vec<SidebarEvent>,
+        hover_bg: egui::Color32,
+        text_color: egui::Color32,
+    ) {
+        let icon_size = 20.0;
+        let button_size = egui::vec2(48.0, 48.0);
+
+        // Recent Files button
+        let recent_files_selected = self.selected_section == Some(SidebarSection::RecentFiles);
+        if self.render_icon_button(
+            ui,
+            egui_phosphor::regular::FOLDER,
+            "Recent Files",
+            recent_files_selected,
+            (button_size, icon_size),
+            (hover_bg, text_color),
+        ) {
+            if self.expanded && recent_files_selected {
+                // Clicking the same button collapses
+                self.expanded = false;
+            } else {
+                self.selected_section = Some(SidebarSection::RecentFiles);
+                self.expanded = true;
+                events.push(SidebarEvent::SectionSelected(SidebarSection::RecentFiles));
+            }
+        }
+
+        // Search button
+        let search_selected = self.selected_section == Some(SidebarSection::Search);
+        if self.render_icon_button(
+            ui,
+            egui_phosphor::regular::MAGNIFYING_GLASS,
+            "Search",
+            search_selected,
+            (button_size, icon_size),
+            (hover_bg, text_color),
+        ) {
+            if self.expanded && search_selected {
+                // Clicking the same button collapses
+                self.expanded = false;
+            } else {
+                self.selected_section = Some(SidebarSection::Search);
+                self.expanded = true;
+                events.push(SidebarEvent::SectionSelected(SidebarSection::Search));
+            }
+        }
+
+        // Settings button
+        let settings_selected = self.selected_section == Some(SidebarSection::Settings);
+        if self.render_icon_button(
+            ui,
+            egui_phosphor::regular::GEAR,
+            "Settings",
+            settings_selected,
+            (button_size, icon_size),
+            (hover_bg, text_color),
+        ) {
+            if self.expanded && settings_selected {
+                // Clicking the same button collapses
+                self.expanded = false;
+            } else {
+                self.selected_section = Some(SidebarSection::Settings);
+                self.expanded = true;
+                events.push(SidebarEvent::SectionSelected(SidebarSection::Settings));
+            }
+        }
+    }
+
+    /// Render the content area (when expanded)
+    fn render_content(
+        &mut self,
+        ui: &mut egui::Ui,
+        props: SidebarProps<'_>,
+        events: &mut Vec<SidebarEvent>,
+        hover_bg: egui::Color32,
+        text_color: egui::Color32,
+        header_color: egui::Color32,
+    ) {
+        // Render content based on selected section
+        match self.selected_section {
+            Some(SidebarSection::RecentFiles) => {
+                self.render_recent_files(ui, props, events, hover_bg, text_color, header_color);
+            }
+            Some(SidebarSection::Search) => {
+                self.render_search_section(ui, header_color, text_color);
+            }
+            Some(SidebarSection::Settings) => {
+                self.render_settings_section(ui, header_color, text_color);
+            }
+            None => {}
+        }
+    }
 }
 
 impl ContextComponent for Sidebar {
@@ -96,16 +191,32 @@ impl ContextComponent for Sidebar {
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 
                 if self.expanded {
-                    self.render_expanded(
-                        ui,
-                        props,
-                        &mut events,
-                        hover_bg,
-                        text_color,
-                        header_color,
-                    );
+                    // Horizontal layout: icon buttons on left, content on right
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+
+                        // Left side: 48px icon buttons
+                        ui.vertical(|ui| {
+                            ui.set_width(48.0);
+                            self.render_icon_buttons(ui, &mut events, hover_bg, text_color);
+                        });
+
+                        // Right side: expanded content
+                        ui.vertical(|ui| {
+                            ui.set_width(192.0); // 240 - 48 = 192
+                            self.render_content(
+                                ui,
+                                props,
+                                &mut events,
+                                hover_bg,
+                                text_color,
+                                header_color,
+                            );
+                        });
+                    });
                 } else {
-                    self.render_collapsed(ui, &mut events, hover_bg, text_color);
+                    // Just show icon buttons
+                    self.render_icon_buttons(ui, &mut events, hover_bg, text_color);
                 }
             });
 
@@ -114,86 +225,6 @@ impl ContextComponent for Sidebar {
 }
 
 impl Sidebar {
-    fn render_collapsed(
-        &mut self,
-        ui: &mut egui::Ui,
-        events: &mut Vec<SidebarEvent>,
-        hover_bg: egui::Color32,
-        text_color: egui::Color32,
-    ) {
-        let icon_size = 20.0;
-        let button_size = egui::vec2(48.0, 48.0);
-
-        // Recent Files button
-        let recent_files_selected = self.selected_section == Some(SidebarSection::RecentFiles);
-        if self.render_icon_button(
-            ui,
-            egui_phosphor::regular::FOLDER,
-            "Recent Files",
-            recent_files_selected,
-            (button_size, icon_size),
-            (hover_bg, text_color),
-        ) {
-            self.selected_section = Some(SidebarSection::RecentFiles);
-            self.expanded = true;
-            events.push(SidebarEvent::SectionSelected(SidebarSection::RecentFiles));
-        }
-
-        // Search button
-        let search_selected = self.selected_section == Some(SidebarSection::Search);
-        if self.render_icon_button(
-            ui,
-            egui_phosphor::regular::MAGNIFYING_GLASS,
-            "Search",
-            search_selected,
-            (button_size, icon_size),
-            (hover_bg, text_color),
-        ) {
-            self.selected_section = Some(SidebarSection::Search);
-            self.expanded = true;
-            events.push(SidebarEvent::SectionSelected(SidebarSection::Search));
-        }
-
-        // Settings button
-        let settings_selected = self.selected_section == Some(SidebarSection::Settings);
-        if self.render_icon_button(
-            ui,
-            egui_phosphor::regular::GEAR,
-            "Settings",
-            settings_selected,
-            (button_size, icon_size),
-            (hover_bg, text_color),
-        ) {
-            self.selected_section = Some(SidebarSection::Settings);
-            self.expanded = true;
-            events.push(SidebarEvent::SectionSelected(SidebarSection::Settings));
-        }
-    }
-
-    fn render_expanded(
-        &mut self,
-        ui: &mut egui::Ui,
-        props: SidebarProps<'_>,
-        events: &mut Vec<SidebarEvent>,
-        hover_bg: egui::Color32,
-        text_color: egui::Color32,
-        header_color: egui::Color32,
-    ) {
-        // Render content based on selected section
-        match self.selected_section {
-            Some(SidebarSection::RecentFiles) => {
-                self.render_recent_files(ui, props, events, hover_bg, text_color, header_color);
-            }
-            Some(SidebarSection::Search) => {
-                self.render_search_section(ui, header_color, text_color);
-            }
-            Some(SidebarSection::Settings) => {
-                self.render_settings_section(ui, header_color, text_color);
-            }
-            None => {}
-        }
-    }
-
     fn render_icon_button(
         &self,
         ui: &mut egui::Ui,
@@ -241,31 +272,13 @@ impl Sidebar {
         header_color: egui::Color32,
     ) {
         // Header
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(format!("{} RECENT FILES", egui_phosphor::regular::FOLDER))
-                    .size(11.0)
-                    .color(header_color)
-                    .strong(),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Collapse button
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(egui_phosphor::regular::CARET_LEFT).size(16.0),
-                        )
-                        .frame(false)
-                        .min_size(egui::vec2(24.0, 24.0)),
-                    )
-                    .on_hover_text("Collapse sidebar")
-                    .clicked()
-                {
-                    self.expanded = false;
-                }
-            });
-        });
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("RECENT FILES")
+                .size(11.0)
+                .color(header_color)
+                .strong(),
+        );
 
         ui.add_space(4.0);
         ui.separator();
@@ -396,33 +409,13 @@ impl Sidebar {
         text_color: egui::Color32,
     ) {
         // Header
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} SEARCH",
-                    egui_phosphor::regular::MAGNIFYING_GLASS
-                ))
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("SEARCH")
                 .size(11.0)
                 .color(header_color)
                 .strong(),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(egui_phosphor::regular::CARET_LEFT).size(16.0),
-                        )
-                        .frame(false)
-                        .min_size(egui::vec2(24.0, 24.0)),
-                    )
-                    .on_hover_text("Collapse sidebar")
-                    .clicked()
-                {
-                    // Will be handled in parent
-                }
-            });
-        });
+        );
 
         ui.add_space(8.0);
         ui.separator();
@@ -445,30 +438,13 @@ impl Sidebar {
         text_color: egui::Color32,
     ) {
         // Header
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(format!("{} SETTINGS", egui_phosphor::regular::GEAR))
-                    .size(11.0)
-                    .color(header_color)
-                    .strong(),
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(egui_phosphor::regular::CARET_LEFT).size(16.0),
-                        )
-                        .frame(false)
-                        .min_size(egui::vec2(24.0, 24.0)),
-                    )
-                    .on_hover_text("Collapse sidebar")
-                    .clicked()
-                {
-                    // Will be handled in parent
-                }
-            });
-        });
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("SETTINGS")
+                .size(11.0)
+                .color(header_color)
+                .strong(),
+        );
 
         ui.add_space(8.0);
         ui.separator();
