@@ -25,6 +25,9 @@ pub struct ThothApp {
 
     // Clipboard text to copy (set by shortcuts, copied in update loop)
     clipboard_text: Option<String>,
+
+    // Track if settings need to be saved
+    settings_changed: bool,
 }
 
 impl ThothApp {
@@ -37,6 +40,7 @@ impl ThothApp {
             settings_panel: components::settings_panel::SettingsPanel,
             show_settings: false,
             clipboard_text: None,
+            settings_changed: false,
         }
     }
 
@@ -106,8 +110,8 @@ impl App for ThothApp {
         // Apply theme and font settings
         crate::theme::apply_theme(ctx, &self.settings);
 
-        // Save settings when dark mode changes
-        self.save_settings_if_changed(ctx);
+        // Save settings when they have changed
+        self.save_settings_if_changed();
 
         // Render the settings panel and handle actions
         self.render_settings_panel(ctx);
@@ -201,9 +205,11 @@ impl ThothApp {
                 }
                 ShortcutAction::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
+                    self.settings_changed = true;
                 }
                 ShortcutAction::ToggleProfiler => {
                     self.settings.dev.show_profiler = !self.settings.dev.show_profiler;
+                    self.settings_changed = true;
                 }
                 // Navigation shortcuts - handled by JSON viewer or search
                 ShortcutAction::FocusSearch => {
@@ -326,6 +332,7 @@ impl ThothApp {
                 }
                 components::toolbar::ToolbarEvent::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
+                    self.settings_changed = true;
                 }
                 components::toolbar::ToolbarEvent::ToggleSearch => {
                     self.window_state.search_dropdown.toggle();
@@ -352,11 +359,12 @@ impl ThothApp {
     }
 
     /// Save settings if they have changed
-    fn save_settings_if_changed(&mut self, ctx: &egui::Context) {
-        if ctx.style().visuals.dark_mode != self.settings.dark_mode {
+    fn save_settings_if_changed(&mut self) {
+        if self.settings_changed {
             if let Err(e) = self.settings.save() {
                 eprintln!("Failed to save settings: {}", e);
             }
+            self.settings_changed = false;
         }
     }
 
