@@ -53,6 +53,7 @@ impl Sidebar {
     ) {
         let icon_size = 20.0;
         let button_size = egui::vec2(48.0, 48.0);
+        let selection_color = ui.visuals().selection.bg_fill;
 
         // Recent Files button
         let recent_files_selected = self.selected_section == Some(SidebarSection::RecentFiles);
@@ -62,7 +63,7 @@ impl Sidebar {
             "Recent Files",
             recent_files_selected,
             (button_size, icon_size),
-            (hover_bg, text_color),
+            (hover_bg, selection_color, text_color),
         ) {
             if self.expanded && recent_files_selected {
                 // Clicking the same button collapses
@@ -82,7 +83,7 @@ impl Sidebar {
             "Search",
             search_selected,
             (button_size, icon_size),
-            (hover_bg, text_color),
+            (hover_bg, selection_color, text_color),
         ) {
             if self.expanded && search_selected {
                 // Clicking the same button collapses
@@ -102,7 +103,7 @@ impl Sidebar {
             "Settings",
             settings_selected,
             (button_size, icon_size),
-            (hover_bg, text_color),
+            (hover_bg, selection_color, text_color),
         ) {
             if self.expanded && settings_selected {
                 // Clicking the same button collapses
@@ -201,17 +202,23 @@ impl ContextComponent for Sidebar {
                             self.render_icon_buttons(ui, &mut events, hover_bg, text_color);
                         });
 
-                        // Right side: expanded content
+                        // Right side: expanded content with padding
                         ui.vertical(|ui| {
                             ui.set_width(192.0); // 240 - 48 = 192
-                            self.render_content(
-                                ui,
-                                props,
-                                &mut events,
-                                hover_bg,
-                                text_color,
-                                header_color,
-                            );
+
+                            // Add frame with inner padding
+                            egui::Frame::NONE
+                                .inner_margin(egui::Margin::same(8))
+                                .show(ui, |ui| {
+                                    self.render_content(
+                                        ui,
+                                        props,
+                                        &mut events,
+                                        hover_bg,
+                                        text_color,
+                                        header_color,
+                                    );
+                                });
                         });
                     });
                 } else {
@@ -232,7 +239,7 @@ impl Sidebar {
         tooltip: &str,
         selected: bool,
         (size, icon_size): (egui::Vec2, f32),
-        (hover_bg, text_color): (egui::Color32, egui::Color32),
+        (hover_bg, selection_bg, text_color): (egui::Color32, egui::Color32, egui::Color32),
     ) -> bool {
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
 
@@ -240,7 +247,7 @@ impl Sidebar {
             // Background
             if selected || response.hovered() {
                 let bg_color = if selected {
-                    egui::Color32::from_rgb(9, 71, 113) // #094771 - VS Code selection blue
+                    selection_bg // Use theme selection color
                 } else {
                     hover_bg
                 };
@@ -338,68 +345,85 @@ impl Sidebar {
             .and_then(|n| n.to_str())
             .unwrap_or(file_path);
 
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
+        let available_width = ui.available_width() - 8.0; // Account for margins
+        let full_height = 28.0; // Increased height for better spacing
 
-            let (rect, response) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width() - 32.0, 24.0),
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(available_width, full_height),
+            egui::Sense::click(),
+        );
+
+        // Background on hover
+        if response.hovered() {
+            ui.painter().rect_filled(rect, 2.0, hover_bg);
+        }
+
+        // Reserve 24px on the right for the close button
+        let text_width = available_width - 32.0; // Leave room for close button + padding
+
+        // File name (truncate if needed)
+        let text_rect = egui::Rect::from_min_size(
+            rect.min + egui::vec2(8.0, 0.0),
+            egui::vec2(text_width, full_height),
+        );
+
+        let galley = ui.fonts(|f| {
+            f.layout_no_wrap(
+                filename.to_string(),
+                egui::FontId::proportional(13.0),
+                text_color,
+            )
+        });
+
+        // Truncate text if it overflows
+        let text_pos = text_rect.left_center() - egui::vec2(0.0, galley.size().y / 2.0);
+        ui.painter().text(
+            text_pos,
+            egui::Align2::LEFT_TOP,
+            filename,
+            egui::FontId::proportional(13.0),
+            text_color,
+        );
+
+        if response.clicked() {
+            events.push(SidebarEvent::OpenFile(file_path.to_string()));
+        }
+
+        // Show close button on hover
+        if response.hovered() {
+            let close_button_rect = egui::Rect::from_center_size(
+                rect.right_center() - egui::vec2(16.0, 0.0),
+                egui::vec2(20.0, 20.0),
+            );
+
+            let close_response = ui.interact(
+                close_button_rect,
+                ui.id().with(file_path),
                 egui::Sense::click(),
             );
 
-            // Background on hover
-            if response.hovered() {
-                ui.painter().rect_filled(rect, 0.0, hover_bg);
+            if close_response.hovered() {
+                ui.painter().rect_filled(
+                    close_button_rect,
+                    2.0,
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25),
+                );
             }
 
-            // File name
             ui.painter().text(
-                rect.left_center() + egui::vec2(4.0, 0.0),
-                egui::Align2::LEFT_CENTER,
-                filename,
-                egui::FontId::proportional(13.0),
+                close_button_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                egui_phosphor::regular::X,
+                egui::FontId::proportional(12.0),
                 text_color,
             );
 
-            if response.clicked() {
-                events.push(SidebarEvent::OpenFile(file_path.to_string()));
+            if close_response.clicked() {
+                events.push(SidebarEvent::RemoveRecentFile(file_path.to_string()));
             }
+        }
 
-            // Show close button on hover
-            if response.hovered() {
-                let close_button_rect = egui::Rect::from_center_size(
-                    rect.right_center() - egui::vec2(12.0, 0.0),
-                    egui::vec2(16.0, 16.0),
-                );
-
-                let close_response = ui.interact(
-                    close_button_rect,
-                    ui.id().with(file_path),
-                    egui::Sense::click(),
-                );
-
-                if close_response.hovered() {
-                    ui.painter().rect_filled(
-                        close_button_rect,
-                        2.0,
-                        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25),
-                    );
-                }
-
-                ui.painter().text(
-                    close_button_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    egui_phosphor::regular::X,
-                    egui::FontId::proportional(12.0),
-                    text_color,
-                );
-
-                if close_response.clicked() {
-                    events.push(SidebarEvent::RemoveRecentFile(file_path.to_string()));
-                }
-            }
-
-            response.on_hover_text(file_path);
-        });
+        response.on_hover_text(file_path);
     }
 
     fn render_search_section(

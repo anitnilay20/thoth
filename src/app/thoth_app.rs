@@ -116,11 +116,11 @@ impl App for ThothApp {
         // Render the settings panel and handle actions
         self.render_settings_panel(ctx);
 
+        // Render status bar (before sidebar so it spans full width)
+        self.render_status_bar(ctx);
+
         // Render sidebar and handle events
         self.render_sidebar(ctx);
-
-        // Render status bar
-        self.render_status_bar(ctx);
 
         // Render the central panel and handle events
         self.render_central_panel(ctx, msg_to_central);
