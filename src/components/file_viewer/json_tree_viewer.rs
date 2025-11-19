@@ -1,4 +1,5 @@
 use crate::components::data_row::{DataRow, DataRowProps};
+use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
 use crate::file::lazy_loader::LazyJsonFile;
 use crate::helpers::{
@@ -6,7 +7,7 @@ use crate::helpers::{
     split_root_rel,
 };
 use crate::theme::{TextToken, row_fill, selected_row_bg};
-use eframe::egui::{self, RichText, Ui};
+use eframe::egui::{self, Ui};
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -277,17 +278,45 @@ impl JsonTreeViewer {
                         // Indentation (VS Code design system: 16px per level)
                         ui.add_space(row.indent as f32 * 16.0);
 
-                        // Toggle button for expandable rows
+                        // Toggle button for expandable rows (or spacer for non-expandable)
                         if row.is_expandable {
-                            let toggle_icon = if row.is_expanded { "▾" } else { "▸" };
-                            if ui
-                                .selectable_label(false, RichText::new(toggle_icon).monospace())
-                                .clicked()
+                            let toggle_icon = if row.is_expanded {
+                                egui_phosphor::regular::CARET_DOWN
+                            } else {
+                                egui_phosphor::regular::CARET_RIGHT
+                            };
+                            if IconButton::render(
+                                ui,
+                                IconButtonProps {
+                                    icon: toggle_icon,
+                                    frame: false,
+                                    tooltip: None,
+                                    badge_color: None,
+                                    size: None,
+                                },
+                            )
+                            .clicked
                             {
                                 toggle_clicked = true;
                             }
                         } else {
-                            ui.add_space(23.0);
+                            // Add invisible button to maintain consistent spacing
+                            ui.add_enabled_ui(false, |ui| {
+                                ui.visuals_mut().widgets.inactive.bg_fill =
+                                    egui::Color32::TRANSPARENT;
+                                ui.visuals_mut().widgets.inactive.weak_bg_fill =
+                                    egui::Color32::TRANSPARENT;
+                                IconButton::render(
+                                    ui,
+                                    IconButtonProps {
+                                        icon: " ",
+                                        frame: false,
+                                        tooltip: None,
+                                        badge_color: None,
+                                        size: None,
+                                    },
+                                );
+                            });
                         }
 
                         // Use DataRow component for the content (without extra indentation since we handled it above)

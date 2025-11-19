@@ -33,6 +33,7 @@ impl StatelessComponent for MockStatelessComponent {
 }
 
 /// Mock context component for testing
+#[derive(Default)]
 pub struct MockContextComponent {
     pub render_count: usize,
     pub last_title: String,
@@ -63,15 +64,6 @@ impl ContextComponent for MockContextComponent {
     }
 }
 
-impl Default for MockContextComponent {
-    fn default() -> Self {
-        Self {
-            render_count: 0,
-            last_title: String::new(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,7 +80,7 @@ mod tests {
                 },
             );
 
-            assert_eq!(output.clicked, true);
+            assert!(output.clicked);
             assert_eq!(output.text, "test");
         });
     }
@@ -104,7 +96,7 @@ mod tests {
                 },
             );
 
-            assert_eq!(output.clicked, false);
+            assert!(!output.clicked);
             assert_eq!(output.text, "disabled");
         });
     }
@@ -116,7 +108,7 @@ mod tests {
 
             let output = component.render(ctx, MockContextProps { title: "Test" });
 
-            assert_eq!(output.rendered, true);
+            assert!(output.rendered);
             assert_eq!(output.title, "Test");
             assert_eq!(component.render_count, 1);
             assert_eq!(component.last_title, "Test");

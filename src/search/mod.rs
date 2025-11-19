@@ -5,6 +5,7 @@ pub use engine::Search;
 #[derive(Debug)]
 pub enum SearchMessage {
     StartSearch(Search),
+    #[allow(dead_code)]
     StopSearch,
 }
 

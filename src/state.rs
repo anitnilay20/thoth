@@ -13,6 +13,7 @@ pub struct WindowState {
     pub file_path: Option<PathBuf>,
     pub file_type: file::lazy_loader::FileType,
     pub error: Option<String>,
+    pub total_items: usize,
 
     // Search state
     pub search_engine_state: SearchEngineState,
@@ -20,6 +21,8 @@ pub struct WindowState {
     // UI components
     pub toolbar: components::toolbar::Toolbar,
     pub central_panel: components::central_panel::CentralPanel,
+    pub status_bar: components::status_bar::StatusBar,
+    pub search_dropdown: components::search_dropdown::SearchDropdown,
 }
 
 // ============================================================================

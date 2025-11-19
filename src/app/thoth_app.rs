@@ -21,7 +21,6 @@ pub struct ThothApp {
 
     // UI Components
     pub settings_panel: components::settings_panel::SettingsPanel,
-    pub status_bar: components::status_bar::StatusBar,
     pub show_settings: bool,
 
     // Clipboard text to copy (set by shortcuts, copied in update loop)
@@ -36,7 +35,6 @@ impl ThothApp {
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
             settings_panel: components::settings_panel::SettingsPanel,
-            status_bar: components::status_bar::StatusBar::default(),
             show_settings: false,
             clipboard_text: None,
         }
@@ -209,8 +207,8 @@ impl ThothApp {
                 }
                 // Navigation shortcuts - handled by JSON viewer or search
                 ShortcutAction::FocusSearch => {
-                    // Request focus on search box
-                    self.window_state.toolbar.request_search_focus = true;
+                    // Toggle search dropdown
+                    self.window_state.search_dropdown.toggle();
                 }
                 ShortcutAction::NextMatch => {
                     // TODO: Implement next match navigation
@@ -220,7 +218,9 @@ impl ThothApp {
                 }
                 ShortcutAction::Escape => {
                     // Clear search or close panels
-                    if self.show_settings {
+                    if self.window_state.search_dropdown.is_open() {
+                        self.window_state.search_dropdown.close();
+                    } else if self.show_settings {
                         self.show_settings = false;
                     }
                 }
@@ -298,6 +298,8 @@ impl ThothApp {
                 dark_mode: self.settings.dark_mode,
                 update_available,
                 shortcuts: &self.settings.shortcuts,
+                file_path: self.window_state.file_path.as_deref(),
+                is_fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
             },
         );
 
@@ -325,10 +327,28 @@ impl ThothApp {
                 components::toolbar::ToolbarEvent::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
                 }
+                components::toolbar::ToolbarEvent::ToggleSearch => {
+                    self.window_state.search_dropdown.toggle();
+                }
             }
         }
 
-        output.search_message
+        // Render search dropdown and handle its events
+        let search_output = self
+            .window_state
+            .search_dropdown
+            .render(ctx, components::search_dropdown::SearchDropdownProps {});
+
+        let mut search_message = None;
+        for event in search_output.events {
+            match event {
+                components::search_dropdown::SearchDropdownEvent::Search(msg) => {
+                    search_message = Some(msg);
+                }
+            }
+        }
+
+        search_message
     }
 
     /// Save settings if they have changed
@@ -353,21 +373,19 @@ impl ThothApp {
             components::status_bar::StatusBarStatus::Filtered
         } else if self.window_state.error.is_some() {
             components::status_bar::StatusBarStatus::Error
-        } else if self.window_state.file_path.is_some() {
-            components::status_bar::StatusBarStatus::Ready
         } else {
             components::status_bar::StatusBarStatus::Ready
         };
 
-        // Get item counts (use search results length for now)
-        let item_count = 0; // TODO: Get from file viewer
+        // Get item counts from window state
+        let item_count = self.window_state.total_items;
         let filtered_count = if !search.results.is_empty() {
             Some(search.results.len())
         } else {
             None
         };
 
-        self.status_bar.render(
+        self.window_state.status_bar.render(
             ctx,
             components::status_bar::StatusBarProps {
                 file_path: self.window_state.file_path.as_deref(),
@@ -375,7 +393,6 @@ impl ThothApp {
                 item_count,
                 filtered_count,
                 status,
-                dark_mode: self.settings.dark_mode,
             },
         );
     }
@@ -403,15 +420,21 @@ impl ThothApp {
         // Handle events emitted by the central panel (bottom-to-top communication)
         for event in output.events {
             match event {
-                components::central_panel::CentralPanelEvent::FileOpened { path, file_type } => {
+                components::central_panel::CentralPanelEvent::FileOpened {
+                    path,
+                    file_type,
+                    total_items,
+                } => {
                     self.window_state.file_path = Some(path);
                     self.window_state.file_type = file_type;
+                    self.window_state.total_items = total_items;
                 }
                 components::central_panel::CentralPanelEvent::FileOpenError(msg) => {
                     self.window_state.error = Some(msg);
                 }
                 components::central_panel::CentralPanelEvent::FileClosed => {
                     self.window_state.file_path = None;
+                    self.window_state.total_items = 0;
                 }
                 components::central_panel::CentralPanelEvent::FileTypeChanged(file_type) => {
                     self.window_state.file_type = file_type;

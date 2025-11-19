@@ -15,7 +15,11 @@ pub struct CentralPanelProps<'a> {
 
 /// Events emitted by the central panel (bottom-to-top communication)
 pub enum CentralPanelEvent {
-    FileOpened { path: PathBuf, file_type: FileType },
+    FileOpened {
+        path: PathBuf,
+        file_type: FileType,
+        total_items: usize,
+    },
     FileOpenError(String),
     FileClosed,
     FileTypeChanged(FileType),
@@ -70,9 +74,11 @@ impl CentralPanel {
                     Ok(()) => {
                         self.loaded_path = Some(new_path.clone());
                         self.loaded_type = Some(file_type);
+                        let total_items = self.file_viewer.total_item_count();
                         events.push(CentralPanelEvent::FileOpened {
                             path: new_path.clone(),
                             file_type,
+                            total_items,
                         });
                         events.push(CentralPanelEvent::ErrorCleared);
                         // clear any prior search filter on new file

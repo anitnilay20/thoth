@@ -47,8 +47,7 @@ impl StatelessComponent for DataRow {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let visuals = ui.visuals();
-        let palette = TextPalette::for_visuals(visuals);
+        let palette = TextPalette::from_context(ui.ctx());
 
         // Parse display text into key and value parts
         let mut parts = props.display_text.splitn(2, ':');

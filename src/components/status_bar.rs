@@ -24,15 +24,13 @@ pub struct StatusBarProps<'a> {
 
     /// Current status
     pub status: StatusBarStatus,
-
-    /// Dark mode
-    pub dark_mode: bool,
 }
 
 /// Status indicator for the status bar
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusBarStatus {
     Ready,
+    #[allow(dead_code)]
     Loading,
     Error,
     Searching,
@@ -51,25 +49,25 @@ impl StatusBarStatus {
         }
     }
 
-    /// Get the color for this status (Catppuccin colors - same for both themes)
-    pub fn color(&self, dark_mode: bool) -> egui::Color32 {
-        if dark_mode {
-            use crate::theme::catppuccin_mocha as ctp;
+    /// Get the color for this status from theme
+    pub fn color(&self, ctx: &egui::Context) -> egui::Color32 {
+        ctx.memory(|mem| {
+            let theme_colors = mem
+                .data
+                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+                .unwrap_or_else(|| {
+                    // Fallback: create default theme based on dark mode from visuals
+                    let dark_mode = ctx.style().visuals.dark_mode;
+                    crate::theme::Theme::for_dark_mode(dark_mode).colors()
+                });
+
             match self {
-                StatusBarStatus::Ready => ctp::GREEN,
-                StatusBarStatus::Loading => ctp::YELLOW,
-                StatusBarStatus::Error => ctp::RED,
-                StatusBarStatus::Searching | StatusBarStatus::Filtered => ctp::SAPPHIRE,
+                StatusBarStatus::Ready => theme_colors.success,
+                StatusBarStatus::Loading => theme_colors.warning,
+                StatusBarStatus::Error => theme_colors.error,
+                StatusBarStatus::Searching | StatusBarStatus::Filtered => theme_colors.info,
             }
-        } else {
-            use crate::theme::catppuccin_latte as ctp;
-            match self {
-                StatusBarStatus::Ready => ctp::GREEN,
-                StatusBarStatus::Loading => ctp::YELLOW,
-                StatusBarStatus::Error => ctp::RED,
-                StatusBarStatus::Searching | StatusBarStatus::Filtered => ctp::SAPPHIRE,
-            }
-        }
+        })
     }
 }
 
@@ -81,12 +79,17 @@ impl ContextComponent for StatusBar {
     type Output = StatusBarOutput;
 
     fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
-        // Use theme colors - Catppuccin Crust for status bar
-        let bg_color = if props.dark_mode {
-            crate::theme::catppuccin_mocha::CRUST
-        } else {
-            crate::theme::catppuccin_latte::CRUST
-        };
+        // Use theme colors from context
+        let bg_color = ctx.memory(|mem| {
+            mem.data
+                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+                .unwrap_or_else(|| {
+                    // Fallback: create default theme based on dark mode from visuals
+                    let dark_mode = ctx.style().visuals.dark_mode;
+                    crate::theme::Theme::for_dark_mode(dark_mode).colors()
+                })
+                .crust
+        });
 
         egui::TopBottomPanel::bottom("status_bar")
             .exact_height(24.0)
@@ -97,12 +100,17 @@ impl ContextComponent for StatusBar {
                 bottom: 4,
             }))
             .show(ctx, |ui| {
-                // Use theme text color
-                let text_color = if props.dark_mode {
-                    crate::theme::catppuccin_mocha::TEXT
-                } else {
-                    crate::theme::catppuccin_latte::TEXT
-                };
+                // Use theme text color from context
+                let text_color = ctx.memory(|mem| {
+                    mem.data
+                        .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+                        .unwrap_or_else(|| {
+                            // Fallback: create default theme based on dark mode from visuals
+                            let dark_mode = ctx.style().visuals.dark_mode;
+                            crate::theme::Theme::for_dark_mode(dark_mode).colors()
+                        })
+                        .text
+                });
                 ui.style_mut().visuals.override_text_color = Some(text_color);
 
                 ui.horizontal(|ui| {
@@ -114,30 +122,52 @@ impl ContextComponent for StatusBar {
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("Untitled");
-                        ui.label(format!("📄 {}", filename));
-                        ui.label("│");
+                        ui.label(format!(
+                            "{} {}",
+                            egui_phosphor::regular::FILE_TEXT,
+                            filename
+                        ));
+                        ui.separator();
                     }
 
-                    // Item count
+                    // Item count with icon
                     if let Some(filtered) = props.filtered_count {
-                        ui.label(format!("{} of {} items", filtered, props.item_count));
+                        ui.label(format!(
+                            "{} {} of {} items",
+                            egui_phosphor::regular::FUNNEL,
+                            filtered,
+                            props.item_count
+                        ));
                     } else if props.item_count > 0 {
-                        ui.label(format!("{} items", props.item_count));
+                        ui.label(format!(
+                            "{} {} items",
+                            egui_phosphor::regular::LIST_BULLETS,
+                            props.item_count
+                        ));
                     } else {
-                        ui.label("No items");
+                        ui.label(format!("{} No items", egui_phosphor::regular::LIST_BULLETS));
                     }
 
-                    ui.label("│");
+                    ui.separator();
 
-                    // File type
-                    ui.label(format!("{:?}", props.file_type));
+                    // File type with icon
+                    let file_type_icon = match props.file_type {
+                        crate::file::lazy_loader::FileType::Json => {
+                            egui_phosphor::regular::BRACKETS_CURLY
+                        }
+                        crate::file::lazy_loader::FileType::Ndjson => {
+                            egui_phosphor::regular::LIST_DASHES
+                        }
+                    };
+                    ui.label(format!("{} {:?}", file_type_icon, props.file_type));
 
-                    ui.label("│");
-
-                    // Status indicator
-                    let (icon, text) = props.status.icon_and_text();
-                    let status_color = props.status.color(props.dark_mode);
-                    ui.colored_label(status_color, format!("{} {}", icon, text));
+                    // Push status to the right
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Status indicator
+                        let (icon, text) = props.status.icon_and_text();
+                        let status_color = props.status.color(ctx);
+                        ui.colored_label(status_color, format!("{} {}", icon, text));
+                    });
                 });
             });
 
