@@ -154,8 +154,9 @@ pub struct ThemeColors {
 
 /// Apply theme settings including visuals and fonts
 pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
-    // Get theme colors
-    let theme_colors = settings.theme.colors();
+    // Get theme colors based on dark_mode setting
+    let theme = Theme::for_dark_mode(settings.dark_mode);
+    let theme_colors = theme.colors();
 
     // Store theme colors in egui memory for access throughout the app
     ctx.memory_mut(|mem| {
