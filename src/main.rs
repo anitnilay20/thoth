@@ -14,7 +14,6 @@ mod app;
 mod components;
 mod file;
 mod helpers;
-mod recent_files;
 mod search;
 mod settings;
 mod shortcuts;

@@ -66,7 +66,7 @@ impl Default for Sidebar {
         Self {
             recent_files: RecentFiles,
             search: Search::default(),
-            settings_panel: SettingsPanel::default(),
+            settings_panel: SettingsPanel,
         }
     }
 }
