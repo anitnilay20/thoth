@@ -29,6 +29,10 @@ pub struct Theme {
     pub warning: String, // Loading/warning states
     pub error: String,   // Error states
     pub info: String,    // Info/searching states
+
+    // Sidebar-specific colors
+    pub sidebar_hover: String,  // Sidebar icon hover background
+    pub sidebar_header: String, // Sidebar section header text
 }
 
 impl Default for Theme {
@@ -54,6 +58,9 @@ impl Default for Theme {
             warning: "#f9e2af".to_string(), // Yellow
             error: "#f38ba8".to_string(),   // Red
             info: "#74c7ec".to_string(),    // Sapphire
+            // Sidebar
+            sidebar_hover: "#6c708633".to_string(), // Overlay0 with transparency
+            sidebar_header: "#9399b2".to_string(),  // Overlay2
         }
     }
 }
@@ -90,6 +97,9 @@ impl Theme {
             warning: "#df8e1d".to_string(), // Yellow
             error: "#d20f39".to_string(),   // Red
             info: "#209fb5".to_string(),    // Sapphire
+            // Sidebar
+            sidebar_hover: "#9ca0b033".to_string(), // Overlay0 with transparency
+            sidebar_header: "#7c7f93".to_string(),  // Overlay2
         }
     }
 
@@ -106,6 +116,24 @@ impl Theme {
         let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
 
         Color32::from_rgb(r, g, b)
+    }
+
+    /// Parse a hex color string with alpha (e.g., "#1e1e2e33" or "1e1e2e33") into Color32
+    fn parse_color_with_alpha(hex: &str) -> Color32 {
+        let hex = hex.trim_start_matches('#');
+        if hex.len() == 8 {
+            let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
+            let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
+            let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
+            let a = u8::from_str_radix(&hex[6..8], 16).unwrap_or(255);
+            Color32::from_rgba_unmultiplied(r, g, b, a)
+        } else if hex.len() == 6 {
+            // Fallback to opaque color if no alpha provided
+            Self::parse_color(hex)
+        } else {
+            eprintln!("Invalid color format: {}, using black", hex);
+            Color32::BLACK
+        }
     }
 
     /// Get parsed Color32 values from hex strings
@@ -127,6 +155,8 @@ impl Theme {
             warning: Self::parse_color(&self.warning),
             error: Self::parse_color(&self.error),
             info: Self::parse_color(&self.info),
+            sidebar_hover: Self::parse_color_with_alpha(&self.sidebar_hover),
+            sidebar_header: Self::parse_color(&self.sidebar_header),
         }
     }
 }
@@ -150,6 +180,8 @@ pub struct ThemeColors {
     pub warning: Color32,
     pub error: Color32,
     pub info: Color32,
+    pub sidebar_hover: Color32,
+    pub sidebar_header: Color32,
 }
 
 /// Apply theme settings including visuals and fonts

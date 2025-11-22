@@ -21,7 +21,6 @@ pub struct Toolbar {
 pub struct ToolbarProps<'a> {
     pub file_type: &'a FileType,
     pub dark_mode: bool,
-    pub update_available: bool,
     pub shortcuts: &'a KeyboardShortcuts,
     pub file_path: Option<&'a Path>,
     pub is_fullscreen: bool,
@@ -33,9 +32,7 @@ pub enum ToolbarEvent {
     FileClear,
     NewWindow,
     FileTypeChange(FileType),
-    ToggleSettings,
     ToggleTheme,
-    ToggleSearch,
 }
 
 pub struct ToolbarOutput {
@@ -210,29 +207,6 @@ impl Toolbar {
                     ui.separator();
                     ui.add_space(4.0);
 
-                    // Search button
-                    if IconButton::render(
-                        ui,
-                        IconButtonProps {
-                            icon: egui_phosphor::regular::MAGNIFYING_GLASS,
-                            frame: false,
-                            tooltip: Some(&format!(
-                                "Search ({})",
-                                props.shortcuts.focus_search.format()
-                            )),
-                            badge_color: None,
-                            size: Some(button_size),
-                        },
-                    )
-                    .clicked
-                    {
-                        events.push(ToolbarEvent::ToggleSearch);
-                    }
-
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
                     // File type selector (compact, no label)
                     let mut current_file_type = *props.file_type;
                     egui::ComboBox::from_id_salt("file_type")
@@ -276,31 +250,6 @@ impl Toolbar {
                         .clicked
                         {
                             events.push(ToolbarEvent::ToggleTheme);
-                        }
-
-                        ui.add_space(4.0);
-
-                        // Settings button with optional update notification badge
-                        let settings_output = IconButton::render(
-                            ui,
-                            IconButtonProps {
-                                icon: egui_phosphor::regular::GEAR,
-                                frame: false,
-                                tooltip: Some(&format!(
-                                    "Settings ({})",
-                                    props.shortcuts.settings.format()
-                                )),
-                                badge_color: if props.update_available {
-                                    Some(egui::Color32::from_rgb(255, 80, 80))
-                                } else {
-                                    None
-                                },
-                                size: Some(button_size),
-                            },
-                        );
-
-                        if settings_output.clicked {
-                            events.push(ToolbarEvent::ToggleSettings);
                         }
                     });
                 });

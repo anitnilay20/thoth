@@ -1,4 +1,8 @@
-use crate::components::traits::ContextComponent;
+use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
+use crate::components::search::{Search, SearchEvent, SearchProps};
+use crate::components::settings_panel::{SettingsPanel, SettingsPanelEvent, SettingsPanelProps};
+use crate::components::traits::{ContextComponent, StatefulComponent};
+use crate::search::SearchMessage;
 use eframe::egui;
 
 /// Which sidebar section is currently selected
@@ -12,6 +16,15 @@ pub enum SidebarSection {
 /// Props passed to the Sidebar (immutable, one-way binding)
 pub struct SidebarProps<'a> {
     pub recent_files: &'a [String],
+    pub expanded: bool,
+    pub sidebar_width: f32,
+    pub selected_section: Option<SidebarSection>,
+    /// Whether the search section should receive focus (when just opened)
+    pub focus_search: bool,
+    /// Update status for settings panel
+    pub update_status: &'a crate::update::UpdateStatus,
+    /// Current version for settings panel
+    pub current_version: &'a str,
 }
 
 /// Events emitted by the Sidebar
@@ -20,7 +33,15 @@ pub enum SidebarEvent {
     OpenFile(String),
     RemoveRecentFile(String),
     OpenFilePicker,
-    SectionSelected(SidebarSection),
+    SectionToggled(SidebarSection),
+    WidthChanged(f32),
+    // Search events
+    Search(SearchMessage),
+    // Settings events
+    CheckForUpdates,
+    DownloadUpdate,
+    InstallUpdate,
+    RetryUpdate,
 }
 
 pub struct SidebarOutput {
@@ -28,210 +49,127 @@ pub struct SidebarOutput {
 }
 
 /// Stateful sidebar component
+///
+/// This component follows the one-way data binding pattern:
+/// - Props flow down (immutable references from parent)
+/// - Events flow up (actions returned in Output)
+/// - Sidebar has its own state for child components
 pub struct Sidebar {
-    expanded: bool,
-    selected_section: Option<SidebarSection>,
+    // Child components that Sidebar fully controls
+    recent_files: RecentFiles,
+    search: Search,
+    settings_panel: SettingsPanel,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
         Self {
-            expanded: false,
-            selected_section: Some(SidebarSection::RecentFiles),
+            recent_files: RecentFiles,
+            search: Search::default(),
+            settings_panel: SettingsPanel::default(),
         }
     }
 }
 
 impl Sidebar {
+    /// Render the content area (when expanded)
+    fn render_content(
+        &mut self,
+        ui: &mut egui::Ui,
+        props: &SidebarProps<'_>,
+        events: &mut Vec<SidebarEvent>,
+    ) {
+        // Render content based on selected section
+        match props.selected_section {
+            Some(SidebarSection::RecentFiles) => {
+                let output = self.recent_files.render(
+                    ui,
+                    RecentFilesProps {
+                        recent_files: props.recent_files,
+                    },
+                );
+
+                // Convert RecentFilesEvent to SidebarEvent
+                for event in output.events {
+                    match event {
+                        RecentFilesEvent::OpenFile(path) => {
+                            events.push(SidebarEvent::OpenFile(path));
+                        }
+                        RecentFilesEvent::RemoveFile(path) => {
+                            events.push(SidebarEvent::RemoveRecentFile(path));
+                        }
+                        RecentFilesEvent::OpenFilePicker => {
+                            events.push(SidebarEvent::OpenFilePicker);
+                        }
+                    }
+                }
+            }
+            Some(SidebarSection::Search) => {
+                self.render_search_section(ui, props, events);
+            }
+            Some(SidebarSection::Settings) => {
+                self.render_settings_section(ui, props, events);
+            }
+            None => {}
+        }
+    }
+
     /// Render the icon buttons (always visible)
     fn render_icon_buttons(
         &mut self,
         ui: &mut egui::Ui,
+        props: &SidebarProps<'_>,
         events: &mut Vec<SidebarEvent>,
         hover_bg: egui::Color32,
+        selection_bg: egui::Color32,
         text_color: egui::Color32,
     ) {
         let icon_size = 20.0;
         let button_size = egui::vec2(48.0, 48.0);
-        let selection_color = ui.visuals().selection.bg_fill;
 
         // Recent Files button
-        let recent_files_selected = self.selected_section == Some(SidebarSection::RecentFiles);
+        let recent_files_selected = props.selected_section == Some(SidebarSection::RecentFiles);
         if self.render_icon_button(
             ui,
             egui_phosphor::regular::FOLDER,
             "Recent Files",
             recent_files_selected,
             (button_size, icon_size),
-            (hover_bg, selection_color, text_color),
+            (hover_bg, selection_bg, text_color),
         ) {
-            if self.expanded && recent_files_selected {
-                // Clicking the same button collapses
-                self.expanded = false;
-            } else {
-                self.selected_section = Some(SidebarSection::RecentFiles);
-                self.expanded = true;
-                events.push(SidebarEvent::SectionSelected(SidebarSection::RecentFiles));
-            }
+            // Emit toggle event - parent will decide whether to collapse or expand
+            events.push(SidebarEvent::SectionToggled(SidebarSection::RecentFiles));
         }
 
         // Search button
-        let search_selected = self.selected_section == Some(SidebarSection::Search);
+        let search_selected = props.selected_section == Some(SidebarSection::Search);
         if self.render_icon_button(
             ui,
             egui_phosphor::regular::MAGNIFYING_GLASS,
             "Search",
             search_selected,
             (button_size, icon_size),
-            (hover_bg, selection_color, text_color),
+            (hover_bg, selection_bg, text_color),
         ) {
-            if self.expanded && search_selected {
-                // Clicking the same button collapses
-                self.expanded = false;
-            } else {
-                self.selected_section = Some(SidebarSection::Search);
-                self.expanded = true;
-                events.push(SidebarEvent::SectionSelected(SidebarSection::Search));
-            }
+            // Emit toggle event - parent will decide whether to collapse or expand
+            events.push(SidebarEvent::SectionToggled(SidebarSection::Search));
         }
 
         // Settings button
-        let settings_selected = self.selected_section == Some(SidebarSection::Settings);
+        let settings_selected = props.selected_section == Some(SidebarSection::Settings);
         if self.render_icon_button(
             ui,
             egui_phosphor::regular::GEAR,
             "Settings",
             settings_selected,
             (button_size, icon_size),
-            (hover_bg, selection_color, text_color),
+            (hover_bg, selection_bg, text_color),
         ) {
-            if self.expanded && settings_selected {
-                // Clicking the same button collapses
-                self.expanded = false;
-            } else {
-                self.selected_section = Some(SidebarSection::Settings);
-                self.expanded = true;
-                events.push(SidebarEvent::SectionSelected(SidebarSection::Settings));
-            }
+            // Emit toggle event - parent will decide whether to collapse or expand
+            events.push(SidebarEvent::SectionToggled(SidebarSection::Settings));
         }
     }
 
-    /// Render the content area (when expanded)
-    fn render_content(
-        &mut self,
-        ui: &mut egui::Ui,
-        props: SidebarProps<'_>,
-        events: &mut Vec<SidebarEvent>,
-        hover_bg: egui::Color32,
-        text_color: egui::Color32,
-        header_color: egui::Color32,
-    ) {
-        // Render content based on selected section
-        match self.selected_section {
-            Some(SidebarSection::RecentFiles) => {
-                self.render_recent_files(ui, props, events, hover_bg, text_color, header_color);
-            }
-            Some(SidebarSection::Search) => {
-                self.render_search_section(ui, header_color, text_color);
-            }
-            Some(SidebarSection::Settings) => {
-                self.render_settings_section(ui, header_color, text_color);
-            }
-            None => {}
-        }
-    }
-}
-
-impl ContextComponent for Sidebar {
-    type Props<'a> = SidebarProps<'a>;
-    type Output = SidebarOutput;
-
-    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
-        #[cfg(feature = "profiling")]
-        puffin::profile_function!();
-
-        let mut events = Vec::new();
-
-        // Get theme colors
-        let theme_colors = ctx.memory(|mem| {
-            mem.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
-        });
-
-        let (sidebar_bg, border_color, hover_bg, text_color, header_color) =
-            if let Some(colors) = theme_colors {
-                (
-                    colors.mantle,
-                    colors.surface0,
-                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 13), // rgba(255,255,255,0.05)
-                    colors.text,
-                    egui::Color32::from_rgb(153, 153, 153), // #999999
-                )
-            } else {
-                // Fallback colors
-                (
-                    egui::Color32::from_rgb(37, 37, 38),
-                    egui::Color32::from_rgb(62, 62, 66),
-                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 13),
-                    egui::Color32::from_rgb(204, 204, 204),
-                    egui::Color32::from_rgb(153, 153, 153),
-                )
-            };
-
-        let sidebar_width = if self.expanded { 240.0 } else { 48.0 };
-
-        egui::SidePanel::left("sidebar")
-            .resizable(false)
-            .exact_width(sidebar_width)
-            .frame(
-                egui::Frame::NONE
-                    .fill(sidebar_bg)
-                    .stroke(egui::Stroke::new(1.0, border_color)),
-            )
-            .show(ctx, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-
-                if self.expanded {
-                    // Horizontal layout: icon buttons on left, content on right
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-
-                        // Left side: 48px icon buttons
-                        ui.vertical(|ui| {
-                            ui.set_width(48.0);
-                            self.render_icon_buttons(ui, &mut events, hover_bg, text_color);
-                        });
-
-                        // Right side: expanded content with padding
-                        ui.vertical(|ui| {
-                            ui.set_width(192.0); // 240 - 48 = 192
-
-                            // Add frame with inner padding
-                            egui::Frame::NONE
-                                .inner_margin(egui::Margin::same(8))
-                                .show(ui, |ui| {
-                                    self.render_content(
-                                        ui,
-                                        props,
-                                        &mut events,
-                                        hover_bg,
-                                        text_color,
-                                        header_color,
-                                    );
-                                });
-                        });
-                    });
-                } else {
-                    // Just show icon buttons
-                    self.render_icon_buttons(ui, &mut events, hover_bg, text_color);
-                }
-            });
-
-        SidebarOutput { events }
-    }
-}
-
-impl Sidebar {
     fn render_icon_button(
         &self,
         ui: &mut egui::Ui,
@@ -269,218 +207,213 @@ impl Sidebar {
         response.on_hover_text(tooltip).clicked()
     }
 
-    fn render_recent_files(
+    fn render_search_section(
         &mut self,
         ui: &mut egui::Ui,
-        props: SidebarProps<'_>,
+        props: &SidebarProps<'_>,
         events: &mut Vec<SidebarEvent>,
-        hover_bg: egui::Color32,
-        text_color: egui::Color32,
-        header_color: egui::Color32,
     ) {
-        // Header
-        ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("RECENT FILES")
-                .size(11.0)
-                .color(header_color)
-                .strong(),
+        // Render the Search component using the trait method
+        // Parent determines when to focus via props.focus_search
+        let search_output = self.search.render(
+            ui,
+            SearchProps {
+                just_opened: props.focus_search,
+            },
         );
 
-        ui.add_space(4.0);
-        ui.separator();
-        ui.add_space(4.0);
-
-        // Recent files list
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                if props.recent_files.is_empty() {
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(8.0);
-                        ui.label(
-                            egui::RichText::new("No recent files")
-                                .size(13.0)
-                                .color(egui::Color32::from_rgb(128, 128, 128)),
-                        );
-                    });
-                } else {
-                    for file_path in props.recent_files {
-                        self.render_file_item(ui, file_path, events, hover_bg, text_color);
-                    }
-                }
-
-                ui.add_space(8.0);
-
-                // "Open File..." button
-                let button_response = ui.add_sized(
-                    egui::vec2(ui.available_width() - 16.0, 28.0),
-                    egui::Button::new(
-                        egui::RichText::new(format!(
-                            "{} Open File...",
-                            egui_phosphor::regular::FILE_PLUS
-                        ))
-                        .size(13.0),
-                    ),
-                );
-
-                if button_response.clicked() {
-                    events.push(SidebarEvent::OpenFilePicker);
-                }
-            });
-    }
-
-    fn render_file_item(
-        &self,
-        ui: &mut egui::Ui,
-        file_path: &str,
-        events: &mut Vec<SidebarEvent>,
-        hover_bg: egui::Color32,
-        text_color: egui::Color32,
-    ) {
-        // Extract just the filename from the path
-        let filename = std::path::Path::new(file_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(file_path);
-
-        let available_width = ui.available_width() - 8.0; // Account for margins
-        let full_height = 28.0; // Increased height for better spacing
-
-        let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(available_width, full_height),
-            egui::Sense::click(),
-        );
-
-        // Background on hover
-        if response.hovered() {
-            ui.painter().rect_filled(rect, 2.0, hover_bg);
-        }
-
-        // Reserve 24px on the right for the close button
-        let text_width = available_width - 32.0; // Leave room for close button + padding
-
-        // File name (truncate if needed)
-        let text_rect = egui::Rect::from_min_size(
-            rect.min + egui::vec2(8.0, 0.0),
-            egui::vec2(text_width, full_height),
-        );
-
-        let galley = ui.fonts(|f| {
-            f.layout_no_wrap(
-                filename.to_string(),
-                egui::FontId::proportional(13.0),
-                text_color,
-            )
-        });
-
-        // Truncate text if it overflows
-        let text_pos = text_rect.left_center() - egui::vec2(0.0, galley.size().y / 2.0);
-        ui.painter().text(
-            text_pos,
-            egui::Align2::LEFT_TOP,
-            filename,
-            egui::FontId::proportional(13.0),
-            text_color,
-        );
-
-        if response.clicked() {
-            events.push(SidebarEvent::OpenFile(file_path.to_string()));
-        }
-
-        // Show close button on hover
-        if response.hovered() {
-            let close_button_rect = egui::Rect::from_center_size(
-                rect.right_center() - egui::vec2(16.0, 0.0),
-                egui::vec2(20.0, 20.0),
-            );
-
-            let close_response = ui.interact(
-                close_button_rect,
-                ui.id().with(file_path),
-                egui::Sense::click(),
-            );
-
-            if close_response.hovered() {
-                ui.painter().rect_filled(
-                    close_button_rect,
-                    2.0,
-                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25),
-                );
-            }
-
-            ui.painter().text(
-                close_button_rect.center(),
-                egui::Align2::CENTER_CENTER,
-                egui_phosphor::regular::X,
-                egui::FontId::proportional(12.0),
-                text_color,
-            );
-
-            if close_response.clicked() {
-                events.push(SidebarEvent::RemoveRecentFile(file_path.to_string()));
+        // Convert SearchEvent to SidebarEvent
+        for event in search_output.events {
+            match event {
+                SearchEvent::Search(msg) => events.push(SidebarEvent::Search(msg)),
             }
         }
-
-        response.on_hover_text(file_path);
-    }
-
-    fn render_search_section(
-        &self,
-        ui: &mut egui::Ui,
-        header_color: egui::Color32,
-        text_color: egui::Color32,
-    ) {
-        // Header
-        ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("SEARCH")
-                .size(11.0)
-                .color(header_color)
-                .strong(),
-        );
-
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
-
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new("Search functionality is in the toolbar")
-                    .size(13.0)
-                    .color(text_color),
-            );
-        });
     }
 
     fn render_settings_section(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
-        header_color: egui::Color32,
-        text_color: egui::Color32,
+        props: &SidebarProps<'_>,
+        events: &mut Vec<SidebarEvent>,
     ) {
-        // Header
-        ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("SETTINGS")
-                .size(11.0)
-                .color(header_color)
-                .strong(),
+        // Render the SettingsPanel component
+        let settings_output = self.settings_panel.render(
+            ui,
+            SettingsPanelProps {
+                update_status: props.update_status,
+                current_version: props.current_version,
+            },
         );
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
+        // Convert SettingsPanelEvent to SidebarEvent
+        for event in settings_output.events {
+            match event {
+                SettingsPanelEvent::CheckForUpdates => {
+                    events.push(SidebarEvent::CheckForUpdates);
+                }
+                SettingsPanelEvent::DownloadUpdate => {
+                    events.push(SidebarEvent::DownloadUpdate);
+                }
+                SettingsPanelEvent::InstallUpdate => {
+                    events.push(SidebarEvent::InstallUpdate);
+                }
+                SettingsPanelEvent::RetryUpdate => {
+                    events.push(SidebarEvent::RetryUpdate);
+                }
+            }
+        }
+    }
+}
 
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new("Settings panel is in the toolbar")
-                    .size(13.0)
-                    .color(text_color),
-            );
+impl ContextComponent for Sidebar {
+    type Props<'a> = SidebarProps<'a>;
+    type Output = SidebarOutput;
+
+    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        let mut events = Vec::new();
+
+        // Get theme colors
+        let theme_colors = ctx.memory(|mem| {
+            mem.data
+                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
         });
+
+        let (icon_strip_bg, content_bg, border_color, hover_bg, selection_bg, text_color) =
+            if let Some(colors) = theme_colors {
+                (
+                    colors.crust,  // Icon strip uses darker crust
+                    colors.mantle, // Content area uses mantle
+                    colors.surface0,
+                    colors.sidebar_hover,
+                    colors.surface1, // Selection background
+                    colors.text,
+                )
+            } else {
+                // Fallback colors
+                (
+                    egui::Color32::from_rgb(30, 30, 30),
+                    egui::Color32::from_rgb(37, 37, 38),
+                    egui::Color32::from_rgb(62, 62, 66),
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 13),
+                    egui::Color32::from_rgb(60, 60, 60),
+                    egui::Color32::from_rgb(204, 204, 204),
+                )
+            };
+
+        let sidebar_width = if props.expanded {
+            props.sidebar_width
+        } else {
+            48.0
+        };
+
+        // Build sidebar panel - always resizable when expanded
+        let is_resizable = props.expanded;
+        let mut sidebar_panel = egui::SidePanel::left("sidebar").resizable(is_resizable);
+
+        // Set width constraints
+        if props.expanded {
+            // When expanded, use stored width with min/max constraints
+            let min_width = 240.0;
+            let window_width = ctx.screen_rect().width();
+            let max_width = window_width * 0.7;
+
+            sidebar_panel = sidebar_panel
+                .default_width(props.sidebar_width)
+                .min_width(min_width)
+                .max_width(max_width);
+        } else {
+            // When collapsed, use icon strip width
+            sidebar_panel = sidebar_panel.exact_width(sidebar_width);
+        }
+
+        let sidebar_response = sidebar_panel
+            .frame(
+                egui::Frame::NONE
+                    .fill(if props.expanded {
+                        content_bg // Use content background, icon strip will override its area
+                    } else {
+                        icon_strip_bg
+                    })
+                    .stroke(egui::Stroke::new(1.0, border_color)),
+            )
+            .show(ctx, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+
+                if props.expanded {
+                    // Horizontal layout: icon buttons on left, content on right
+                    let available_rect = ui.available_rect_before_wrap();
+                    let available_height = available_rect.height();
+                    let actual_width = available_rect.width(); // Use actual rendered width
+
+                    // Left side: 48px icon strip with darker background
+                    let icon_strip_rect = egui::Rect::from_min_size(
+                        available_rect.min,
+                        egui::vec2(48.0, available_height),
+                    );
+                    ui.painter()
+                        .rect_filled(icon_strip_rect, 0.0, icon_strip_bg);
+
+                    let mut icon_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(icon_strip_rect)
+                            .layout(egui::Layout::top_down(egui::Align::Center)),
+                    );
+                    self.render_icon_buttons(
+                        &mut icon_ui,
+                        &props,
+                        &mut events,
+                        hover_bg,
+                        selection_bg,
+                        text_color,
+                    );
+
+                    // Right side: expanded content (takes remaining width)
+                    let content_width = actual_width - 48.0; // Calculate from actual width
+                    let content_rect = egui::Rect::from_min_size(
+                        available_rect.min + egui::vec2(48.0, 0.0),
+                        egui::vec2(content_width, available_height),
+                    );
+
+                    let mut content_ui = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(content_rect)
+                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                    );
+
+                    // Add frame with inner padding
+                    egui::Frame::NONE.inner_margin(egui::Margin::same(8)).show(
+                        &mut content_ui,
+                        |ui| {
+                            self.render_content(ui, &props, &mut events);
+                        },
+                    );
+
+                    // Advance the cursor to consume the full area
+                    ui.allocate_rect(available_rect, egui::Sense::hover());
+                } else {
+                    // Just show icon buttons
+                    self.render_icon_buttons(
+                        ui,
+                        &props,
+                        &mut events,
+                        hover_bg,
+                        selection_bg,
+                        text_color,
+                    );
+                }
+            });
+
+        // Emit width change event if sidebar is being actively resized
+        if props.expanded {
+            let actual_width = sidebar_response.response.rect.width();
+            if (actual_width - props.sidebar_width).abs() > 0.1 {
+                events.push(SidebarEvent::WidthChanged(actual_width));
+            }
+        }
+
+        SidebarOutput { events }
     }
 }

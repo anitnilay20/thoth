@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
-use crate::{components, file, recent_files, search, update};
+use crate::{components, file, search, update};
 
 // ============================================================================
 // Window State - Per-window state (file, search, UI)
 // ============================================================================
 
 /// Per-window state - each window has its own file, search, and UI components
+/// Note: This is independent of PersistentState which is shared application-wide
 #[derive(Default)]
 pub struct WindowState {
     // File state
@@ -18,15 +19,17 @@ pub struct WindowState {
     // Search state
     pub search_engine_state: SearchEngineState,
 
-    // Recent files (loaded from disk on first access via Default)
-    pub recent_files: recent_files::RecentFiles,
+    // UI state
+    pub sidebar_expanded: bool,
+    pub sidebar_selected_section: Option<components::sidebar::SidebarSection>,
+    /// Track previous section to determine when to focus search
+    pub previous_sidebar_section: Option<components::sidebar::SidebarSection>,
 
     // UI components
     pub sidebar: components::sidebar::Sidebar,
     pub toolbar: components::toolbar::Toolbar,
     pub central_panel: components::central_panel::CentralPanel,
     pub status_bar: components::status_bar::StatusBar,
-    pub search_dropdown: components::search_dropdown::SearchDropdown,
 }
 
 // ============================================================================

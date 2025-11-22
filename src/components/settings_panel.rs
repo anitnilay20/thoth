@@ -1,11 +1,10 @@
-use crate::components::traits::ContextComponent;
+use crate::components::traits::StatefulComponent;
 use crate::helpers::{format_date, format_date_static};
 use crate::update::{ReleaseInfo, UpdateState, UpdateStatus};
 use eframe::egui;
 
 /// Props passed down to the SettingsPanel (immutable, one-way binding)
 pub struct SettingsPanelProps<'a> {
-    pub show: bool,
     pub update_status: &'a UpdateStatus,
     pub current_version: &'a str,
 }
@@ -13,7 +12,6 @@ pub struct SettingsPanelProps<'a> {
 /// Events emitted by the settings panel (bottom-to-top communication)
 #[derive(Debug, Clone)]
 pub enum SettingsPanelEvent {
-    Close,
     CheckForUpdates,
     DownloadUpdate,
     InstallUpdate,
@@ -27,87 +25,63 @@ pub struct SettingsPanelOutput {
 #[derive(Default)]
 pub struct SettingsPanel;
 
-impl ContextComponent for SettingsPanel {
+impl StatefulComponent for SettingsPanel {
     type Props<'a> = SettingsPanelProps<'a>;
     type Output = SettingsPanelOutput;
 
-    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        if !props.show {
-            return SettingsPanelOutput { events: Vec::new() };
-        }
-
         let mut events = Vec::new();
-        self.render_ui(ctx, props, &mut events);
+
+        // Get theme colors from context
+        let header_color = ui.ctx().memory(|mem| {
+            if let Some(colors) = mem
+                .data
+                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+            {
+                colors.sidebar_header
+            } else {
+                // Fallback color
+                egui::Color32::from_rgb(153, 153, 153)
+            }
+        });
+
+        // Header
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("SETTINGS")
+                .size(11.0)
+                .color(header_color)
+                .strong(),
+        );
+
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        Self::render_update_section(ui, props.update_status, props.current_version, &mut events);
 
         SettingsPanelOutput { events }
     }
 }
 
 impl SettingsPanel {
-    fn render_ui(
-        &mut self,
-        ctx: &egui::Context,
-        props: SettingsPanelProps<'_>,
-        events: &mut Vec<SettingsPanelEvent>,
-    ) {
-        let mut show = props.show;
-
-        // Draw semi-transparent backdrop
-        egui::Area::new("settings_backdrop".into())
-            .fixed_pos(egui::pos2(0.0, 0.0))
-            .interactable(true)
-            .order(egui::Order::Background)
-            .show(ctx, |ui| {
-                let screen_rect = ctx.screen_rect();
-                let painter = ui.painter();
-                painter.rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(180));
-
-                // Consume clicks on the backdrop to close settings
-                let response = ui.allocate_response(screen_rect.size(), egui::Sense::click());
-                if response.clicked() {
-                    show = false;
-                }
-            });
-
-        // Draw settings window on top
-        egui::Window::new(format!("{} Settings", egui_phosphor::regular::GEAR))
-            .default_width(700.0)
-            .default_height(600.0)
-            .collapsible(false)
-            .resizable(true)
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-            .open(&mut show)
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    Self::render_update_section(
-                        ui,
-                        props.update_status,
-                        props.current_version,
-                        events,
-                    );
-                });
-            });
-
-        // Emit close event if show state changed
-        if show != props.show {
-            events.push(SettingsPanelEvent::Close);
-        }
-    }
-
     fn render_update_section(
         ui: &mut egui::Ui,
         update_status: &UpdateStatus,
         current_version: &str,
         events: &mut Vec<SettingsPanelEvent>,
     ) {
+        // Ensure the entire section takes full width
+        ui.set_width(ui.available_width());
+
         ui.heading(egui::RichText::new("🔄 Updates").size(20.0));
         ui.add_space(16.0);
 
         ui.group(|ui| {
-            ui.set_min_width(ui.available_width());
+            ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Current Version:").size(14.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -127,12 +101,15 @@ impl SettingsPanel {
                 };
                 ui.add_space(8.0);
                 if ui
-                    .button(
-                        egui::RichText::new(format!(
-                            "{} Check for Updates",
-                            egui_phosphor::regular::MAGNIFYING_GLASS
-                        ))
-                        .size(14.0),
+                    .add_sized(
+                        egui::vec2(ui.available_width(), 0.0),
+                        egui::Button::new(
+                            egui::RichText::new(format!(
+                                "{} Check for Updates",
+                                egui_phosphor::regular::MAGNIFYING_GLASS
+                            ))
+                            .size(14.0),
+                        ),
                     )
                     .clicked()
                 {
@@ -155,7 +132,10 @@ impl SettingsPanel {
                 ui.add_space(16.0);
 
                 if ui
-                    .button(egui::RichText::new("⬇ Download Update").size(14.0))
+                    .add_sized(
+                        egui::vec2(ui.available_width(), 0.0),
+                        egui::Button::new(egui::RichText::new("⬇ Download Update").size(14.0)),
+                    )
                     .clicked()
                 {
                     events.push(SettingsPanelEvent::DownloadUpdate);
@@ -183,7 +163,7 @@ impl SettingsPanel {
                 let progress_bar = egui::ProgressBar::new(progress / 100.0)
                     .show_percentage()
                     .animate(true);
-                ui.add(progress_bar);
+                ui.add_sized(egui::vec2(ui.available_width(), 0.0), progress_bar);
             }
             UpdateState::ReadyToInstall { version, path: _ } => {
                 ui.colored_label(
@@ -196,7 +176,10 @@ impl SettingsPanel {
                 ui.add_space(8.0);
 
                 if ui
-                    .button(egui::RichText::new("🚀 Install Now").size(14.0))
+                    .add_sized(
+                        egui::vec2(ui.available_width(), 0.0),
+                        egui::Button::new(egui::RichText::new("🚀 Install Now").size(14.0)),
+                    )
                     .clicked()
                 {
                     events.push(SettingsPanelEvent::InstallUpdate);
@@ -218,7 +201,10 @@ impl SettingsPanel {
                 ui.add_space(16.0);
 
                 if ui
-                    .button(egui::RichText::new("🔄 Try Again").size(14.0))
+                    .add_sized(
+                        egui::vec2(ui.available_width(), 0.0),
+                        egui::Button::new(egui::RichText::new("🔄 Try Again").size(14.0)),
+                    )
                     .clicked()
                 {
                     events.push(SettingsPanelEvent::RetryUpdate);
@@ -229,6 +215,8 @@ impl SettingsPanel {
 
     fn render_release_info(ui: &mut egui::Ui, release: &ReleaseInfo) {
         ui.group(|ui| {
+            ui.set_width(ui.available_width());
+
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(&release.name).size(16.0).strong());
                 if release.prerelease {
@@ -266,7 +254,10 @@ impl SettingsPanel {
             ui.add_space(8.0);
 
             if ui
-                .button(egui::RichText::new("🔗 View on GitHub").size(12.0))
+                .add_sized(
+                    egui::vec2(ui.available_width(), 0.0),
+                    egui::Button::new(egui::RichText::new("🔗 View on GitHub").size(12.0)),
+                )
                 .clicked()
             {
                 let _ = open::that(&release.html_url);
