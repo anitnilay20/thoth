@@ -316,14 +316,14 @@ impl ContextComponent for Sidebar {
         // Set width constraints
         if props.expanded {
             // When expanded, use stored width with min/max constraints
-            let min_width = 240.0;
+            let min_width = 350.0;
             let window_width = ctx.screen_rect().width();
             let max_width = window_width * 0.7;
 
             sidebar_panel = sidebar_panel
-                .default_width(props.sidebar_width)
-                .min_width(min_width)
-                .max_width(max_width);
+                .exact_width(props.sidebar_width.clamp(min_width, max_width))
+                .resizable(true)
+                .width_range(min_width..=max_width);
         } else {
             // When collapsed, use icon strip width
             sidebar_panel = sidebar_panel.exact_width(sidebar_width);

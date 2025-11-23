@@ -1,6 +1,6 @@
 [package]
 name = "thoth"
-version = "0.2.1"
+version = "0.2.13"
 edition = "2024"
 repository = "https://github.com/anitnilay20/thoth"
 authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
