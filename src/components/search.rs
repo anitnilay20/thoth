@@ -127,15 +127,23 @@ impl StatefulComponent for Search {
         });
 
         // Handle Enter key to trigger search
-        if response.lost_focus()
-            && ui.input(|i| i.key_pressed(egui::Key::Enter))
-            && !self.search_query.is_empty()
-        {
+        // Check for Enter key press while focused OR when losing focus with Enter
+        let should_search = (response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+            || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+
+        if should_search && !self.search_query.is_empty() {
             if let Some(msg) =
                 SearchMessage::create_search(self.search_query.clone(), self.match_case)
             {
                 events.push(SearchEvent::Search(msg));
             }
+            // Surrender focus after search to allow clicking outside
+            response.surrender_focus();
+        }
+
+        // Allow clicking outside to remove focus
+        if ui.input(|i| i.pointer.any_click()) && !response.hovered() {
+            response.surrender_focus();
         }
 
         ui.add_space(8.0);
