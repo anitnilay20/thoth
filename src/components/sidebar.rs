@@ -282,12 +282,11 @@ impl ContextComponent for Sidebar {
                 .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
         });
 
-        let (icon_strip_bg, content_bg, border_color, hover_bg, selection_bg, text_color) =
+        let (icon_strip_bg, content_bg, hover_bg, selection_bg, text_color) =
             if let Some(colors) = theme_colors {
                 (
                     colors.crust,  // Icon strip uses darker crust
                     colors.mantle, // Content area uses mantle
-                    colors.surface0,
                     colors.sidebar_hover,
                     colors.surface1, // Selection background
                     colors.text,
@@ -297,7 +296,6 @@ impl ContextComponent for Sidebar {
                 (
                     egui::Color32::from_rgb(30, 30, 30),
                     egui::Color32::from_rgb(37, 37, 38),
-                    egui::Color32::from_rgb(62, 62, 66),
                     egui::Color32::from_rgba_unmultiplied(255, 255, 255, 13),
                     egui::Color32::from_rgb(60, 60, 60),
                     egui::Color32::from_rgb(204, 204, 204),
@@ -331,15 +329,11 @@ impl ContextComponent for Sidebar {
         }
 
         let sidebar_response = sidebar_panel
-            .frame(
-                egui::Frame::NONE
-                    .fill(if props.expanded {
-                        content_bg // Use content background, icon strip will override its area
-                    } else {
-                        icon_strip_bg
-                    })
-                    .stroke(egui::Stroke::new(1.0, border_color)),
-            )
+            .frame(egui::Frame::NONE.fill(if props.expanded {
+                content_bg // Use content background, icon strip will override its area
+            } else {
+                icon_strip_bg
+            }))
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 

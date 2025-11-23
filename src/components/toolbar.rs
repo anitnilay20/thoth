@@ -60,7 +60,6 @@ impl Toolbar {
     ) {
         // Use theme colors from context
         let bg_color = ctx.style().visuals.extreme_bg_color; // Catppuccin Mantle
-        let border_color = ctx.style().visuals.widgets.noninteractive.bg_stroke.color;
 
         // Row 1: Title bar (32px height - integrated with window controls, with title)
         // Hide completely in fullscreen mode
@@ -123,17 +122,12 @@ impl Toolbar {
         // Row 2: Button toolbar (32px height)
         egui::TopBottomPanel::top("button_toolbar")
             .exact_height(32.0)
-            .frame(
-                egui::Frame::NONE
-                    .fill(bg_color)
-                    .inner_margin(egui::Margin {
-                        left: 8,
-                        right: 8,
-                        top: 0,
-                        bottom: 0,
-                    })
-                    .stroke(egui::Stroke::new(1.0, border_color)),
-            )
+            .frame(egui::Frame::NONE.fill(bg_color).inner_margin(egui::Margin {
+                left: 8,
+                right: 8,
+                top: 0,
+                bottom: 0,
+            }))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);

@@ -271,7 +271,14 @@ fn create_visuals(dark_mode: bool, colors: &ThemeColors) -> egui::Visuals {
     v.override_text_color = Some(colors.text);
     v.panel_fill = colors.base; // Main background
     v.extreme_bg_color = colors.mantle; // Panels/cards
-    v.faint_bg_color = colors.surface0; // Alt rows
+
+    // Use a very subtle color for alternating rows (lower contrast than surface0)
+    // Mix base with surface0 at 30% opacity for subtle effect
+    v.faint_bg_color = if dark_mode {
+        Color32::from_rgba_unmultiplied(49, 50, 68, 77) // surface0 at 30% opacity over base
+    } else {
+        Color32::from_rgba_unmultiplied(204, 208, 218, 77) // surface0 at 30% opacity over base
+    };
 
     // Widget colors
     v.widgets.noninteractive.bg_fill = colors.surface0;
