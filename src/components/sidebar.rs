@@ -1,3 +1,4 @@
+use crate::app::persistent_state::DEFAULT_SIDEBAR_WIDTH;
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 use crate::components::search::{Search, SearchEvent, SearchProps};
 use crate::components::settings_panel::{SettingsPanel, SettingsPanelEvent, SettingsPanelProps};
@@ -316,7 +317,7 @@ impl ContextComponent for Sidebar {
         // Set width constraints
         if props.expanded {
             // When expanded, use stored width with min/max constraints
-            let min_width = 350.0;
+            let min_width = DEFAULT_SIDEBAR_WIDTH;
             let window_width = ctx.screen_rect().width();
             let max_width = window_width * 0.7;
 

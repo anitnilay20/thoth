@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 const MAX_RECENT_FILES: usize = 10;
-const DEFAULT_SIDEBAR_WIDTH: f32 = 240.0;
+pub const DEFAULT_SIDEBAR_WIDTH: f32 = 350.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistentState {
@@ -137,7 +137,7 @@ impl PersistentState {
 
     /// Set the sidebar width
     pub fn set_sidebar_width(&mut self, width: f32) {
-        self.sidebar_width = width.max(240.0); // Ensure minimum width
+        self.sidebar_width = width.max(DEFAULT_SIDEBAR_WIDTH); // Ensure minimum width
     }
 
     /// Get the sidebar width

@@ -4,6 +4,15 @@ use serde_json::Value;
 
 use crate::settings::Settings;
 
+// Design system constants
+// VS Code design system uses a 4px grid for spacing
+pub const GRID_UNIT: f32 = 4.0;
+pub const SPACING_SMALL: f32 = GRID_UNIT; // 4px
+pub const SPACING_MEDIUM: f32 = 2.0 * GRID_UNIT; // 8px
+pub const SPACING_LARGE: f32 = 4.0 * GRID_UNIT; // 16px
+pub const TREE_INDENT: f32 = SPACING_LARGE; // 16px per tree level
+pub const ROW_HEIGHT: f32 = 22.0; // VS Code row height for data rows
+
 /// Theme color customization - only includes colors actually used in the app
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -211,9 +220,9 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
     let mut style = (*ctx.style()).clone();
 
     // Spacing: VS Code design system uses 4px grid
-    style.spacing.item_spacing = egui::vec2(8.0, 4.0);
-    style.spacing.button_padding = egui::vec2(8.0, 4.0);
-    style.spacing.indent = 16.0; // Match our tree indent
+    style.spacing.item_spacing = egui::vec2(SPACING_MEDIUM, SPACING_SMALL);
+    style.spacing.button_padding = egui::vec2(SPACING_MEDIUM, SPACING_SMALL);
+    style.spacing.indent = TREE_INDENT;
 
     // Apply font sizes
     let font_size = settings.font_size;

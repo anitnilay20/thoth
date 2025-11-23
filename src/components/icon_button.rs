@@ -1,6 +1,10 @@
 use crate::components::traits::StatelessComponent;
 use eframe::egui;
 
+// Default button and icon sizes
+const DEFAULT_BUTTON_SIZE: f32 = 20.0;
+const DEFAULT_ICON_SIZE: f32 = 14.0;
+
 /// Props for the IconButton component
 pub struct IconButtonProps<'a> {
     /// The icon to display (e.g., from egui_phosphor)
@@ -35,9 +39,11 @@ impl StatelessComponent for IconButton {
         let hover_color = ui.style().visuals.strong_text_color();
 
         // Create button with custom styling
-        let size = props.size.unwrap_or(egui::vec2(20.0, 20.0));
-        // Scale icon size proportionally to button size (14.0 is base for 20.0x20.0 button)
-        let icon_size = (size.y / 20.0) * 14.0;
+        let size = props
+            .size
+            .unwrap_or(egui::vec2(DEFAULT_BUTTON_SIZE, DEFAULT_BUTTON_SIZE));
+        // Scale icon size proportionally to button size
+        let icon_size = (size.y / DEFAULT_BUTTON_SIZE) * DEFAULT_ICON_SIZE;
 
         let button = egui::Button::new(
             egui::RichText::new(props.icon)

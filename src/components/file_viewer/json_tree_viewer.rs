@@ -6,7 +6,7 @@ use crate::helpers::{
     LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_selection,
     split_root_rel,
 };
-use crate::theme::{TextToken, row_fill, selected_row_bg};
+use crate::theme::{ROW_HEIGHT, TextToken, row_fill, selected_row_bg};
 use eframe::egui::{self, Ui};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -227,7 +227,7 @@ impl JsonTreeViewer {
         puffin::profile_function!();
 
         let row_count = self.rows.len();
-        let row_height = 22.0; // VS Code design system row height
+        let row_height = ROW_HEIGHT;
 
         let mut toggles: Vec<String> = Vec::new();
         let mut new_selected: Option<String> = None;

@@ -1,5 +1,5 @@
 use crate::components::traits::StatelessComponent;
-use crate::theme::{TextPalette, TextToken, hover_row_bg};
+use crate::theme::{ROW_HEIGHT, TextPalette, TextToken, hover_row_bg};
 use eframe::egui::{self, Color32, RichText, Ui};
 
 /// Props for DataRow component (immutable, data flows down)
@@ -60,7 +60,7 @@ impl StatelessComponent for DataRow {
         let available_rect = ui.available_rect_before_wrap();
         let interact_rect = egui::Rect::from_min_size(
             available_rect.min,
-            egui::vec2(ui.available_width(), 22.0), // VS Code row height
+            egui::vec2(ui.available_width(), ROW_HEIGHT),
         );
         let resp = ui.interact(interact_rect, id, egui::Sense::click());
 
@@ -113,7 +113,7 @@ fn blend_colors(background: Color32, overlay: Color32) -> Color32 {
     let alpha = ov[3] as f32 / 255.0;
     let inv_alpha = 1.0 - alpha;
 
-    Color32::from_rgba_premultiplied(
+    Color32::from_rgba_unmultiplied(
         ((bg[0] as f32 * inv_alpha) + (ov[0] as f32 * alpha)) as u8,
         ((bg[1] as f32 * inv_alpha) + (ov[1] as f32 * alpha)) as u8,
         ((bg[2] as f32 * inv_alpha) + (ov[2] as f32 * alpha)) as u8,

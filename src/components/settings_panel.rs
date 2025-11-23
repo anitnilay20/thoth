@@ -3,6 +3,9 @@ use crate::helpers::{format_date, format_date_static};
 use crate::update::{ReleaseInfo, UpdateState, UpdateStatus};
 use eframe::egui;
 
+// UI constants
+const BUTTON_FONT_SIZE: f32 = 14.0;
+
 /// Props passed down to the SettingsPanel (immutable, one-way binding)
 pub struct SettingsPanelProps<'a> {
     pub update_status: &'a UpdateStatus,
@@ -83,7 +86,7 @@ impl SettingsPanel {
         ui.group(|ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Current Version:").size(14.0));
+                ui.label(egui::RichText::new("Current Version:").size(BUTTON_FONT_SIZE));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(egui::RichText::new(current_version).size(16.0).strong());
                 });
@@ -108,7 +111,7 @@ impl SettingsPanel {
                                 "{} Check for Updates",
                                 egui_phosphor::regular::MAGNIFYING_GLASS
                             ))
-                            .size(14.0),
+                            .size(BUTTON_FONT_SIZE),
                         ),
                     )
                     .clicked()
@@ -134,7 +137,9 @@ impl SettingsPanel {
                 if ui
                     .add_sized(
                         egui::vec2(ui.available_width(), 0.0),
-                        egui::Button::new(egui::RichText::new("⬇ Download Update").size(14.0)),
+                        egui::Button::new(
+                            egui::RichText::new("⬇ Download Update").size(BUTTON_FONT_SIZE),
+                        ),
                     )
                     .clicked()
                 {
@@ -178,7 +183,9 @@ impl SettingsPanel {
                 if ui
                     .add_sized(
                         egui::vec2(ui.available_width(), 0.0),
-                        egui::Button::new(egui::RichText::new("🚀 Install Now").size(14.0)),
+                        egui::Button::new(
+                            egui::RichText::new("🚀 Install Now").size(BUTTON_FONT_SIZE),
+                        ),
                     )
                     .clicked()
                 {
@@ -203,7 +210,9 @@ impl SettingsPanel {
                 if ui
                     .add_sized(
                         egui::vec2(ui.available_width(), 0.0),
-                        egui::Button::new(egui::RichText::new("🔄 Try Again").size(14.0)),
+                        egui::Button::new(
+                            egui::RichText::new("🔄 Try Again").size(BUTTON_FONT_SIZE),
+                        ),
                     )
                     .clicked()
                 {
