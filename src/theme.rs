@@ -42,6 +42,9 @@ pub struct Theme {
     // Sidebar-specific colors
     pub sidebar_hover: String,  // Sidebar icon hover background
     pub sidebar_header: String, // Sidebar section header text
+
+    // Tree viewer colors
+    pub indent_guide: String, // Indent guide lines in tree view
 }
 
 impl Default for Theme {
@@ -70,6 +73,8 @@ impl Default for Theme {
             // Sidebar
             sidebar_hover: "#6c708633".to_string(), // Overlay0 with transparency
             sidebar_header: "#9399b2".to_string(),  // Overlay2
+            // Tree viewer
+            indent_guide: "#45475a".to_string(), // Surface1
         }
     }
 }
@@ -109,6 +114,8 @@ impl Theme {
             // Sidebar
             sidebar_hover: "#9ca0b033".to_string(), // Overlay0 with transparency
             sidebar_header: "#7c7f93".to_string(),  // Overlay2
+            // Tree viewer
+            indent_guide: "#bcc0cc".to_string(), // Surface1
         }
     }
 
@@ -166,6 +173,7 @@ impl Theme {
             info: Self::parse_color(&self.info),
             sidebar_hover: Self::parse_color_with_alpha(&self.sidebar_hover),
             sidebar_header: Self::parse_color(&self.sidebar_header),
+            indent_guide: Self::parse_color(&self.indent_guide),
         }
     }
 }
@@ -191,11 +199,13 @@ pub struct ThemeColors {
     pub info: Color32,
     pub sidebar_hover: Color32,
     pub sidebar_header: Color32,
+    pub indent_guide: Color32,
 }
 
 /// Apply theme settings including visuals and fonts
 pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
     // Get theme colors based on dark_mode setting
+    // Users can configure custom themes (including high contrast) via settings.theme
     let theme = Theme::for_dark_mode(settings.dark_mode);
     let theme_colors = theme.colors();
 

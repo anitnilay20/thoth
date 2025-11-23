@@ -2,7 +2,6 @@
 ///
 /// This module contains constants that define app behavior, limits, and constraints.
 /// For UI/design system constants (spacing, colors, etc.), see theme.rs
-
 // Sidebar configuration
 pub const DEFAULT_SIDEBAR_WIDTH: f32 = 350.0;
 pub const MIN_SIDEBAR_WIDTH: f32 = DEFAULT_SIDEBAR_WIDTH;

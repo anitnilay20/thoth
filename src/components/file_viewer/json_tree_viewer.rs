@@ -252,6 +252,14 @@ impl JsonTreeViewer {
                 }
             }
 
+            // Get indent guide color from theme
+            let guide_color = ui.ctx().memory(|mem| {
+                mem.data
+                    .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+                    .map(|colors| colors.indent_guide)
+                    .unwrap_or_else(|| egui::Color32::from_rgb(100, 100, 100))
+            });
+
             for row_index in row_range.clone() {
                 if let Some(row) = rows.get(row_index) {
                     let path = &row.path;
@@ -264,18 +272,35 @@ impl JsonTreeViewer {
                         ""
                     };
 
-                    // Selected background
+                    // Selected background with alternating colors
                     let bg = if selected.as_deref() == Some(path.as_str()) {
                         selected_row_bg(ui)
                     } else {
                         row_fill(row_index, ui)
                     };
 
+                    // Draw indent guide lines before rendering row content
+                    if row.indent > 0 {
+                        let painter = ui.painter();
+                        let rect = ui.available_rect_before_wrap();
+                        let row_y_min = rect.min.y;
+                        let row_y_max = row_y_min + row_height;
+
+                        // Draw a vertical line for each indent level
+                        for level in 0..row.indent {
+                            let x = rect.min.x + (level as f32 * 16.0) + 8.0;
+                            painter.line_segment(
+                                [egui::pos2(x, row_y_min), egui::pos2(x, row_y_max)],
+                                egui::Stroke::new(1.0, guide_color),
+                            );
+                        }
+                    }
+
                     // Render the row with toggle button (if expandable) and content
                     let mut toggle_clicked = false;
 
                     ui.horizontal(|ui| {
-                        // Indentation (VS Code design system: 16px per level)
+                        // Indentation spacing
                         ui.add_space(row.indent as f32 * 16.0);
 
                         // Toggle button for expandable rows (or spacer for non-expandable)
@@ -285,12 +310,17 @@ impl JsonTreeViewer {
                             } else {
                                 egui_phosphor::regular::CARET_RIGHT
                             };
+                            let tooltip_text = if row.is_expanded {
+                                "Collapse (Space/Enter)"
+                            } else {
+                                "Expand (Space/Enter)"
+                            };
                             if IconButton::render(
                                 ui,
                                 IconButtonProps {
                                     icon: toggle_icon,
                                     frame: false,
-                                    tooltip: None,
+                                    tooltip: Some(tooltip_text),
                                     badge_color: None,
                                     size: None,
                                 },
@@ -319,12 +349,11 @@ impl JsonTreeViewer {
                             });
                         }
 
-                        // Use DataRow component for the content (without extra indentation since we handled it above)
+                        // Use DataRow component for the content
                         let output = DataRow::render(
                             ui,
                             DataRowProps {
                                 display_text: display,
-                                indent: 0, // No extra indent, already added above
                                 text_tokens: row.text_token,
                                 background: bg,
                                 row_id: path,

@@ -7,9 +7,6 @@ pub struct DataRowProps<'a> {
     /// Display text for the row (already formatted)
     pub display_text: &'a str,
 
-    /// Indentation level (in pixels or units)
-    pub indent: usize,
-
     /// Text tokens for syntax coloring (key_token, value_token)
     pub text_tokens: (TextToken, Option<TextToken>),
 
@@ -30,8 +27,6 @@ pub struct DataRowOutput {
 /// DataRow is a stateless component that renders a single tree row for any file format
 ///
 /// It handles:
-/// - Indentation
-/// - Expand/collapse icon
 /// - Syntax-highlighted text
 /// - Selection highlighting
 /// - Click interactions
@@ -75,9 +70,6 @@ impl StatelessComponent for DataRow {
         let _frame_response = egui::Frame::new().fill(background).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
-                // Indentation (VS Code design system: 16px per level)
-                ui.add_space(props.indent as f32 * 16.0);
-
                 // Key part (with syntax highlighting)
                 ui.add(egui::Label::new(
                     RichText::new(format!("{}{}", key_part, if has_colon { ":" } else { "" }))
