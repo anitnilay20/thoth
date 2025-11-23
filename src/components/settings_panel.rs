@@ -103,19 +103,27 @@ impl SettingsPanel {
                     None => ui.label("💤 No update check performed yet."),
                 };
                 ui.add_space(8.0);
-                if ui
-                    .add_sized(
-                        egui::vec2(ui.available_width(), 0.0),
-                        egui::Button::new(
-                            egui::RichText::new(format!(
-                                "{} Check for Updates",
-                                egui_phosphor::regular::MAGNIFYING_GLASS
-                            ))
-                            .size(BUTTON_FONT_SIZE),
-                        ),
+                let check_button = ui.add_sized(
+                    egui::vec2(ui.available_width(), 0.0),
+                    egui::Button::new(
+                        egui::RichText::new(format!(
+                            "{} Check for Updates",
+                            egui_phosphor::regular::MAGNIFYING_GLASS
+                        ))
+                        .size(BUTTON_FONT_SIZE),
+                    ),
+                );
+
+                // Add accessibility info
+                check_button.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        "Check for Updates",
                     )
-                    .clicked()
-                {
+                });
+
+                if check_button.clicked() {
                     events.push(SettingsPanelEvent::CheckForUpdates);
                 }
             }
@@ -134,15 +142,22 @@ impl SettingsPanel {
                 );
                 ui.add_space(16.0);
 
-                if ui
-                    .add_sized(
-                        egui::vec2(ui.available_width(), 0.0),
-                        egui::Button::new(
-                            egui::RichText::new("⬇ Download Update").size(BUTTON_FONT_SIZE),
-                        ),
+                let download_button = ui.add_sized(
+                    egui::vec2(ui.available_width(), 0.0),
+                    egui::Button::new(
+                        egui::RichText::new("⬇ Download Update").size(BUTTON_FONT_SIZE),
+                    ),
+                );
+
+                download_button.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        "Download Update",
                     )
-                    .clicked()
-                {
+                });
+
+                if download_button.clicked() {
                     events.push(SettingsPanelEvent::DownloadUpdate);
                 }
                 ui.add_space(16.0);
@@ -180,15 +195,20 @@ impl SettingsPanel {
                 ui.label("⚠ The application will restart after installation.");
                 ui.add_space(8.0);
 
-                if ui
-                    .add_sized(
-                        egui::vec2(ui.available_width(), 0.0),
-                        egui::Button::new(
-                            egui::RichText::new("🚀 Install Now").size(BUTTON_FONT_SIZE),
-                        ),
+                let install_button = ui.add_sized(
+                    egui::vec2(ui.available_width(), 0.0),
+                    egui::Button::new(egui::RichText::new("🚀 Install Now").size(BUTTON_FONT_SIZE)),
+                );
+
+                install_button.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        "Install Now",
                     )
-                    .clicked()
-                {
+                });
+
+                if install_button.clicked() {
                     events.push(SettingsPanelEvent::InstallUpdate);
                 }
             }
@@ -207,15 +227,20 @@ impl SettingsPanel {
                 ui.label(error);
                 ui.add_space(16.0);
 
-                if ui
-                    .add_sized(
-                        egui::vec2(ui.available_width(), 0.0),
-                        egui::Button::new(
-                            egui::RichText::new("🔄 Try Again").size(BUTTON_FONT_SIZE),
-                        ),
+                let retry_button = ui.add_sized(
+                    egui::vec2(ui.available_width(), 0.0),
+                    egui::Button::new(egui::RichText::new("🔄 Try Again").size(BUTTON_FONT_SIZE)),
+                );
+
+                retry_button.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        "Try Again",
                     )
-                    .clicked()
-                {
+                });
+
+                if retry_button.clicked() {
                     events.push(SettingsPanelEvent::RetryUpdate);
                 }
             }

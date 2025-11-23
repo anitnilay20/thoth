@@ -116,6 +116,16 @@ impl StatefulComponent for Search {
             response.request_focus();
         }
 
+        // Add accessibility info for screen readers
+        response.widget_info(|| {
+            egui::WidgetInfo::text_edit(
+                ui.is_enabled(),
+                &self.search_query,
+                &self.search_query,
+                "Search...",
+            )
+        });
+
         // Handle Enter key to trigger search
         if response.lost_focus()
             && ui.input(|i| i.key_pressed(egui::Key::Enter))
@@ -130,8 +140,16 @@ impl StatefulComponent for Search {
 
         ui.add_space(8.0);
 
-        // Match case checkbox
-        ui.checkbox(&mut self.match_case, "Match case");
+        // Match case checkbox with accessibility info
+        let checkbox_response = ui.checkbox(&mut self.match_case, "Match case");
+        checkbox_response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::Checkbox,
+                ui.is_enabled(),
+                self.match_case,
+                "Match case",
+            )
+        });
 
         SearchOutput { events }
     }

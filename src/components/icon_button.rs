@@ -78,6 +78,12 @@ impl StatelessComponent for IconButton {
             response
         };
 
+        // Add accessibility info for screen readers
+        response.widget_info(|| {
+            let label = props.tooltip.unwrap_or("Button");
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+        });
+
         // Draw badge if provided
         if let Some(badge_color) = props.badge_color {
             let button_rect = response.rect;
