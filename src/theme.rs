@@ -305,8 +305,8 @@ pub enum TextToken {
     Bracket,
 }
 
-impl From<&mut Value> for TextToken {
-    fn from(value: &mut Value) -> Self {
+impl From<&Value> for TextToken {
+    fn from(value: &Value) -> Self {
         match value {
             Value::String(_) => TextToken::Str,
             Value::Number(_) => TextToken::Number,

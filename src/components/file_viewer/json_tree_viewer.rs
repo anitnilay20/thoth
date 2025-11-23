@@ -148,7 +148,7 @@ impl JsonTreeViewer {
                             Some(if is_expandable {
                                 TextToken::Bracket
                             } else {
-                                TextToken::from(&mut val.clone())
+                                TextToken::from(val)
                             }),
                         ),
                     });
@@ -208,7 +208,7 @@ impl JsonTreeViewer {
                     is_expandable: false,
                     is_expanded: false,
                     display_text: preview_value(value).to_string(),
-                    text_token: (TextToken::from(&mut value.clone()), None),
+                    text_token: (TextToken::from(value), None),
                 });
             }
         }
@@ -238,8 +238,6 @@ impl JsonTreeViewer {
             .id_salt("json_tree_scroll");
 
         scroll_area.show_rows(ui, row_height, row_count, |ui, row_range| {
-            let rows = self.rows.clone();
-
             if let Some(selected_path) = selected.as_ref() {
                 if let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
                     scroll_to_selection(
@@ -260,8 +258,8 @@ impl JsonTreeViewer {
                     .unwrap_or_else(|| egui::Color32::from_rgb(100, 100, 100))
             });
 
-            for row_index in row_range.clone() {
-                if let Some(row) = rows.get(row_index) {
+            for row_index in row_range {
+                if let Some(row) = self.rows.get(row_index) {
                     let path = &row.path;
                     let display = &row.display_text;
                     let display2_parts: Vec<&str> = display.splitn(2, ':').collect();
