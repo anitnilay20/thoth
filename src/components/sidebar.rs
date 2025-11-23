@@ -1,8 +1,8 @@
-use crate::app::persistent_state::DEFAULT_SIDEBAR_WIDTH;
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 use crate::components::search::{Search, SearchEvent, SearchProps};
 use crate::components::settings_panel::{SettingsPanel, SettingsPanelEvent, SettingsPanelProps};
 use crate::components::traits::{ContextComponent, StatefulComponent};
+use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
 use crate::search::SearchMessage;
 use eframe::egui;
 
@@ -317,9 +317,9 @@ impl ContextComponent for Sidebar {
         // Set width constraints
         if props.expanded {
             // When expanded, use stored width with min/max constraints
-            let min_width = DEFAULT_SIDEBAR_WIDTH;
+            let min_width = MIN_SIDEBAR_WIDTH;
             let window_width = ctx.screen_rect().width();
-            let max_width = window_width * 0.7;
+            let max_width = window_width * MAX_SIDEBAR_WIDTH_RATIO;
 
             sidebar_panel = sidebar_panel
                 .resizable(true)

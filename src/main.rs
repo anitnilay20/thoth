@@ -12,6 +12,7 @@ use crate::helpers::load_icon;
 
 mod app;
 mod components;
+mod constants;
 mod file;
 mod helpers;
 mod search;
