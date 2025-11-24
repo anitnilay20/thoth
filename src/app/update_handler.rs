@@ -80,22 +80,10 @@ impl UpdateHandler {
             components::settings_panel::SettingsPanelEvent::RetryUpdate => {
                 Self::check_for_updates(update_state);
             }
-            components::settings_panel::SettingsPanelEvent::Close => {
-                // Close event is handled by the parent, nothing to do here
-            }
         }
     }
 
-    /// Check if update is available
-    pub fn is_update_available(update_state: &state::ApplicationUpdateState) -> bool {
-        matches!(
-            update_state.update_status.state,
-            update::UpdateState::UpdateAvailable { .. }
-        )
-    }
-
     // Private helper methods
-
     fn handle_check_complete(
         result: Result<Vec<update::ReleaseInfo>, String>,
         update_state: &mut state::ApplicationUpdateState,

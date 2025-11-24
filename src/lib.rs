@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod components;
+pub mod constants;
 pub mod file;
 pub mod helpers;
 pub mod search;

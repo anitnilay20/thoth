@@ -73,7 +73,7 @@ fn test_data_row_with_indentation() {
 #[test]
 fn test_data_row_different_text_tokens() {
     run_ui_test(|ui| {
-        let token_pairs = vec![
+        let token_pairs = [
             (TextToken::Key, Some(TextToken::Str)),
             (TextToken::Key, Some(TextToken::Number)),
             (TextToken::Key, Some(TextToken::Boolean)),
@@ -134,7 +134,7 @@ fn test_mock_stateless_component() {
             },
         );
 
-        assert_eq!(output.clicked, true);
+        assert!(output.clicked);
         assert_eq!(output.text, "test");
     });
 }
@@ -152,7 +152,7 @@ fn test_mock_stateless_component_disabled() {
             },
         );
 
-        assert_eq!(output.clicked, false);
+        assert!(!output.clicked);
         assert_eq!(output.text, "disabled");
     });
 }
@@ -167,7 +167,7 @@ fn test_mock_context_component() {
 
         let output = component.render(ctx, MockContextProps { title: "Test" });
 
-        assert_eq!(output.rendered, true);
+        assert!(output.rendered);
         assert_eq!(output.title, "Test");
         assert_eq!(component.render_count, 1);
         assert_eq!(component.last_title, "Test");
