@@ -8,7 +8,7 @@ Thoth uses a **trait-based component system** inspired by React's component mode
 
 ## Component Traits
 
-We have three main component traits, each serving a different purpose:
+We have two main component traits, each serving a different purpose:
 
 ### 1. StatelessComponent
 
@@ -26,6 +26,7 @@ pub trait StatelessComponent {
 **Use cases**: Simple buttons, labels, icons, static UI elements
 
 **Example**:
+
 ```rust
 struct IconButton;
 
@@ -42,37 +43,40 @@ impl StatelessComponent for IconButton {
 
 ### 2. StatefulComponent
 
-Components that maintain internal state between renders.
+Components that maintain internal state between renders but don't need full Context access.
 
 ```rust
 pub trait StatefulComponent {
+    type Props<'a>;
     type Output;
 
-    fn render(&mut self, ui: &mut egui::Ui) -> Self::Output;
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output;
 }
 ```
 
-**Use cases**: Text inputs, counters, expandable sections, file viewers
+**Use cases**: Search panels, settings panels, forms with internal state
 
 **Example**:
+
 ```rust
-struct Counter {
-    value: i32,
+struct SearchPanel {
+    query: String,
+    match_case: bool,
 }
 
-impl StatefulComponent for Counter {
-    type Output = ();
+pub struct SearchPanelProps {}
 
-    fn render(&mut self, ui: &mut egui::Ui) -> Self::Output {
-        ui.horizontal(|ui| {
-            if ui.button("-").clicked() {
-                self.value -= 1;
-            }
-            ui.label(format!("{}", self.value));
-            if ui.button("+").clicked() {
-                self.value += 1;
-            }
-        });
+impl StatefulComponent for SearchPanel {
+    type Props<'a> = SearchPanelProps;
+    type Output = SearchPanelOutput;
+
+    fn render(&mut self, ui: &mut egui::Ui, _props: Self::Props<'_>) -> Self::Output {
+        ui.text_edit_singleline(&mut self.query);
+        ui.checkbox(&mut self.match_case, "Match case");
+
+        SearchPanelOutput {
+            events: vec![SearchEvent::QueryChanged(self.query.clone())]
+        }
     }
 }
 ```
@@ -144,6 +148,7 @@ pub struct ToolbarProps<'a> {
 ```
 
 **Key points**:
+
 - Use references (`&'a`) for borrowed data
 - Use owned types (`bool`, small types) for values
 - All fields are immutable from child's perspective
@@ -164,6 +169,7 @@ pub enum ToolbarEvent {
 ```
 
 **Key points**:
+
 - Each variant represents a user action
 - Include necessary data with the event
 - Parent decides how to handle each event
@@ -310,9 +316,9 @@ Easy to test components in isolation:
 fn test_toolbar_file_clear() {
     let mut toolbar = Toolbar::default();
     let props = ToolbarProps { /* ... */ };
-    
+
     let output = toolbar.render(ctx, props);
-    
+
     assert!(output.events.contains(&ToolbarEvent::FileClear));
 }
 ```
@@ -327,12 +333,12 @@ fn test_toolbar_file_clear() {
 
 Developers familiar with React will recognize this pattern:
 
-| React | Thoth |
-|-------|-------|
-| Props (read-only) | `Props<'a>` struct |
-| State | Component's internal fields |
-| Callbacks | `Event` enum variants |
-| `onChange={handler}` | Match on event enum |
+| React                | Thoth                       |
+| -------------------- | --------------------------- |
+| Props (read-only)    | `Props<'a>` struct          |
+| State                | Component's internal fields |
+| Callbacks            | `Event` enum variants       |
+| `onChange={handler}` | Match on event enum         |
 
 ## Best Practices
 
@@ -526,11 +532,11 @@ impl ContextComponent for Toolbar {
 
     fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
         let mut events = Vec::new();
-        
+
         if ui.button("Clear").clicked() {
             events.push(ToolbarEvent::FileClear);
         }
-        
+
         ToolbarOutput { events }
     }
 }

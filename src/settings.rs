@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::shortcuts::KeyboardShortcuts;
+use crate::theme::Theme;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -24,6 +25,9 @@ pub struct Settings {
 
     /// Developer settings
     pub dev: DeveloperSettings,
+
+    /// Theme color settings
+    pub theme: Theme,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -63,6 +67,7 @@ impl Default for Settings {
             updates: UpdateSettings::default(),
             shortcuts: KeyboardShortcuts::default(),
             dev: DeveloperSettings::default(),
+            theme: Theme::default(),
         }
     }
 }
@@ -113,6 +118,10 @@ impl Settings {
 
             let settings: Settings =
                 toml::from_str(&contents).context("Failed to parse settings file")?;
+
+            // Save settings back to file to ensure any new fields are added
+            // This allows seamless updates when new settings are added to the struct
+            settings.save()?;
 
             Ok(settings)
         } else {

@@ -2,9 +2,10 @@ mod engine;
 
 pub use engine::Search;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SearchMessage {
     StartSearch(Search),
+    #[allow(dead_code)]
     StopSearch,
 }
 

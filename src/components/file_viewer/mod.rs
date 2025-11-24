@@ -130,6 +130,11 @@ impl FileViewer {
         self.state.visible_roots.as_ref().map(|v| v.len())
     }
 
+    /// Get the total number of root items in the loaded file
+    pub fn total_item_count(&self) -> usize {
+        self.loader.as_ref().map(|l| l.len()).unwrap_or(0)
+    }
+
     // ========================================================================
     // Keyboard Shortcut Support - Navigation & Tree Operations
     // ========================================================================

@@ -12,6 +12,7 @@ use crate::helpers::load_icon;
 
 mod app;
 mod components;
+mod constants;
 mod file;
 mod helpers;
 mod search;
@@ -48,14 +49,26 @@ fn main() -> Result<()> {
             .with_inner_size([
                 settings.window.default_width,
                 settings.window.default_height,
-            ]),
+            ])
+            // macOS-specific: Unified title bar (like VS Code)
+            // This extends content into title bar area, allowing toolbar to share row with traffic lights
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false)
+            .with_title_shown(false),
         ..Default::default()
     };
 
     let result = eframe::run_native(
         "Thoth — JSON & NDJSON Viewer",
         options,
-        Box::new(move |_cc| Ok(Box::new(app::ThothApp::new(settings)))),
+        Box::new(move |cc| {
+            // Initialize Phosphor icon fonts
+            let mut fonts = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            cc.egui_ctx.set_fonts(fonts);
+
+            Ok(Box::new(app::ThothApp::new(settings)))
+        }),
     );
 
     // When profiling is enabled, remind user about dhat output

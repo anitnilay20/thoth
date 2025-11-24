@@ -3,40 +3,44 @@ use eframe::{App, Frame, egui};
 use crate::{components, components::traits::ContextComponent, settings, state};
 
 use super::{
-    ShortcutAction, search_handler::SearchHandler, shortcut_handler::ShortcutHandler,
-    update_handler::UpdateHandler,
+    ShortcutAction, persistent_state::PersistentState, search_handler::SearchHandler,
+    shortcut_handler::ShortcutHandler, update_handler::UpdateHandler,
 };
 use crate::components::central_panel::CentralPanelProps;
-use crate::components::settings_panel::SettingsPanelProps;
 
 pub struct ThothApp {
     // Settings for this window
     pub settings: settings::Settings,
 
-    // Window state
+    // Persistent state (shared across app, saved to disk)
+    pub persistent_state: PersistentState,
+
+    // Window state (per-window, not persisted)
     pub window_state: state::WindowState,
 
     // Update state
     pub update_state: state::ApplicationUpdateState,
 
-    // Settings panel (UI)
-    pub settings_panel: components::settings_panel::SettingsPanel,
-    pub show_settings: bool,
-
     // Clipboard text to copy (set by shortcuts, copied in update loop)
     clipboard_text: Option<String>,
+
+    // Track if settings need to be saved
+    settings_changed: bool,
 }
 
 impl ThothApp {
     /// Create a new ThothApp with loaded settings
     pub fn new(settings: settings::Settings) -> Self {
+        // Load persistent state (recent files, sidebar width, etc.)
+        let persistent_state = PersistentState::default();
+
         Self {
             settings,
+            persistent_state,
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
-            settings_panel: components::settings_panel::SettingsPanel,
-            show_settings: false,
             clipboard_text: None,
+            settings_changed: false,
         }
     }
 
@@ -80,9 +84,11 @@ impl App for ThothApp {
             UpdateHandler::check_for_updates(&mut self.update_state);
         }
 
-        // Handle update messages
+        // Handle update messages (if update available, open settings in sidebar)
         if UpdateHandler::handle_update_messages(&mut self.update_state, ctx) {
-            self.show_settings = true;
+            self.window_state.sidebar_expanded = true;
+            self.window_state.sidebar_selected_section =
+                Some(components::sidebar::SidebarSection::Settings);
         }
 
         // Handle file drops
@@ -92,7 +98,16 @@ impl App for ThothApp {
         self.update_window_title(ctx);
 
         // Get user's action from Toolbar
-        let incoming_msg = self.render_toolbar(ctx);
+        let toolbar_msg = self.render_toolbar(ctx);
+
+        // Render status bar (before sidebar so it spans full width)
+        self.render_status_bar(ctx);
+
+        // Render sidebar and handle events (may return search message)
+        let sidebar_msg = self.render_sidebar(ctx);
+
+        // Combine search messages from toolbar and sidebar
+        let incoming_msg = toolbar_msg.or(sidebar_msg);
 
         // Handle search messages
         let msg_to_central = SearchHandler::handle_search_messages(
@@ -106,11 +121,8 @@ impl App for ThothApp {
         // Apply theme and font settings
         crate::theme::apply_theme(ctx, &self.settings);
 
-        // Save settings when dark mode changes
-        self.save_settings_if_changed(ctx);
-
-        // Render the settings panel and handle actions
-        self.render_settings_panel(ctx);
+        // Save settings when they have changed
+        self.save_settings_if_changed();
 
         // Render the central panel and handle events
         self.render_central_panel(ctx, msg_to_central);
@@ -121,42 +133,45 @@ impl App for ThothApp {
             // Enable puffin profiling
             puffin::GlobalProfiler::lock().new_frame();
 
-            egui::Window::new("🔍 Profiler")
-                .default_open(true)
-                .show(ctx, |ui| {
-                    // Memory profiling info
-                    ui.collapsing("Memory Profiling (dhat)", |ui| {
-                        ui.label("📊 Memory allocations are being tracked.");
-                        ui.label("When you close the app, dhat-heap.json will be generated.");
-                        ui.separator();
-                        ui.label("To view per-component memory usage:");
-                        ui.label("1. Close the app normally");
-                        ui.label("2. Open https://nnethercote.github.io/dh_view/dh_view.html");
-                        ui.label("3. Load dhat-heap.json");
-                        ui.separator();
-                        ui.label("The viewer shows which components allocate the most memory,");
-                        ui.label("with full call stacks for each allocation.");
-                    });
-
+            egui::Window::new(format!(
+                "{} Profiler",
+                egui_phosphor::regular::MAGNIFYING_GLASS
+            ))
+            .default_open(true)
+            .show(ctx, |ui| {
+                // Memory profiling info
+                ui.collapsing("Memory Profiling (dhat)", |ui| {
+                    ui.label("📊 Memory allocations are being tracked.");
+                    ui.label("When you close the app, dhat-heap.json will be generated.");
                     ui.separator();
-
-                    // Show puffin profiler UI with per-component breakdown
-                    puffin_egui::profiler_ui(ui);
-
+                    ui.label("To view per-component memory usage:");
+                    ui.label("1. Close the app normally");
+                    ui.label("2. Open https://nnethercote.github.io/dh_view/dh_view.html");
+                    ui.label("3. Load dhat-heap.json");
                     ui.separator();
-
-                    // Show frame statistics
-                    ui.collapsing("Frame Stats", |ui| {
-                        ctx.inspection_ui(ui);
-                    });
-
-                    ui.separator();
-
-                    // Show additional egui settings
-                    ui.collapsing("Advanced Settings", |ui| {
-                        ctx.settings_ui(ui);
-                    });
+                    ui.label("The viewer shows which components allocate the most memory,");
+                    ui.label("with full call stacks for each allocation.");
                 });
+
+                ui.separator();
+
+                // Show puffin profiler UI with per-component breakdown
+                puffin_egui::profiler_ui(ui);
+
+                ui.separator();
+
+                // Show frame statistics
+                ui.collapsing("Frame Stats", |ui| {
+                    ctx.inspection_ui(ui);
+                });
+
+                ui.separator();
+
+                // Show additional egui settings
+                ui.collapsing("Advanced Settings", |ui| {
+                    ctx.settings_ui(ui);
+                });
+            });
         }
     }
 }
@@ -173,6 +188,12 @@ impl ThothApp {
                         .add_filter("JSON", &["json", "ndjson"])
                         .pick_file()
                     {
+                        // Add to recent files
+                        if let Some(path_str) = path.to_str() {
+                            self.persistent_state.add_recent_file(path_str.to_string());
+                            let _ = self.persistent_state.save();
+                        }
+
                         self.window_state.file_path = Some(path);
                         self.window_state.error = None;
                     }
@@ -191,18 +212,37 @@ impl ThothApp {
                     self.create_new_window();
                 }
                 ShortcutAction::Settings => {
-                    self.show_settings = !self.show_settings;
+                    // Toggle settings section
+                    let section = components::sidebar::SidebarSection::Settings;
+                    if self.window_state.sidebar_expanded
+                        && self.window_state.sidebar_selected_section == Some(section)
+                    {
+                        self.window_state.sidebar_expanded = false;
+                    } else {
+                        self.window_state.sidebar_expanded = true;
+                        self.window_state.sidebar_selected_section = Some(section);
+                    }
                 }
                 ShortcutAction::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
+                    self.settings_changed = true;
                 }
                 ShortcutAction::ToggleProfiler => {
                     self.settings.dev.show_profiler = !self.settings.dev.show_profiler;
+                    self.settings_changed = true;
                 }
                 // Navigation shortcuts - handled by JSON viewer or search
                 ShortcutAction::FocusSearch => {
-                    // Request focus on search box
-                    self.window_state.toolbar.request_search_focus = true;
+                    // Toggle search section
+                    let section = components::sidebar::SidebarSection::Search;
+                    if self.window_state.sidebar_expanded
+                        && self.window_state.sidebar_selected_section == Some(section)
+                    {
+                        self.window_state.sidebar_expanded = false;
+                    } else {
+                        self.window_state.sidebar_expanded = true;
+                        self.window_state.sidebar_selected_section = Some(section);
+                    }
                 }
                 ShortcutAction::NextMatch => {
                     // TODO: Implement next match navigation
@@ -211,9 +251,9 @@ impl ThothApp {
                     // TODO: Implement previous match navigation
                 }
                 ShortcutAction::Escape => {
-                    // Clear search or close panels
-                    if self.show_settings {
-                        self.show_settings = false;
+                    // Close sidebar if open
+                    if self.window_state.sidebar_expanded {
+                        self.window_state.sidebar_expanded = false;
                     }
                 }
                 // Tree operations
@@ -280,16 +320,15 @@ impl ThothApp {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let update_available = UpdateHandler::is_update_available(&self.update_state);
-
         // Render toolbar using ContextComponent trait with one-way binding
         let output = self.window_state.toolbar.render(
             ctx,
             components::toolbar::ToolbarProps {
                 file_type: &self.window_state.file_type,
                 dark_mode: self.settings.dark_mode,
-                update_available,
                 shortcuts: &self.settings.shortcuts,
+                file_path: self.window_state.file_path.as_deref(),
+                is_fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
             },
         );
 
@@ -297,6 +336,12 @@ impl ThothApp {
         for event in output.events {
             match event {
                 components::toolbar::ToolbarEvent::FileOpen { path, file_type } => {
+                    // Add to recent files
+                    if let Some(path_str) = path.to_str() {
+                        self.persistent_state.add_recent_file(path_str.to_string());
+                        let _ = self.persistent_state.save();
+                    }
+
                     self.window_state.file_path = Some(path);
                     self.window_state.file_type = file_type;
                     self.window_state.error = None;
@@ -311,25 +356,62 @@ impl ThothApp {
                 components::toolbar::ToolbarEvent::FileTypeChange(file_type) => {
                     self.window_state.file_type = file_type;
                 }
-                components::toolbar::ToolbarEvent::ToggleSettings => {
-                    self.show_settings = !self.show_settings;
-                }
                 components::toolbar::ToolbarEvent::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
+                    self.settings_changed = true;
                 }
             }
         }
 
-        output.search_message
+        // Search is now handled in sidebar, no separate dropdown
+        None
     }
 
     /// Save settings if they have changed
-    fn save_settings_if_changed(&mut self, ctx: &egui::Context) {
-        if ctx.style().visuals.dark_mode != self.settings.dark_mode {
+    fn save_settings_if_changed(&mut self) {
+        if self.settings_changed {
             if let Err(e) = self.settings.save() {
                 eprintln!("Failed to save settings: {}", e);
             }
+            self.settings_changed = false;
         }
+    }
+
+    /// Render status bar
+    fn render_status_bar(&mut self, ctx: &egui::Context) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        // Determine status based on search state
+        let search = &self.window_state.search_engine_state.search;
+        let status = if search.scanning {
+            components::status_bar::StatusBarStatus::Searching
+        } else if !search.query.is_empty() && !search.results.is_empty() {
+            components::status_bar::StatusBarStatus::Filtered
+        } else if self.window_state.error.is_some() {
+            components::status_bar::StatusBarStatus::Error
+        } else {
+            components::status_bar::StatusBarStatus::Ready
+        };
+
+        // Get item counts from window state
+        let item_count = self.window_state.total_items;
+        let filtered_count = if !search.results.is_empty() {
+            Some(search.results.len())
+        } else {
+            None
+        };
+
+        self.window_state.status_bar.render(
+            ctx,
+            components::status_bar::StatusBarProps {
+                file_path: self.window_state.file_path.as_deref(),
+                file_type: &self.window_state.file_type,
+                item_count,
+                filtered_count,
+                status,
+            },
+        );
     }
 
     /// Render central panel and handle events
@@ -355,15 +437,27 @@ impl ThothApp {
         // Handle events emitted by the central panel (bottom-to-top communication)
         for event in output.events {
             match event {
-                components::central_panel::CentralPanelEvent::FileOpened { path, file_type } => {
+                components::central_panel::CentralPanelEvent::FileOpened {
+                    path,
+                    file_type,
+                    total_items,
+                } => {
+                    // Add to recent files
+                    if let Some(path_str) = path.to_str() {
+                        self.persistent_state.add_recent_file(path_str.to_string());
+                        let _ = self.persistent_state.save();
+                    }
+
                     self.window_state.file_path = Some(path);
                     self.window_state.file_type = file_type;
+                    self.window_state.total_items = total_items;
                 }
                 components::central_panel::CentralPanelEvent::FileOpenError(msg) => {
                     self.window_state.error = Some(msg);
                 }
                 components::central_panel::CentralPanelEvent::FileClosed => {
                     self.window_state.file_path = None;
+                    self.window_state.total_items = 0;
                 }
                 components::central_panel::CentralPanelEvent::FileTypeChanged(file_type) => {
                     self.window_state.file_type = file_type;
@@ -375,34 +469,126 @@ impl ThothApp {
         }
     }
 
-    /// Render settings panel and handle actions
-    fn render_settings_panel(&mut self, ctx: &egui::Context) {
+    /// Render sidebar and handle its events
+    fn render_sidebar(&mut self, ctx: &egui::Context) -> Option<crate::search::SearchMessage> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        // Render settings panel using ContextComponent trait with one-way binding
-        let output = self.settings_panel.render(
+        use crate::components::traits::ContextComponent;
+
+        // Determine if search should receive focus
+        // Focus when: section changed to Search
+        let focus_search = self.window_state.sidebar_selected_section
+            == Some(components::sidebar::SidebarSection::Search)
+            && self.window_state.previous_sidebar_section
+                != Some(components::sidebar::SidebarSection::Search);
+
+        // Render sidebar
+        let output = self.window_state.sidebar.render(
             ctx,
-            SettingsPanelProps {
-                show: self.show_settings,
+            components::sidebar::SidebarProps {
+                recent_files: self.persistent_state.get_recent_files(),
+                expanded: self.window_state.sidebar_expanded,
+                sidebar_width: self.persistent_state.get_sidebar_width(),
+                selected_section: self.window_state.sidebar_selected_section,
+                focus_search,
                 update_status: &self.update_state.update_status,
-                current_version: crate::update::UpdateManager::get_current_version(),
+                current_version: env!("CARGO_PKG_VERSION"),
             },
         );
 
-        // Handle events emitted by the settings panel (bottom-to-top communication)
+        // Handle sidebar events
         for event in output.events {
-            match &event {
-                components::settings_panel::SettingsPanelEvent::Close => {
-                    self.show_settings = false;
+            match event {
+                components::sidebar::SidebarEvent::OpenFile(file_path) => {
+                    // Open the file by setting the path
+                    let path = std::path::PathBuf::from(&file_path);
+                    self.window_state.file_path = Some(path);
+                    self.window_state.error = None;
                 }
-                components::settings_panel::SettingsPanelEvent::CheckForUpdates
-                | components::settings_panel::SettingsPanelEvent::DownloadUpdate
-                | components::settings_panel::SettingsPanelEvent::InstallUpdate
-                | components::settings_panel::SettingsPanelEvent::RetryUpdate => {
-                    UpdateHandler::handle_settings_action(event, &mut self.update_state, ctx);
+                components::sidebar::SidebarEvent::RemoveRecentFile(file_path) => {
+                    // Remove from recent files
+                    self.persistent_state.remove_recent_file(&file_path);
+                    if let Err(e) = self.persistent_state.save() {
+                        eprintln!("Failed to save recent files: {}", e);
+                    }
+                }
+                components::sidebar::SidebarEvent::OpenFilePicker => {
+                    // Open file picker dialog
+                    use rfd::FileDialog;
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("JSON", &["json", "ndjson"])
+                        .pick_file()
+                    {
+                        // Add to recent files
+                        if let Some(path_str) = path.to_str() {
+                            self.persistent_state.add_recent_file(path_str.to_string());
+                            let _ = self.persistent_state.save();
+                        }
+
+                        self.window_state.file_path = Some(path);
+                        self.window_state.error = None;
+                    }
+                }
+                components::sidebar::SidebarEvent::SectionToggled(section) => {
+                    // Toggle logic: if clicking same section while expanded, collapse; otherwise open to that section
+                    if self.window_state.sidebar_expanded
+                        && self.window_state.sidebar_selected_section == Some(section)
+                    {
+                        self.window_state.sidebar_expanded = false;
+                        self.window_state.previous_sidebar_section =
+                            self.window_state.sidebar_selected_section;
+                    } else {
+                        self.window_state.previous_sidebar_section =
+                            self.window_state.sidebar_selected_section;
+                        self.window_state.sidebar_expanded = true;
+                        self.window_state.sidebar_selected_section = Some(section);
+                    }
+                }
+                components::sidebar::SidebarEvent::WidthChanged(new_width) => {
+                    // Save the new sidebar width
+                    self.persistent_state.set_sidebar_width(new_width);
+                    let _ = self.persistent_state.save();
+                }
+                components::sidebar::SidebarEvent::Search(msg) => {
+                    // Handle search from sidebar
+                    return Some(msg);
+                }
+                components::sidebar::SidebarEvent::CheckForUpdates => {
+                    // Trigger update check
+                    UpdateHandler::handle_settings_action(
+                        components::settings_panel::SettingsPanelEvent::CheckForUpdates,
+                        &mut self.update_state,
+                        ctx,
+                    );
+                }
+                components::sidebar::SidebarEvent::DownloadUpdate => {
+                    // Trigger update download
+                    UpdateHandler::handle_settings_action(
+                        components::settings_panel::SettingsPanelEvent::DownloadUpdate,
+                        &mut self.update_state,
+                        ctx,
+                    );
+                }
+                components::sidebar::SidebarEvent::InstallUpdate => {
+                    // Trigger update installation
+                    UpdateHandler::handle_settings_action(
+                        components::settings_panel::SettingsPanelEvent::InstallUpdate,
+                        &mut self.update_state,
+                        ctx,
+                    );
+                }
+                components::sidebar::SidebarEvent::RetryUpdate => {
+                    // Retry update check
+                    UpdateHandler::handle_settings_action(
+                        components::settings_panel::SettingsPanelEvent::RetryUpdate,
+                        &mut self.update_state,
+                        ctx,
+                    );
                 }
             }
         }
+
+        None
     }
 }

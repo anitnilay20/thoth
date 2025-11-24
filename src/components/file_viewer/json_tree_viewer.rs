@@ -1,12 +1,13 @@
 use crate::components::data_row::{DataRow, DataRowProps};
+use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
 use crate::file::lazy_loader::LazyJsonFile;
 use crate::helpers::{
     LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_selection,
     split_root_rel,
 };
-use crate::theme::{TextToken, row_fill, selected_row_bg};
-use eframe::egui::{self, RichText, Ui};
+use crate::theme::{ROW_HEIGHT, TextToken, row_fill, selected_row_bg};
+use eframe::egui::{self, Ui};
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -147,7 +148,7 @@ impl JsonTreeViewer {
                             Some(if is_expandable {
                                 TextToken::Bracket
                             } else {
-                                TextToken::from(&mut val.clone())
+                                TextToken::from(val)
                             }),
                         ),
                     });
@@ -207,7 +208,7 @@ impl JsonTreeViewer {
                     is_expandable: false,
                     is_expanded: false,
                     display_text: preview_value(value).to_string(),
-                    text_token: (TextToken::from(&mut value.clone()), None),
+                    text_token: (TextToken::from(value), None),
                 });
             }
         }
@@ -226,7 +227,7 @@ impl JsonTreeViewer {
         puffin::profile_function!();
 
         let row_count = self.rows.len();
-        let row_height = 20.0;
+        let row_height = ROW_HEIGHT;
 
         let mut toggles: Vec<String> = Vec::new();
         let mut new_selected: Option<String> = None;
@@ -237,8 +238,6 @@ impl JsonTreeViewer {
             .id_salt("json_tree_scroll");
 
         scroll_area.show_rows(ui, row_height, row_count, |ui, row_range| {
-            let rows = self.rows.clone();
-
             if let Some(selected_path) = selected.as_ref() {
                 if let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
                     scroll_to_selection(
@@ -251,8 +250,16 @@ impl JsonTreeViewer {
                 }
             }
 
-            for row_index in row_range.clone() {
-                if let Some(row) = rows.get(row_index) {
+            // Get indent guide color from theme
+            let guide_color = ui.ctx().memory(|mem| {
+                mem.data
+                    .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+                    .map(|colors| colors.indent_guide)
+                    .unwrap_or_else(|| egui::Color32::from_rgb(100, 100, 100))
+            });
+
+            for row_index in row_range {
+                if let Some(row) = self.rows.get(row_index) {
                     let path = &row.path;
                     let display = &row.display_text;
                     let display2_parts: Vec<&str> = display.splitn(2, ':').collect();
@@ -263,39 +270,88 @@ impl JsonTreeViewer {
                         ""
                     };
 
-                    // Selected background
+                    // Selected background with alternating colors
                     let bg = if selected.as_deref() == Some(path.as_str()) {
                         selected_row_bg(ui)
                     } else {
                         row_fill(row_index, ui)
                     };
 
+                    // Draw indent guide lines before rendering row content
+                    if row.indent > 0 {
+                        let painter = ui.painter();
+                        let rect = ui.available_rect_before_wrap();
+                        let row_y_min = rect.min.y;
+                        let row_y_max = row_y_min + row_height;
+
+                        // Draw a vertical line for each indent level
+                        for level in 0..row.indent {
+                            let x = rect.min.x + (level as f32 * 16.0) + 8.0;
+                            painter.line_segment(
+                                [egui::pos2(x, row_y_min), egui::pos2(x, row_y_max)],
+                                egui::Stroke::new(1.0, guide_color),
+                            );
+                        }
+                    }
+
                     // Render the row with toggle button (if expandable) and content
                     let mut toggle_clicked = false;
 
                     ui.horizontal(|ui| {
-                        // Indentation
-                        ui.add_space(row.indent as f32 * 12.0);
+                        // Indentation spacing
+                        ui.add_space(row.indent as f32 * 16.0);
 
-                        // Toggle button for expandable rows
+                        // Toggle button for expandable rows (or spacer for non-expandable)
                         if row.is_expandable {
-                            let toggle_icon = if row.is_expanded { "-" } else { "+" };
-                            if ui
-                                .selectable_label(false, RichText::new(toggle_icon).monospace())
-                                .clicked()
+                            let toggle_icon = if row.is_expanded {
+                                egui_phosphor::regular::CARET_DOWN
+                            } else {
+                                egui_phosphor::regular::CARET_RIGHT
+                            };
+                            let tooltip_text = if row.is_expanded {
+                                "Collapse (Space/Enter)"
+                            } else {
+                                "Expand (Space/Enter)"
+                            };
+                            if IconButton::render(
+                                ui,
+                                IconButtonProps {
+                                    icon: toggle_icon,
+                                    frame: false,
+                                    tooltip: Some(tooltip_text),
+                                    badge_color: None,
+                                    size: None,
+                                },
+                            )
+                            .clicked
                             {
                                 toggle_clicked = true;
                             }
                         } else {
-                            ui.add_space(23.0);
+                            // Add invisible button to maintain consistent spacing
+                            ui.add_enabled_ui(false, |ui| {
+                                ui.visuals_mut().widgets.inactive.bg_fill =
+                                    egui::Color32::TRANSPARENT;
+                                ui.visuals_mut().widgets.inactive.weak_bg_fill =
+                                    egui::Color32::TRANSPARENT;
+                                IconButton::render(
+                                    ui,
+                                    IconButtonProps {
+                                        icon: " ",
+                                        frame: false,
+                                        tooltip: None,
+                                        badge_color: None,
+                                        size: None,
+                                    },
+                                );
+                            });
                         }
 
-                        // Use DataRow component for the content (without extra indentation since we handled it above)
+                        // Use DataRow component for the content
                         let output = DataRow::render(
                             ui,
                             DataRowProps {
                                 display_text: display,
-                                indent: 0, // No extra indent, already added above
                                 text_tokens: row.text_token,
                                 background: bg,
                                 row_id: path,
