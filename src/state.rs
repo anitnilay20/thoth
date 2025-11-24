@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{components, file, search, update};
+use crate::{components, error::ThothError, file, search, update};
 
 // ============================================================================
 // Window State - Per-window state (file, search, UI)
@@ -13,7 +13,7 @@ pub struct WindowState {
     // File state
     pub file_path: Option<PathBuf>,
     pub file_type: file::lazy_loader::FileType,
-    pub error: Option<String>,
+    pub error: Option<ThothError>,
     pub total_items: usize,
 
     // Search state

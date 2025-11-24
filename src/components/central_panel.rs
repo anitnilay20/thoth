@@ -1,5 +1,6 @@
 use crate::components::file_viewer::FileViewer;
 use crate::components::traits::ContextComponent;
+use crate::error::{ErrorHandler, ThothError};
 use crate::file::lazy_loader::FileType;
 use crate::search;
 use eframe::egui;
@@ -9,7 +10,7 @@ use std::path::PathBuf;
 pub struct CentralPanelProps<'a> {
     pub file_path: &'a Option<PathBuf>,
     pub file_type: FileType,
-    pub error: &'a Option<String>,
+    pub error: &'a Option<ThothError>,
     pub search_message: Option<search::SearchMessage>,
 }
 
@@ -20,7 +21,7 @@ pub enum CentralPanelEvent {
         file_type: FileType,
         total_items: usize,
     },
-    FileOpenError(String),
+    FileOpenError(ThothError),
     FileClosed,
     FileTypeChanged(FileType),
     ErrorCleared,
@@ -35,7 +36,7 @@ pub struct CentralPanel {
     file_viewer: FileViewer,
     loaded_path: Option<PathBuf>,
     loaded_type: Option<FileType>,
-    last_open_err: Option<String>,
+    last_open_err: Option<ThothError>,
     searching: bool,
 }
 
@@ -90,9 +91,9 @@ impl CentralPanel {
                         }
                     }
                     Err(e) => {
-                        let msg = format!("Failed to open file: {e}");
-                        self.last_open_err = Some(msg.clone());
-                        events.push(CentralPanelEvent::FileOpenError(msg));
+                        let error: ThothError = format!("Failed to open file: {e}").into();
+                        self.last_open_err = Some(error.clone());
+                        events.push(CentralPanelEvent::FileOpenError(error));
                         self.loaded_path = None;
                         self.loaded_type = None;
                     }
@@ -133,7 +134,8 @@ impl CentralPanel {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Show any error (either from props or open attempt)
             if let Some(err) = props.error.as_ref().or(self.last_open_err.as_ref()) {
-                ui.colored_label(egui::Color32::RED, err);
+                let message = ErrorHandler::get_user_message(err);
+                ui.colored_label(egui::Color32::RED, message);
                 ui.separator();
             }
 

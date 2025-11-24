@@ -15,12 +15,14 @@ impl app::ThothApp {
                 if let Some(path) = &file.path {
                     use std::fmt::Write as _;
                     if let Err(e) = write!(text, "\n{}", path.display()) {
-                        self.window_state.error = Some(format!("Failed to format file path: {e}"));
+                        self.window_state.error =
+                            Some(format!("Failed to format file path: {e}").into());
                     }
                 } else if !file.mime.is_empty() {
                     use std::fmt::Write as _;
                     if let Err(e) = write!(text, "\n{}", file.mime) {
-                        self.window_state.error = Some(format!("Failed to format MIME type: {e}"));
+                        self.window_state.error =
+                            Some(format!("Failed to format MIME type: {e}").into());
                     }
                 }
             }
@@ -54,9 +56,10 @@ impl app::ThothApp {
                             self.window_state.toolbar.previous_file_type = ft;
                         }
                         Err(e) => {
-                            self.window_state.error = Some(format!(
-                                "Failed to detect file type (expect JSON / NDJSON): {e}"
-                            ));
+                            self.window_state.error = Some(
+                                format!("Failed to detect file type (expect JSON / NDJSON): {e}")
+                                    .into(),
+                            );
                         }
                     }
                     break; // only process first dropped file
