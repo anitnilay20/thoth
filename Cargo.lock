@@ -4219,7 +4219,7 @@ dependencies = [
 
 [[package]]
 name = "thoth"
-version = "0.2.13"
+version = "0.2.14"
 dependencies = [
  "anyhow",
  "chrono",
