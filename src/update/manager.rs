@@ -1,5 +1,6 @@
 use super::types::ReleaseInfo;
-use anyhow::{Context, Result};
+use crate::error::Result;
+use anyhow::{Context, anyhow};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -8,10 +9,10 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone)]
 pub enum UpdateMessage {
-    UpdateCheckComplete(Result<Vec<ReleaseInfo>, String>),
+    UpdateCheckComplete(std::result::Result<Vec<ReleaseInfo>, String>),
     DownloadProgress(f32),
-    DownloadComplete(Result<std::path::PathBuf, String>),
-    InstallComplete(Result<(), String>),
+    DownloadComplete(std::result::Result<std::path::PathBuf, String>),
+    InstallComplete(std::result::Result<(), String>),
 }
 
 pub struct UpdateManager {
@@ -60,7 +61,7 @@ impl UpdateManager {
             .context("Failed to fetch releases from GitHub")?;
 
         if !response.status().is_success() {
-            anyhow::bail!("GitHub API returned status: {}", response.status());
+            return Err(anyhow!("GitHub API returned status: {}", response.status()).into());
         }
 
         let releases: Vec<ReleaseInfo> =
@@ -162,7 +163,7 @@ impl UpdateManager {
             .context("Failed to download update")?;
 
         if !response.status().is_success() {
-            anyhow::bail!("Download failed with status: {}", response.status());
+            return Err(anyhow!("Download failed with status: {}", response.status()).into());
         }
 
         let total_size = response.content_length().unwrap_or(0);
@@ -202,7 +203,7 @@ impl UpdateManager {
         } else if cfg!(target_os = "linux") {
             "thoth-x86_64-unknown-linux-gnu.tar.gz"
         } else {
-            anyhow::bail!("Unsupported platform");
+            return Err(anyhow!("Unsupported platform").into());
         };
 
         release
@@ -210,7 +211,7 @@ impl UpdateManager {
             .iter()
             .find(|asset| asset.name == archive_name)
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No asset found for current platform"))
+            .ok_or_else(|| anyhow!("No asset found for current platform").into())
     }
 
     pub fn install_update(&self, archive_path: std::path::PathBuf) {
@@ -242,7 +243,7 @@ impl UpdateManager {
         } else if file_name.ends_with(".tar.gz") {
             Self::extract_tar_gz(&archive_path, &temp_dir)?;
         } else {
-            anyhow::bail!("Unsupported archive format: {}", file_name);
+            return Err(anyhow!("Unsupported archive format: {}", file_name).into());
         }
 
         // Get current executable path
@@ -295,12 +296,12 @@ impl UpdateManager {
 
     #[cfg(target_os = "windows")]
     fn extract_tar_gz(_archive_path: &std::path::Path, _dest_dir: &std::path::Path) -> Result<()> {
-        anyhow::bail!("Attempted to extract tar.gz on Windows platform")
+        return Err(anyhow!("Attempted to extract tar.gz on Windows platform").into());
     }
 
     #[cfg(not(target_os = "windows"))]
     fn extract_zip(_archive_path: &std::path::Path, _dest_dir: &std::path::Path) -> Result<()> {
-        anyhow::bail!("Attempted to extract zip on Unix platform")
+        return Err(anyhow!("Attempted to extract zip on Unix platform").into());
     }
 
     fn find_executable(dir: &std::path::Path) -> Result<std::path::PathBuf> {
@@ -325,7 +326,7 @@ impl UpdateManager {
             }
         }
 
-        anyhow::bail!("Could not find executable in extracted archive")
+        return Err(anyhow!("Could not find executable in extracted archive").into());
     }
 
     fn replace_executable(new_exe: &std::path::Path, current_exe: &std::path::Path) -> Result<()> {

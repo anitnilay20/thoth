@@ -157,3 +157,19 @@ impl From<&str> for ThothError {
         }
     }
 }
+
+impl From<anyhow::Error> for ThothError {
+    fn from(err: anyhow::Error) -> Self {
+        ThothError::Unknown {
+            message: err.to_string(),
+        }
+    }
+}
+
+impl From<reqwest::Error> for ThothError {
+    fn from(err: reqwest::Error) -> Self {
+        ThothError::UpdateCheckError {
+            reason: err.to_string(),
+        }
+    }
+}

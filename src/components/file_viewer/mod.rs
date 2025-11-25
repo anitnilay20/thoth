@@ -60,7 +60,7 @@ impl FileViewer {
     }
 
     /// Open a file for viewing (compatible with old JsonViewer API)
-    pub fn open(&mut self, path: &Path, file_type: &mut FileType) -> anyhow::Result<()> {
+    pub fn open(&mut self, path: &Path, file_type: &mut FileType) -> crate::error::Result<()> {
         // Load file and detect type
         let (detected_type, loader) = load_file_auto(path)?;
         *file_type = detected_type.into();

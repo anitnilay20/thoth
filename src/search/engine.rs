@@ -83,7 +83,7 @@ fn parallel_scan(
     store: Arc<LazyJsonFile>,
     query: &str,
     match_case: bool,
-) -> anyhow::Result<Vec<usize>> {
+) -> crate::error::Result<Vec<usize>> {
     let total = store.len();
     if total == 0 {
         return Ok(Vec::new());

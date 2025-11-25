@@ -5,8 +5,8 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-use anyhow::Result;
 use eframe::{NativeOptions, egui};
+use thoth::error::Result;
 
 use crate::helpers::load_icon;
 
@@ -83,7 +83,7 @@ fn main() -> Result<()> {
 
     if let Err(e) = result {
         eprintln!("Error running application: {e:?}");
-        return Err(anyhow::anyhow!("Failed to run application"));
+        return Err("Failed to run application".into());
     }
     Ok(())
 }

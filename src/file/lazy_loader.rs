@@ -1,4 +1,5 @@
-use anyhow::{Context, Result, anyhow};
+use crate::error::Result;
+use anyhow::{Context, anyhow};
 use serde_json::Value;
 use std::{
     fs::File,
@@ -275,7 +276,7 @@ impl SingleValueFile {
 
     pub fn get(&mut self, idx: usize) -> Result<Value> {
         if idx != 0 {
-            anyhow::bail!("index out of bounds");
+            return Err(anyhow!("index out of bounds").into());
         }
         if let Some(v) = self.parsed.as_ref() {
             return Ok(v.clone());
@@ -306,7 +307,7 @@ fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
     // Skip leading whitespace
     let mut i = skip_ws(bytes, 0).ok_or_else(|| anyhow!("empty file"))?;
     if bytes.get(i) != Some(&b'[') {
-        return Err(anyhow!("expected a top-level JSON array"));
+        return Err(anyhow!("expected a top-level JSON array").into());
     }
     i += 1;
 
@@ -383,7 +384,7 @@ fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
 
     // Minimal sanity check: we should have encountered a ']'
     if !bytes.contains(&b']') {
-        return Err(anyhow!("unterminated top-level array"));
+        return Err(anyhow!("unterminated top-level array").into());
     }
 
     Ok(spans)
