@@ -1,4 +1,4 @@
-use crate::{components, settings, state, update};
+use crate::{components, error::ThothError, settings, state, update};
 use eframe::egui;
 
 /// Handles all update-related logic
@@ -85,7 +85,7 @@ impl UpdateHandler {
 
     // Private helper methods
     fn handle_check_complete(
-        result: Result<Vec<update::ReleaseInfo>, String>,
+        result: Result<Vec<update::ReleaseInfo>, ThothError>,
         update_state: &mut state::ApplicationUpdateState,
     ) -> bool {
         let mut should_show_settings = false;
@@ -136,7 +136,7 @@ impl UpdateHandler {
     }
 
     fn handle_download_complete(
-        result: Result<std::path::PathBuf, String>,
+        result: Result<std::path::PathBuf, ThothError>,
         update_state: &mut state::ApplicationUpdateState,
     ) {
         match result {
@@ -156,7 +156,7 @@ impl UpdateHandler {
     }
 
     fn handle_install_complete(
-        result: Result<(), String>,
+        result: Result<(), ThothError>,
         update_state: &mut state::ApplicationUpdateState,
         ctx: &egui::Context,
     ) {

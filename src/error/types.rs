@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 /// Custom error type for the Thoth application
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ThothError {
     // File-related errors
     FileNotFound { path: PathBuf },

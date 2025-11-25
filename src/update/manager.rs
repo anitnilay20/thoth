@@ -1,6 +1,5 @@
 use super::types::ReleaseInfo;
-use crate::error::Result;
-use anyhow::{Context, anyhow};
+use crate::error::{Result, ThothError};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -9,10 +8,10 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone)]
 pub enum UpdateMessage {
-    UpdateCheckComplete(std::result::Result<Vec<ReleaseInfo>, String>),
+    UpdateCheckComplete(Result<Vec<ReleaseInfo>>),
     DownloadProgress(f32),
-    DownloadComplete(std::result::Result<std::path::PathBuf, String>),
-    InstallComplete(std::result::Result<(), String>),
+    DownloadComplete(Result<std::path::PathBuf>),
+    InstallComplete(Result<()>),
 }
 
 pub struct UpdateManager {
@@ -42,7 +41,7 @@ impl UpdateManager {
             let result = Self::fetch_releases();
             let msg = match result {
                 Ok(releases) => UpdateMessage::UpdateCheckComplete(Ok(releases)),
-                Err(e) => UpdateMessage::UpdateCheckComplete(Err(e.to_string())),
+                Err(e) => UpdateMessage::UpdateCheckComplete(Err(e)),
             };
             let _ = tx.send(msg);
         });
@@ -58,14 +57,20 @@ impl UpdateManager {
         let response = client
             .get(&url)
             .send()
-            .context("Failed to fetch releases from GitHub")?;
+            .map_err(|e| ThothError::UpdateCheckError {
+                reason: format!("Failed to fetch releases from GitHub: {}", e),
+            })?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("GitHub API returned status: {}", response.status()).into());
+            return Err(ThothError::UpdateCheckError {
+                reason: format!("GitHub API returned status: {}", response.status()),
+            });
         }
 
         let releases: Vec<ReleaseInfo> =
-            response.json().context("Failed to parse GitHub releases")?;
+            response.json().map_err(|e| ThothError::UpdateCheckError {
+                reason: format!("Failed to parse GitHub releases: {}", e),
+            })?;
 
         Ok(releases)
     }
@@ -132,7 +137,7 @@ impl UpdateManager {
             let result = Self::download_release(&release, &tx);
             let msg = match result {
                 Ok(path) => UpdateMessage::DownloadComplete(Ok(path)),
-                Err(e) => UpdateMessage::DownloadComplete(Err(e.to_string())),
+                Err(e) => UpdateMessage::DownloadComplete(Err(e)),
             };
             let _ = tx.send(msg);
         });
@@ -160,10 +165,16 @@ impl UpdateManager {
         let mut response = client
             .get(&asset.browser_download_url)
             .send()
-            .context("Failed to download update")?;
+            .map_err(|e| ThothError::UpdateDownloadError {
+                version: release.tag_name.clone(),
+                reason: format!("Failed to download update: {}", e),
+            })?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("Download failed with status: {}", response.status()).into());
+            return Err(ThothError::UpdateDownloadError {
+                version: release.tag_name.clone(),
+                reason: format!("Download failed with status: {}", response.status()),
+            });
         }
 
         let total_size = response.content_length().unwrap_or(0);
@@ -203,7 +214,9 @@ impl UpdateManager {
         } else if cfg!(target_os = "linux") {
             "thoth-x86_64-unknown-linux-gnu.tar.gz"
         } else {
-            return Err(anyhow!("Unsupported platform").into());
+            return Err(ThothError::UpdateInstallError {
+                reason: "Unsupported platform".to_string(),
+            });
         };
 
         release
@@ -211,7 +224,10 @@ impl UpdateManager {
             .iter()
             .find(|asset| asset.name == archive_name)
             .cloned()
-            .ok_or_else(|| anyhow!("No asset found for current platform").into())
+            .ok_or_else(|| ThothError::UpdateDownloadError {
+                version: release.tag_name.clone(),
+                reason: format!("No asset found for current platform: {}", archive_name),
+            })
     }
 
     pub fn install_update(&self, archive_path: std::path::PathBuf) {
@@ -221,7 +237,7 @@ impl UpdateManager {
             let result = Self::extract_and_install(archive_path);
             let msg = match result {
                 Ok(_) => UpdateMessage::InstallComplete(Ok(())),
-                Err(e) => UpdateMessage::InstallComplete(Err(e.to_string())),
+                Err(e) => UpdateMessage::InstallComplete(Err(e)),
             };
             let _ = tx.send(msg);
         });
@@ -236,14 +252,18 @@ impl UpdateManager {
         let file_name = archive_path
             .file_name()
             .and_then(|n| n.to_str())
-            .ok_or_else(|| anyhow::anyhow!("Invalid file name"))?;
+            .ok_or_else(|| ThothError::UpdateInstallError {
+                reason: "Invalid file name in archive path".to_string(),
+            })?;
 
         if file_name.ends_with(".zip") {
             Self::extract_zip(&archive_path, &temp_dir)?;
         } else if file_name.ends_with(".tar.gz") {
             Self::extract_tar_gz(&archive_path, &temp_dir)?;
         } else {
-            return Err(anyhow!("Unsupported archive format: {}", file_name).into());
+            return Err(ThothError::UpdateInstallError {
+                reason: format!("Unsupported archive format: {}", file_name),
+            });
         }
 
         // Get current executable path
@@ -296,12 +316,16 @@ impl UpdateManager {
 
     #[cfg(target_os = "windows")]
     fn extract_tar_gz(_archive_path: &std::path::Path, _dest_dir: &std::path::Path) -> Result<()> {
-        return Err(anyhow!("Attempted to extract tar.gz on Windows platform").into());
+        Err(ThothError::UpdateInstallError {
+            reason: "tar.gz extraction not supported on Windows platform".to_string(),
+        })
     }
 
     #[cfg(not(target_os = "windows"))]
     fn extract_zip(_archive_path: &std::path::Path, _dest_dir: &std::path::Path) -> Result<()> {
-        return Err(anyhow!("Attempted to extract zip on Unix platform").into());
+        Err(ThothError::UpdateInstallError {
+            reason: "zip extraction not supported on Unix platform".to_string(),
+        })
     }
 
     fn find_executable(dir: &std::path::Path) -> Result<std::path::PathBuf> {
@@ -326,7 +350,9 @@ impl UpdateManager {
             }
         }
 
-        return Err(anyhow!("Could not find executable in extracted archive").into());
+        Err(ThothError::UpdateInstallError {
+            reason: "Could not find executable in extracted archive".to_string(),
+        })
     }
 
     fn replace_executable(new_exe: &std::path::Path, current_exe: &std::path::Path) -> Result<()> {
