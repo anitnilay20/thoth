@@ -143,13 +143,6 @@ impl StatefulComponent for Search {
             {
                 events.push(SearchEvent::Search(msg));
             }
-            // Surrender focus after search to allow clicking outside
-            response.surrender_focus();
-        }
-
-        // Allow clicking outside to remove focus
-        if ui.input(|i| i.pointer.any_click()) && !response.hovered() {
-            response.surrender_focus();
         }
 
         ui.add_space(8.0);

@@ -485,11 +485,20 @@ impl ThothApp {
         use crate::components::traits::ContextComponent;
 
         // Determine if search should receive focus
-        // Focus when: section changed to Search
-        let focus_search = self.window_state.sidebar_selected_section
+        // Focus when:
+        // 1. Section changed to Search (from a different section)
+        // 2. OR sidebar was just expanded with Search section (reopening)
+        let section_changed_to_search = self.window_state.sidebar_selected_section
             == Some(components::sidebar::SidebarSection::Search)
             && self.window_state.previous_sidebar_section
                 != Some(components::sidebar::SidebarSection::Search);
+
+        let sidebar_reopened_with_search = self.window_state.sidebar_expanded
+            && !self.window_state.previous_sidebar_expanded
+            && self.window_state.sidebar_selected_section
+                == Some(components::sidebar::SidebarSection::Search);
+
+        let focus_search = section_changed_to_search || sidebar_reopened_with_search;
 
         // Render sidebar
         let output = self.window_state.sidebar.render(
@@ -505,6 +514,12 @@ impl ThothApp {
                 search_state: &self.window_state.search_engine_state.search,
             },
         );
+
+        // Update previous states after rendering so focus_search is only true for one frame
+        if focus_search {
+            self.window_state.previous_sidebar_section = self.window_state.sidebar_selected_section;
+        }
+        self.window_state.previous_sidebar_expanded = self.window_state.sidebar_expanded;
 
         // Handle sidebar events
         for event in output.events {

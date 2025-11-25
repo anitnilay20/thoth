@@ -233,6 +233,17 @@ impl JsonTreeViewer {
         let mut new_selected: Option<String> = None;
         let mut copy_clipboard: Option<String> = None;
 
+        // Make the scroll area interactive so clicking it removes focus from search input
+        let scroll_area_response = ui.interact(
+            ui.available_rect_before_wrap(),
+            ui.id().with("json_tree_interact"),
+            egui::Sense::click(),
+        );
+
+        if scroll_area_response.clicked() {
+            ui.memory_mut(|mem| mem.request_focus(scroll_area_response.id));
+        }
+
         let scroll_area = egui::ScrollArea::both()
             .auto_shrink([false, false])
             .id_salt("json_tree_scroll");
