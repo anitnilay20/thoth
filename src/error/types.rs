@@ -120,8 +120,17 @@ impl std::error::Error for ThothError {}
 // Convenience conversions from common error types
 impl From<std::io::Error> for ThothError {
     fn from(err: std::io::Error) -> Self {
-        ThothError::Unknown {
-            message: err.to_string(),
+        use std::io::ErrorKind;
+        match err.kind() {
+            ErrorKind::NotFound => ThothError::FileNotFound {
+                path: PathBuf::new(),
+            },
+            ErrorKind::PermissionDenied => ThothError::Unknown {
+                message: format!("Permission denied: {}", err),
+            },
+            _ => ThothError::Unknown {
+                message: err.to_string(),
+            },
         }
     }
 }
