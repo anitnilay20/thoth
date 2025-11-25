@@ -44,9 +44,12 @@ fn main() -> Result<()> {
     let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
 
     // Configure window from settings
+    let mut viewport = egui::ViewportBuilder::default();
+    if let Some(icon_data) = icon {
+        viewport = viewport.with_icon(icon_data);
+    }
     let options = NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_icon(icon)
+        viewport: viewport
             .with_inner_size([
                 settings.window.default_width,
                 settings.window.default_height,

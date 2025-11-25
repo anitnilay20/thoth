@@ -50,5 +50,5 @@ pub fn get_object_string(root: Value, rel: &str) -> Option<String> {
         walk_rel(root, rel)?
     };
 
-    Some(serde_json::to_string_pretty(&sub).expect("Error"))
+    serde_json::to_string_pretty(&sub).ok()
 }

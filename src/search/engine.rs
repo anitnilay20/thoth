@@ -44,12 +44,15 @@ impl Search {
         self.scanning = true;
         self.results.clear();
 
-        if self.query.is_empty() || file.is_none() {
+        if self.query.is_empty() {
             self.scanning = false;
             return;
         }
 
-        let path = file.as_ref().unwrap();
+        let Some(path) = file.as_ref() else {
+            self.scanning = false;
+            return;
+        };
 
         // Open lazily (auto-detect NDJSON / array JSON / single object)
         let Ok((_detected, store)) = load_file_auto(path) else {
