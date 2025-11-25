@@ -91,34 +91,17 @@ impl CentralPanel {
                         }
                     }
                     Err(e) => {
-                        // Create specific error based on the failure reason
-                        let error = if e.to_string().contains("No such file")
-                            || e.to_string().contains("not found")
-                        {
-                            ThothError::FileNotFound {
-                                path: new_path.to_path_buf(),
-                            }
-                        } else if e.to_string().contains("Permission denied") {
-                            ThothError::FileReadError {
-                                path: new_path.to_path_buf(),
-                                reason: "Permission denied".to_string(),
-                            }
-                        } else if e.to_string().contains("parse") || e.to_string().contains("JSON")
-                        {
-                            ThothError::FileParseError {
+                        // Use the error as-is if it's already a ThothError variant,
+                        // otherwise wrap it appropriately
+                        let error = match &e {
+                            ThothError::FileNotFound { .. }
+                            | ThothError::FileReadError { .. }
+                            | ThothError::InvalidFileType { .. }
+                            | ThothError::JsonParseError { .. } => e,
+                            _ => ThothError::FileReadError {
                                 path: new_path.to_path_buf(),
                                 reason: e.to_string(),
-                            }
-                        } else if e.to_string().contains("Invalid file type") {
-                            ThothError::InvalidFileType {
-                                path: new_path.to_path_buf(),
-                                expected: "JSON or NDJSON".to_string(),
-                            }
-                        } else {
-                            ThothError::FileReadError {
-                                path: new_path.to_path_buf(),
-                                reason: e.to_string(),
-                            }
+                            },
                         };
                         self.last_open_err = Some(error.clone());
                         events.push(CentralPanelEvent::FileOpenError(error));

@@ -21,12 +21,8 @@ impl SearchHandler {
         if let Some(rx) = &search_state.search_rx {
             if let Ok(done) = rx.try_recv() {
                 // Check if the search encountered an error
-                if let Some(error_msg) = &done.error {
-                    // Convert search error string to ThothError
-                    search_error = Some(ThothError::SearchError {
-                        query: done.query.clone(),
-                        reason: error_msg.clone(),
-                    });
+                if let Some(error) = &done.error {
+                    search_error = Some(error.clone());
                 }
                 search_state.search = done.clone();
                 msg_to_central = Some(search::SearchMessage::StartSearch(done));

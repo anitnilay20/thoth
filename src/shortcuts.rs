@@ -266,11 +266,7 @@ fn parse_key(key_str: &str) -> egui::Key {
         // Letters - single uppercase letter
         key if key.len() == 1 => {
             // Safe: we just checked len() == 1, so there's always a first char
-            let ch = key
-                .chars()
-                .next()
-                .map(|c| c.to_ascii_uppercase())
-                .unwrap_or('A');
+            let ch = key.chars().next().map(|c| c.to_ascii_uppercase()).unwrap();
             match ch {
                 'A' => egui::Key::A,
                 'B' => egui::Key::B,

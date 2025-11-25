@@ -628,11 +628,10 @@ impl ThothApp {
                     }
                     components::error_modal::ErrorModalEvent::Retry => {
                         // Clear error and retry the operation
-                        // For file operations, this means trying to reload
-                        if let Some(path) = &self.window_state.file_path {
-                            let path = path.clone();
+                        // For file operations, trigger a reload by clearing and restoring the path
+                        if let Some(path) = self.window_state.file_path.take() {
                             self.window_state.error = None;
-                            self.window_state.file_path = None;
+                            // Setting the path again triggers the reload logic in central_panel
                             self.window_state.file_path = Some(path);
                         } else {
                             self.window_state.error = None;

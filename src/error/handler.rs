@@ -23,13 +23,6 @@ impl ErrorHandler {
                     path.display()
                 )
             }
-            ThothError::FileParseError { path, reason } => {
-                format!(
-                    "The file could not be parsed:\n{}\n\nReason: {}",
-                    path.display(),
-                    reason
-                )
-            }
             ThothError::InvalidFileType { path, expected } => {
                 format!(
                     "Invalid file type:\n{}\n\nExpected: {}",
@@ -106,7 +99,6 @@ impl ErrorHandler {
             // File errors - mostly recoverable (user can select different file)
             ThothError::FileNotFound { .. } => true,
             ThothError::FileReadError { .. } => true,
-            ThothError::FileParseError { .. } => true,
             ThothError::InvalidFileType { .. } => true,
             ThothError::FileWriteError { .. } => false, // More serious
 

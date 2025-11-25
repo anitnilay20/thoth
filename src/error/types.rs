@@ -7,7 +7,6 @@ pub enum ThothError {
     FileNotFound { path: PathBuf },
     FileReadError { path: PathBuf, reason: String },
     FileWriteError { path: PathBuf, reason: String },
-    FileParseError { path: PathBuf, reason: String },
     InvalidFileType { path: PathBuf, expected: String },
 
     // JSON/NDJSON parsing errors
@@ -46,9 +45,6 @@ impl std::fmt::Display for ThothError {
             }
             ThothError::FileWriteError { path, reason } => {
                 write!(f, "Failed to write file '{}': {}", path.display(), reason)
-            }
-            ThothError::FileParseError { path, reason } => {
-                write!(f, "Failed to parse file '{}': {}", path.display(), reason)
             }
             ThothError::InvalidFileType { path, expected } => {
                 write!(
@@ -118,8 +114,8 @@ impl From<std::io::Error> for ThothError {
     fn from(err: std::io::Error) -> Self {
         use std::io::ErrorKind;
         match err.kind() {
-            ErrorKind::NotFound => ThothError::FileNotFound {
-                path: PathBuf::new(),
+            ErrorKind::NotFound => ThothError::Unknown {
+                message: format!("File not found: {}", err),
             },
             ErrorKind::PermissionDenied => ThothError::Unknown {
                 message: format!("Permission denied: {}", err),

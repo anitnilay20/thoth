@@ -21,7 +21,13 @@ pub fn get_context_menu_shortcuts() -> (String, String, String, String) {
 }
 
 pub fn load_icon(bytes: &[u8]) -> Option<IconData> {
-    let image = image::load_from_memory(bytes).ok()?.into_rgba8();
+    let image = match image::load_from_memory(bytes) {
+        Ok(img) => img.into_rgba8(),
+        Err(e) => {
+            eprintln!("Failed to load icon: {}", e);
+            return None;
+        }
+    };
     let (w, h) = image.dimensions();
     Some(IconData {
         rgba: image.into_raw(),

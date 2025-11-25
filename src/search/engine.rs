@@ -14,7 +14,7 @@ pub struct Search {
     pub results: Vec<usize>,
     pub scanning: bool,
     pub match_case: bool,
-    pub error: Option<String>,
+    pub error: Option<ThothError>,
 }
 
 impl Search {
@@ -54,7 +54,9 @@ impl Search {
 
         let Some(path) = file.as_ref() else {
             self.scanning = false;
-            self.error = Some("No file loaded".to_string());
+            self.error = Some(ThothError::StateError {
+                reason: "No file loaded".to_string(),
+            });
             return;
         };
 
@@ -63,11 +65,10 @@ impl Search {
             Ok(result) => result,
             Err(e) => {
                 self.scanning = false;
-                let search_error = ThothError::SearchError {
+                self.error = Some(ThothError::SearchError {
                     query: self.query.clone(),
                     reason: format!("Failed to load file for search: {}", e),
-                };
-                self.error = Some(search_error.to_string());
+                });
                 return;
             }
         };
@@ -80,11 +81,10 @@ impl Search {
             Ok(v) => v,
             Err(e) => {
                 self.scanning = false;
-                let search_error = ThothError::SearchError {
+                self.error = Some(ThothError::SearchError {
                     query: self.query.clone(),
                     reason: format!("Search operation failed: {}", e),
-                };
-                self.error = Some(search_error.to_string());
+                });
                 return;
             }
         };

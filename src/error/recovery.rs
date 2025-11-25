@@ -24,7 +24,6 @@ impl ErrorRecovery {
             ThothError::FileNotFound { .. } => RecoveryAction::ShowError,
             ThothError::FileReadError { .. } => RecoveryAction::ShowError,
             ThothError::FileWriteError { .. } => RecoveryAction::ShowError,
-            ThothError::FileParseError { .. } => RecoveryAction::ShowError,
             ThothError::InvalidFileType { .. } => RecoveryAction::ShowError,
 
             // JSON errors - show and allow user to try different file
@@ -58,9 +57,6 @@ impl ErrorRecovery {
             ThothError::FileNotFound { .. } => Some("Try opening a different file.".to_string()),
             ThothError::FileReadError { .. } => {
                 Some("Check file permissions and try again.".to_string())
-            }
-            ThothError::FileParseError { .. } => {
-                Some("This file may be corrupted or in an unsupported format.".to_string())
             }
             ThothError::InvalidFileType { .. } => {
                 Some("Please select a JSON or NDJSON file.".to_string())
