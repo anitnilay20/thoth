@@ -20,7 +20,7 @@ use crate::file::lazy_loader::FileType;
 /// 5. Update the `as_viewer_mut()` match to include the new variant
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// // Step 1 & 2: Create and implement trait (REQUIRED)
 /// pub struct CsvTableViewer { ... }
 /// impl FileFormatViewer for CsvTableViewer { ... }  // Must implement!

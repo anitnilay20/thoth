@@ -1,4 +1,5 @@
 use crate::components::traits::StatefulComponent;
+use crate::error::ErrorHandler;
 use crate::helpers::{format_date, format_date_static};
 use crate::update::{ReleaseInfo, UpdateState, UpdateStatus};
 use eframe::egui;
@@ -224,7 +225,7 @@ impl SettingsPanel {
             UpdateState::Error(error) => {
                 ui.colored_label(egui::Color32::from_rgb(200, 0, 0), "❌ Update Error");
                 ui.add_space(8.0);
-                ui.label(error);
+                ui.label(ErrorHandler::get_user_message(error));
                 ui.add_space(16.0);
 
                 let retry_button = ui.add_sized(

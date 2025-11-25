@@ -15,12 +15,18 @@ impl app::ThothApp {
                 if let Some(path) = &file.path {
                     use std::fmt::Write as _;
                     if let Err(e) = write!(text, "\n{}", path.display()) {
-                        self.window_state.error = Some(format!("Failed to format file path: {e}"));
+                        self.window_state.error = Some(crate::error::ThothError::UIRenderError {
+                            component: "DragAndDrop".to_string(),
+                            reason: format!("Failed to format file path: {e}"),
+                        });
                     }
                 } else if !file.mime.is_empty() {
                     use std::fmt::Write as _;
                     if let Err(e) = write!(text, "\n{}", file.mime) {
-                        self.window_state.error = Some(format!("Failed to format MIME type: {e}"));
+                        self.window_state.error = Some(crate::error::ThothError::UIRenderError {
+                            component: "DragAndDrop".to_string(),
+                            reason: format!("Failed to format MIME type: {e}"),
+                        });
                     }
                 }
             }
@@ -53,10 +59,12 @@ impl app::ThothApp {
                             self.window_state.error = None;
                             self.window_state.toolbar.previous_file_type = ft;
                         }
-                        Err(e) => {
-                            self.window_state.error = Some(format!(
-                                "Failed to detect file type (expect JSON / NDJSON): {e}"
-                            ));
+                        Err(_) => {
+                            self.window_state.error =
+                                Some(crate::error::ThothError::InvalidFileType {
+                                    path: path.clone(),
+                                    expected: "JSON or NDJSON".to_string(),
+                                });
                         }
                     }
                     break; // only process first dropped file

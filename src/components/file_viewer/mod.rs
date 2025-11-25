@@ -60,7 +60,7 @@ impl FileViewer {
     }
 
     /// Open a file for viewing (compatible with old JsonViewer API)
-    pub fn open(&mut self, path: &Path, file_type: &mut FileType) -> anyhow::Result<()> {
+    pub fn open(&mut self, path: &Path, file_type: &mut FileType) -> crate::error::Result<()> {
         // Load file and detect type
         let (detected_type, loader) = load_file_auto(path)?;
         *file_type = detected_type.into();
@@ -86,16 +86,15 @@ impl FileViewer {
 
     /// Render the file viewer UI
     pub fn ui(&mut self, ui: &mut Ui) {
-        if self.loader.is_none() || self.viewer.is_none() {
+        let (Some(loader), Some(viewer_box)) = (self.loader.as_mut(), self.viewer.as_mut()) else {
             ui.centered_and_justified(|ui| {
                 ui.label("No file loaded");
             });
             return;
-        }
+        };
 
-        let loader = self.loader.as_mut().unwrap();
         let total_len = loader.len();
-        let viewer = self.viewer.as_mut().unwrap().as_viewer_mut();
+        let viewer = viewer_box.as_viewer_mut();
 
         // Rebuild view initially or when visible roots change
         viewer.rebuild_view(
@@ -144,16 +143,17 @@ impl FileViewer {
     pub fn expand_selected_node(&mut self) -> bool {
         if let Some(viewer) = self.viewer.as_mut() {
             let result = viewer.as_viewer_mut().expand_selected(&self.state.selected);
-            if result && self.loader.is_some() {
-                // Rebuild if needed
-                let loader = self.loader.as_mut().unwrap();
-                let total_len = loader.len();
-                viewer.as_viewer_mut().rebuild_view(
-                    &self.state.visible_roots,
-                    &mut self.cache,
-                    loader,
-                    total_len,
-                );
+            if result {
+                if let Some(loader) = self.loader.as_mut() {
+                    // Rebuild if needed
+                    let total_len = loader.len();
+                    viewer.as_viewer_mut().rebuild_view(
+                        &self.state.visible_roots,
+                        &mut self.cache,
+                        loader,
+                        total_len,
+                    );
+                }
             }
             return result;
         }
@@ -167,16 +167,17 @@ impl FileViewer {
             let result = viewer
                 .as_viewer_mut()
                 .collapse_selected(&self.state.selected);
-            if result && self.loader.is_some() {
-                // Rebuild if needed
-                let loader = self.loader.as_mut().unwrap();
-                let total_len = loader.len();
-                viewer.as_viewer_mut().rebuild_view(
-                    &self.state.visible_roots,
-                    &mut self.cache,
-                    loader,
-                    total_len,
-                );
+            if result {
+                if let Some(loader) = self.loader.as_mut() {
+                    // Rebuild if needed
+                    let total_len = loader.len();
+                    viewer.as_viewer_mut().rebuild_view(
+                        &self.state.visible_roots,
+                        &mut self.cache,
+                        loader,
+                        total_len,
+                    );
+                }
             }
             return result;
         }
@@ -187,16 +188,17 @@ impl FileViewer {
     pub fn expand_all_nodes(&mut self) -> bool {
         if let Some(viewer) = self.viewer.as_mut() {
             let result = viewer.as_viewer_mut().expand_all();
-            if result && self.loader.is_some() {
-                // Rebuild if needed
-                let loader = self.loader.as_mut().unwrap();
-                let total_len = loader.len();
-                viewer.as_viewer_mut().rebuild_view(
-                    &self.state.visible_roots,
-                    &mut self.cache,
-                    loader,
-                    total_len,
-                );
+            if result {
+                if let Some(loader) = self.loader.as_mut() {
+                    // Rebuild if needed
+                    let total_len = loader.len();
+                    viewer.as_viewer_mut().rebuild_view(
+                        &self.state.visible_roots,
+                        &mut self.cache,
+                        loader,
+                        total_len,
+                    );
+                }
             }
             return result;
         }
@@ -207,16 +209,17 @@ impl FileViewer {
     pub fn collapse_all_nodes(&mut self) -> bool {
         if let Some(viewer) = self.viewer.as_mut() {
             let result = viewer.as_viewer_mut().collapse_all();
-            if result && self.loader.is_some() {
-                // Rebuild if needed
-                let loader = self.loader.as_mut().unwrap();
-                let total_len = loader.len();
-                viewer.as_viewer_mut().rebuild_view(
-                    &self.state.visible_roots,
-                    &mut self.cache,
-                    loader,
-                    total_len,
-                );
+            if result {
+                if let Some(loader) = self.loader.as_mut() {
+                    // Rebuild if needed
+                    let total_len = loader.len();
+                    viewer.as_viewer_mut().rebuild_view(
+                        &self.state.visible_roots,
+                        &mut self.cache,
+                        loader,
+                        total_len,
+                    );
+                }
             }
             return result;
         }

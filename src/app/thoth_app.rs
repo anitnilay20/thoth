@@ -110,13 +110,18 @@ impl App for ThothApp {
         let incoming_msg = toolbar_msg.or(sidebar_msg);
 
         // Handle search messages
-        let msg_to_central = SearchHandler::handle_search_messages(
+        let (msg_to_central, search_error) = SearchHandler::handle_search_messages(
             incoming_msg,
             &mut self.window_state.search_engine_state,
             &self.window_state.file_path,
             &self.window_state.file_type,
             ctx,
         );
+
+        // Handle search errors
+        if let Some(error) = search_error {
+            self.window_state.error = Some(error);
+        }
 
         // Apply theme and font settings
         crate::theme::apply_theme(ctx, &self.settings);
@@ -126,6 +131,9 @@ impl App for ThothApp {
 
         // Render the central panel and handle events
         self.render_central_panel(ctx, msg_to_central);
+
+        // Render error modal if there's an error
+        self.render_error_modal(ctx);
 
         // Show profiler if enabled (only when profiling feature is enabled)
         #[cfg(feature = "profiling")]
@@ -590,5 +598,70 @@ impl ThothApp {
         }
 
         None
+    }
+
+    fn render_error_modal(&mut self, ctx: &egui::Context) {
+        use crate::components::traits::StatefulComponent;
+        use crate::error::RecoveryAction;
+
+        // Only render if there's an error
+        if let Some(error) = &self.window_state.error {
+            // Create a temporary UI to pass to the modal
+            let mut output = None;
+            egui::Area::new("error_modal_area".into())
+                .movable(false)
+                .interactable(false)
+                .show(ctx, |ui| {
+                    output = Some(self.window_state.error_modal.render(
+                        ui,
+                        components::error_modal::ErrorModalProps { error, open: true },
+                    ));
+                });
+
+            let Some(output) = output else { return };
+
+            // Handle error modal events and recovery actions
+            for event in output.events {
+                match event {
+                    components::error_modal::ErrorModalEvent::Close => {
+                        self.window_state.error = None;
+                    }
+                    components::error_modal::ErrorModalEvent::Retry => {
+                        // Clear error and retry the operation
+                        // For file operations, trigger a reload by clearing and restoring the path
+                        if let Some(path) = self.window_state.file_path.take() {
+                            self.window_state.error = None;
+                            // Setting the path again triggers the reload logic in central_panel
+                            self.window_state.file_path = Some(path);
+                        } else {
+                            self.window_state.error = None;
+                        }
+                    }
+                    components::error_modal::ErrorModalEvent::Reset => {
+                        // Reset to initial state
+                        self.window_state.error = None;
+                        self.window_state.file_path = None;
+                        self.window_state.total_items = 0;
+                        self.window_state.search_engine_state.search =
+                            crate::search::Search::default();
+                    }
+                }
+            }
+
+            // Handle automatic recovery actions
+            if let Some(recovery_action) = output.recovery_action {
+                match recovery_action {
+                    RecoveryAction::ClearError => {
+                        self.window_state.error = None;
+                    }
+                    RecoveryAction::Reset => {
+                        self.window_state.error = None;
+                        self.window_state.file_path = None;
+                        self.window_state.total_items = 0;
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 }

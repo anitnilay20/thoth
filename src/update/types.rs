@@ -37,7 +37,7 @@ pub enum UpdateState {
         path: std::path::PathBuf,
     },
     Installing,
-    Error(String),
+    Error(crate::error::ThothError),
 }
 
 #[derive(Debug, Clone)]

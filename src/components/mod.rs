@@ -1,6 +1,7 @@
 pub mod central_panel;
 pub mod data_row;
 pub mod drag_and_drop;
+pub mod error_modal;
 pub mod file_viewer;
 pub mod icon_button;
 pub mod recent_files;

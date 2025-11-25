@@ -5,6 +5,7 @@ use std::{path::PathBuf, sync::mpsc};
 use memchr::memmem;
 use rayon::prelude::*;
 
+use crate::error::ThothError;
 use crate::file::lazy_loader::{FileType, LazyJsonFile, load_file_auto};
 
 #[derive(Default, Debug, Clone)]
@@ -13,6 +14,7 @@ pub struct Search {
     pub results: Vec<usize>,
     pub scanning: bool,
     pub match_case: bool,
+    pub error: Option<ThothError>,
 }
 
 impl Search {
@@ -43,18 +45,32 @@ impl Search {
     pub fn start_scanning_internal(&mut self, file: &Option<PathBuf>, _file_type: &FileType) {
         self.scanning = true;
         self.results.clear();
+        self.error = None;
 
-        if self.query.is_empty() || file.is_none() {
+        if self.query.is_empty() {
             self.scanning = false;
             return;
         }
 
-        let path = file.as_ref().unwrap();
+        let Some(path) = file.as_ref() else {
+            self.scanning = false;
+            self.error = Some(ThothError::StateError {
+                reason: "No file loaded".to_string(),
+            });
+            return;
+        };
 
         // Open lazily (auto-detect NDJSON / array JSON / single object)
-        let Ok((_detected, store)) = load_file_auto(path) else {
-            self.scanning = false;
-            return;
+        let (_detected, store) = match load_file_auto(path) {
+            Ok(result) => result,
+            Err(e) => {
+                self.scanning = false;
+                self.error = Some(ThothError::SearchError {
+                    query: self.query.clone(),
+                    reason: format!("Failed to load file for search: {}", e),
+                });
+                return;
+            }
         };
 
         // Move the store into an Arc so threads can share it immutably.
@@ -63,9 +79,12 @@ impl Search {
         // Parallel scan
         let results = match parallel_scan(store, &self.query, self.match_case) {
             Ok(v) => v,
-            Err(_e) => {
-                // You can surface the error if you prefer.
+            Err(e) => {
                 self.scanning = false;
+                self.error = Some(ThothError::SearchError {
+                    query: self.query.clone(),
+                    reason: format!("Search operation failed: {}", e),
+                });
                 return;
             }
         };
@@ -80,7 +99,7 @@ fn parallel_scan(
     store: Arc<LazyJsonFile>,
     query: &str,
     match_case: bool,
-) -> anyhow::Result<Vec<usize>> {
+) -> crate::error::Result<Vec<usize>> {
     let total = store.len();
     if total == 0 {
         return Ok(Vec::new());
