@@ -26,6 +26,8 @@ pub struct SidebarProps<'a> {
     pub update_status: &'a crate::update::UpdateStatus,
     /// Current version for settings panel
     pub current_version: &'a str,
+    /// Current search state with results
+    pub search_state: &'a crate::search::Search,
 }
 
 /// Events emitted by the Sidebar
@@ -38,6 +40,7 @@ pub enum SidebarEvent {
     WidthChanged(f32),
     // Search events
     Search(SearchMessage),
+    NavigateToSearchResult { record_index: usize },
     // Settings events
     CheckForUpdates,
     DownloadUpdate,
@@ -220,6 +223,7 @@ impl Sidebar {
             ui,
             SearchProps {
                 just_opened: props.focus_search,
+                search_state: props.search_state,
             },
         );
 
@@ -227,6 +231,9 @@ impl Sidebar {
         for event in search_output.events {
             match event {
                 SearchEvent::Search(msg) => events.push(SidebarEvent::Search(msg)),
+                SearchEvent::NavigateToResult { record_index } => {
+                    events.push(SidebarEvent::NavigateToSearchResult { record_index })
+                }
             }
         }
     }

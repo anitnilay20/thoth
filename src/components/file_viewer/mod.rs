@@ -84,6 +84,42 @@ impl FileViewer {
         self.state.visible_roots = visible_roots;
     }
 
+    /// Navigate to and expand a specific root record by index
+    /// This selects the record, expands it, and scrolls to it
+    pub fn navigate_to_root(&mut self, root_index: usize) -> bool {
+        // Set selection to the root record path (e.g., "0", "1", "2")
+        let path = root_index.to_string();
+        eprintln!(
+            "[NAV DEBUG] Navigating to root index: {}, path: '{}'",
+            root_index, path
+        );
+        self.state.selected = Some(path);
+
+        // Trigger scroll to selection on next render
+        self.state.should_scroll_to_selection = true;
+        eprintln!("[NAV DEBUG] Set should_scroll_to_selection = true");
+
+        // Delegate to the viewer's navigate_to_root implementation and rebuild if needed
+        if let Some(viewer) = self.viewer.as_mut() {
+            let needs_rebuild = viewer.as_viewer_mut().navigate_to_root(root_index);
+            if needs_rebuild {
+                if let Some(loader) = self.loader.as_mut() {
+                    // Rebuild view immediately so rows are ready for scrolling
+                    let total_len = loader.len();
+                    viewer.as_viewer_mut().rebuild_view(
+                        &self.state.visible_roots,
+                        &mut self.cache,
+                        loader,
+                        total_len,
+                    );
+                }
+            }
+            return needs_rebuild;
+        }
+
+        false
+    }
+
     /// Render the file viewer UI
     pub fn ui(&mut self, ui: &mut Ui) {
         let (Some(loader), Some(viewer_box)) = (self.loader.as_mut(), self.viewer.as_mut()) else {
@@ -122,11 +158,6 @@ impl FileViewer {
                 total_len,
             );
         }
-    }
-
-    /// Get the current filter length if a filter is active (compatible with old JsonViewer API)
-    pub fn current_filter_len(&self) -> Option<usize> {
-        self.state.visible_roots.as_ref().map(|v| v.len())
     }
 
     /// Get the total number of root items in the loaded file

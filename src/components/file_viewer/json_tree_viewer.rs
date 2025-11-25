@@ -632,4 +632,15 @@ impl FileFormatViewer for JsonTreeViewer {
     fn copy_selected_path(&self, selected: &Option<String>) -> Option<String> {
         ContextMenuHandler::copy_selected_path(self, selected)
     }
+
+    fn navigate_to_root(&mut self, root_index: usize) -> bool {
+        // Create the path for the root record (e.g., "0", "1", "2")
+        let path = root_index.to_string();
+
+        // Expand this root record to show its contents
+        self.expanded.insert(path);
+
+        // Need to rebuild the view since we expanded a node
+        true
+    }
 }

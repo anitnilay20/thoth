@@ -1,17 +1,23 @@
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
-use crate::search::SearchMessage;
+use crate::search::{Search as SearchState, SearchMessage};
 use eframe::egui;
 
 /// Props passed to the Search panel (immutable, one-way binding)
-pub struct SearchProps {
+pub struct SearchProps<'a> {
     /// Whether this is the first render since the panel was opened
     pub just_opened: bool,
+    /// Current search state with results
+    pub search_state: &'a SearchState,
 }
 
 /// Events emitted by the Search panel
 pub enum SearchEvent {
     Search(SearchMessage),
+    /// User clicked on a search result to navigate to it
+    NavigateToResult {
+        record_index: usize,
+    },
 }
 
 pub struct SearchOutput {
@@ -26,7 +32,7 @@ pub struct Search {
 }
 
 impl StatefulComponent for Search {
-    type Props<'a> = SearchProps;
+    type Props<'a> = SearchProps<'a>;
     type Output = SearchOutput;
 
     fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
@@ -158,6 +164,75 @@ impl StatefulComponent for Search {
                 "Match case",
             )
         });
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        // Display search results list
+        if !props.search_state.query.is_empty() {
+            let result_count = props.search_state.results.len();
+
+            if props.search_state.scanning {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Spinner::new().size(14.0));
+                    ui.label("Searching...");
+                });
+            } else if result_count > 0 {
+                ui.label(
+                    egui::RichText::new(format!("{} result(s)", result_count))
+                        .size(12.0)
+                        .color(header_color),
+                );
+                ui.add_space(4.0);
+
+                // Scrollable results list with virtual scrolling for performance
+                let row_height = 30.0; // 28px button + 2px spacing
+                let row_count = result_count;
+
+                egui::ScrollArea::vertical()
+                    .id_salt("search_results_scroll")
+                    .auto_shrink([false, false])
+                    .show_rows(ui, row_height, row_count, |ui, row_range| {
+                        for idx in row_range {
+                            let record_index = props.search_state.results[idx];
+                            let is_even = idx % 2 == 0;
+                            let bg_color = if is_even {
+                                ui.visuals().faint_bg_color
+                            } else {
+                                ui.visuals().extreme_bg_color
+                            };
+
+                            let button = egui::Button::new(
+                                egui::RichText::new(format!("Record #{}", record_index)).size(12.0),
+                            )
+                            .fill(bg_color)
+                            .frame(true)
+                            .min_size(egui::vec2(ui.available_width(), 28.0));
+
+                            let response = ui.add(button);
+
+                            // Set pointer cursor on hover
+                            if response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+
+                            if response.clicked() {
+                                events.push(SearchEvent::NavigateToResult { record_index });
+                            }
+
+                            // Add small spacing between buttons to prevent overlap
+                            ui.add_space(2.0);
+                        }
+                    });
+            } else {
+                ui.label(
+                    egui::RichText::new("No results found")
+                        .size(12.0)
+                        .color(ui.visuals().weak_text_color()),
+                );
+            }
+        }
 
         SearchOutput { events }
     }

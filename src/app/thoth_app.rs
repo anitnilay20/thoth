@@ -502,6 +502,7 @@ impl ThothApp {
                 focus_search,
                 update_status: &self.update_state.update_status,
                 current_version: env!("CARGO_PKG_VERSION"),
+                search_state: &self.window_state.search_engine_state.search,
             },
         );
 
@@ -561,6 +562,12 @@ impl ThothApp {
                 components::sidebar::SidebarEvent::Search(msg) => {
                     // Handle search from sidebar
                     return Some(msg);
+                }
+                components::sidebar::SidebarEvent::NavigateToSearchResult { record_index } => {
+                    // Navigate to the selected search result in the main view
+                    self.window_state
+                        .central_panel
+                        .navigate_to_record(record_index);
                 }
                 components::sidebar::SidebarEvent::CheckForUpdates => {
                     // Trigger update check

@@ -100,6 +100,14 @@ pub trait FileFormatViewer {
         None // Default: no-op
     }
 
+    /// Navigate to a specific root record by index
+    /// This should select the record and expand it if applicable
+    /// Returns true if a rebuild is needed
+    fn navigate_to_root(&mut self, root_index: usize) -> bool {
+        let _ = root_index;
+        false // Default: no-op
+    }
+
     // ========================================================================
     // Clipboard Operations (for keyboard shortcuts)
     // ========================================================================

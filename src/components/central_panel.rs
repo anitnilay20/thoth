@@ -125,19 +125,13 @@ impl CentralPanel {
             self.searching = msg.is_searching();
 
             match msg {
-                search::SearchMessage::StartSearch(s) => {
-                    // Apply the filter to the viewer using returned indices.
-                    // (Ignore `scanning` flag here; you can send multiple StartSearch as results accumulate.)
-                    if s.results.is_empty() {
-                        // show "no matches" by filtering to empty set
-                        self.file_viewer.set_root_filter(Some(Vec::new()));
-                    } else {
-                        self.file_viewer.set_root_filter(Some(s.results.clone()));
-                    }
+                search::SearchMessage::StartSearch(_s) => {
+                    // Search results are now displayed in the sidebar as a clickable list
+                    // Don't filter the main view - keep all records visible
+                    // Users can click on search results to navigate to them
                 }
                 search::SearchMessage::StopSearch => {
-                    // Clear filter; show all rows
-                    self.file_viewer.set_root_filter(None);
+                    // No filtering to clear
                 }
             }
         }
@@ -164,17 +158,7 @@ impl CentralPanel {
                 return;
             }
 
-            if let Some(count) = self.file_viewer.current_filter_len() {
-                ui.horizontal(|ui| {
-                    ui.label(format!("Filtered to {} record(s)", count));
-                    if ui.button("Clear filter").clicked() {
-                        self.file_viewer.set_root_filter(None);
-                    }
-                });
-                ui.separator();
-            }
-
-            // Render the viewer
+            // Render the viewer (no filtering UI needed - search results shown in sidebar)
             self.file_viewer.ui(ui);
         });
     }
@@ -231,5 +215,10 @@ impl CentralPanel {
     /// Copy the path of the currently selected item (for keyboard shortcuts)
     pub fn copy_selected_path(&mut self) -> Option<String> {
         self.file_viewer.copy_selected_path()
+    }
+
+    /// Navigate to a specific root record (for search result navigation)
+    pub fn navigate_to_record(&mut self, record_index: usize) {
+        self.file_viewer.navigate_to_root(record_index);
     }
 }
