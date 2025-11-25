@@ -5,14 +5,15 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-use anyhow::Result;
 use eframe::{NativeOptions, egui};
+use thoth::error::Result;
 
 use crate::helpers::load_icon;
 
 mod app;
 mod components;
 mod constants;
+mod error;
 mod file;
 mod helpers;
 mod search;
@@ -43,9 +44,12 @@ fn main() -> Result<()> {
     let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
 
     // Configure window from settings
+    let mut viewport = egui::ViewportBuilder::default();
+    if let Some(icon_data) = icon {
+        viewport = viewport.with_icon(icon_data);
+    }
     let options = NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_icon(icon)
+        viewport: viewport
             .with_inner_size([
                 settings.window.default_width,
                 settings.window.default_height,
@@ -79,7 +83,7 @@ fn main() -> Result<()> {
 
     if let Err(e) = result {
         eprintln!("Error running application: {e:?}");
-        return Err(anyhow::anyhow!("Failed to run application"));
+        return Err("Failed to run application".into());
     }
     Ok(())
 }

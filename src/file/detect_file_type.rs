@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use crate::error::{Result, ThothError};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
@@ -11,14 +11,33 @@ pub enum DetectedFileType {
 }
 
 pub fn sniff_file_type(path: &Path) -> Result<DetectedFileType> {
-    let file = File::open(path).with_context(|| "open for sniffing")?;
+    let file = File::open(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            ThothError::FileNotFound {
+                path: path.to_path_buf(),
+            }
+        } else {
+            ThothError::FileReadError {
+                path: path.to_path_buf(),
+                reason: e.to_string(),
+            }
+        }
+    })?;
     let mut reader = BufReader::new(file);
 
     // Read a small prefix to find the first non-ws char
     let mut prefix = [0u8; 8192];
-    let n = reader.read(&mut prefix)?;
+    let n = reader
+        .read(&mut prefix)
+        .map_err(|e| ThothError::FileReadError {
+            path: path.to_path_buf(),
+            reason: e.to_string(),
+        })?;
     if n == 0 {
-        return Err(anyhow!("empty file"));
+        return Err(ThothError::InvalidFileType {
+            path: path.to_path_buf(),
+            expected: "non-empty JSON or NDJSON file".to_string(),
+        });
     }
     let bytes = &prefix[..n];
 
@@ -30,7 +49,10 @@ pub fn sniff_file_type(path: &Path) -> Result<DetectedFileType> {
     while i < bytes.len() && matches!(bytes[i], b' ' | b'\n' | b'\r' | b'\t') {
         i += 1;
     }
-    let first = *bytes.get(i).ok_or_else(|| anyhow!("no content"))?;
+    let first = *bytes.get(i).ok_or_else(|| ThothError::InvalidFileType {
+        path: path.to_path_buf(),
+        expected: "file with JSON content".to_string(),
+    })?;
 
     if first == b'[' {
         return Ok(DetectedFileType::JsonArray);
@@ -42,11 +64,14 @@ pub fn sniff_file_type(path: &Path) -> Result<DetectedFileType> {
     }
 
     // Starts with '{' – could be Object or NDJSON. Check first two non-empty lines.
-    ndjson_if_two_lines_parse(path).or_else(|_| Ok(DetectedFileType::JsonObject))
+    ndjson_if_two_lines_parse(path).or(Ok(DetectedFileType::JsonObject))
 }
 
 fn ndjson_if_two_lines_parse(path: &Path) -> Result<DetectedFileType> {
-    let file = File::open(path)?;
+    let file = File::open(path).map_err(|e| ThothError::FileReadError {
+        path: path.to_path_buf(),
+        reason: e.to_string(),
+    })?;
     let mut reader = BufReader::new(file);
 
     let mut valid = 0usize;
@@ -54,7 +79,14 @@ fn ndjson_if_two_lines_parse(path: &Path) -> Result<DetectedFileType> {
     // Look only at the first few non-empty lines
     for _ in 0..8 {
         buf.clear();
-        if reader.read_line(&mut buf)? == 0 {
+        if reader
+            .read_line(&mut buf)
+            .map_err(|e| ThothError::FileReadError {
+                path: path.to_path_buf(),
+                reason: e.to_string(),
+            })?
+            == 0
+        {
             break;
         }
         let line = buf.trim();
@@ -72,5 +104,8 @@ fn ndjson_if_two_lines_parse(path: &Path) -> Result<DetectedFileType> {
             break;
         }
     }
-    Err(anyhow!("not NDJSON by line sniff"))
+    Err(ThothError::InvalidFileType {
+        path: path.to_path_buf(),
+        expected: "NDJSON format (newline-delimited JSON)".to_string(),
+    })
 }

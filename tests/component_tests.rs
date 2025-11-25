@@ -18,7 +18,6 @@ fn test_data_row_basic() {
             ui,
             DataRowProps {
                 display_text: "key: value",
-                indent: 0,
                 text_tokens: (TextToken::Key, Some(TextToken::Str)),
                 background: ui.visuals().widgets.noninteractive.bg_fill,
                 row_id: "test-row",
@@ -38,7 +37,6 @@ fn test_data_row_with_brackets() {
             ui,
             DataRowProps {
                 display_text: "array: []",
-                indent: 1,
                 text_tokens: (TextToken::Key, Some(TextToken::Bracket)),
                 background: ui.visuals().widgets.noninteractive.bg_fill,
                 row_id: "array-row",
@@ -53,15 +51,14 @@ fn test_data_row_with_brackets() {
 fn test_data_row_with_indentation() {
     run_ui_test(|ui| {
         // Test various indentation levels
-        for indent in 0..5 {
+        for level in 0..5 {
             let output = DataRow::render(
                 ui,
                 DataRowProps {
-                    display_text: &format!("level{}: value", indent),
-                    indent,
+                    display_text: &format!("level{}: value", level),
                     text_tokens: (TextToken::Key, Some(TextToken::Str)),
                     background: ui.visuals().widgets.noninteractive.bg_fill,
-                    row_id: &format!("indent-{}", indent),
+                    row_id: &format!("indent-{}", level),
                 },
             );
 
@@ -85,7 +82,6 @@ fn test_data_row_different_text_tokens() {
                 ui,
                 DataRowProps {
                     display_text: "test: value",
-                    indent: 0,
                     text_tokens: (*token1, *token2),
                     background: ui.visuals().widgets.noninteractive.bg_fill,
                     row_id: &format!("token-{}", i),
@@ -106,7 +102,6 @@ fn test_data_row_with_selection_background() {
             ui,
             DataRowProps {
                 display_text: "selected: item",
-                indent: 0,
                 text_tokens: (TextToken::Key, Some(TextToken::Str)),
                 background: selected_bg,
                 row_id: "selected-row",

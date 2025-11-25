@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use crate::error::{Result, ThothError};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -95,14 +95,19 @@ impl Settings {
     /// Returns: ~/.config/thoth/settings.toml on Linux/macOS
     ///          %APPDATA%/thoth/settings.toml on Windows
     pub fn settings_file_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().context("Failed to get config directory")?;
+        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::SettingsLoadError {
+            reason: "Failed to get config directory".to_string(),
+        })?;
 
         let thoth_config_dir = config_dir.join("thoth");
 
         // Create directory if it doesn't exist
         if !thoth_config_dir.exists() {
-            std::fs::create_dir_all(&thoth_config_dir)
-                .context("Failed to create thoth config directory")?;
+            std::fs::create_dir_all(&thoth_config_dir).map_err(|e| {
+                ThothError::SettingsSaveError {
+                    reason: format!("Failed to create thoth config directory: {}", e),
+                }
+            })?;
         }
 
         Ok(thoth_config_dir.join("settings.toml"))
@@ -113,11 +118,16 @@ impl Settings {
         let settings_path = Self::settings_file_path()?;
 
         if settings_path.exists() {
-            let contents =
-                std::fs::read_to_string(&settings_path).context("Failed to read settings file")?;
+            let contents = std::fs::read_to_string(&settings_path).map_err(|e| {
+                ThothError::SettingsLoadError {
+                    reason: format!("Failed to read settings file: {}", e),
+                }
+            })?;
 
             let settings: Settings =
-                toml::from_str(&contents).context("Failed to parse settings file")?;
+                toml::from_str(&contents).map_err(|e| ThothError::SettingsLoadError {
+                    reason: format!("Failed to parse settings file: {}", e),
+                })?;
 
             // Save settings back to file to ensure any new fields are added
             // This allows seamless updates when new settings are added to the struct
@@ -136,9 +146,14 @@ impl Settings {
     pub fn save(&self) -> Result<()> {
         let settings_path = Self::settings_file_path()?;
 
-        let toml_string = toml::to_string_pretty(self).context("Failed to serialize settings")?;
+        let toml_string =
+            toml::to_string_pretty(self).map_err(|e| ThothError::SettingsSaveError {
+                reason: format!("Failed to serialize settings: {}", e),
+            })?;
 
-        std::fs::write(&settings_path, toml_string).context("Failed to write settings file")?;
+        std::fs::write(&settings_path, toml_string).map_err(|e| ThothError::SettingsSaveError {
+            reason: format!("Failed to write settings file: {}", e),
+        })?;
 
         Ok(())
     }
