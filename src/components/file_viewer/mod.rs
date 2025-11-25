@@ -89,15 +89,12 @@ impl FileViewer {
     pub fn navigate_to_root(&mut self, root_index: usize) -> bool {
         // Set selection to the root record path (e.g., "0", "1", "2")
         let path = root_index.to_string();
-        eprintln!(
-            "[NAV DEBUG] Navigating to root index: {}, path: '{}'",
-            root_index, path
-        );
         self.state.selected = Some(path);
 
         // Trigger scroll to selection on next render
         self.state.should_scroll_to_selection = true;
-        eprintln!("[NAV DEBUG] Set should_scroll_to_selection = true");
+        // Mark this as search navigation (large jump) not keyboard navigation
+        self.state.is_search_navigation = true;
 
         // Delegate to the viewer's navigate_to_root implementation and rebuild if needed
         if let Some(viewer) = self.viewer.as_mut() {
@@ -147,7 +144,13 @@ impl FileViewer {
             &mut self.cache,
             loader,
             &mut self.state.should_scroll_to_selection,
+            self.state.is_search_navigation,
         );
+
+        // Reset the search navigation flag after rendering
+        if self.state.is_search_navigation {
+            self.state.is_search_navigation = false;
+        }
 
         // Rebuild if needed (e.g., user toggled expansion)
         if needs_rebuild {

@@ -3,8 +3,8 @@ use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
 use crate::file::lazy_loader::LazyJsonFile;
 use crate::helpers::{
-    LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_selection,
-    split_root_rel,
+    LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_search_target,
+    scroll_to_selection, split_root_rel,
 };
 use crate::theme::{ROW_HEIGHT, TextToken, row_fill, selected_row_bg};
 use eframe::egui::{self, Ui};
@@ -25,6 +25,9 @@ pub struct JsonTreeViewer {
 
     /// Flattened render list
     rows: Vec<JsonRow>,
+
+    /// Target row index for search navigation (persists across frames)
+    search_target_row: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -48,6 +51,7 @@ impl JsonTreeViewer {
         Self {
             expanded: HashSet::new(),
             rows: Vec::new(),
+            search_target_row: None,
         }
     }
 
@@ -222,6 +226,7 @@ impl JsonTreeViewer {
         cache: &mut LruCache<usize, Value>,
         loader: &mut LazyJsonFile,
         should_scroll_to_selection: &mut bool,
+        is_search_navigation: bool,
     ) -> bool {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -244,20 +249,42 @@ impl JsonTreeViewer {
             ui.memory_mut(|mem| mem.request_focus(scroll_area_response.id));
         }
 
+        // Set target row for search navigation (persists across frames)
+        if *should_scroll_to_selection && is_search_navigation {
+            if let Some(selected_path) = selected.as_ref() {
+                if let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
+                    self.search_target_row = Some(row_idx);
+                    *should_scroll_to_selection = false;
+                }
+            }
+        }
+
         let scroll_area = egui::ScrollArea::both()
             .auto_shrink([false, false])
             .id_salt("json_tree_scroll");
 
+        let search_target = self.search_target_row;
+        let mut target_reached = false;
+
         scroll_area.show_rows(ui, row_height, row_count, |ui, row_range| {
+            // Handle search navigation with incremental scrolling (persists across frames)
+            if let Some(target_row) = search_target {
+                target_reached = scroll_to_search_target(ui, &row_range, target_row, row_height);
+            }
+
+            // Handle keyboard navigation
             if let Some(selected_path) = selected.as_ref() {
                 if let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
-                    scroll_to_selection(
-                        ui,
-                        &row_range,
-                        row_idx,
-                        row_height,
-                        should_scroll_to_selection,
-                    );
+                    // Only use scroll_to_selection for keyboard navigation (not search)
+                    if !is_search_navigation {
+                        scroll_to_selection(
+                            ui,
+                            &row_range,
+                            row_idx,
+                            row_height,
+                            should_scroll_to_selection,
+                        );
+                    }
                 }
             }
 
@@ -395,6 +422,11 @@ impl JsonTreeViewer {
             }
         });
 
+        // Clear search target if reached
+        if target_reached {
+            self.search_target_row = None;
+        }
+
         if let Some(sel) = new_selected {
             *selected = Some(sel);
         }
@@ -508,8 +540,16 @@ impl FileFormatViewer for JsonTreeViewer {
         cache: &mut LruCache<usize, Value>,
         loader: &mut LazyJsonFile,
         should_scroll_to_selection: &mut bool,
+        is_search_navigation: bool,
     ) -> bool {
-        self.render(ui, selected, cache, loader, should_scroll_to_selection)
+        self.render(
+            ui,
+            selected,
+            cache,
+            loader,
+            should_scroll_to_selection,
+            is_search_navigation,
+        )
     }
 
     // ========================================================================
