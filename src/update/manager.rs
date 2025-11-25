@@ -178,7 +178,11 @@ impl UpdateManager {
         }
 
         let total_size = response.content_length().unwrap_or(0);
-        let mut file = std::fs::File::create(&file_path)?;
+        let mut file =
+            std::fs::File::create(&file_path).map_err(|e| ThothError::FileWriteError {
+                path: file_path.clone(),
+                reason: format!("Failed to create file: {}", e),
+            })?;
         let mut downloaded: u64 = 0;
 
         let mut buffer = vec![0; 8192];
@@ -188,7 +192,11 @@ impl UpdateManager {
                 break;
             }
 
-            file.write_all(&buffer[..n])?;
+            file.write_all(&buffer[..n])
+                .map_err(|e| ThothError::FileWriteError {
+                    path: file_path.clone(),
+                    reason: format!("Failed to write data: {}", e),
+                })?;
             downloaded += n as u64;
 
             if total_size > 0 {
@@ -294,8 +302,15 @@ impl UpdateManager {
                 if let Some(p) = outpath.parent() {
                     std::fs::create_dir_all(p)?;
                 }
-                let mut outfile = std::fs::File::create(&outpath)?;
-                std::io::copy(&mut file, &mut outfile)?;
+                let mut outfile =
+                    std::fs::File::create(&outpath).map_err(|e| ThothError::FileWriteError {
+                        path: outpath.clone(),
+                        reason: format!("Failed to create extracted file: {}", e),
+                    })?;
+                std::io::copy(&mut file, &mut outfile).map_err(|e| ThothError::FileWriteError {
+                    path: outpath.clone(),
+                    reason: format!("Failed to write extracted data: {}", e),
+                })?;
             }
         }
         Ok(())

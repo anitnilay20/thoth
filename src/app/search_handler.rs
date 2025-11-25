@@ -1,4 +1,4 @@
-use crate::{search, state};
+use crate::{error::ThothError, search, state};
 use eframe::egui;
 
 /// Handles all search-related logic
@@ -6,18 +6,28 @@ pub struct SearchHandler;
 
 impl SearchHandler {
     /// Process search messages from toolbar and background search
+    /// Returns (message_to_central, error_if_any)
     pub fn handle_search_messages(
         incoming_msg: Option<search::SearchMessage>,
         search_state: &mut state::SearchEngineState,
         file_path: &Option<std::path::PathBuf>,
         file_type: &crate::file::lazy_loader::FileType,
         ctx: &egui::Context,
-    ) -> Option<search::SearchMessage> {
+    ) -> (Option<search::SearchMessage>, Option<ThothError>) {
         let mut msg_to_central: Option<search::SearchMessage> = None;
+        let mut search_error: Option<ThothError> = None;
 
         // Check if background search has completed
         if let Some(rx) = &search_state.search_rx {
             if let Ok(done) = rx.try_recv() {
+                // Check if the search encountered an error
+                if let Some(error_msg) = &done.error {
+                    // Convert search error string to ThothError
+                    search_error = Some(ThothError::SearchError {
+                        query: done.query.clone(),
+                        reason: error_msg.clone(),
+                    });
+                }
                 search_state.search = done.clone();
                 msg_to_central = Some(search::SearchMessage::StartSearch(done));
                 search_state.search_rx = None; // finished
@@ -40,7 +50,7 @@ impl SearchHandler {
             }
         }
 
-        msg_to_central
+        (msg_to_central, search_error)
     }
 
     // Private helper methods

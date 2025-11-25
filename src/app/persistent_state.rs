@@ -1,5 +1,4 @@
-use crate::error::Result;
-use anyhow::Context;
+use crate::error::{Result, ThothError};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -32,13 +31,16 @@ impl PersistentState {
     /// Returns: ~/.config/thoth/persistent_state.json on Linux/macOS
     ///          %APPDATA%/thoth/persistent_state.json on Windows
     fn storage_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().context("Failed to get config directory")?;
+        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::StateError {
+            reason: "Failed to get config directory".to_string(),
+        })?;
         let thoth_config_dir = config_dir.join("thoth");
 
         // Create directory if it doesn't exist
         if !thoth_config_dir.exists() {
-            std::fs::create_dir_all(&thoth_config_dir)
-                .context("Failed to create thoth config directory")?;
+            std::fs::create_dir_all(&thoth_config_dir).map_err(|e| ThothError::StateError {
+                reason: format!("Failed to create thoth config directory: {}", e),
+            })?;
         }
 
         Ok(thoth_config_dir.join("persistent_state.json"))
@@ -49,9 +51,13 @@ impl PersistentState {
         let path = Self::storage_path()?;
 
         if path.exists() {
-            let contents = std::fs::read_to_string(&path).context("Failed to read app state")?;
+            let contents = std::fs::read_to_string(&path).map_err(|e| ThothError::StateError {
+                reason: format!("Failed to read app state: {}", e),
+            })?;
             let app_state: PersistentState =
-                serde_json::from_str(&contents).context("Failed to parse app state")?;
+                serde_json::from_str(&contents).map_err(|e| ThothError::StateError {
+                    reason: format!("Failed to parse app state: {}", e),
+                })?;
             Ok(app_state)
         } else {
             // Try to migrate from old recent_files.json
@@ -61,13 +67,17 @@ impl PersistentState {
 
     /// Migrate from old recent_files.json format
     fn migrate_from_old_format() -> Result<Self> {
-        let config_dir = dirs::config_dir().context("Failed to get config directory")?;
+        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::StateError {
+            reason: "Failed to get config directory".to_string(),
+        })?;
         let old_path = config_dir.join("thoth").join("recent_files.json");
 
         if old_path.exists() {
             // Read old format
             let contents =
-                std::fs::read_to_string(&old_path).context("Failed to read old recent files")?;
+                std::fs::read_to_string(&old_path).map_err(|e| ThothError::StateError {
+                    reason: format!("Failed to read old recent files: {}", e),
+                })?;
 
             #[derive(Deserialize)]
             struct OldFormat {
@@ -102,8 +112,13 @@ impl PersistentState {
     /// Save app state to disk
     pub fn save(&self) -> Result<()> {
         let path = Self::storage_path()?;
-        let json = serde_json::to_string_pretty(self).context("Failed to serialize app state")?;
-        std::fs::write(&path, json).context("Failed to write app state")?;
+        let json = serde_json::to_string_pretty(self).map_err(|e| ThothError::StateError {
+            reason: format!("Failed to serialize app state: {}", e),
+        })?;
+        std::fs::write(&path, &json).map_err(|e| ThothError::FileWriteError {
+            path: path.clone(),
+            reason: e.to_string(),
+        })?;
         Ok(())
     }
 
@@ -218,6 +233,6 @@ mod tests {
 
         // Test minimum width enforcement
         state.set_sidebar_width(100.0);
-        assert_eq!(state.get_sidebar_width(), 240.0);
+        assert_eq!(state.get_sidebar_width(), MIN_SIDEBAR_WIDTH);
     }
 }

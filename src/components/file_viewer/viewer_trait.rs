@@ -10,7 +10,7 @@ use crate::helpers::LruCache;
 /// New file format viewers should implement this trait to integrate with FileViewer.
 ///
 /// # Example
-/// ```
+/// ```ignore
 /// impl FileFormatViewer for JsonTreeViewer {
 ///     fn reset(&mut self) { ... }
 ///     fn rebuild_view(&mut self, ...) { ... }

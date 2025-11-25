@@ -1,5 +1,5 @@
-use crate::error::Result;
-use anyhow::{Context, anyhow};
+use crate::error::{Result, ThothError};
+use anyhow::Context;
 use serde_json::Value;
 use std::{
     fs::File,
@@ -83,7 +83,13 @@ pub struct NdjsonFile {
 impl NdjsonFile {
     /// Position-independent line read (safe for parallel).
     pub fn raw_line(&self, idx: usize) -> Result<Vec<u8>> {
-        let (start, end) = *self.line_spans.get(idx).ok_or_else(|| anyhow!("oob"))?;
+        let (start, end) =
+            *self
+                .line_spans
+                .get(idx)
+                .ok_or_else(|| ThothError::InvalidJsonStructure {
+                    reason: format!("Line index {} out of bounds", idx),
+                })?;
         let len = (end - start) as usize;
         let mut buf = vec![0u8; len];
 
@@ -149,10 +155,13 @@ impl NdjsonFile {
 
     pub fn get(&mut self, idx: usize) -> Result<Value> {
         // Read the exact span and parse (no shared cursor)
-        let (start, end) = *self
-            .line_spans
-            .get(idx)
-            .ok_or_else(|| anyhow!("index out of bounds"))?;
+        let (start, end) =
+            *self
+                .line_spans
+                .get(idx)
+                .ok_or_else(|| ThothError::InvalidJsonStructure {
+                    reason: format!("NDJSON line index {} out of bounds", idx),
+                })?;
         let len = (end - start) as usize;
         let mut buf = vec![0u8; len];
 
@@ -181,7 +190,13 @@ pub struct JsonArrayFile {
 impl JsonArrayFile {
     /// Position-independent element read (safe for parallel).
     pub fn raw_element(&self, idx: usize) -> Result<Vec<u8>> {
-        let (start, end) = *self.element_spans.get(idx).ok_or_else(|| anyhow!("oob"))?;
+        let (start, end) =
+            *self
+                .element_spans
+                .get(idx)
+                .ok_or_else(|| ThothError::InvalidJsonStructure {
+                    reason: format!("Element index {} out of bounds", idx),
+                })?;
         let len = (end - start) as usize;
         let mut buf = vec![0u8; len];
 
@@ -203,8 +218,10 @@ impl JsonArrayFile {
         file.read_to_end(&mut buf)?;
 
         // Find the top-level array and index each element span without parsing it.
-        let spans = index_json_array_elements(&buf)
-            .map_err(|e| anyhow!("failed to index top-level array: {e}"))?;
+        let spans =
+            index_json_array_elements(&buf).map_err(|e| ThothError::InvalidJsonStructure {
+                reason: format!("failed to index top-level array: {}", e),
+            })?;
 
         // Keep the file for later slice reads
         let file = File::open(path)?;
@@ -220,10 +237,13 @@ impl JsonArrayFile {
     }
 
     pub fn get(&mut self, idx: usize) -> Result<Value> {
-        let (start, end) = *self
-            .element_spans
-            .get(idx)
-            .ok_or_else(|| anyhow!("index out of bounds"))?;
+        let (start, end) =
+            *self
+                .element_spans
+                .get(idx)
+                .ok_or_else(|| ThothError::InvalidJsonStructure {
+                    reason: format!("JSON array element index {} out of bounds", idx),
+                })?;
         let len = (end - start) as usize;
         let mut buf = vec![0u8; len];
 
@@ -276,7 +296,9 @@ impl SingleValueFile {
 
     pub fn get(&mut self, idx: usize) -> Result<Value> {
         if idx != 0 {
-            return Err(anyhow!("index out of bounds").into());
+            return Err(ThothError::InvalidJsonStructure {
+                reason: format!("Single JSON object only has index 0, got {}", idx),
+            });
         }
         if let Some(v) = self.parsed.as_ref() {
             return Ok(v.clone());
@@ -305,9 +327,13 @@ impl SingleValueFile {
 
 fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
     // Skip leading whitespace
-    let mut i = skip_ws(bytes, 0).ok_or_else(|| anyhow!("empty file"))?;
+    let mut i = skip_ws(bytes, 0).ok_or_else(|| ThothError::InvalidJsonStructure {
+        reason: "empty file".to_string(),
+    })?;
     if bytes.get(i) != Some(&b'[') {
-        return Err(anyhow!("expected a top-level JSON array").into());
+        return Err(ThothError::InvalidJsonStructure {
+            reason: "expected a top-level JSON array".to_string(),
+        });
     }
     i += 1;
 
@@ -384,7 +410,9 @@ fn index_json_array_elements(bytes: &[u8]) -> Result<Vec<(u64, u64)>> {
 
     // Minimal sanity check: we should have encountered a ']'
     if !bytes.contains(&b']') {
-        return Err(anyhow!("unterminated top-level array").into());
+        return Err(ThothError::InvalidJsonStructure {
+            reason: "unterminated top-level array".to_string(),
+        });
     }
 
     Ok(spans)

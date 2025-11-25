@@ -8,7 +8,7 @@
 //! # Usage
 //!
 //! ```rust
-//! use crate::error::{ThothError, ErrorHandler};
+//! use thoth::error::{ThothError, ErrorHandler};
 //!
 //! let error = ThothError::FileNotFound { path: "data.json".into() };
 //! let message = ErrorHandler::get_user_message(&error);

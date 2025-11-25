@@ -9,12 +9,8 @@ pub enum RecoveryAction {
     Retry,
     /// Show error to user and wait for action
     ShowError,
-    /// Close the current file/view
-    CloseFile,
     /// Reset to initial state
     Reset,
-    /// No recovery possible - show error
-    None,
 }
 
 /// Error recovery strategies
@@ -37,7 +33,6 @@ impl ErrorRecovery {
 
             // Search errors - can be cleared silently
             ThothError::SearchError { .. } => RecoveryAction::ClearError,
-            ThothError::InvalidSearchPattern { .. } => RecoveryAction::ShowError,
 
             // UI errors
             ThothError::UIRenderError { .. } => RecoveryAction::ShowError,
@@ -72,9 +67,6 @@ impl ErrorRecovery {
             }
             ThothError::JsonParseError { .. } => {
                 Some("Check if the file contains valid JSON.".to_string())
-            }
-            ThothError::InvalidSearchPattern { .. } => {
-                Some("Try simplifying your search pattern.".to_string())
             }
             ThothError::UpdateCheckError { .. } => {
                 Some("Check your internet connection and try again later.".to_string())

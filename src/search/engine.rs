@@ -5,6 +5,7 @@ use std::{path::PathBuf, sync::mpsc};
 use memchr::memmem;
 use rayon::prelude::*;
 
+use crate::error::ThothError;
 use crate::file::lazy_loader::{FileType, LazyJsonFile, load_file_auto};
 
 #[derive(Default, Debug, Clone)]
@@ -13,6 +14,7 @@ pub struct Search {
     pub results: Vec<usize>,
     pub scanning: bool,
     pub match_case: bool,
+    pub error: Option<String>,
 }
 
 impl Search {
@@ -43,6 +45,7 @@ impl Search {
     pub fn start_scanning_internal(&mut self, file: &Option<PathBuf>, _file_type: &FileType) {
         self.scanning = true;
         self.results.clear();
+        self.error = None;
 
         if self.query.is_empty() {
             self.scanning = false;
@@ -51,13 +54,22 @@ impl Search {
 
         let Some(path) = file.as_ref() else {
             self.scanning = false;
+            self.error = Some("No file loaded".to_string());
             return;
         };
 
         // Open lazily (auto-detect NDJSON / array JSON / single object)
-        let Ok((_detected, store)) = load_file_auto(path) else {
-            self.scanning = false;
-            return;
+        let (_detected, store) = match load_file_auto(path) {
+            Ok(result) => result,
+            Err(e) => {
+                self.scanning = false;
+                let search_error = ThothError::SearchError {
+                    query: self.query.clone(),
+                    reason: format!("Failed to load file for search: {}", e),
+                };
+                self.error = Some(search_error.to_string());
+                return;
+            }
         };
 
         // Move the store into an Arc so threads can share it immutably.
@@ -66,9 +78,13 @@ impl Search {
         // Parallel scan
         let results = match parallel_scan(store, &self.query, self.match_case) {
             Ok(v) => v,
-            Err(_e) => {
-                // You can surface the error if you prefer.
+            Err(e) => {
                 self.scanning = false;
+                let search_error = ThothError::SearchError {
+                    query: self.query.clone(),
+                    reason: format!("Search operation failed: {}", e),
+                };
+                self.error = Some(search_error.to_string());
                 return;
             }
         };

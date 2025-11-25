@@ -54,9 +54,6 @@ impl ErrorHandler {
             ThothError::SearchError { query, reason } => {
                 format!("Search failed for '{}':\n{}", query, reason)
             }
-            ThothError::InvalidSearchPattern { pattern, reason } => {
-                format!("Invalid search pattern '{}':\n{}", pattern, reason)
-            }
 
             // UI errors
             ThothError::UIRenderError { component, reason } => {
@@ -119,7 +116,6 @@ impl ErrorHandler {
 
             // Search errors - always recoverable
             ThothError::SearchError { .. } => true,
-            ThothError::InvalidSearchPattern { .. } => true,
 
             // UI errors - depends on severity
             ThothError::UIRenderError { .. } => true,

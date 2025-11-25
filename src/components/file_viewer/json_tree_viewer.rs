@@ -447,7 +447,7 @@ impl ContextMenuHandler for JsonTreeViewer {
         loader: &mut LazyJsonFile,
     ) -> Option<String> {
         if let Some(path) = selected {
-            if let Some((root_idx, rel)) = split_root_rel(path) {
+            if let Ok((root_idx, rel)) = split_root_rel(path) {
                 // Try to get from cache first
                 let value = if let Some(v) = cache.get(&root_idx) {
                     v.clone()
@@ -462,7 +462,7 @@ impl ContextMenuHandler for JsonTreeViewer {
                     }
                 };
 
-                return get_object_string(value, rel);
+                return get_object_string(value, rel).ok();
             }
         }
         None

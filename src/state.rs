@@ -30,6 +30,7 @@ pub struct WindowState {
     pub toolbar: components::toolbar::Toolbar,
     pub central_panel: components::central_panel::CentralPanel,
     pub status_bar: components::status_bar::StatusBar,
+    pub error_modal: components::error_modal::ErrorModal,
 }
 
 // ============================================================================

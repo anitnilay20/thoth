@@ -64,7 +64,7 @@ pub fn sniff_file_type(path: &Path) -> Result<DetectedFileType> {
     }
 
     // Starts with '{' – could be Object or NDJSON. Check first two non-empty lines.
-    ndjson_if_two_lines_parse(path).or_else(|_| Ok(DetectedFileType::JsonObject))
+    ndjson_if_two_lines_parse(path).or(Ok(DetectedFileType::JsonObject))
 }
 
 fn ndjson_if_two_lines_parse(path: &Path) -> Result<DetectedFileType> {

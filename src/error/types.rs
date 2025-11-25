@@ -16,7 +16,6 @@ pub enum ThothError {
 
     // Search-related errors
     SearchError { query: String, reason: String },
-    InvalidSearchPattern { pattern: String, reason: String },
 
     // UI-related errors
     UIRenderError { component: String, reason: String },
@@ -75,9 +74,6 @@ impl std::fmt::Display for ThothError {
             // Search errors
             ThothError::SearchError { query, reason } => {
                 write!(f, "Search failed for '{}': {}", query, reason)
-            }
-            ThothError::InvalidSearchPattern { pattern, reason } => {
-                write!(f, "Invalid search pattern '{}': {}", pattern, reason)
             }
 
             // UI errors
