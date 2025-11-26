@@ -9,6 +9,8 @@ pub struct SearchProps<'a> {
     pub just_opened: bool,
     /// Current search state with results
     pub search_state: &'a SearchState,
+    /// Search history for the current file
+    pub search_history: Option<&'a Vec<String>>,
 }
 
 /// Events emitted by the Search panel
@@ -18,6 +20,8 @@ pub enum SearchEvent {
     NavigateToResult {
         record_index: usize,
     },
+    /// User clicked to clear search history
+    ClearHistory,
 }
 
 pub struct SearchOutput {
@@ -159,6 +163,69 @@ impl StatefulComponent for Search {
         });
 
         ui.add_space(8.0);
+
+        // Display search history if no active search and history exists
+        if props.search_state.query.is_empty() {
+            if let Some(history) = props.search_history {
+                if !history.is_empty() {
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    // Header with clear button
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("RECENT SEARCHES")
+                                .size(11.0)
+                                .color(header_color)
+                                .strong(),
+                        );
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // Clear history button
+                            let clear_output = IconButton::render(
+                                ui,
+                                IconButtonProps {
+                                    icon: egui_phosphor::regular::X,
+                                    frame: false,
+                                    tooltip: Some("Clear search history"),
+                                    badge_color: None,
+                                    size: Some(egui::vec2(16.0, 16.0)),
+                                },
+                            );
+                            if clear_output.clicked {
+                                events.push(SearchEvent::ClearHistory);
+                            }
+                        });
+                    });
+                    ui.add_space(4.0);
+
+                    for query in history {
+                        let button = egui::Button::new(egui::RichText::new(query).size(12.0))
+                            .frame(true)
+                            .min_size(egui::vec2(ui.available_width(), 24.0));
+
+                        let response = ui.add(button);
+
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+
+                        if response.clicked() {
+                            // Set the query and trigger search
+                            self.search_query = query.clone();
+                            if let Some(msg) =
+                                SearchMessage::create_search(query.clone(), self.match_case)
+                            {
+                                events.push(SearchEvent::Search(msg));
+                            }
+                        }
+
+                        ui.add_space(2.0);
+                    }
+                }
+            }
+        }
+
         ui.separator();
         ui.add_space(8.0);
 

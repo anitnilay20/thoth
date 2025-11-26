@@ -17,6 +17,13 @@ impl SearchMessage {
         }
     }
 
+    pub fn query(&self) -> Option<&str> {
+        match self {
+            SearchMessage::StartSearch(search) => Some(&search.query),
+            SearchMessage::StopSearch => None,
+        }
+    }
+
     pub fn create_search(query: String, match_case: bool) -> Option<Self> {
         let search = Search {
             query,

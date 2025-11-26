@@ -28,6 +28,8 @@ pub struct SidebarProps<'a> {
     pub current_version: &'a str,
     /// Current search state with results
     pub search_state: &'a crate::search::Search,
+    /// Search history for the current file
+    pub search_history: Option<&'a Vec<String>>,
 }
 
 /// Events emitted by the Sidebar
@@ -41,6 +43,7 @@ pub enum SidebarEvent {
     // Search events
     Search(SearchMessage),
     NavigateToSearchResult { record_index: usize },
+    ClearSearchHistory,
     // Settings events
     CheckForUpdates,
     DownloadUpdate,
@@ -224,6 +227,7 @@ impl Sidebar {
             SearchProps {
                 just_opened: props.focus_search,
                 search_state: props.search_state,
+                search_history: props.search_history,
             },
         );
 
@@ -234,6 +238,7 @@ impl Sidebar {
                 SearchEvent::NavigateToResult { record_index } => {
                     events.push(SidebarEvent::NavigateToSearchResult { record_index })
                 }
+                SearchEvent::ClearHistory => events.push(SidebarEvent::ClearSearchHistory),
             }
         }
     }
