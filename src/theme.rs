@@ -25,6 +25,7 @@ pub struct Theme {
     pub surface1: String, // Widget hover/selected
     pub surface2: String, // Widget active
     pub text: String,     // Text color
+    pub overlay1: String, // Catppuccin overlay1 accent
 
     // Syntax highlighting colors (JSON viewer)
     pub key: String,     // JSON keys/properties
@@ -47,7 +48,6 @@ pub struct Theme {
     pub indent_guide: String, // Indent guide lines in tree view
 
     // Selection / highlight colors
-    pub selection_bg: String,
     pub selection_stroke: String,
 }
 
@@ -63,6 +63,7 @@ impl Default for Theme {
             surface1: "#45475a".to_string(),
             surface2: "#585b70".to_string(),
             text: "#cdd6f4".to_string(),
+            overlay1: "#7f849c".to_string(),
             // Syntax highlighting
             key: "#89b4fa".to_string(),     // Blue
             string: "#a6e3a1".to_string(),  // Green
@@ -80,7 +81,6 @@ impl Default for Theme {
             // Tree viewer
             indent_guide: "#45475a".to_string(), // Surface1
             // Selection (Catppuccin lavender accent)
-            selection_bg: "#b4befe".to_string(),
             selection_stroke: "#89b4fa".to_string(),
         }
     }
@@ -107,6 +107,7 @@ impl Theme {
             surface1: "#bcc0cc".to_string(),
             surface2: "#acb0be".to_string(),
             text: "#4c4f69".to_string(),
+            overlay1: "#8c8fa1".to_string(),
             // Syntax highlighting
             key: "#1e66f5".to_string(),     // Blue
             string: "#40a02b".to_string(),  // Green
@@ -123,8 +124,6 @@ impl Theme {
             sidebar_header: "#7c7f93".to_string(),  // Overlay2
             // Tree viewer
             indent_guide: "#bcc0cc".to_string(), // Surface1
-            // Selection (Catppuccin lavender accent)
-            selection_bg: "#7287fd".to_string(),
             selection_stroke: "#1e66f5".to_string(),
         }
     }
@@ -172,6 +171,7 @@ impl Theme {
             surface1: Self::parse_color(&self.surface1),
             surface2: Self::parse_color(&self.surface2),
             text: Self::parse_color(&self.text),
+            overlay1: Self::parse_color(&self.overlay1),
             key: Self::parse_color(&self.key),
             string: Self::parse_color(&self.string),
             number: Self::parse_color(&self.number),
@@ -184,7 +184,6 @@ impl Theme {
             sidebar_hover: Self::parse_color_with_alpha(&self.sidebar_hover),
             sidebar_header: Self::parse_color(&self.sidebar_header),
             indent_guide: Self::parse_color(&self.indent_guide),
-            selection_bg: Self::parse_color(&self.selection_bg),
             selection_stroke: Self::parse_color(&self.selection_stroke),
         }
     }
@@ -200,6 +199,7 @@ pub struct ThemeColors {
     pub surface1: Color32,
     pub surface2: Color32,
     pub text: Color32,
+    pub overlay1: Color32,
     pub key: Color32,
     pub string: Color32,
     pub number: Color32,
@@ -212,7 +212,6 @@ pub struct ThemeColors {
     pub sidebar_hover: Color32,
     pub sidebar_header: Color32,
     pub indent_guide: Color32,
-    pub selection_bg: Color32,
     pub selection_stroke: Color32,
 }
 
@@ -302,7 +301,7 @@ fn create_visuals(dark_mode: bool, colors: &ThemeColors) -> egui::Visuals {
     v.widgets.active.fg_stroke.color = if dark_mode { colors.base } else { colors.text };
 
     // Selection colors derived from theme palette
-    v.selection.bg_fill = colors.selection_bg;
+    v.selection.bg_fill = colors.overlay1;
     v.selection.stroke = egui::Stroke::new(1.0, colors.selection_stroke);
     v.hyperlink_color = colors.key;
 

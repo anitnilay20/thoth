@@ -34,6 +34,10 @@ impl SearchResults {
         self.stats.total_records = 0;
     }
 
+    pub fn hits(&self) -> &[SearchHit] {
+        &self.hits
+    }
+
     #[allow(dead_code)]
     pub fn record_indices(&self) -> impl Iterator<Item = usize> + '_ {
         self.hits.iter().map(|hit| hit.record_index)
@@ -77,6 +81,8 @@ pub struct MatchFragment {
     pub byte_range: Range<u32>,
     pub path: Option<Arc<str>>,
     pub confidence: f32,
+    pub matched_text: Option<String>,
+    pub text_range: Option<Range<u32>>,
 }
 
 impl Default for MatchFragment {
@@ -87,6 +93,8 @@ impl Default for MatchFragment {
             byte_range: 0..0,
             path: None,
             confidence: 0.0,
+            matched_text: None,
+            text_range: None,
         }
     }
 }

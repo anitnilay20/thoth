@@ -125,13 +125,15 @@ impl CentralPanel {
             self.searching = msg.is_searching();
 
             match msg {
-                search::SearchMessage::StartSearch(_s) => {
+                search::SearchMessage::StartSearch(search) => {
+                    self.file_viewer.set_highlights(Some(&search.results));
                     // Search results are now displayed in the sidebar as a clickable list
                     // Don't filter the main view - keep all records visible
                     // Users can click on search results to navigate to them
                 }
                 search::SearchMessage::StopSearch => {
                     // No filtering to clear
+                    self.file_viewer.set_highlights(None);
                 }
             }
         }

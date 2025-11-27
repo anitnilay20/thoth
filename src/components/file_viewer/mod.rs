@@ -6,12 +6,15 @@ pub mod viewer_type;
 
 use eframe::egui::Ui;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use self::types::ViewerState;
 use self::viewer_type::ViewerType;
 use crate::file::lazy_loader::{FileType, LazyJsonFile, load_file_auto};
 use crate::helpers::LruCache;
+use crate::search::results::{MatchFragment, SearchResults};
 
 /// Generic file viewer that manages common viewing concerns (loading, caching, selection)
 /// and delegates format-specific rendering to specialized viewers via the ViewerType enum.
@@ -39,6 +42,9 @@ pub struct FileViewer {
 
     /// Current file path (for display and reloading)
     file_path: Option<PathBuf>,
+
+    /// Highlights for records and paths from search results
+    highlights: HashMap<usize, Arc<Vec<MatchFragment>>>,
 }
 
 impl FileViewer {
@@ -56,6 +62,7 @@ impl FileViewer {
             viewer: None,
             state: ViewerState::default(),
             file_path: None,
+            highlights: HashMap::new(),
         }
     }
 
@@ -72,9 +79,11 @@ impl FileViewer {
         // Clear cache and reset state (recreate cache since LruCache doesn't have clear)
         self.cache = LruCache::new(self.cache_size);
         self.state = ViewerState::default();
+        self.highlights.clear();
 
         // Create appropriate viewer for file type
         self.viewer = Some(ViewerType::from_file_type(*file_type));
+        self.apply_highlights_to_viewer();
 
         Ok(())
     }
@@ -160,6 +169,26 @@ impl FileViewer {
                 loader,
                 total_len,
             );
+        }
+    }
+
+    /// Update highlight metadata from search results
+    pub fn set_highlights(&mut self, results: Option<&SearchResults>) {
+        self.highlights.clear();
+        if let Some(res) = results {
+            for hit in res.hits() {
+                if !hit.fragments.is_empty() {
+                    self.highlights
+                        .insert(hit.record_index, Arc::new(hit.fragments.clone()));
+                }
+            }
+        }
+        self.apply_highlights_to_viewer();
+    }
+
+    fn apply_highlights_to_viewer(&mut self) {
+        if let Some(ViewerType::Json(json)) = self.viewer.as_mut() {
+            json.set_highlights(&self.highlights);
         }
     }
 

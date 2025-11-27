@@ -300,7 +300,7 @@ impl ContextComponent for Sidebar {
                     colors.crust,  // Icon strip uses darker crust
                     colors.mantle, // Content area uses mantle
                     colors.sidebar_hover,
-                    colors.surface1, // Selection background
+                    colors.overlay1, // Selection background
                     colors.text,
                 )
             } else {

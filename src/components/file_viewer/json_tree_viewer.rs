@@ -1,4 +1,4 @@
-use crate::components::data_row::{DataRow, DataRowProps};
+use crate::components::data_row::{DataRow, DataRowProps, RowHighlights};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
 use crate::file::lazy_loader::LazyJsonFile;
@@ -6,10 +6,12 @@ use crate::helpers::{
     LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_search_target,
     scroll_to_selection, split_root_rel,
 };
+use crate::search::results::{FieldComponent, MatchFragment, MatchTarget};
 use crate::theme::{ROW_HEIGHT, TextToken, row_fill, selected_row_bg};
 use eframe::egui::{self, Ui};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use super::context_menu::{
     ContextMenuConfig, ContextMenuHandler, execute_context_menu_action, render_context_menu,
@@ -28,6 +30,15 @@ pub struct JsonTreeViewer {
 
     /// Target row index for search navigation (persists across frames)
     search_target_row: Option<usize>,
+
+    /// Highlighted terms per record/path
+    record_highlights: HashMap<usize, HashMap<String, PathHighlightTerms>>,
+}
+
+#[derive(Default, Clone)]
+struct PathHighlightTerms {
+    key_ranges: Vec<std::ops::Range<usize>>,
+    value_ranges: Vec<std::ops::Range<usize>>,
 }
 
 #[derive(Clone)]
@@ -38,6 +49,119 @@ struct JsonRow {
     is_expanded: bool,
     display_text: String,
     text_token: (TextToken, Option<TextToken>),
+    highlights: RowHighlights,
+}
+
+fn compute_row_highlights(display_text: &str, terms: Option<&PathHighlightTerms>) -> RowHighlights {
+    let Some(terms) = terms else {
+        return RowHighlights::default();
+    };
+
+    let mut parts = display_text.splitn(2, ':');
+    let key_part = parts.next().unwrap_or("");
+    let value_part = parts.next().unwrap_or("");
+    let has_colon = !value_part.is_empty();
+    let key_ranges = adjust_key_ranges(key_part, &terms.key_ranges);
+    let value_ranges = if has_colon {
+        adjust_value_ranges(value_part, &terms.value_ranges)
+    } else {
+        Vec::new()
+    };
+
+    RowHighlights {
+        key_ranges,
+        value_ranges,
+    }
+}
+
+fn adjust_key_ranges(
+    key_part: &str,
+    ranges: &[std::ops::Range<usize>],
+) -> Vec<std::ops::Range<usize>> {
+    if key_part.is_empty() || ranges.is_empty() {
+        return Vec::new();
+    }
+
+    let mut offset = 0;
+    let mut limit = key_part.len();
+    if key_part.starts_with('"') {
+        offset += 1;
+    }
+    if key_part.ends_with('"') && limit > offset {
+        limit -= 1;
+    }
+
+    if limit <= offset {
+        return Vec::new();
+    }
+
+    ranges
+        .iter()
+        .filter_map(|range| {
+            let start = offset + range.start;
+            let end = (offset + range.end).min(limit);
+            if start < end { Some(start..end) } else { None }
+        })
+        .collect()
+}
+
+fn adjust_value_ranges(
+    value_part: &str,
+    ranges: &[std::ops::Range<usize>],
+) -> Vec<std::ops::Range<usize>> {
+    if value_part.is_empty() || ranges.is_empty() {
+        return Vec::new();
+    }
+
+    let leading_ws = leading_whitespace_len(value_part);
+    let trailing_ws = trailing_whitespace_len(value_part);
+    let mut offset = leading_ws;
+    let mut limit = value_part.len().saturating_sub(trailing_ws);
+
+    if limit <= leading_ws {
+        return Vec::new();
+    }
+
+    let trimmed = &value_part[leading_ws..limit];
+    if trimmed.starts_with('"') {
+        offset += 1;
+    }
+    if trimmed.ends_with('"') && limit > offset {
+        limit -= 1;
+    }
+
+    ranges
+        .iter()
+        .filter_map(|range| {
+            let start = offset + range.start;
+            let end = (offset + range.end).min(limit);
+            if start < end { Some(start..end) } else { None }
+        })
+        .collect()
+}
+
+fn leading_whitespace_len(text: &str) -> usize {
+    let mut count = 0;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            count += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    count
+}
+
+fn trailing_whitespace_len(text: &str) -> usize {
+    let mut count = 0;
+    for ch in text.chars().rev() {
+        if ch.is_whitespace() {
+            count += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    count
 }
 
 impl Default for JsonTreeViewer {
@@ -52,6 +176,37 @@ impl JsonTreeViewer {
             expanded: HashSet::new(),
             rows: Vec::new(),
             search_target_row: None,
+            record_highlights: HashMap::new(),
+        }
+    }
+
+    pub fn set_highlights(&mut self, highlights: &HashMap<usize, Arc<Vec<MatchFragment>>>) {
+        self.record_highlights.clear();
+        for (record_index, fragments) in highlights {
+            let mut path_map: HashMap<String, PathHighlightTerms> = HashMap::new();
+            for fragment in fragments.iter() {
+                let MatchTarget::JsonField { component } = &fragment.target else {
+                    continue;
+                };
+                let Some(path) = fragment.path.as_deref() else {
+                    continue;
+                };
+                let entry = path_map.entry(path.to_string()).or_default();
+                if let Some(range) = fragment.text_range.as_ref().and_then(|r| {
+                    let start = usize::try_from(r.start).ok()?;
+                    let end = usize::try_from(r.end).ok()?;
+                    if start < end { Some(start..end) } else { None }
+                }) {
+                    match component {
+                        FieldComponent::Key => entry.key_ranges.push(range),
+                        FieldComponent::Value => entry.value_ranges.push(range),
+                        FieldComponent::EntireRow => {}
+                    }
+                }
+            }
+            if !path_map.is_empty() {
+                self.record_highlights.insert(*record_index, path_map);
+            }
         }
     }
 
@@ -78,12 +233,17 @@ impl JsonTreeViewer {
         for i in indices {
             let path = i.to_string();
             let is_expanded = self.expanded.contains(&path);
+            let highlight_paths = self.record_highlights.get(&i).cloned();
 
             let display_text = if is_expanded {
                 format!("[{}]: {{", i)
             } else {
                 format!("[{}]: (…) ", i)
             };
+            let row_highlights = compute_row_highlights(
+                &display_text,
+                highlight_paths.as_ref().and_then(|map| map.get(&path)),
+            );
 
             self.rows.push(JsonRow {
                 path: path.clone(),
@@ -92,6 +252,7 @@ impl JsonTreeViewer {
                 is_expanded,
                 display_text,
                 text_token: (TextToken::Key, Some(TextToken::Bracket)),
+                highlights: row_highlights,
             });
 
             if is_expanded {
@@ -108,7 +269,7 @@ impl JsonTreeViewer {
                     }
                 };
 
-                self.build_rows_from_value(&value, &path, 1);
+                self.build_rows_from_value(&value, &path, 1, highlight_paths.as_ref());
 
                 // Closing brace
                 self.rows.push(JsonRow {
@@ -118,13 +279,20 @@ impl JsonTreeViewer {
                     is_expanded: false,
                     display_text: "}".to_string(),
                     text_token: (TextToken::Bracket, None),
+                    highlights: RowHighlights::default(),
                 });
             }
         }
     }
 
     /// Build rows from a JSON value recursively
-    fn build_rows_from_value(&mut self, value: &Value, path: &str, indent: usize) {
+    fn build_rows_from_value(
+        &mut self,
+        value: &Value,
+        path: &str,
+        indent: usize,
+        highlights_map: Option<&HashMap<String, PathHighlightTerms>>,
+    ) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -140,6 +308,10 @@ impl JsonTreeViewer {
                     } else {
                         format_simple_kv(key, val)
                     };
+                    let row_highlights = compute_row_highlights(
+                        &display_text,
+                        highlights_map.and_then(|map| map.get(&new_path)),
+                    );
 
                     self.rows.push(JsonRow {
                         path: new_path.clone(),
@@ -155,10 +327,11 @@ impl JsonTreeViewer {
                                 TextToken::from(val)
                             }),
                         ),
+                        highlights: row_highlights,
                     });
 
                     if is_expanded {
-                        self.build_rows_from_value(val, &new_path, indent + 1);
+                        self.build_rows_from_value(val, &new_path, indent + 1, highlights_map);
                         self.rows.push(JsonRow {
                             path: format!("{}/_close", new_path),
                             indent,
@@ -166,6 +339,7 @@ impl JsonTreeViewer {
                             is_expanded: false,
                             display_text: "}".to_string(),
                             text_token: (TextToken::Bracket, None),
+                            highlights: RowHighlights::default(),
                         });
                     }
                 }
@@ -181,6 +355,10 @@ impl JsonTreeViewer {
                     } else {
                         format!("[{}]: {}", idx, preview_value(val))
                     };
+                    let row_highlights = compute_row_highlights(
+                        &display_text,
+                        highlights_map.and_then(|map| map.get(&new_path)),
+                    );
 
                     self.rows.push(JsonRow {
                         path: new_path.clone(),
@@ -189,10 +367,11 @@ impl JsonTreeViewer {
                         is_expanded,
                         display_text,
                         text_token: (TextToken::Key, Some(TextToken::Bracket)),
+                        highlights: row_highlights,
                     });
 
                     if is_expanded {
-                        self.build_rows_from_value(val, &new_path, indent + 1);
+                        self.build_rows_from_value(val, &new_path, indent + 1, highlights_map);
                         self.rows.push(JsonRow {
                             path: format!("{}/_close", new_path),
                             indent,
@@ -200,19 +379,26 @@ impl JsonTreeViewer {
                             is_expanded: false,
                             display_text: "]".to_string(),
                             text_token: (TextToken::Bracket, None),
+                            highlights: RowHighlights::default(),
                         });
                     }
                 }
             }
             _ => {
                 // Primitives
+                let display_text = preview_value(value).to_string();
+                let row_highlights = compute_row_highlights(
+                    &display_text,
+                    highlights_map.and_then(|map| map.get(path)),
+                );
                 self.rows.push(JsonRow {
                     path: path.to_string(),
                     indent,
                     is_expandable: false,
                     is_expanded: false,
-                    display_text: preview_value(value).to_string(),
+                    display_text,
                     text_token: (TextToken::from(value), None),
+                    highlights: row_highlights,
                 });
             }
         }
@@ -393,6 +579,7 @@ impl JsonTreeViewer {
                                 text_tokens: row.text_token,
                                 background: bg,
                                 row_id: path,
+                                highlights: row.highlights.clone(),
                             },
                         );
 
