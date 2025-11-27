@@ -255,7 +255,10 @@ impl StatefulComponent for Search {
                     .auto_shrink([false, false])
                     .show_rows(ui, row_height, row_count, |ui, row_range| {
                         for idx in row_range {
-                            let record_index = props.search_state.results[idx];
+                            let Some(hit) = props.search_state.results.get(idx) else {
+                                continue;
+                            };
+                            let record_index = hit.record_index;
                             let is_even = idx % 2 == 0;
                             let bg_color = if is_even {
                                 ui.visuals().faint_bg_color

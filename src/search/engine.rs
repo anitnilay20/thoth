@@ -5,13 +5,14 @@ use std::{path::PathBuf, sync::mpsc};
 use memchr::memmem;
 use rayon::prelude::*;
 
+use super::results::{SearchHit, SearchResults};
 use crate::error::ThothError;
 use crate::file::lazy_loader::{FileType, LazyJsonFile, load_file_auto};
 
 #[derive(Default, Debug, Clone)]
 pub struct Search {
     pub query: String,
-    pub results: Vec<usize>,
+    pub results: SearchResults,
     pub scanning: bool,
     pub match_case: bool,
     pub error: Option<ThothError>,
@@ -99,10 +100,10 @@ fn parallel_scan(
     store: Arc<LazyJsonFile>,
     query: &str,
     match_case: bool,
-) -> crate::error::Result<Vec<usize>> {
+) -> crate::error::Result<SearchResults> {
     let total = store.len();
     if total == 0 {
-        return Ok(Vec::new());
+        return Ok(SearchResults::default());
     }
 
     // Prepare needle
@@ -113,7 +114,7 @@ fn parallel_scan(
     }
     let needle = Arc::new(needle);
 
-    let mut hits: Vec<usize> = (0..total)
+    let mut hits: Vec<SearchHit> = (0..total)
         .into_par_iter()
         .filter_map(|i| {
             let mut hay = store.raw_slice(i).ok()?;
@@ -121,15 +122,18 @@ fn parallel_scan(
                 ascii_lower_in_place(&mut hay);
             }
             if memmem::find(&hay, &needle).is_some() {
-                Some(i)
+                Some(SearchHit {
+                    record_index: i,
+                    fragments: Vec::new(),
+                })
             } else {
                 None
             }
         })
         .collect();
 
-    hits.sort_unstable();
-    Ok(hits)
+    hits.sort_unstable_by_key(|hit| hit.record_index);
+    Ok(SearchResults::new(hits, total))
 }
 
 /// Cheap ASCII-only lowercasing; good MVP for logs/JSON.

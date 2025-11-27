@@ -1,4 +1,5 @@
 mod engine;
+pub mod results;
 
 pub use engine::Search;
 
