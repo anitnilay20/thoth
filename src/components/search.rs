@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
+use crate::search::results::MatchPreview;
 use crate::search::{Search as SearchState, SearchMessage};
-use eframe::egui;
+use eframe::egui::{self, WidgetText, text::LayoutJob};
 
 /// Props passed to the Search panel (immutable, one-way binding)
 pub struct SearchProps<'a> {
@@ -247,7 +250,7 @@ impl StatefulComponent for Search {
                 ui.add_space(4.0);
 
                 // Scrollable results list with virtual scrolling for performance
-                let row_height = 30.0; // 28px button + 2px spacing
+                let row_height = 54.0;
                 let row_count = result_count;
 
                 egui::ScrollArea::vertical()
@@ -266,12 +269,12 @@ impl StatefulComponent for Search {
                                 ui.visuals().extreme_bg_color
                             };
 
-                            let button = egui::Button::new(
-                                egui::RichText::new(format!("Record #{}", record_index)).size(12.0),
-                            )
-                            .fill(bg_color)
-                            .frame(true)
-                            .min_size(egui::vec2(ui.available_width(), 28.0));
+                            let button_text =
+                                build_result_preview_text(ui, record_index, hit.preview.as_ref());
+                            let button = egui::Button::new(button_text)
+                                .fill(bg_color)
+                                .frame(true)
+                                .min_size(egui::vec2(ui.available_width(), row_height - 4.0));
 
                             let response = ui.add(button);
 
@@ -299,4 +302,84 @@ impl StatefulComponent for Search {
 
         SearchOutput { events }
     }
+}
+
+fn build_result_preview_text(
+    ui: &egui::Ui,
+    record_index: usize,
+    preview: Option<&MatchPreview>,
+) -> WidgetText {
+    let mut job = LayoutJob::default();
+    let title_format = egui::TextFormat {
+        font_id: egui::FontId::proportional(13.0),
+        color: ui.visuals().text_color(),
+        ..Default::default()
+    };
+
+    job.append(&format!("Record #{}", record_index), 0.0, title_format);
+
+    job.append("\n", 0.0, egui::TextFormat::default());
+
+    let base_format = egui::TextFormat {
+        font_id: egui::FontId::proportional(11.0),
+        color: ui.visuals().weak_text_color(),
+        ..Default::default()
+    };
+
+    let highlight_format = egui::TextFormat {
+        font_id: egui::FontId::proportional(11.0),
+        color: ui.visuals().strong_text_color(),
+        background: ui.visuals().selection.bg_fill,
+        ..Default::default()
+    };
+
+    match preview {
+        Some(p) => {
+            append_snippet_segment(&mut job, p.before.trim(), &base_format, false, true);
+
+            let highlight = if p.highlight.trim().is_empty() {
+                "…"
+            } else {
+                p.highlight.trim()
+            };
+            append_snippet_segment(&mut job, highlight, &highlight_format, false, true);
+
+            append_snippet_segment(&mut job, p.after.trim(), &base_format, false, false);
+        }
+        None => {
+            job.append(
+                "Match found",
+                0.0,
+                egui::TextFormat {
+                    color: ui.visuals().weak_text_color(),
+                    ..base_format
+                },
+            );
+        }
+    }
+
+    WidgetText::LayoutJob(Arc::new(job))
+}
+
+fn append_snippet_segment(
+    job: &mut LayoutJob,
+    text: &str,
+    format: &egui::TextFormat,
+    prepend_space: bool,
+    append_space: bool,
+) {
+    if text.is_empty() {
+        return;
+    }
+
+    let mut content = String::new();
+    if prepend_space {
+        content.push(' ');
+    }
+    content.push_str(text);
+    if append_space {
+        content.push(' ');
+    }
+
+    job.append(&content, 0.0, format.clone());
 }

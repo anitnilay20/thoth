@@ -45,6 +45,10 @@ pub struct Theme {
 
     // Tree viewer colors
     pub indent_guide: String, // Indent guide lines in tree view
+
+    // Selection / highlight colors
+    pub selection_bg: String,
+    pub selection_stroke: String,
 }
 
 impl Default for Theme {
@@ -75,6 +79,9 @@ impl Default for Theme {
             sidebar_header: "#9399b2".to_string(),  // Overlay2
             // Tree viewer
             indent_guide: "#45475a".to_string(), // Surface1
+            // Selection (Catppuccin lavender accent)
+            selection_bg: "#b4befe".to_string(),
+            selection_stroke: "#89b4fa".to_string(),
         }
     }
 }
@@ -116,6 +123,9 @@ impl Theme {
             sidebar_header: "#7c7f93".to_string(),  // Overlay2
             // Tree viewer
             indent_guide: "#bcc0cc".to_string(), // Surface1
+            // Selection (Catppuccin lavender accent)
+            selection_bg: "#7287fd".to_string(),
+            selection_stroke: "#1e66f5".to_string(),
         }
     }
 
@@ -174,6 +184,8 @@ impl Theme {
             sidebar_hover: Self::parse_color_with_alpha(&self.sidebar_hover),
             sidebar_header: Self::parse_color(&self.sidebar_header),
             indent_guide: Self::parse_color(&self.indent_guide),
+            selection_bg: Self::parse_color(&self.selection_bg),
+            selection_stroke: Self::parse_color(&self.selection_stroke),
         }
     }
 }
@@ -200,6 +212,8 @@ pub struct ThemeColors {
     pub sidebar_hover: Color32,
     pub sidebar_header: Color32,
     pub indent_guide: Color32,
+    pub selection_bg: Color32,
+    pub selection_stroke: Color32,
 }
 
 /// Apply theme settings including visuals and fonts
@@ -285,10 +299,11 @@ fn create_visuals(dark_mode: bool, colors: &ThemeColors) -> egui::Visuals {
     v.widgets.inactive.bg_fill = colors.surface0;
     v.widgets.hovered.bg_fill = colors.surface1;
     v.widgets.active.bg_fill = colors.surface2;
+    v.widgets.active.fg_stroke.color = if dark_mode { colors.base } else { colors.text };
 
-    // Selection and accent colors (using boolean color which maps to MAUVE)
-    v.selection.bg_fill = colors.boolean;
-    v.selection.stroke = egui::Stroke::new(1.0, colors.key);
+    // Selection colors derived from theme palette
+    v.selection.bg_fill = colors.selection_bg;
+    v.selection.stroke = egui::Stroke::new(1.0, colors.selection_stroke);
     v.hyperlink_color = colors.key;
 
     v

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::thread;
 use std::{path::PathBuf, sync::mpsc};
@@ -5,9 +6,12 @@ use std::{path::PathBuf, sync::mpsc};
 use memchr::memmem;
 use rayon::prelude::*;
 
-use super::results::{SearchHit, SearchResults};
+use super::results::{MatchFragment, MatchPreview, MatchTarget, SearchHit, SearchResults};
 use crate::error::ThothError;
 use crate::file::lazy_loader::{FileType, LazyJsonFile, load_file_auto};
+
+const MAX_FRAGMENTS_PER_RECORD: usize = 64;
+const PREVIEW_CONTEXT_BYTES: usize = 36;
 
 #[derive(Default, Debug, Clone)]
 pub struct Search {
@@ -114,21 +118,29 @@ fn parallel_scan(
     }
     let needle = Arc::new(needle);
 
+    let needle_len = needle.len();
     let mut hits: Vec<SearchHit> = (0..total)
         .into_par_iter()
         .filter_map(|i| {
-            let mut hay = store.raw_slice(i).ok()?;
-            if fold {
-                ascii_lower_in_place(&mut hay);
-            }
-            if memmem::find(&hay, &needle).is_some() {
-                Some(SearchHit {
-                    record_index: i,
-                    fragments: Vec::new(),
-                })
+            let original = store.raw_slice(i).ok()?;
+            let hay_cow: Cow<'_, [u8]> = if fold {
+                let mut buf = original.clone();
+                ascii_lower_in_place(&mut buf);
+                Cow::Owned(buf)
             } else {
-                None
-            }
+                Cow::Borrowed(original.as_slice())
+            };
+            let hay_slice = hay_cow.as_ref();
+
+            let finder = memmem::Finder::new(needle.as_slice());
+            let fragments = collect_fragments(&finder, hay_slice, needle_len)?;
+            let preview = build_preview(&original, fragments.first().unwrap());
+
+            Some(SearchHit {
+                record_index: i,
+                fragments,
+                preview,
+            })
         })
         .collect();
 
@@ -143,4 +155,86 @@ fn ascii_lower_in_place(b: &mut [u8]) {
             *ch = ch.to_ascii_lowercase();
         }
     }
+}
+
+fn collect_fragments(
+    finder: &memmem::Finder<'_>,
+    hay: &[u8],
+    needle_len: usize,
+) -> Option<Vec<MatchFragment>> {
+    let mut fragments = Vec::new();
+    for start in finder.find_iter(hay) {
+        let end = start + needle_len;
+        let start_u32 = u32::try_from(start).ok()?;
+        let end_u32 = u32::try_from(end).ok()?;
+        fragments.push(MatchFragment {
+            fragment_id: 0,
+            target: MatchTarget::RawRecord,
+            byte_range: start_u32..end_u32,
+            path: None,
+            confidence: 1.0,
+        });
+
+        if fragments.len() >= MAX_FRAGMENTS_PER_RECORD {
+            break;
+        }
+    }
+
+    if fragments.is_empty() {
+        None
+    } else {
+        Some(fragments)
+    }
+}
+
+fn build_preview(bytes: &[u8], fragment: &MatchFragment) -> Option<MatchPreview> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let start = usize::try_from(fragment.byte_range.start).ok()?;
+    let end = usize::try_from(fragment.byte_range.end).ok()?;
+    if start >= end || end > bytes.len() {
+        return None;
+    }
+
+    let before_start = start.saturating_sub(PREVIEW_CONTEXT_BYTES);
+    let after_end = (end + PREVIEW_CONTEXT_BYTES).min(bytes.len());
+
+    let mut before = sanitize_snippet(&bytes[before_start..start]);
+    if before_start > 0 && !before.starts_with('…') {
+        before = format!("…{}", before.trim_start());
+    }
+
+    let highlight = sanitize_snippet(&bytes[start..end]);
+
+    let mut after = sanitize_snippet(&bytes[end..after_end]);
+    if after_end < bytes.len() && !after.ends_with('…') {
+        after = format!("{}…", after.trim_end());
+    }
+
+    Some(MatchPreview {
+        before,
+        highlight,
+        after,
+    })
+}
+
+fn sanitize_snippet(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let mut sanitized = String::with_capacity(text.len());
+    let mut last_was_space = false;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            if !last_was_space {
+                sanitized.push(' ');
+                last_was_space = true;
+            }
+        } else {
+            sanitized.push(ch);
+            last_was_space = false;
+        }
+    }
+
+    sanitized.trim().to_string()
 }

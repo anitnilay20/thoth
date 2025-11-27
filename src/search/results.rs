@@ -34,6 +34,19 @@ impl SearchResults {
         self.stats.total_records = 0;
     }
 
+    #[allow(dead_code)]
+    pub fn record_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.hits.iter().map(|hit| hit.record_index)
+    }
+
+    #[allow(dead_code)]
+    pub fn fragments_for(&self, record_index: usize) -> Option<&[MatchFragment]> {
+        self.hits
+            .iter()
+            .find(|hit| hit.record_index == record_index)
+            .map(|hit| hit.fragments.as_slice())
+    }
+
     pub fn get(&self, idx: usize) -> Option<&SearchHit> {
         self.hits.get(idx)
     }
@@ -43,8 +56,16 @@ impl SearchResults {
 #[derive(Default, Debug, Clone)]
 pub struct SearchHit {
     pub record_index: usize,
-    #[allow(dead_code)]
     pub fragments: Vec<MatchFragment>,
+    pub preview: Option<MatchPreview>,
+}
+
+/// Lightweight snippet rendered in the sidebar list.
+#[derive(Debug, Clone)]
+pub struct MatchPreview {
+    pub before: String,
+    pub highlight: String,
+    pub after: String,
 }
 
 /// Metadata for each matched fragment (highlight span, path, etc.).
