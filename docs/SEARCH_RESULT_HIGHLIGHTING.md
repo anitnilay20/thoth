@@ -1,211 +1,175 @@
-# Search Result Highlighting & Matcher Abstraction
+# Search Result Highlighting & JSONPath Queries
 
 Issue: [anitnilay20/thoth#8](https://github.com/anitnilay20/thoth/issues/8)  
-Status: Draft (MVP scope)  
-Last Updated: 2025-02-14
+Status: Implemented (Phases 0–3 shipped)  
+Last Updated: 2025-02-17
 
 ---
 
-## Motivation
+## 1. Motivation & Vision
 
-The current search engine only returns a `Vec<usize>` of root record indices. The UI can scroll to those roots but it cannot:
+The original search only returned a `Vec<usize>` of record indices. That worked for jumping to rows, but the experience broke down immediately:
 
-- Highlight the exact text spans that matched the query.
-- Render different highlight colors per query fragment.
-- Support richer query syntaxes (JSONPath, logical expressions) that need to surface which field satisfied which clause.
+- Nothing told the user _why_ a record matched or which field satisfied a query.
+- Highlighting was crude—entire rows were painted even if only a single token matched.
+- Extending the engine to richer syntaxes (e.g., JSONPath) would have required rewiring both the backend and the UI.
 
-To ship precise highlighting without painting ourselves into a corner, we need a reusable model that captures *where* and *why* a match occurred. The same machinery must work for the existing substring search (powered by `memmem`) and future matchers like `$.store.book[*].author = "anit"`.
+Our goal was to introduce precise highlighting and advanced queries without regressing the “buttery” feel of the UI. The guiding principles:
 
----
-
-## Goals
-
-- Capture every match as a structured `SearchHit` that includes the record index and highlightable fragments.
-- Allow upcoming matcher implementations (free-text, JSONPath, regex, etc.) to share a common API.
-- Provide enough metadata for the UI to paint highlights in both the sidebar list and the main viewer without re-running the query.
-- Keep the `LazyJsonFile` fast path (zero extra parsing for non-matching records) and avoid blocking the UI thread.
-
-### Non-Goals
-
-- Changing ranking or filtering semantics (search still surfaces root indices; the viewer remains unfiltered).
-- Building a full JSONPath engine in this iteration—the doc only reserves the abstractions required for it.
-- Persisting highlight metadata across sessions (recompute per search).
+1. **Single Source of Truth** – Search results must contain everything the UI needs (paths, ranges, previews). The UI never re-runs queries.
+2. **Streaming Friendly** – The engine should still scan file chunks independently and only parse JSON when absolutely necessary.
+3. **UI Fluidity** – Highlight spans are precomputed once and reused; egui widgets do zero substring or regex work at paint time.
+4. **Pluggable Matchers** – Adding JSONPath (and future matchers) should not require new plumbing—just emit more structured fragments.
+5. **Graceful Scaling** – Enforce fragment caps and reuse allocations so multi-GB NDJSON logs remain responsive.
 
 ---
 
-## Proposed Architecture
+## 2. Architecture Overview
 
-### 1. Query & Matcher Model
-
-Introduce two new enums that travel with `Search`:
-
-```rust
-pub enum QueryKind {
-    FreeText,
-    JsonPath,
-    // future: Regex, Combination, etc.
-}
-
-pub enum QueryFragment {
-    RawText(String),
-    JsonPathExpr { id: u32, expr: Arc<str> },
-}
+```
+┌─────────┐  query + mode   ┌──────────────┐  SearchHit Vec   ┌──────────────┐
+│ Sidebar │ ──────────────► │ SearchEngine │ ────────────────► │ FileViewer   │
+└─────────┘  history store  └──────────────┘  highlight map   └──────┬───────┘
+      ▲                                                        Arc   │
+      │ serialized entries                                     map   ▼
+┌─────────────┐                                        ┌──────────────────────┐
+│ Persistent  │◄────────────── per-file history ────── │ JsonTreeViewer/DataRow│
+│ Search Store│                                        │ (RowHighlights)       │
+└─────────────┘                                        └──────────────────────┘
 ```
 
-`Search` stores `query_kind` plus a parsed `Vec<QueryFragment>`. Each matcher implementation knows how to evaluate a fragment and emit highlight metadata. This keeps `SearchMessage::StartSearch(Search)` backward compatible while giving the engine enough context to select the correct matcher.
+Key building blocks:
 
-### 2. Result Data Structures
-
-Replace `Vec<usize>` with a richer container:
-
-```rust
-pub struct SearchResults {
-    pub hits: Vec<SearchHit>,
-    pub stats: SearchStats,
-}
-
-pub struct SearchHit {
-    pub record_index: usize,
-    pub fragments: Vec<MatchFragment>,
-}
-
-pub struct MatchFragment {
-    pub fragment_id: u32, // ties back to QueryFragment
-    pub target: MatchTarget,
-    pub byte_range: std::ops::Range<u32>,
-    pub path: Option<Arc<str>>, // JSON pointer style for structured matches
-    pub confidence: f32,        // reserved for ranking tweaks
-}
-
-pub enum MatchTarget {
-    RawRecord,
-    JsonField { component: FieldComponent },
-}
-
-pub enum FieldComponent {
-    Key,
-    Value,
-    EntireRow,
-}
-```
-
-Key properties:
-
-- `byte_range` always references offsets inside `LazyJsonFile::raw_slice(record_index)` so we can recolor the raw view without storing the string itself.
-- `path` is optional; substring matches can omit it, while JSONPath matches fill it with `/store/book/3/author`.
-- `fragment_id` connects the UI to the fragment metadata (for legend chips, tooltips, etc.).
-
-`SearchHit` stays light enough to clone when broadcasting through `SearchMessage`, but if cloning becomes an issue we can wrap the `Vec<SearchHit>` in an `Arc`.
-
-### 3. Engine Changes
-
-1. **Matcher Trait**
-
-   ```rust
-   pub trait SearchMatcher: Send + Sync {
-       fn scan_record(&self, record_index: usize, bytes: &[u8]) -> Option<SearchHit>;
-   }
-   ```
-
-   - `FreeTextMatcher` keeps the current `memmem` fast path. It uses `Finder::new(&needle).find_iter(bytes)` to collect every offset and returns a `SearchHit` with `MatchTarget::RawRecord`.
-   - Future matchers (JSONPath, etc.) can parse the record into `serde_json::Value`, evaluate the fragment, and emit `MatchTarget::JsonField`.
-
-2. **parallel_scan**
-
-   - Select a matcher from `QueryKind`.
-   - Keep the rayon-based `into_par_iter()`; each worker clones an `Arc<dyn SearchMatcher>` so there is no shared mutable state.
-   - Collect `SearchHit`s, sort by `record_index`, and stash them in `SearchResults`.
-
-3. **Search Struct**
-
-   ```rust
-   pub struct Search {
-       pub results: SearchResults,
-       pub highlights: HashMap<usize, Arc<Vec<MatchFragment>>>, // derived cache for O(1) lookup
-       // existing fields...
-   }
-   ```
-
-   - `highlights` makes it cheap for the viewer to fetch matches for a root without scanning the `Vec`.
-
-### 4. UI Integration
-
-**Sidebar (Search Component)**
-
-- `SearchProps` already receive `search_state`. After the change, the result list reads `search_state.results.hits`.
-- The button label can show the number of fragments or render a short snippet (first fragment from the hit) by slicing `LazyJsonFile::raw_slice(record_index)` using the stored `byte_range`.
-
-**Central Panel & FileViewer**
-
-- Extend `FileViewer::ui` to accept `Option<&HighlightMap>` (a map from `record_index` to fragments).
-- When a root is expanded or rendered, pass the relevant fragments to the viewer implementation (`JsonTreeViewer::render`).
-
-**JsonTreeViewer / DataRow**
-
-- Add optional highlight spans to `DataRowProps`. The row renderer will build an `egui::text::LayoutJob` that alternates between normal and highlighted text segments (`job.add_text(...)` with custom background colors).
-- Map fragments to rows:
-  - If `MatchTarget::RawRecord`, highlight inside a collapsible *raw* preview (simple multiline `TextEdit` with background spans). This is the immediate win for free-text search.
-  - If `MatchTarget::JsonField`, match the `path` against the row's `path` (e.g., `0.user.name`). We can precompute a `HashMap<String, Vec<MatchFragment>>` per hit so each row performs an `O(1)` lookup.
-
-### 5. Rendering Highlight Spans
-
-1. When a record is selected/navigated to, fetch `raw_slice(record_index)` and build a cached `Vec<DisplaySpan>`:
-
-   ```rust
-   pub struct DisplaySpan {
-       pub range: std::ops::Range<usize>,
-       pub color: egui::Color32,
-   }
-   ```
-
-2. Use `egui::text::LayoutJob` for both the raw preview and the tree rows. Example:
-
-```rust
-let mut job = LayoutJob::default();
-for (range, color) in spans {
-    job.append(&text[last..range.start], 0.0, default_format.clone());
-    job.append(&text[range.clone()], 0.0, HighlightFormat::with_bg(color));
-    last = range.end;
-}
-```
-
-3. Store the computed layout in `ViewerState` so repeated renders do not rebuild the job unless either the selection changes or a new search runs.
-
-### 6. Performance Notes
-
-- `FreeTextMatcher` keeps the existing no-allocation scan path (copies once per record to lowercase when `match_case` is off). The only new overhead is storing a few `Range<u32>` values per match.
-- JSONPath/structured matchers will necessarily parse the JSON; by isolating that logic in the matcher we can experiment with caching or partial traversal without touching the UI.
-- Highlight maps are keyed by `usize` and wrapped in `Arc`s so they can be read from both the sidebar and the viewer without cloning the fragment vectors.
+- **Search State** – `Search` carries `query`, `match_case`, `query_mode`, and `SearchResults`.
+- **Query Modes** – `QueryMode` is a serialized enum (`text` / `json_path`). History entries are stored as JSON so reopening a saved query restores its mode.
+- **Search Hits** – Each record produces a `SearchHit { record_index, fragments, preview }`. Every `MatchFragment` includes `target`, `path`, `matched_text`, and `text_range`.
+- **Highlight Cache** – `HashMap<usize, Arc<Vec<MatchFragment>>>` lets the viewer access per-record fragments in O(1) without cloning big vectors.
+- **Row Rendering** – `JsonTreeViewer` maps fragments to `RowHighlights`, and `DataRow` paints them via `egui::text::LayoutJob` (no runtime searching).
 
 ---
 
-## Rollout Plan
+## 3. Query Modes & Algorithms
 
-1. **Phase 0 – Data model prep**
-   - Introduce `SearchResults`, `SearchHit`, and `MatchFragment`.
-   - Sidebar continues to only display record indices, but unit tests ensure we can serialize/clone the new structs.
+### 3.1 Text Mode (Phases 0–2 Recap)
 
-2. **Phase 1 – Free-text highlighting**
-   - Implement `FreeTextMatcher` and span rendering inside a raw preview panel.
-   - Update the sidebar list to show short snippets cut from stored `byte_range`s.
+1. **Fast ASCII Scan**
+   - Each rayon worker copies the record slice if case-folding is required and calls `memmem::Finder::find_iter`.
+   - `MAX_FRAGMENTS_PER_RECORD` bounds work per record (default: 64).
 
-3. **Phase 2 – Structured match metadata**
-   - Extend the matcher trait with optional JSON parsing helpers.
-   - Populate `path` for object/array values and highlight the correct rows in `JsonTreeViewer`.
+2. **Structured Matches**
+   - `collect_field_matches` parses the record into `serde_json::Value` _only when the record already matches the substring query_.
+   - It walks the JSON hierarchy once, using `find_match_ranges` (byte-level comparisons) to capture key/value offsets.
 
-4. **Phase 3 – JSONPath queries**
-   - Plug in a JSONPath matcher that walks the parsed `Value` and emits `MatchTarget::JsonField`.
-   - Update the sidebar to show the JSONPath fragment that matched (via `fragment_id`).
+3. **Range Translation**
+   - Fragments carry `text_range: Range<u32>`.
+   - `JsonTreeViewer::compute_row_highlights` adjusts the range to account for string formatting, quotes, and whitespace before storing them in `RowHighlights`.
 
-Each phase is shippable; MVP highlighting provides immediate UX value while the later phases enable the advanced query syntax requested in issue #8.
+4. **Rendering**
+   - `DataRow` splits `"key: value"` strings only once (`splitn(2, ':')`) and feeds the range list into a `LayoutJob`:
+
+     ```rust
+     for range in ranges {
+         job.append(&text[cursor..range.start], 0.0, base_format.clone());
+         job.append(&text[range.clone()], 0.0, highlight_format.clone());
+         cursor = range.end;
+     }
+     ```
+
+   - Hover/selection overlays are blended separately, so highlights stay vivid in both Catppuccin Latte (light) and Mocha (dark) themes.
+
+### 3.2 JSONPath Mode (Phase 3)
+
+#### Parsing
+
+- `JsonPathQuery::parse(&str)` tokenizes expressions like:
+  - `$.store.book[0].author`
+  - `$.user["first-name"] = "Anit"`
+  - `$.items[*].price = 42`
+- Supported syntax today:
+  - Dot notation + bracket notation (including quoted identifiers).
+  - Array indexes (`[3]`) and wildcards (`[*]`).
+  - Single equality filter at the end (`= <value>`). Values can be JSON literals or single-quoted strings (we normalize them to valid JSON).
+- Output: `JsonPathQuery { original, segments: Vec<PathSegment>, filter: Option<FilterValue> }`. The original string is retained for previews.
+
+#### Evaluation
+
+1. Start with a frontier `Vec<(String, &Value)>` containing the root path (record index) and the parsed JSON value.
+2. For every `PathSegment`, produce the next frontier:
+   - **Field** – If `value` is an object, look up the property and append `"{path}.{field}"`.
+   - **FieldWildcard** – Push all properties.
+   - **ArrayIndex** / **ArrayWildcard** – Similar but for arrays, using `"path[idx]"` notation.
+3. After all segments, optionally evaluate the equality filter. String filters honor `match_case`; other value types are compared structurally.
+4. Convert each surviving `(path, value)` into a `JsonPathMatch`:
+   - Strings/numbers/bools/null store both `matched_text` and `highlight_range: 0..len`.
+   - Complex values (objects/arrays) mark `component = FieldComponent::EntireRow` with `display_value = preview_value`.
+
+#### MatchFragment Conversion
+
+`jsonpath_scan` maps each `JsonPathMatch` to a `MatchFragment`:
+
+- `target: MatchTarget::JsonField { component }`
+- `path: Arc<str>` inserted into the highlight map.
+- `matched_text` + `text_range` enable the same `RowHighlights` code path as text mode.
+- A compact `MatchPreview { before: "<query> -> <path>", highlight: "<value>" }` improves sidebar readability.
+
+Because all fragments look identical to the UI, the viewer/rendering layer is oblivious to how the match was produced.
 
 ---
 
-## Open Questions
+## 4. UI & Persistence
 
-1. **Raw preview location** – Should we embed the raw record preview under the tree view, or open it inside a popover when the user hovers a search result?
-2. **Highlight persistence** – Do we want to keep highlights when the user edits the file (once editing exists), or should we invalidate them immediately?
-3. **Memory budget** – Large result sets could store thousands of fragments. We might cap the total fragments per hit and expose “+N more” in the sidebar.
-4. **Theme integration** – Need to confirm highlight colors for light/dark themes and contrast ratios for accessibility.
+### 4.1 Sidebar UX
 
-Feedback on these questions will help refine the final implementation before coding begins.
+- Combo box toggles `Text` vs. `JSONPath`, updating the hint text (“Search…” vs. “JSONPath (e.g. $.user.name = "alice")”).
+- Clear/search buttons create `SearchMessage::StartSearch` with the current mode.
+- History entries are stored per file in `~/Library/Application Support/thoth/search_history.json` (JSON format). Each entry contains `{ "mode": "json_path", "query": "$.user.name='anit'" }`.
+- Clicking a history row restores both the query and the mode, then fires a new search.
+
+### 4.2 Persistent State
+
+- We cap history at `MAX_SEARCH_HISTORY_PER_FILE` per file and `MAX_FILES_WITH_HISTORY` overall, trimming by recency.
+- Entries are deduplicated (most recent first) exactly like recent files.
+
+### 4.3 Viewer Integration
+
+- `CentralPanel` passes highlight maps to `FileViewer`, which in turn calls `JsonTreeViewer::set_highlights`.
+- Navigation (clicking a sidebar entry) still only sets `selected = Some(path)`; highlights are rendered automatically on the next repaint.
+- Context menus, indent guides, and other UI affordances remain untouched because highlight metadata is orthogonal.
+
+---
+
+## 5. Performance Considerations
+
+| Concern             | Strategy                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Text Search Speed   | `memmem::Finder` (SIMD-accelerated) with per-worker lowercase buffers; zero JSON parsing for non-matches.     |
+| JSONPath Cost       | Parse `serde_json::Value` once per record per query (still parallelized). `MAX_FRAGMENTS_PER_RECORD` applies. |
+| Highlight Rendering | `RowHighlights` contains raw byte ranges; `DataRow` simply stitches strings and never does substring search.  |
+| Memory Usage        | Highlight maps store `Arc<Vec<MatchFragment>>` so the sidebar and viewer share data without cloning.          |
+| UI Smoothness       | Rendering does not block on search threads; `search.scanning` toggles a lightweight spinner.                  |
+
+Even worst-case scenarios (searching for a single character) stay smooth because highlight ranges are precomputed. Layout work per row scales with the number of fragments in that row, not the size of the tree or the query complexity.
+
+---
+
+## 6. Rollout Recap
+
+| Phase                          | Status | Highlights                                                                                                               |
+| ------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------ |
+| **0 – Data Model Prep**        | ✅     | Introduced `SearchResults`, `SearchHit`, `MatchFragment`, preview snippets, and highlight maps.                          |
+| **1 – free-text highlighting** | ✅     | Implemented `RowHighlights`, `DataRow` layout jobs, and sidebar snippets.                                                |
+| **2 – structured metadata**    | ✅     | Populated per-field ranges, swapped full-row backgrounds for substring highlights, and ensured hover/selection blending. |
+| **3 – JSONPath queries**       | ✅     | Added `QueryMode`, JSONPath parser/evaluator, mode-aware sidebar UX, and rich previews (`query -> path`).                |
+
+Every phase was shippable; each built upon the same data flow, enabling incremental delivery without regressions.
+
+---
+
+## 7. Future Work
+
+1. **Additional Matchers** – Regex, logical combinations, or field-specific filters can slot into `QueryMode` and emit `MatchFragment`s with `fragment_id`s for color-coding.
+2. **Raw Preview Highlighting** – Currently only the tree view paints spans. Extending highlights to a raw JSON preview panel would reuse the same `ByteRange` metadata.
+3. **Legend / Explanation Chips** – `fragment_id` is reserved for mapping fragments to legend entries (e.g., “Matches `$.user.name = 'Anit'`”).
+4. **Result Ranking** – With structured metadata we can experiment with scoring (depth, key names, filter confidence) without touching the UI.
+
+The current architecture already answers the hard questions (where and why a record matched). Future enhancements simply interpret the existing metadata in richer ways.
