@@ -6,8 +6,10 @@ use std::{path::PathBuf, sync::mpsc};
 
 use memchr::memmem;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::jsonpath::{JsonPathMatch, JsonPathQuery};
 use super::results::{
     FieldComponent, MatchFragment, MatchPreview, MatchTarget, SearchHit, SearchResults,
 };
@@ -17,12 +19,21 @@ use crate::file::lazy_loader::{FileType, LazyJsonFile, load_file_auto};
 const MAX_FRAGMENTS_PER_RECORD: usize = 64;
 const PREVIEW_CONTEXT_BYTES: usize = 36;
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryMode {
+    #[default]
+    Text,
+    JsonPath,
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct Search {
     pub query: String,
     pub results: SearchResults,
     pub scanning: bool,
     pub match_case: bool,
+    pub query_mode: QueryMode,
     pub error: Option<ThothError>,
 }
 
@@ -85,8 +96,26 @@ impl Search {
         // Move the store into an Arc so threads can share it immutably.
         let store = Arc::new(store);
 
-        // Parallel scan
-        let results = match parallel_scan(store, &self.query, self.match_case) {
+        // Run the appropriate matcher
+        let results = match self.query_mode {
+            QueryMode::Text => parallel_scan(store.clone(), &self.query, self.match_case),
+            QueryMode::JsonPath => {
+                let expr = match JsonPathQuery::parse(&self.query) {
+                    Ok(expr) => expr,
+                    Err(err) => {
+                        self.scanning = false;
+                        self.error = Some(ThothError::SearchError {
+                            query: self.query.clone(),
+                            reason: err.to_string(),
+                        });
+                        return;
+                    }
+                };
+                jsonpath_scan(store.clone(), &expr, self.match_case)
+            }
+        };
+
+        let results = match results {
             Ok(v) => v,
             Err(e) => {
                 self.scanning = false;
@@ -159,6 +188,80 @@ fn parallel_scan(
 
     hits.sort_unstable_by_key(|hit| hit.record_index);
     Ok(SearchResults::new(hits, total))
+}
+
+fn jsonpath_scan(
+    store: Arc<LazyJsonFile>,
+    query: &JsonPathQuery,
+    match_case: bool,
+) -> crate::error::Result<SearchResults> {
+    let total = store.len();
+    if total == 0 {
+        return Ok(SearchResults::default());
+    }
+
+    let mut hits: Vec<SearchHit> = (0..total)
+        .into_par_iter()
+        .filter_map(|i| {
+            let bytes = store.raw_slice(i).ok()?;
+            let value: Value = serde_json::from_slice(&bytes).ok()?;
+            let root_path = i.to_string();
+            let mut matches = query.evaluate(&value, &root_path, match_case);
+            if matches.is_empty() {
+                return None;
+            }
+            if matches.len() > MAX_FRAGMENTS_PER_RECORD {
+                matches.truncate(MAX_FRAGMENTS_PER_RECORD);
+            }
+            let preview = build_jsonpath_preview(query, &matches);
+            let fragments = matches
+                .into_iter()
+                .map(match_fragment_from_jsonpath)
+                .collect();
+            Some(SearchHit {
+                record_index: i,
+                fragments,
+                preview: Some(preview),
+            })
+        })
+        .collect();
+
+    hits.sort_unstable_by_key(|hit| hit.record_index);
+    Ok(SearchResults::new(hits, total))
+}
+
+fn match_fragment_from_jsonpath(entry: JsonPathMatch) -> MatchFragment {
+    MatchFragment {
+        fragment_id: 1,
+        target: MatchTarget::JsonField {
+            component: entry.component,
+        },
+        byte_range: 0..0,
+        path: Some(Arc::<str>::from(entry.path)),
+        confidence: 1.0,
+        matched_text: entry.matched_text,
+        text_range: entry
+            .highlight_range
+            .map(|range| (range.start as u32)..(range.end as u32)),
+    }
+}
+
+fn build_jsonpath_preview(query: &JsonPathQuery, matches: &[JsonPathMatch]) -> MatchPreview {
+    let before = matches
+        .first()
+        .map(|first| format!("{} -> {}", query.original(), first.path))
+        .unwrap_or_else(|| query.original().to_string());
+
+    let highlight = matches
+        .first()
+        .map(|m| m.display_value.clone())
+        .unwrap_or_else(|| "match".to_string());
+
+    MatchPreview {
+        before,
+        highlight,
+        after: String::new(),
+    }
 }
 
 /// Cheap ASCII-only lowercasing; good MVP for logs/JSON.

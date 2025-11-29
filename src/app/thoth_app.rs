@@ -581,10 +581,9 @@ impl ThothApp {
                     // Save search query to history
                     if let Some(file_path) = &self.window_state.file_path {
                         if let Some(path_str) = file_path.to_str() {
-                            if let Some(query) = msg.query() {
+                            if let Some(entry) = msg.history_entry() {
                                 let _ = super::persistent_state::PersistentState::add_search_query(
-                                    path_str,
-                                    query.to_string(),
+                                    path_str, entry,
                                 );
                             }
                         }
