@@ -363,6 +363,8 @@ impl FilterValue {
         }
 
         // Support single-quoted strings by converting to double quotes
+        // Note: This does not handle escaped quotes within the string (e.g., 'it\'s').
+        // For values with escaped quotes, use double-quoted JSON strings instead.
         if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2 {
             let inner = &trimmed[1..trimmed.len() - 1];
             let normalized = format!("\"{}\"", inner);

@@ -171,9 +171,8 @@ fn parallel_scan(
             let hay_slice = hay_cow.as_ref();
 
             let finder = memmem::Finder::new(needle.as_slice());
-            let fragments = collect_fragments(&finder, hay_slice, needle_len)?;
+            let mut fragments = collect_fragments(&finder, hay_slice, needle_len)?;
             let preview = build_preview(&original, fragments.first().unwrap());
-            let mut fragments = fragments;
             let query_for_fields = lowered_query.as_deref().unwrap_or(query);
             collect_field_matches(i, &original, query_for_fields, match_case, &mut fragments);
             ensure_root_highlight(&mut fragments, i);
@@ -544,30 +543,34 @@ fn find_match_ranges(haystack: &str, needle: &str, match_case: bool) -> Vec<Rang
         return Vec::new();
     }
 
-    let mut ranges = Vec::new();
-    let mut idx = 0;
-    while idx + needle_bytes.len() <= hay.len() {
-        let mut matched = true;
-        for (offset, &b) in needle_bytes.iter().enumerate() {
-            let hay_b = hay[idx + offset];
-            if match_case {
-                if hay_b != b {
+    if match_case {
+        // Use memmem for case-sensitive search (SIMD-accelerated)
+        let finder = memmem::Finder::new(needle_bytes);
+        finder
+            .find_iter(hay)
+            .map(|start| start..start + needle_bytes.len())
+            .collect()
+    } else {
+        // Manual implementation for ASCII case-insensitive search
+        let mut ranges = Vec::new();
+        let mut idx = 0;
+        while idx + needle_bytes.len() <= hay.len() {
+            let mut matched = true;
+            for (offset, &b) in needle_bytes.iter().enumerate() {
+                let hay_b = hay[idx + offset];
+                if !hay_b.eq_ignore_ascii_case(&b) {
                     matched = false;
                     break;
                 }
-            } else if !hay_b.eq_ignore_ascii_case(&b) {
-                matched = false;
-                break;
+            }
+
+            if matched {
+                ranges.push(idx..idx + needle_bytes.len());
+                idx += needle_bytes.len();
+            } else {
+                idx += 1;
             }
         }
-
-        if matched {
-            ranges.push(idx..idx + needle_bytes.len());
-            idx += needle_bytes.len();
-        } else {
-            idx += 1;
-        }
+        ranges
     }
-
-    ranges
 }

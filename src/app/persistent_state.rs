@@ -247,8 +247,11 @@ impl PersistentState {
             return Ok(());
         }
 
-        let mut store = Self::load_history_store().unwrap_or_else(|_| SearchHistoryStore {
-            histories: HashMap::new(),
+        let mut store = Self::load_history_store().unwrap_or_else(|err| {
+            eprintln!("Failed to load search history store: {}", err);
+            SearchHistoryStore {
+                histories: HashMap::new(),
+            }
         });
 
         // Get or create history for this file

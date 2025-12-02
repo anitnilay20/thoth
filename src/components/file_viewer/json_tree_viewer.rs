@@ -141,15 +141,10 @@ fn adjust_value_ranges(
 }
 
 fn leading_whitespace_len(text: &str) -> usize {
-    let mut count = 0;
-    for ch in text.chars() {
-        if ch.is_whitespace() {
-            count += ch.len_utf8();
-        } else {
-            break;
-        }
-    }
-    count
+    text.chars()
+        .take_while(|c| c.is_whitespace())
+        .map(|c| c.len_utf8())
+        .sum()
 }
 
 fn trailing_whitespace_len(text: &str) -> usize {
