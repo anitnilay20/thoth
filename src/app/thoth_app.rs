@@ -98,7 +98,7 @@ impl App for ThothApp {
         self.update_window_title(ctx);
 
         // Get user's action from Toolbar
-        let toolbar_msg = self.render_toolbar(ctx);
+        self.render_toolbar(ctx);
 
         // Render status bar (before sidebar so it spans full width)
         self.render_status_bar(ctx);
@@ -106,12 +106,9 @@ impl App for ThothApp {
         // Render sidebar and handle events (may return search message)
         let sidebar_msg = self.render_sidebar(ctx);
 
-        // Combine search messages from toolbar and sidebar
-        let incoming_msg = toolbar_msg.or(sidebar_msg);
-
-        // Handle search messages
+        // Handle search messages from sidebar
         let (msg_to_central, search_error) = SearchHandler::handle_search_messages(
-            incoming_msg,
+            sidebar_msg,
             &mut self.window_state.search_engine_state,
             &self.window_state.file_path,
             &self.window_state.file_type,
@@ -323,8 +320,8 @@ impl ThothApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
-    /// Render toolbar and return any search messages
-    fn render_toolbar(&mut self, ctx: &egui::Context) -> Option<crate::search::SearchMessage> {
+    /// Render toolbar
+    fn render_toolbar(&mut self, ctx: &egui::Context) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -370,9 +367,6 @@ impl ThothApp {
                 }
             }
         }
-
-        // Search is now handled in sidebar, no separate dropdown
-        None
     }
 
     /// Save settings if they have changed
@@ -485,11 +479,20 @@ impl ThothApp {
         use crate::components::traits::ContextComponent;
 
         // Determine if search should receive focus
-        // Focus when: section changed to Search
-        let focus_search = self.window_state.sidebar_selected_section
+        // Focus when:
+        // 1. Section changed to Search (from a different section)
+        // 2. OR sidebar was just expanded with Search section (reopening)
+        let section_changed_to_search = self.window_state.sidebar_selected_section
             == Some(components::sidebar::SidebarSection::Search)
             && self.window_state.previous_sidebar_section
                 != Some(components::sidebar::SidebarSection::Search);
+
+        let sidebar_reopened_with_search = self.window_state.sidebar_expanded
+            && !self.window_state.previous_sidebar_expanded
+            && self.window_state.sidebar_selected_section
+                == Some(components::sidebar::SidebarSection::Search);
+
+        let focus_search = section_changed_to_search || sidebar_reopened_with_search;
 
         // Render sidebar
         let output = self.window_state.sidebar.render(
@@ -502,8 +505,24 @@ impl ThothApp {
                 focus_search,
                 update_status: &self.update_state.update_status,
                 current_version: env!("CARGO_PKG_VERSION"),
+                search_state: &self.window_state.search_engine_state.search,
+                search_history: self
+                    .window_state
+                    .file_path
+                    .as_ref()
+                    .and_then(|path| path.to_str())
+                    .and_then(|path_str| {
+                        super::persistent_state::PersistentState::load_search_history(path_str).ok()
+                    })
+                    .as_ref(),
             },
         );
+
+        // Update previous states after rendering so focus_search is only true for one frame
+        if focus_search {
+            self.window_state.previous_sidebar_section = self.window_state.sidebar_selected_section;
+        }
+        self.window_state.previous_sidebar_expanded = self.window_state.sidebar_expanded;
 
         // Handle sidebar events
         for event in output.events {
@@ -559,8 +578,34 @@ impl ThothApp {
                     let _ = self.persistent_state.save();
                 }
                 components::sidebar::SidebarEvent::Search(msg) => {
+                    // Save search query to history
+                    if let Some(file_path) = &self.window_state.file_path {
+                        if let Some(path_str) = file_path.to_str() {
+                            if let Some(entry) = msg.history_entry() {
+                                let _ = super::persistent_state::PersistentState::add_search_query(
+                                    path_str, entry,
+                                );
+                            }
+                        }
+                    }
                     // Handle search from sidebar
                     return Some(msg);
+                }
+                components::sidebar::SidebarEvent::NavigateToSearchResult { record_index } => {
+                    // Navigate to the selected search result in the main view
+                    self.window_state
+                        .central_panel
+                        .navigate_to_record(record_index);
+                }
+                components::sidebar::SidebarEvent::ClearSearchHistory => {
+                    // Clear search history for the current file
+                    if let Some(file_path) = &self.window_state.file_path {
+                        if let Some(path_str) = file_path.to_str() {
+                            let _ = super::persistent_state::PersistentState::clear_search_history(
+                                path_str,
+                            );
+                        }
+                    }
                 }
                 components::sidebar::SidebarEvent::CheckForUpdates => {
                     // Trigger update check

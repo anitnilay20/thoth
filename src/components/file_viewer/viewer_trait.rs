@@ -47,6 +47,7 @@ pub trait FileFormatViewer {
     /// * `cache` - LRU cache for parsed values
     /// * `loader` - File loader for lazy loading
     /// * `should_scroll_to_selection` - Whether to scroll to the selected item (mutable, will be reset after scrolling)
+    /// * `is_search_navigation` - Whether this is search navigation (large jump) vs keyboard navigation
     fn render(
         &mut self,
         ui: &mut Ui,
@@ -54,6 +55,7 @@ pub trait FileFormatViewer {
         cache: &mut LruCache<usize, Value>,
         loader: &mut LazyJsonFile,
         should_scroll_to_selection: &mut bool,
+        is_search_navigation: bool,
     ) -> bool;
 
     // ========================================================================
@@ -98,6 +100,14 @@ pub trait FileFormatViewer {
     fn move_selection_down(&self, current: &Option<String>) -> Option<String> {
         let _ = current;
         None // Default: no-op
+    }
+
+    /// Navigate to a specific root record by index
+    /// This should select the record and expand it if applicable
+    /// Returns true if a rebuild is needed
+    fn navigate_to_root(&mut self, root_index: usize) -> bool {
+        let _ = root_index;
+        false // Default: no-op
     }
 
     // ========================================================================

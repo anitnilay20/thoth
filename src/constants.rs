@@ -9,3 +9,7 @@ pub const MAX_SIDEBAR_WIDTH_RATIO: f32 = 0.7; // 70% of window width
 
 // Recent files configuration
 pub const MAX_RECENT_FILES: usize = 10;
+
+// Scroll margin for automatic scrolling behavior
+// Number of rows margin before scrolling
+pub const SCROLL_MARGIN: usize = 3;

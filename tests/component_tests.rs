@@ -3,7 +3,7 @@
 mod common;
 
 use common::{run_context_test, run_ui_test};
-use thoth::components::data_row::{DataRow, DataRowProps};
+use thoth::components::data_row::{DataRow, DataRowProps, RowHighlights};
 use thoth::components::traits::StatelessComponent;
 use thoth::theme::TextToken;
 
@@ -21,6 +21,7 @@ fn test_data_row_basic() {
                 text_tokens: (TextToken::Key, Some(TextToken::Str)),
                 background: ui.visuals().widgets.noninteractive.bg_fill,
                 row_id: "test-row",
+                highlights: RowHighlights::default(),
             },
         );
 
@@ -40,6 +41,7 @@ fn test_data_row_with_brackets() {
                 text_tokens: (TextToken::Key, Some(TextToken::Bracket)),
                 background: ui.visuals().widgets.noninteractive.bg_fill,
                 row_id: "array-row",
+                highlights: RowHighlights::default(),
             },
         );
 
@@ -59,6 +61,7 @@ fn test_data_row_with_indentation() {
                     text_tokens: (TextToken::Key, Some(TextToken::Str)),
                     background: ui.visuals().widgets.noninteractive.bg_fill,
                     row_id: &format!("indent-{}", level),
+                    highlights: RowHighlights::default(),
                 },
             );
 
@@ -85,6 +88,7 @@ fn test_data_row_different_text_tokens() {
                     text_tokens: (*token1, *token2),
                     background: ui.visuals().widgets.noninteractive.bg_fill,
                     row_id: &format!("token-{}", i),
+                    highlights: RowHighlights::default(),
                 },
             );
 
@@ -105,6 +109,7 @@ fn test_data_row_with_selection_background() {
                 text_tokens: (TextToken::Key, Some(TextToken::Str)),
                 background: selected_bg,
                 row_id: "selected-row",
+                highlights: RowHighlights::default(),
             },
         );
 
