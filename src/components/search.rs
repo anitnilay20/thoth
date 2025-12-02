@@ -6,6 +6,15 @@ use crate::search::results::MatchPreview;
 use crate::search::{QueryMode, Search as SearchState, SearchMessage, decode_history_entry};
 use eframe::egui::{self, WidgetText, text::LayoutJob};
 
+/// Detect query mode based on whether the query starts with '$'
+fn detect_query_mode(query: &str) -> QueryMode {
+    if query.trim_start().starts_with('$') {
+        QueryMode::JsonPath
+    } else {
+        QueryMode::Text
+    }
+}
+
 /// Props passed to the Search panel (immutable, one-way binding)
 pub struct SearchProps<'a> {
     /// Whether this is the first render since the panel was opened
@@ -36,7 +45,6 @@ pub struct SearchOutput {
 pub struct Search {
     search_query: String,
     match_case: bool,
-    query_mode: QueryMode,
 }
 
 impl StatefulComponent for Search {
@@ -45,11 +53,6 @@ impl StatefulComponent for Search {
 
     fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         let mut events = Vec::new();
-
-        if !props.search_state.query.is_empty() && props.search_state.query_mode != self.query_mode
-        {
-            self.query_mode = props.search_state.query_mode;
-        }
 
         // Get theme colors for header
         let theme_colors = ui.ctx().memory(|mem| {
@@ -91,11 +94,10 @@ impl StatefulComponent for Search {
                 );
                 if clear_output.clicked {
                     self.search_query.clear();
-                    if let Some(msg) = SearchMessage::create_search(
-                        String::new(),
-                        self.match_case,
-                        self.query_mode,
-                    ) {
+                    let query_mode = detect_query_mode("");
+                    if let Some(msg) =
+                        SearchMessage::create_search(String::new(), self.match_case, query_mode)
+                    {
                         events.push(SearchEvent::Search(msg));
                     }
                 }
@@ -112,10 +114,11 @@ impl StatefulComponent for Search {
                     },
                 );
                 if search_output.clicked && !self.search_query.is_empty() {
+                    let query_mode = detect_query_mode(&self.search_query);
                     if let Some(msg) = SearchMessage::create_search(
                         self.search_query.clone(),
                         self.match_case,
-                        self.query_mode,
+                        query_mode,
                     ) {
                         events.push(SearchEvent::Search(msg));
                     }
@@ -127,26 +130,8 @@ impl StatefulComponent for Search {
         ui.separator();
         ui.add_space(8.0);
 
-        ui.horizontal(|ui| {
-            ui.label("Mode");
-            egui::ComboBox::from_id_salt("search_mode_combo")
-                .selected_text(match self.query_mode {
-                    QueryMode::Text => "Text",
-                    QueryMode::JsonPath => "JSONPath",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.query_mode, QueryMode::Text, "Text");
-                    ui.selectable_value(&mut self.query_mode, QueryMode::JsonPath, "JSONPath");
-                });
-        });
-
-        ui.add_space(4.0);
-
         // Search input field with custom background
-        let placeholder = match self.query_mode {
-            QueryMode::Text => "Search...",
-            QueryMode::JsonPath => "JSONPath (e.g. $.user.name = \"alice\")",
-        };
+        let placeholder = "Search... (use $ prefix for JSONPath, e.g. $.user.name = \"alice\")";
         let text_edit = egui::TextEdit::singleline(&mut self.search_query)
             .desired_width(f32::INFINITY)
             .hint_text(placeholder);
@@ -175,11 +160,10 @@ impl StatefulComponent for Search {
             || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
 
         if should_search && !self.search_query.is_empty() {
-            if let Some(msg) = SearchMessage::create_search(
-                self.search_query.clone(),
-                self.match_case,
-                self.query_mode,
-            ) {
+            let query_mode = detect_query_mode(&self.search_query);
+            if let Some(msg) =
+                SearchMessage::create_search(self.search_query.clone(), self.match_case, query_mode)
+            {
                 events.push(SearchEvent::Search(msg));
             }
         }
@@ -235,14 +219,17 @@ impl StatefulComponent for Search {
                     ui.add_space(4.0);
 
                     for entry in history {
-                        let (entry_mode, entry_query) = decode_history_entry(entry);
-                        let label = match entry_mode {
-                            QueryMode::Text => entry_query.clone(),
-                            QueryMode::JsonPath => format!("[JSONPath] {}", entry_query),
-                        };
-                        let button = egui::Button::new(egui::RichText::new(label).size(12.0))
-                            .frame(true)
-                            .min_size(egui::vec2(ui.available_width(), 24.0));
+                        let (_entry_mode, entry_query) = decode_history_entry(entry);
+
+                        // Skip empty queries
+                        if entry_query.trim().is_empty() {
+                            continue;
+                        }
+
+                        let button =
+                            egui::Button::new(egui::RichText::new(&entry_query).size(12.0))
+                                .frame(true)
+                                .min_size(egui::vec2(ui.available_width(), 24.0));
 
                         let response = ui.add(button);
 
@@ -252,11 +239,11 @@ impl StatefulComponent for Search {
 
                         if response.clicked() {
                             self.search_query = entry_query.clone();
-                            self.query_mode = entry_mode;
+                            let query_mode = detect_query_mode(&entry_query);
                             if let Some(msg) = SearchMessage::create_search(
                                 entry_query.clone(),
                                 self.match_case,
-                                self.query_mode,
+                                query_mode,
                             ) {
                                 events.push(SearchEvent::Search(msg));
                             }

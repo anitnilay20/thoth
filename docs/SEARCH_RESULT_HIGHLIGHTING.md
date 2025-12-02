@@ -2,7 +2,7 @@
 
 Issue: [anitnilay20/thoth#8](https://github.com/anitnilay20/thoth/issues/8)  
 Status: Implemented (Phases 0–3 shipped)  
-Last Updated: 2025-02-17
+Last Updated: 2025-12-02
 
 ---
 
@@ -120,11 +120,14 @@ Because all fragments look identical to the UI, the viewer/rendering layer is ob
 
 ### 4.1 Sidebar UX
 
-- Combo box toggles `Text` vs. `JSONPath`, updating the hint text (“Search…” vs. “JSONPath (e.g. $.user.name = "alice")”).
-- Clear/search buttons create `SearchMessage::StartSearch` with the current mode.
-- History entries are stored per file in `~/Library/Application Support/thoth/search_history.json` (JSON format). Each entry contains `{ "mode": "json_path", "query": "$.user.name='anit'" }`.
-- Clicking a history row restores both the query and the mode, then fires a new search.
-
+- **Automatic Mode Detection** – Query mode is automatically detected based on the query prefix:
+  - Queries starting with `$` are treated as JSONPath queries
+  - All other queries use text search mode
+  - This eliminates the need for a manual mode selector
+- **Smart Placeholder** – The search input displays hint text: `"Search... (use $ prefix for JSONPath, e.g. $.user.name = \"alice\")"`, guiding users to use the `$` prefix for JSONPath queries.
+- **Clear/Search Buttons** – Create `SearchMessage::StartSearch` with auto-detected mode based on query content.
+- **History Persistence** – History entries are stored per file in `~/Library/Application Support/thoth/search_history.json` (JSON format). Each entry contains `{ "mode": "json_path", "query": "$.user.name='anit'" }`.
+- **History Display** – Recent searches show only the query text without mode prefixes (e.g., no `[JSONPath]` label), maintaining a clean interface. The mode is preserved internally and restored when clicking a history entry.
 ### 4.2 Persistent State
 
 - We cap history at `MAX_SEARCH_HISTORY_PER_FILE` per file and `MAX_FILES_WITH_HISTORY` overall, trimming by recency.
