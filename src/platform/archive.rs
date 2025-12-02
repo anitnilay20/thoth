@@ -15,12 +15,18 @@ pub struct TarGzExtractor;
 impl ArchiveExtractor for ZipExtractor {
     #[cfg(target_os = "windows")]
     fn extract(&self, archive_path: &Path, dest_dir: &Path) -> Result<()> {
-        use std::io::Read;
         let file = std::fs::File::open(archive_path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
+        let mut archive =
+            zip::ZipArchive::new(file).map_err(|e| ThothError::UpdateInstallError {
+                reason: format!("Failed to open ZIP archive: {}", e),
+            })?;
 
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i)?;
+            let mut file = archive
+                .by_index(i)
+                .map_err(|e| ThothError::UpdateInstallError {
+                    reason: format!("Failed to read ZIP entry: {}", e),
+                })?;
             let outpath = dest_dir.join(file.name());
 
             if file.is_dir() {
