@@ -16,6 +16,7 @@ mod constants;
 mod error;
 mod file;
 mod helpers;
+mod platform;
 mod search;
 mod settings;
 mod shortcuts;

@@ -1,5 +1,6 @@
 use super::types::ReleaseInfo;
 use crate::error::{Result, ThothError};
+use crate::platform::{get_extractor_for_file, get_fs_ops};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -256,7 +257,7 @@ impl UpdateManager {
         let temp_dir = std::env::temp_dir().join("thoth_update_extracted");
         std::fs::create_dir_all(&temp_dir)?;
 
-        // Detect file type and extract
+        // Detect file type and extract using platform abstraction
         let file_name = archive_path
             .file_name()
             .and_then(|n| n.to_str())
@@ -264,15 +265,8 @@ impl UpdateManager {
                 reason: "Invalid file name in archive path".to_string(),
             })?;
 
-        if file_name.ends_with(".zip") {
-            Self::extract_zip(&archive_path, &temp_dir)?;
-        } else if file_name.ends_with(".tar.gz") {
-            Self::extract_tar_gz(&archive_path, &temp_dir)?;
-        } else {
-            return Err(ThothError::UpdateInstallError {
-                reason: format!("Unsupported archive format: {}", file_name),
-            });
-        }
+        let extractor = get_extractor_for_file(file_name)?;
+        extractor.extract(&archive_path, &temp_dir)?;
 
         // Get current executable path
         let current_exe = std::env::current_exe()?;
@@ -284,63 +278,6 @@ impl UpdateManager {
         Self::replace_executable(&new_exe, &current_exe)?;
 
         Ok(())
-    }
-
-    #[cfg(target_os = "windows")]
-    fn extract_zip(archive_path: &std::path::Path, dest_dir: &std::path::Path) -> Result<()> {
-        use std::io::Read;
-        let file = std::fs::File::open(archive_path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
-
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i)?;
-            let outpath = dest_dir.join(file.name());
-
-            if file.is_dir() {
-                std::fs::create_dir_all(&outpath)?;
-            } else {
-                if let Some(p) = outpath.parent() {
-                    std::fs::create_dir_all(p)?;
-                }
-                let mut outfile =
-                    std::fs::File::create(&outpath).map_err(|e| ThothError::FileWriteError {
-                        path: outpath.clone(),
-                        reason: format!("Failed to create extracted file: {}", e),
-                    })?;
-                std::io::copy(&mut file, &mut outfile).map_err(|e| ThothError::FileWriteError {
-                    path: outpath.clone(),
-                    reason: format!("Failed to write extracted data: {}", e),
-                })?;
-            }
-        }
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn extract_tar_gz(archive_path: &std::path::Path, dest_dir: &std::path::Path) -> Result<()> {
-        use flate2::read::GzDecoder;
-        use tar::Archive;
-
-        let file = std::fs::File::open(archive_path)?;
-        let gz = GzDecoder::new(file);
-        let mut archive = Archive::new(gz);
-        archive.unpack(dest_dir)?;
-
-        Ok(())
-    }
-
-    #[cfg(target_os = "windows")]
-    fn extract_tar_gz(_archive_path: &std::path::Path, _dest_dir: &std::path::Path) -> Result<()> {
-        Err(ThothError::UpdateInstallError {
-            reason: "tar.gz extraction not supported on Windows platform".to_string(),
-        })
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn extract_zip(_archive_path: &std::path::Path, _dest_dir: &std::path::Path) -> Result<()> {
-        Err(ThothError::UpdateInstallError {
-            reason: "zip extraction not supported on Unix platform".to_string(),
-        })
     }
 
     fn find_executable(dir: &std::path::Path) -> Result<std::path::PathBuf> {
@@ -371,14 +308,9 @@ impl UpdateManager {
     }
 
     fn replace_executable(new_exe: &std::path::Path, current_exe: &std::path::Path) -> Result<()> {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            // Set executable permissions
-            let mut perms = std::fs::metadata(new_exe)?.permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(new_exe, perms)?;
-        }
+        // Set executable permissions using platform abstraction
+        let fs_ops = get_fs_ops();
+        fs_ops.make_executable(new_exe)?;
 
         // Create backup of current executable
         let backup_path = current_exe.with_extension("backup");
