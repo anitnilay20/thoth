@@ -9,6 +9,7 @@ pub mod constants;
 pub mod error;
 pub mod file;
 pub mod helpers;
+pub mod platform;
 pub mod search;
 pub mod settings;
 pub mod shortcuts;

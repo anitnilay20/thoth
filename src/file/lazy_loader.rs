@@ -1,4 +1,6 @@
 use crate::error::{Result, ThothError};
+use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
+use crate::platform::FileIO;
 use anyhow::Context;
 use serde_json::Value;
 use std::{
@@ -6,13 +8,6 @@ use std::{
     io::{BufRead, BufReader, Read},
     path::Path,
 };
-
-#[cfg(unix)]
-use std::os::unix::fs::FileExt; // read_at
-#[cfg(windows)]
-use std::os::windows::fs::FileExt; // seek_read
-
-use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FileType {
@@ -92,15 +87,7 @@ impl NdjsonFile {
                 })?;
         let len = (end - start) as usize;
         let mut buf = vec![0u8; len];
-
-        #[cfg(unix)]
-        {
-            self.file.read_at(&mut buf, start)?;
-        }
-        #[cfg(windows)]
-        {
-            self.file.seek_read(&mut buf, start)?;
-        }
+        self.file.read_at(&mut buf, start)?;
 
         // Trim trailing CRLF/LF if your spans included it; with this indexer we exclude '\n' already.
         Ok(buf)
@@ -164,15 +151,7 @@ impl NdjsonFile {
                 })?;
         let len = (end - start) as usize;
         let mut buf = vec![0u8; len];
-
-        #[cfg(unix)]
-        {
-            self.file.read_at(&mut buf, start)?;
-        }
-        #[cfg(windows)]
-        {
-            self.file.seek_read(&mut buf, start)?;
-        }
+        self.file.read_at(&mut buf, start)?;
 
         let v: Value = serde_json::from_slice(&buf)
             .with_context(|| format!("invalid JSON at line index {}", idx))?;
@@ -199,15 +178,7 @@ impl JsonArrayFile {
                 })?;
         let len = (end - start) as usize;
         let mut buf = vec![0u8; len];
-
-        #[cfg(unix)]
-        {
-            self.file.read_at(&mut buf, start)?;
-        }
-        #[cfg(windows)]
-        {
-            self.file.seek_read(&mut buf, start)?;
-        }
+        self.file.read_at(&mut buf, start)?;
 
         Ok(buf)
     }
@@ -246,15 +217,7 @@ impl JsonArrayFile {
                 })?;
         let len = (end - start) as usize;
         let mut buf = vec![0u8; len];
-
-        #[cfg(unix)]
-        {
-            self.file.read_at(&mut buf, start)?;
-        }
-        #[cfg(windows)]
-        {
-            self.file.seek_read(&mut buf, start)?;
-        }
+        self.file.read_at(&mut buf, start)?;
 
         let v: Value = serde_json::from_slice(&buf)
             .with_context(|| format!("invalid element at index {}", idx))?;
@@ -274,15 +237,7 @@ impl SingleValueFile {
     pub fn raw_all(&self) -> Result<Vec<u8>> {
         let len = self.file.metadata()?.len() as usize;
         let mut buf = vec![0u8; len];
-
-        #[cfg(unix)]
-        {
-            self.file.read_at(&mut buf, 0)?;
-        }
-        #[cfg(windows)]
-        {
-            self.file.seek_read(&mut buf, 0)?;
-        }
+        self.file.read_at(&mut buf, 0)?;
 
         Ok(buf)
     }
@@ -307,15 +262,7 @@ impl SingleValueFile {
         // Read full file via position-independent I/O, then parse.
         let len = self.file.metadata()?.len() as usize;
         let mut buf = vec![0u8; len];
-
-        #[cfg(unix)]
-        {
-            self.file.read_at(&mut buf, 0)?;
-        }
-        #[cfg(windows)]
-        {
-            self.file.seek_read(&mut buf, 0)?;
-        }
+        self.file.read_at(&mut buf, 0)?;
 
         let v: Value = serde_json::from_slice(&buf)?;
         self.parsed = Some(v.clone());
