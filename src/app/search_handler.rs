@@ -5,7 +5,7 @@ use eframe::egui;
 pub struct SearchHandler;
 
 impl SearchHandler {
-    /// Process search messages from toolbar and background search
+    /// Process search messages from sidebar and background search
     /// Returns (message_to_central, error_if_any)
     pub fn handle_search_messages(
         incoming_msg: Option<search::SearchMessage>,
@@ -30,7 +30,7 @@ impl SearchHandler {
             }
         }
 
-        // Handle incoming search message from toolbar
+        // Handle incoming search message from sidebar
         if let Some(msg) = incoming_msg {
             match msg {
                 search::SearchMessage::StartSearch(s) => {

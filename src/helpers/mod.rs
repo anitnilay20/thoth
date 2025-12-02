@@ -8,7 +8,7 @@ use eframe::egui::IconData;
 pub use format::{format_date, format_date_static, format_simple_kv, preview_value};
 pub use json_copy_to_clipboard::{get_object_string, split_root_rel};
 pub use lru_cache::LruCache;
-pub use scroll::scroll_to_selection;
+pub use scroll::{scroll_to_search_target, scroll_to_selection};
 
 /// Get formatted shortcut strings for context menu
 /// Returns: (copy_key, copy_value, copy_object, copy_path)

@@ -6,12 +6,15 @@ pub mod viewer_type;
 
 use eframe::egui::Ui;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use self::types::ViewerState;
 use self::viewer_type::ViewerType;
 use crate::file::lazy_loader::{FileType, LazyJsonFile, load_file_auto};
 use crate::helpers::LruCache;
+use crate::search::results::{MatchFragment, SearchResults};
 
 /// Generic file viewer that manages common viewing concerns (loading, caching, selection)
 /// and delegates format-specific rendering to specialized viewers via the ViewerType enum.
@@ -39,6 +42,9 @@ pub struct FileViewer {
 
     /// Current file path (for display and reloading)
     file_path: Option<PathBuf>,
+
+    /// Highlights for records and paths from search results
+    highlights: HashMap<usize, Arc<Vec<MatchFragment>>>,
 }
 
 impl FileViewer {
@@ -56,6 +62,7 @@ impl FileViewer {
             viewer: None,
             state: ViewerState::default(),
             file_path: None,
+            highlights: HashMap::new(),
         }
     }
 
@@ -72,9 +79,11 @@ impl FileViewer {
         // Clear cache and reset state (recreate cache since LruCache doesn't have clear)
         self.cache = LruCache::new(self.cache_size);
         self.state = ViewerState::default();
+        self.highlights.clear();
 
         // Create appropriate viewer for file type
         self.viewer = Some(ViewerType::from_file_type(*file_type));
+        self.apply_highlights_to_viewer();
 
         Ok(())
     }
@@ -82,6 +91,39 @@ impl FileViewer {
     /// Set root filter for search results
     pub fn set_root_filter(&mut self, visible_roots: Option<Vec<usize>>) {
         self.state.visible_roots = visible_roots;
+    }
+
+    /// Navigate to and expand a specific root record by index
+    /// This selects the record, expands it, and scrolls to it
+    pub fn navigate_to_root(&mut self, root_index: usize) -> bool {
+        // Set selection to the root record path (e.g., "0", "1", "2")
+        let path = root_index.to_string();
+        self.state.selected = Some(path);
+
+        // Trigger scroll to selection on next render
+        self.state.should_scroll_to_selection = true;
+        // Mark this as search navigation (large jump) not keyboard navigation
+        self.state.is_search_navigation = true;
+
+        // Delegate to the viewer's navigate_to_root implementation and rebuild if needed
+        if let Some(viewer) = self.viewer.as_mut() {
+            let needs_rebuild = viewer.as_viewer_mut().navigate_to_root(root_index);
+            if needs_rebuild {
+                if let Some(loader) = self.loader.as_mut() {
+                    // Rebuild view immediately so rows are ready for scrolling
+                    let total_len = loader.len();
+                    viewer.as_viewer_mut().rebuild_view(
+                        &self.state.visible_roots,
+                        &mut self.cache,
+                        loader,
+                        total_len,
+                    );
+                }
+            }
+            return needs_rebuild;
+        }
+
+        false
     }
 
     /// Render the file viewer UI
@@ -111,7 +153,13 @@ impl FileViewer {
             &mut self.cache,
             loader,
             &mut self.state.should_scroll_to_selection,
+            self.state.is_search_navigation,
         );
+
+        // Reset the search navigation flag after rendering
+        if self.state.is_search_navigation {
+            self.state.is_search_navigation = false;
+        }
 
         // Rebuild if needed (e.g., user toggled expansion)
         if needs_rebuild {
@@ -124,9 +172,24 @@ impl FileViewer {
         }
     }
 
-    /// Get the current filter length if a filter is active (compatible with old JsonViewer API)
-    pub fn current_filter_len(&self) -> Option<usize> {
-        self.state.visible_roots.as_ref().map(|v| v.len())
+    /// Update highlight metadata from search results
+    pub fn set_highlights(&mut self, results: Option<&SearchResults>) {
+        self.highlights.clear();
+        if let Some(res) = results {
+            for hit in res.hits() {
+                if !hit.fragments.is_empty() {
+                    self.highlights
+                        .insert(hit.record_index, Arc::new(hit.fragments.clone()));
+                }
+            }
+        }
+        self.apply_highlights_to_viewer();
+    }
+
+    fn apply_highlights_to_viewer(&mut self) {
+        if let Some(ViewerType::Json(json)) = self.viewer.as_mut() {
+            json.set_highlights(&self.highlights);
+        }
     }
 
     /// Get the total number of root items in the loaded file

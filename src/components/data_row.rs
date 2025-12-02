@@ -1,6 +1,14 @@
+use std::sync::Arc;
+
 use crate::components::traits::StatelessComponent;
 use crate::theme::{ROW_HEIGHT, TextPalette, TextToken, hover_row_bg};
-use eframe::egui::{self, Color32, RichText, Ui};
+use eframe::egui::{self, Color32, RichText, Ui, WidgetText, text::LayoutJob};
+
+#[derive(Default, Clone)]
+pub struct RowHighlights {
+    pub key_ranges: Vec<std::ops::Range<usize>>,
+    pub value_ranges: Vec<std::ops::Range<usize>>,
+}
 
 /// Props for DataRow component (immutable, data flows down)
 pub struct DataRowProps<'a> {
@@ -15,6 +23,9 @@ pub struct DataRowProps<'a> {
 
     /// Unique ID for interaction
     pub row_id: &'a str,
+
+    /// Highlight terms to emphasize within key/value text
+    pub highlights: RowHighlights,
 }
 
 /// Output from DataRow component (events flow up)
@@ -67,23 +78,35 @@ impl StatelessComponent for DataRow {
             props.background
         };
 
+        let highlight_bg = ui.visuals().selection.bg_fill;
+        let highlight_fg = ui.visuals().strong_text_color();
+
         let _frame_response = egui::Frame::new().fill(background).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 // Key part (with syntax highlighting)
-                ui.add(egui::Label::new(
-                    RichText::new(format!("{}{}", key_part, if has_colon { ":" } else { "" }))
-                        .monospace()
-                        .color(palette.color(props.text_tokens.0)),
-                ));
+                let key_label_text = format!("{}{}", key_part, if has_colon { ":" } else { "" });
+                let key_label = highlighted_text(
+                    ui,
+                    &key_label_text,
+                    palette.color(props.text_tokens.0),
+                    &props.highlights.key_ranges,
+                    highlight_bg,
+                    highlight_fg,
+                );
+                ui.add(egui::Label::new(key_label).sense(egui::Sense::hover()));
 
                 // Value part (if exists, with different token)
                 if let Some(value_token) = props.text_tokens.1 {
-                    ui.add(egui::Label::new(
-                        RichText::new(value_part)
-                            .monospace()
-                            .color(palette.color(value_token)),
-                    ));
+                    let value_label = highlighted_text(
+                        ui,
+                        value_part,
+                        palette.color(value_token),
+                        &props.highlights.value_ranges,
+                        highlight_bg,
+                        highlight_fg,
+                    );
+                    ui.add(egui::Label::new(value_label).sense(egui::Sense::hover()));
                 }
             });
         });
@@ -111,4 +134,49 @@ fn blend_colors(background: Color32, overlay: Color32) -> Color32 {
         ((bg[2] as f32 * inv_alpha) + (ov[2] as f32 * alpha)) as u8,
         bg[3],
     )
+}
+
+fn highlighted_text(
+    ui: &Ui,
+    text: &str,
+    base_color: Color32,
+    ranges: &[std::ops::Range<usize>],
+    highlight_bg: Color32,
+    highlight_fg: Color32,
+) -> WidgetText {
+    if text.is_empty() || ranges.is_empty() {
+        return RichText::new(text).monospace().color(base_color).into();
+    }
+
+    let mut job = LayoutJob::default();
+    let font_size = ui.style().text_styles[&egui::TextStyle::Monospace].size;
+    let base_format = egui::TextFormat {
+        font_id: egui::FontId::monospace(font_size),
+        color: base_color,
+        ..Default::default()
+    };
+    let highlight_format = egui::TextFormat {
+        font_id: egui::FontId::monospace(font_size),
+        color: highlight_fg,
+        background: highlight_bg,
+        ..Default::default()
+    };
+
+    let mut cursor = 0;
+    for range in ranges {
+        let start = range.start.min(text.len());
+        let end = range.end.min(text.len());
+        if start > cursor {
+            job.append(&text[cursor..start], 0.0, base_format.clone());
+        }
+        if start < end {
+            job.append(&text[start..end], 0.0, highlight_format.clone());
+        }
+        cursor = end;
+    }
+    if cursor < text.len() {
+        job.append(&text[cursor..], 0.0, base_format);
+    }
+
+    WidgetText::LayoutJob(Arc::new(job))
 }

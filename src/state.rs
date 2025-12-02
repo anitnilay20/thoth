@@ -24,6 +24,8 @@ pub struct WindowState {
     pub sidebar_selected_section: Option<components::sidebar::SidebarSection>,
     /// Track previous section to determine when to focus search
     pub previous_sidebar_section: Option<components::sidebar::SidebarSection>,
+    /// Track previous expanded state to detect sidebar reopening
+    pub previous_sidebar_expanded: bool,
 
     // UI components
     pub sidebar: components::sidebar::Sidebar,

@@ -1,8 +1,18 @@
 use crate::error::{Result, ThothError};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::constants::{DEFAULT_SIDEBAR_WIDTH, MAX_RECENT_FILES, MIN_SIDEBAR_WIDTH};
+
+const MAX_SEARCH_HISTORY_PER_FILE: usize = 10;
+const MAX_FILES_WITH_HISTORY: usize = 20; // Keep history for at most 20 files
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SearchHistoryStore {
+    /// Maps file path to (last_accessed_timestamp, queries)
+    histories: HashMap<String, (u64, Vec<String>)>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistentState {
@@ -158,6 +168,135 @@ impl PersistentState {
     /// Get the sidebar width
     pub fn get_sidebar_width(&self) -> f32 {
         self.sidebar_width
+    }
+
+    // Search history methods (single file with LRU for most recently used files)
+
+    /// Get the path to the search history storage file
+    fn search_history_storage_path() -> Result<PathBuf> {
+        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::StateError {
+            reason: "Failed to get config directory".to_string(),
+        })?;
+        let thoth_config_dir = config_dir.join("thoth");
+
+        // Create directory if it doesn't exist
+        if !thoth_config_dir.exists() {
+            std::fs::create_dir_all(&thoth_config_dir).map_err(|e| ThothError::StateError {
+                reason: format!("Failed to create thoth config directory: {}", e),
+            })?;
+        }
+
+        Ok(thoth_config_dir.join("search_history.json"))
+    }
+
+    /// Load all search history
+    fn load_history_store() -> Result<SearchHistoryStore> {
+        let path = Self::search_history_storage_path()?;
+
+        if path.exists() {
+            let contents = std::fs::read_to_string(&path).map_err(|e| ThothError::StateError {
+                reason: format!("Failed to read search history: {}", e),
+            })?;
+            let store: SearchHistoryStore =
+                serde_json::from_str(&contents).map_err(|e| ThothError::StateError {
+                    reason: format!("Failed to parse search history: {}", e),
+                })?;
+            Ok(store)
+        } else {
+            Ok(SearchHistoryStore {
+                histories: HashMap::new(),
+            })
+        }
+    }
+
+    /// Save all search history
+    fn save_history_store(store: &SearchHistoryStore) -> Result<()> {
+        let path = Self::search_history_storage_path()?;
+        let json = serde_json::to_string_pretty(store).map_err(|e| ThothError::StateError {
+            reason: format!("Failed to serialize search history: {}", e),
+        })?;
+        std::fs::write(&path, &json).map_err(|e| ThothError::FileWriteError {
+            path: path.clone(),
+            reason: e.to_string(),
+        })?;
+        Ok(())
+    }
+
+    /// Get current timestamp in seconds
+    fn current_timestamp() -> u64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+
+    /// Load search history for a specific file
+    pub fn load_search_history(file_path: &str) -> Result<Vec<String>> {
+        let store = Self::load_history_store()?;
+        Ok(store
+            .histories
+            .get(file_path)
+            .map(|(_, queries)| queries.clone())
+            .unwrap_or_default())
+    }
+
+    /// Add a search query to history for a specific file
+    pub fn add_search_query(file_path: &str, query: String) -> Result<()> {
+        if query.trim().is_empty() {
+            return Ok(());
+        }
+
+        let mut store = Self::load_history_store().unwrap_or_else(|err| {
+            eprintln!("Failed to load search history store: {}", err);
+            SearchHistoryStore {
+                histories: HashMap::new(),
+            }
+        });
+
+        // Get or create history for this file
+        let (_, queries) = store
+            .histories
+            .entry(file_path.to_string())
+            .or_insert_with(|| (Self::current_timestamp(), Vec::new()));
+
+        // Remove if already exists
+        queries.retain(|q| q != &query);
+
+        // Add to front
+        queries.insert(0, query);
+
+        // Limit to MAX_SEARCH_HISTORY_PER_FILE
+        if queries.len() > MAX_SEARCH_HISTORY_PER_FILE {
+            queries.truncate(MAX_SEARCH_HISTORY_PER_FILE);
+        }
+
+        // Update timestamp
+        store.histories.get_mut(file_path).unwrap().0 = Self::current_timestamp();
+
+        // Clean up old entries if we have too many files
+        if store.histories.len() > MAX_FILES_WITH_HISTORY {
+            // Sort by timestamp and keep only the most recent files
+            let mut entries: Vec<_> = store.histories.iter().collect();
+            entries.sort_by_key(|(_, (timestamp, _))| std::cmp::Reverse(*timestamp));
+
+            let to_keep: HashMap<_, _> = entries
+                .into_iter()
+                .take(MAX_FILES_WITH_HISTORY)
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+
+            store.histories = to_keep;
+        }
+
+        Self::save_history_store(&store)
+    }
+
+    /// Clear search history for a specific file
+    pub fn clear_search_history(file_path: &str) -> Result<()> {
+        let mut store = Self::load_history_store()?;
+        store.histories.remove(file_path);
+        Self::save_history_store(&store)
     }
 }
 
