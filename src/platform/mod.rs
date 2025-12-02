@@ -1,6 +1,6 @@
-/// Platform abstraction layer for cross-platform file operations
+/// Platform abstraction layer for cross-platform operations
 ///
-/// This module provides platform-agnostic interfaces for file I/O operations
+/// This module provides platform-agnostic interfaces for operations
 /// that have different implementations on Unix and Windows systems.
 ///
 /// # Example
@@ -13,6 +13,10 @@
 /// file.read_at(&mut buffer, 0)?; // Works on both Unix and Windows
 /// # Ok::<(), std::io::Error>(())
 /// ```
+pub mod archive;
 pub mod file_io;
+pub mod fs;
 
+pub use archive::get_extractor_for_file;
 pub use file_io::FileIO;
+pub use fs::get_fs_ops;
