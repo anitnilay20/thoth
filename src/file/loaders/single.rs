@@ -85,3 +85,114 @@ impl FileLoader for SingleValueFile {
         self.raw_all()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_single_value_basic() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"{{"id":1,"name":"Alice"}}"#).unwrap();
+        file.flush().unwrap();
+
+        let mut loader = SingleValueFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 1);
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["id"], 1);
+        assert_eq!(val["name"], "Alice");
+    }
+
+    #[test]
+    fn test_single_value_caching() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"{{"id":1}}"#).unwrap();
+        file.flush().unwrap();
+
+        let mut loader = SingleValueFile::open(file.path()).unwrap();
+
+        // First access should parse
+        let val1 = loader.get(0).unwrap();
+        assert_eq!(val1["id"], 1);
+
+        // Second access should use cache
+        let val2 = loader.get(0).unwrap();
+        assert_eq!(val2["id"], 1);
+    }
+
+    #[test]
+    fn test_single_value_nested() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"{{"user":{{"name":"Alice","age":30}}}}"#).unwrap();
+        file.flush().unwrap();
+
+        let mut loader = SingleValueFile::open(file.path()).unwrap();
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["user"]["name"], "Alice");
+        assert_eq!(val["user"]["age"], 30);
+    }
+
+    #[test]
+    fn test_single_value_empty_object() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, "{{}}").unwrap();
+        file.flush().unwrap();
+
+        let mut loader = SingleValueFile::open(file.path()).unwrap();
+        let val = loader.get(0).unwrap();
+        assert!(val.is_object());
+        assert_eq!(val.as_object().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_single_value_out_of_bounds() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"{{"id":1}}"#).unwrap();
+        file.flush().unwrap();
+
+        let mut loader = SingleValueFile::open(file.path()).unwrap();
+        assert!(loader.get(1).is_err());
+        assert!(loader.get(100).is_err());
+    }
+
+    #[test]
+    fn test_single_value_raw_bytes() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"{{"id":1}}"#).unwrap();
+        file.flush().unwrap();
+
+        let loader = SingleValueFile::open(file.path()).unwrap();
+        let raw = loader.raw_all().unwrap();
+        let s = String::from_utf8(raw).unwrap();
+        assert_eq!(s, r#"{"id":1}"#);
+    }
+
+    #[test]
+    fn test_single_value_raw_bytes_out_of_bounds() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"{{"id":1}}"#).unwrap();
+        file.flush().unwrap();
+
+        let loader = SingleValueFile::open(file.path()).unwrap();
+        assert!(loader.raw_bytes(1).is_err());
+    }
+
+    #[test]
+    fn test_single_value_fileloader_trait() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"{{"id":1}}"#).unwrap();
+        file.flush().unwrap();
+
+        let mut loader: Box<dyn FileLoader<Item = Value>> =
+            Box::new(SingleValueFile::open(file.path()).unwrap());
+
+        assert_eq!(loader.len(), 1);
+        assert!(!loader.is_empty());
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["id"], 1);
+    }
+}

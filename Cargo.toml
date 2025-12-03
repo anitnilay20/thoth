@@ -91,6 +91,23 @@ optional = true
 version = "0.3"
 optional = true
 
+[dev-dependencies]
+proptest = "1.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.15"
+
 [features]
 default = []
 profiling = ["puffin", "puffin_egui", "dhat"]
+
+[[bench]]
+name = "file_loading"
+harness = false
+
+[[bench]]
+name = "search"
+harness = false
+
+[[bench]]
+name = "parsing"
+harness = false

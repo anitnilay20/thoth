@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}-${{ matrix.rust }}
+
+      - name: Run tests
+        run: cargo test --all-features
+
+      - name: Run integration tests
+        run: cargo test --test '*'
+
+      - name: Check benchmarks compile
+        run: cargo bench --no-run
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.87.0
+          profile: minimal
+          override: true
+          components: rustfmt, clippy
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: Generate coverage
+        run: cargo tarpaulin --out Xml --out Html --all-features --output-dir ./coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/cobertura.xml
+          fail_ci_if_error: false
+
+      - name: Create coverage badge
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          COVERAGE=$(grep -oP 'line-rate="\K[0-9.]+' coverage/cobertura.xml | head -1)
+          COVERAGE_PERCENT=$(echo "$COVERAGE * 100" | bc | cut -d. -f1)
+          echo "Coverage: ${COVERAGE_PERCENT}%"
+
+          # Determine badge color
+          if [ "$COVERAGE_PERCENT" -ge 80 ]; then
+            COLOR="brightgreen"
+          elif [ "$COVERAGE_PERCENT" -ge 60 ]; then
+            COLOR="yellow"
+          else
+            COLOR="red"
+          fi
+
+          # Create badge JSON
+          mkdir -p badges
+          cat > badges/coverage.json << EOF
+          {
+            "schemaVersion": 1,
+            "label": "coverage",
+            "message": "${COVERAGE_PERCENT}%",
+            "color": "$COLOR"
+          }
+          EOF
+
+      - name: Upload coverage badge
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-badge
+          path: badges/coverage.json
+
+  benchmark:
+    name: Benchmark
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmarks
+        run: cargo bench --bench file_loading -- --output-format bencher | tee benchmark_results.txt
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Rust Benchmark
+          tool: "cargo"
+          output-file-path: benchmark_results.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          # Show alert with commit comment on detecting possible performance regression
+          alert-threshold: "200%"
+          comment-on-alert: true
+          fail-on-alert: false
+          # Store benchmark results in gh-pages branch
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench

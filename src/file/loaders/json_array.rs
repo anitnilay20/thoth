@@ -224,3 +224,127 @@ impl FileLoader for JsonArrayFile {
         self.raw_element(idx)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_json_array_basic_loading() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"[{{"id":1}},{{"id":2}},{{"id":3}}]"#).unwrap();
+        file.flush().unwrap();
+
+        let mut loader = JsonArrayFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 3);
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["id"], 1);
+
+        let val = loader.get(2).unwrap();
+        assert_eq!(val["id"], 3);
+    }
+
+    #[test]
+    fn test_json_array_empty() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, "[]").unwrap();
+        file.flush().unwrap();
+
+        let loader = JsonArrayFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 0);
+    }
+
+    #[test]
+    fn test_json_array_single_element() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"[{{"id":1}}]"#).unwrap();
+        file.flush().unwrap();
+
+        let mut loader = JsonArrayFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 1);
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["id"], 1);
+    }
+
+    #[test]
+    fn test_json_array_nested() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(
+            file,
+            r#"[{{"user":{{"name":"Alice"}}}},{{"user":{{"name":"Bob"}}}}]"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+
+        let mut loader = JsonArrayFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 2);
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["user"]["name"], "Alice");
+    }
+
+    #[test]
+    fn test_json_array_with_whitespace() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(
+            file,
+            r#"[
+                {{"id": 1}},
+                {{"id": 2}},
+                {{"id": 3}}
+            ]"#
+        )
+        .unwrap();
+        file.flush().unwrap();
+
+        let mut loader = JsonArrayFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 3);
+
+        let val = loader.get(1).unwrap();
+        assert_eq!(val["id"], 2);
+    }
+
+    #[test]
+    fn test_json_array_out_of_bounds() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"[{{"id":1}}]"#).unwrap();
+        file.flush().unwrap();
+
+        let mut loader = JsonArrayFile::open(file.path()).unwrap();
+        assert!(loader.get(1).is_err());
+        assert!(loader.get(100).is_err());
+    }
+
+    #[test]
+    fn test_json_array_raw_bytes() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"[{{"id":1}},{{"id":2}}]"#).unwrap();
+        file.flush().unwrap();
+
+        let loader = JsonArrayFile::open(file.path()).unwrap();
+        let raw = loader.raw_element(0).unwrap();
+        let s = String::from_utf8(raw).unwrap();
+        assert!(s.contains("\"id\""));
+        assert!(s.contains("1"));
+    }
+
+    #[test]
+    fn test_json_array_fileloader_trait() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"[{{"id":1}},{{"id":2}}]"#).unwrap();
+        file.flush().unwrap();
+
+        let mut loader: Box<dyn FileLoader<Item = Value>> =
+            Box::new(JsonArrayFile::open(file.path()).unwrap());
+
+        assert_eq!(loader.len(), 2);
+        assert!(!loader.is_empty());
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["id"], 1);
+    }
+}

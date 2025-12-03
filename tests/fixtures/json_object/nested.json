@@ -1,0 +1,18 @@
+{
+  "user": {
+    "id": 1,
+    "name": "Alice",
+    "profile": {
+      "email": "alice@example.com",
+      "address": {
+        "street": "123 Main St",
+        "city": "NYC",
+        "country": "USA"
+      }
+    },
+    "preferences": {
+      "theme": "dark",
+      "notifications": true
+    }
+  }
+}

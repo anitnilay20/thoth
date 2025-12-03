@@ -1,0 +1,7 @@
+{
+  "quote": "He said \"Hello\"",
+  "newline": "Line1\nLine2",
+  "tab": "Col1\tCol2",
+  "backslash": "C:\\Users\\file.txt",
+  "unicode": "\u0048\u0065\u006c\u006c\u006f"
+}

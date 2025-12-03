@@ -1,0 +1,3 @@
+{"id":1,"user":{"name":"Alice","address":{"city":"NYC","zip":"10001"}},"tags":["admin","user"]}
+{"id":2,"user":{"name":"Bob","address":{"city":"LA","zip":"90001"}},"tags":["user"]}
+{"id":3,"user":{"name":"Charlie","address":{"city":"Chicago","zip":"60601"}},"tags":["admin","moderator","user"]}
