@@ -1,0 +1,13 @@
+{
+  "string": "hello",
+  "number": 42,
+  "float": 3.14,
+  "boolean_true": true,
+  "boolean_false": false,
+  "null_value": null,
+  "array": [1, "two", 3.0, true, null],
+  "object": {"key": "value"},
+  "empty_string": "",
+  "empty_array": [],
+  "empty_object": {}
+}

@@ -132,3 +132,102 @@ impl FileLoader for NdjsonFile {
         self.raw_line(idx)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_ndjson_basic_loading() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, r#"{{"id":1,"name":"Alice"}}"#).unwrap();
+        writeln!(file, r#"{{"id":2,"name":"Bob"}}"#).unwrap();
+        writeln!(file, r#"{{"id":3,"name":"Charlie"}}"#).unwrap();
+
+        let mut loader = NdjsonFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 3);
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["id"], 1);
+        assert_eq!(val["name"], "Alice");
+
+        let val = loader.get(1).unwrap();
+        assert_eq!(val["id"], 2);
+        assert_eq!(val["name"], "Bob");
+    }
+
+    #[test]
+    fn test_ndjson_empty_file() {
+        let file = NamedTempFile::new().unwrap();
+        let loader = NdjsonFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 0);
+    }
+
+    #[test]
+    fn test_ndjson_single_line() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, r#"{{"id":1}}"#).unwrap();
+
+        let mut loader = NdjsonFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 1);
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["id"], 1);
+    }
+
+    #[test]
+    fn test_ndjson_out_of_bounds() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, r#"{{"id":1}}"#).unwrap();
+
+        let mut loader = NdjsonFile::open(file.path()).unwrap();
+        assert!(loader.get(1).is_err());
+        assert!(loader.get(100).is_err());
+    }
+
+    #[test]
+    fn test_ndjson_raw_bytes() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, r#"{{"id":1}}"#).unwrap();
+
+        let loader = NdjsonFile::open(file.path()).unwrap();
+        let raw = loader.raw_line(0).unwrap();
+        let s = String::from_utf8(raw).unwrap();
+        assert_eq!(s, r#"{"id":1}"#);
+    }
+
+    #[test]
+    fn test_ndjson_crlf_handling() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, "{{\"id\":1}}\r\n").unwrap();
+        write!(file, "{{\"id\":2}}\r\n").unwrap();
+
+        let mut loader = NdjsonFile::open(file.path()).unwrap();
+        assert_eq!(loader.len(), 2);
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["id"], 1);
+    }
+
+    #[test]
+    fn test_ndjson_fileloader_trait() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, r#"{{"id":1}}"#).unwrap();
+        writeln!(file, r#"{{"id":2}}"#).unwrap();
+
+        // Test via FileLoader trait
+        let mut loader: Box<dyn FileLoader<Item = Value>> =
+            Box::new(NdjsonFile::open(file.path()).unwrap());
+
+        assert_eq!(loader.len(), 2);
+        assert!(!loader.is_empty());
+
+        let val = loader.get(0).unwrap();
+        assert_eq!(val["id"], 1);
+
+        let raw = loader.raw_bytes(1).unwrap();
+        assert!(raw.len() > 0);
+    }
+}
