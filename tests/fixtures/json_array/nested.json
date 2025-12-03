@@ -1,0 +1,21 @@
+[
+  {
+    "id": 1,
+    "user": {
+      "name": "Alice",
+      "address": {"city": "NYC", "zip": "10001"}
+    },
+    "items": [
+      {"name": "item1", "price": 10},
+      {"name": "item2", "price": 20}
+    ]
+  },
+  {
+    "id": 2,
+    "user": {
+      "name": "Bob",
+      "address": {"city": "LA", "zip": "90001"}
+    },
+    "items": []
+  }
+]

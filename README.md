@@ -6,6 +6,16 @@
 </div>
 
 <div align="center">
+
+[![CI](https://github.com/anitnilay20/thoth/workflows/CI/badge.svg)](https://github.com/anitnilay20/thoth/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/anitnilay20/YOUR_GIST_ID/raw/thoth-coverage.json)](https://github.com/anitnilay20/thoth/actions/workflows/badges.yml)
+[![Benchmarks](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/anitnilay20/YOUR_GIST_ID/raw/thoth-benchmarks.json)](https://anitnilay20.github.io/thoth/dev/bench/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust Version](https://img.shields.io/badge/rust-1.70%2B-blue.svg)](https://www.rust-lang.org)
+
+</div>
+
+<div align="center">
   <img src="assets/app_sreen_recording.gif"/>
 </div>
 
