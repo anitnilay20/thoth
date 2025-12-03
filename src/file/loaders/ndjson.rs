@@ -228,6 +228,6 @@ mod tests {
         assert_eq!(val["id"], 1);
 
         let raw = loader.raw_bytes(1).unwrap();
-        assert!(raw.len() > 0);
+        assert!(!raw.is_empty());
     }
 }
