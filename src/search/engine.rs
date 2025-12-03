@@ -14,7 +14,7 @@ use super::results::{
     FieldComponent, MatchFragment, MatchPreview, MatchTarget, SearchHit, SearchResults,
 };
 use crate::error::ThothError;
-use crate::file::lazy_loader::{FileType, LazyJsonFile, load_file_auto};
+use crate::file::loaders::{FileType, LazyJsonFile, load_file_auto};
 
 const MAX_FRAGMENTS_PER_RECORD: usize = 64;
 const PREVIEW_CONTEXT_BYTES: usize = 36;

@@ -2,7 +2,7 @@ use eframe::egui;
 use std::path::Path;
 
 use crate::components::traits::ContextComponent;
-use crate::file::lazy_loader::FileType;
+use crate::file::loaders::FileType;
 
 /// Status bar component displaying file info and application status
 #[derive(Default)]

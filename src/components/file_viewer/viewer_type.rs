@@ -1,6 +1,6 @@
 use super::json_tree_viewer::JsonTreeViewer;
 use super::viewer_trait::FileFormatViewer;
-use crate::file::lazy_loader::FileType;
+use crate::file::loaders::FileType;
 
 /// Enum representing different file format viewers
 ///
