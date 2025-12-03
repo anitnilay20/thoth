@@ -1,7 +1,7 @@
 use crate::components::file_viewer::FileViewer;
 use crate::components::traits::ContextComponent;
 use crate::error::{ErrorHandler, ThothError};
-use crate::file::lazy_loader::FileType;
+use crate::file::loaders::FileType;
 use crate::search;
 use eframe::egui;
 use std::path::PathBuf;

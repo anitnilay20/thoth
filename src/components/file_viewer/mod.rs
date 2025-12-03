@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use self::types::ViewerState;
 use self::viewer_type::ViewerType;
-use crate::file::lazy_loader::{FileType, LazyJsonFile, load_file_auto};
+use crate::file::loaders::{FileType, LazyJsonFile, load_file_auto};
 use crate::helpers::LruCache;
 use crate::search::results::{MatchFragment, SearchResults};
 
