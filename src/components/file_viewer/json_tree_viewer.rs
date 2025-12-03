@@ -1,7 +1,7 @@
 use crate::components::data_row::{DataRow, DataRowProps, RowHighlights};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
-use crate::file::lazy_loader::LazyJsonFile;
+use crate::file::loaders::LazyJsonFile;
 use crate::helpers::{
     LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_search_target,
     scroll_to_selection, split_root_rel,

@@ -1,7 +1,7 @@
 use eframe::egui::Ui;
 use serde_json::Value;
 
-use crate::file::lazy_loader::LazyJsonFile;
+use crate::file::loaders::LazyJsonFile;
 use crate::helpers::LruCache;
 
 /// Trait that all file format viewers must implement

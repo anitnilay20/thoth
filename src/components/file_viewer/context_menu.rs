@@ -1,6 +1,6 @@
 use eframe::egui::Ui;
 
-use crate::file::lazy_loader::LazyJsonFile;
+use crate::file::loaders::LazyJsonFile;
 use crate::helpers::{LruCache, get_context_menu_shortcuts};
 
 use serde_json::Value;
