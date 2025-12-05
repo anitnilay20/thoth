@@ -92,77 +92,11 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: Generate coverage
-        run: cargo tarpaulin --out Xml --out Html --all-features --output-dir ./coverage
+        run: cargo tarpaulin --out Xml --all-features
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/cobertura.xml
+          files: ./cobertura.xml
           fail_ci_if_error: false
-
-      - name: Create coverage badge
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: |
-          COVERAGE=$(grep -oP 'line-rate="\K[0-9.]+' coverage/cobertura.xml | head -1)
-          COVERAGE_PERCENT=$(echo "$COVERAGE * 100" | bc | cut -d. -f1)
-          echo "Coverage: ${COVERAGE_PERCENT}%"
-
-          # Determine badge color
-          if [ "$COVERAGE_PERCENT" -ge 80 ]; then
-            COLOR="brightgreen"
-          elif [ "$COVERAGE_PERCENT" -ge 60 ]; then
-            COLOR="yellow"
-          else
-            COLOR="red"
-          fi
-
-          # Create badge JSON
-          mkdir -p badges
-          cat > badges/coverage.json << EOF
-          {
-            "schemaVersion": 1,
-            "label": "coverage",
-            "message": "${COVERAGE_PERCENT}%",
-            "color": "$COLOR"
-          }
-          EOF
-
-      - name: Upload coverage badge
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-badge
-          path: badges/coverage.json
-
-  benchmark:
-    name: Benchmark
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run benchmarks
-        run: cargo bench --bench file_loading -- --output-format bencher | tee benchmark_results.txt
-
-      - name: Store benchmark result
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: Rust Benchmark
-          tool: "cargo"
-          output-file-path: benchmark_results.txt
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
-          # Show alert with commit comment on detecting possible performance regression
-          alert-threshold: "200%"
-          comment-on-alert: true
-          fail-on-alert: false
-          # Store benchmark results in gh-pages branch
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: dev/bench
