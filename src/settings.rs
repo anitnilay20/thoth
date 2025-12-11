@@ -85,10 +85,6 @@ pub struct PerformanceSettings {
     /// Higher values use more memory but improve performance when re-visiting nodes
     pub cache_size: usize,
 
-    /// Maximum file size to load in MB (default: 500 MB)
-    /// Files larger than this will show a warning
-    pub max_file_size_mb: usize,
-
     /// Number of recent files to remember (default: 10)
     pub max_recent_files: usize,
 }
@@ -96,21 +92,8 @@ pub struct PerformanceSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewerSettings {
-    /// Auto-expand JSON tree depth on file open (default: 0 = collapsed)
-    /// Set to 1 to expand root level, 2 for two levels, etc.
-    pub auto_expand_depth: usize,
-
-    /// Number of rows margin before triggering scroll (default: 3)
-    pub scroll_margin: usize,
-
     /// Enable syntax highlighting in JSON viewer (default: true)
     pub syntax_highlighting: bool,
-
-    /// Show line numbers in viewer (default: false)
-    pub show_line_numbers: bool,
-
-    /// Indent size for JSON tree (default: 16px)
-    pub indent_size: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,7 +156,6 @@ impl Default for PerformanceSettings {
     fn default() -> Self {
         Self {
             cache_size: 100,
-            max_file_size_mb: 500,
             max_recent_files: 10,
         }
     }
@@ -182,11 +164,7 @@ impl Default for PerformanceSettings {
 impl Default for ViewerSettings {
     fn default() -> Self {
         Self {
-            auto_expand_depth: 0,
-            scroll_margin: 3,
             syntax_highlighting: true,
-            show_line_numbers: false,
-            indent_size: 16.0,
         }
     }
 }
@@ -276,36 +254,11 @@ impl Settings {
             });
         }
 
-        if self.performance.max_file_size_mb == 0 {
-            return Err(ThothError::SettingsLoadError {
-                reason: "Invalid max_file_size_mb: 0. Must be at least 1".to_string(),
-            });
-        }
-
         if self.performance.max_recent_files == 0 || self.performance.max_recent_files > 100 {
             return Err(ThothError::SettingsLoadError {
                 reason: format!(
                     "Invalid max_recent_files: {}. Must be between 1 and 100",
                     self.performance.max_recent_files
-                ),
-            });
-        }
-
-        // Validate viewer settings
-        if self.viewer.auto_expand_depth > 10 {
-            return Err(ThothError::SettingsLoadError {
-                reason: format!(
-                    "Invalid auto_expand_depth: {}. Maximum is 10 (can cause performance issues)",
-                    self.viewer.auto_expand_depth
-                ),
-            });
-        }
-
-        if self.viewer.indent_size < 4.0 || self.viewer.indent_size > 64.0 {
-            return Err(ThothError::SettingsLoadError {
-                reason: format!(
-                    "Invalid indent_size: {}. Must be between 4.0 and 64.0",
-                    self.viewer.indent_size
                 ),
             });
         }
@@ -414,8 +367,7 @@ mod tests {
         assert_eq!(settings.window.default_width, 1200.0);
         assert_eq!(settings.window.default_height, 800.0);
         assert_eq!(settings.performance.cache_size, 100);
-        assert_eq!(settings.performance.max_file_size_mb, 500);
-        assert_eq!(settings.viewer.auto_expand_depth, 0);
+        assert_eq!(settings.performance.max_recent_files, 10);
         assert!(settings.viewer.syntax_highlighting);
         assert_eq!(settings.ui.sidebar_width, 350.0);
     }
@@ -433,8 +385,8 @@ mod tests {
             deserialized.performance.cache_size
         );
         assert_eq!(
-            settings.viewer.auto_expand_depth,
-            deserialized.viewer.auto_expand_depth
+            settings.viewer.syntax_highlighting,
+            deserialized.viewer.syntax_highlighting
         );
     }
 
@@ -477,13 +429,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validation_invalid_auto_expand_depth() {
-        let mut settings = Settings::default();
-        settings.viewer.auto_expand_depth = 15; // Too deep
-        assert!(settings.validate().is_err());
-    }
-
-    #[test]
     fn test_migration() {
         let mut settings = Settings::default();
         settings.version = 0; // Simulate old version
@@ -495,18 +440,13 @@ mod tests {
     fn test_performance_settings_defaults() {
         let perf = PerformanceSettings::default();
         assert_eq!(perf.cache_size, 100);
-        assert_eq!(perf.max_file_size_mb, 500);
         assert_eq!(perf.max_recent_files, 10);
     }
 
     #[test]
     fn test_viewer_settings_defaults() {
         let viewer = ViewerSettings::default();
-        assert_eq!(viewer.auto_expand_depth, 0);
-        assert_eq!(viewer.scroll_margin, 3);
         assert!(viewer.syntax_highlighting);
-        assert!(!viewer.show_line_numbers);
-        assert_eq!(viewer.indent_size, 16.0);
     }
 
     #[test]

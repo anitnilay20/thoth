@@ -316,8 +316,8 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
         };
-        state.add_recent_file("file1.json".to_string());
-        state.add_recent_file("file2.json".to_string());
+        state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
+        state.add_recent_file("file2.json".to_string(), MAX_RECENT_FILES);
 
         assert_eq!(state.get_recent_files().len(), 2);
         assert_eq!(state.get_recent_files()[0], "file2.json");
@@ -330,9 +330,9 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
         };
-        state.add_recent_file("file1.json".to_string());
-        state.add_recent_file("file2.json".to_string());
-        state.add_recent_file("file1.json".to_string());
+        state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
+        state.add_recent_file("file2.json".to_string(), MAX_RECENT_FILES);
+        state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
 
         assert_eq!(state.get_recent_files().len(), 2);
         assert_eq!(state.get_recent_files()[0], "file1.json");
@@ -346,7 +346,7 @@ mod tests {
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
         };
         for i in 0..15 {
-            state.add_recent_file(format!("file{}.json", i));
+            state.add_recent_file(format!("file{}.json", i), MAX_RECENT_FILES);
         }
 
         assert_eq!(state.get_recent_files().len(), MAX_RECENT_FILES);
@@ -359,8 +359,8 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
         };
-        state.add_recent_file("file1.json".to_string());
-        state.add_recent_file("file2.json".to_string());
+        state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
+        state.add_recent_file("file2.json".to_string(), MAX_RECENT_FILES);
         state.remove_recent_file("file1.json");
 
         assert_eq!(state.get_recent_files().len(), 1);

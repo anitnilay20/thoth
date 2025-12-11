@@ -442,6 +442,7 @@ impl ThothApp {
                 error: &self.window_state.error,
                 search_message,
                 cache_size: self.settings.performance.cache_size,
+                syntax_highlighting: self.settings.viewer.syntax_highlighting,
             },
         );
 

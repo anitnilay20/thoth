@@ -13,6 +13,7 @@ pub struct CentralPanelProps<'a> {
     pub error: &'a Option<ThothError>,
     pub search_message: Option<search::SearchMessage>,
     pub cache_size: usize,
+    pub syntax_highlighting: bool,
 }
 
 /// Events emitted by the central panel (bottom-to-top communication)
@@ -85,6 +86,9 @@ impl CentralPanel {
                         events.push(CentralPanelEvent::ErrorCleared);
                         // clear any prior search filter on new file
                         self.file_viewer.set_root_filter(None);
+                        // Apply syntax highlighting setting
+                        self.file_viewer
+                            .set_syntax_highlighting(props.syntax_highlighting);
 
                         // Emit event if file type changed during opening
                         if file_type != props.file_type {

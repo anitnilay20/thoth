@@ -380,6 +380,20 @@ impl TextPalette {
             TextToken::Bracket => self.bracket,
         }
     }
+
+    /// Get color for a token, or base text color if syntax highlighting is disabled
+    pub fn color_with_highlighting(
+        &self,
+        token: TextToken,
+        syntax_highlighting: bool,
+        base_color: Color32,
+    ) -> Color32 {
+        if syntax_highlighting {
+            self.color(token)
+        } else {
+            base_color
+        }
+    }
 }
 
 pub fn selected_row_bg(ui: &egui::Ui) -> Color32 {

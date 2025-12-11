@@ -380,31 +380,6 @@ impl SettingsDialog {
 
         ui.group(|ui| {
             ui.set_width(ui.available_width());
-            ui.label(egui::RichText::new("File Limits").strong());
-            ui.add_space(8.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Maximum file size:");
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut self.draft_settings.performance.max_file_size_mb)
-                            .speed(10.0)
-                            .range(1..=10000)
-                            .suffix(" MB"),
-                    )
-                    .changed()
-                {
-                    self.modified = true;
-                }
-            });
-
-            ui.label("Files larger than this will show a warning before loading.");
-        });
-
-        ui.add_space(16.0);
-
-        ui.group(|ui| {
-            ui.set_width(ui.available_width());
             ui.label(egui::RichText::new("History").strong());
             ui.add_space(8.0);
 
@@ -431,67 +406,6 @@ impl SettingsDialog {
 
         ui.group(|ui| {
             ui.set_width(ui.available_width());
-            ui.label(egui::RichText::new("Tree Behavior").strong());
-            ui.add_space(8.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Auto-expand depth:");
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut self.draft_settings.viewer.auto_expand_depth)
-                            .speed(1.0)
-                            .range(0..=10)
-                            .suffix(" levels"),
-                    )
-                    .changed()
-                {
-                    self.modified = true;
-                }
-            });
-
-            ui.label(
-                egui::RichText::new("0 = collapsed, 1 = expand root, 2 = expand two levels, etc.")
-                    .italics()
-                    .small(),
-            );
-
-            ui.add_space(8.0);
-
-            ui.horizontal(|ui| {
-                ui.label("Indent size:");
-                if ui
-                    .add(
-                        egui::Slider::new(&mut self.draft_settings.viewer.indent_size, 4.0..=64.0)
-                            .suffix(" px"),
-                    )
-                    .changed()
-                {
-                    self.modified = true;
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Scroll margin:");
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut self.draft_settings.viewer.scroll_margin)
-                            .speed(1.0)
-                            .range(0..=20)
-                            .suffix(" rows"),
-                    )
-                    .changed()
-                {
-                    self.modified = true;
-                }
-            });
-
-            ui.label("Number of rows margin before auto-scrolling");
-        });
-
-        ui.add_space(16.0);
-
-        ui.group(|ui| {
-            ui.set_width(ui.available_width());
             ui.label(egui::RichText::new("Display").strong());
             ui.add_space(8.0);
 
@@ -505,15 +419,7 @@ impl SettingsDialog {
                 self.modified = true;
             }
 
-            if ui
-                .checkbox(
-                    &mut self.draft_settings.viewer.show_line_numbers,
-                    "Show line numbers",
-                )
-                .changed()
-            {
-                self.modified = true;
-            }
+            ui.label("Colorizes JSON keys, strings, numbers, and booleans for better readability.");
         });
     }
 
