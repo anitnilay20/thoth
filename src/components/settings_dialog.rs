@@ -81,21 +81,33 @@ impl SettingsDialog {
     }
 
     /// Render settings directly without window wrapper (for standalone settings window)
+    /// Always renders content and returns settings if save was clicked or cancel was clicked
     pub fn show_direct(&mut self, ctx: &egui::Context) -> Option<Settings> {
-        let mut save_settings = None;
-
-        if !self.open {
-            return None;
-        }
+        let mut result = None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.render_content(ui, &mut save_settings);
+            result = self.render_content_standalone(ui);
         });
 
-        save_settings
+        result
     }
 
     fn render_content(&mut self, ui: &mut egui::Ui, save_settings: &mut Option<Settings>) {
+        self.render_content_impl(ui, save_settings, false);
+    }
+
+    fn render_content_standalone(&mut self, ui: &mut egui::Ui) -> Option<Settings> {
+        let mut result = None;
+        self.render_content_impl(ui, &mut result, true);
+        result
+    }
+
+    fn render_content_impl(
+        &mut self,
+        ui: &mut egui::Ui,
+        save_settings: &mut Option<Settings>,
+        standalone: bool,
+    ) {
         // Use vertical layout to ensure proper full-height stretching
         ui.vertical(|ui| {
             // Top section: tabs and content (use available space)
@@ -176,7 +188,12 @@ impl SettingsDialog {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Cancel").clicked() {
-                        self.close();
+                        if !standalone {
+                            self.close();
+                        } else {
+                            // In standalone mode, signal to close the window
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
                     }
 
                     ui.add_space(8.0);
@@ -191,7 +208,10 @@ impl SettingsDialog {
                     let save_button = ui.button("💾 Save");
                     if save_button.clicked() {
                         *save_settings = Some(self.draft_settings.clone());
-                        self.close();
+                        if !standalone {
+                            self.close();
+                        }
+                        // In standalone mode, don't close here - let the parent handle it after saving
                     }
 
                     // Make save button visually distinct if modified
