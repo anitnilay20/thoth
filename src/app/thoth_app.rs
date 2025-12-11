@@ -21,6 +21,9 @@ pub struct ThothApp {
     // Update state
     pub update_state: state::ApplicationUpdateState,
 
+    // Settings dialog
+    settings_dialog: components::settings_dialog::SettingsDialog,
+
     // Clipboard text to copy (set by shortcuts, copied in update loop)
     clipboard_text: Option<String>,
 
@@ -39,6 +42,7 @@ impl ThothApp {
             persistent_state,
             window_state: state::WindowState::default(),
             update_state: state::ApplicationUpdateState::default(),
+            settings_dialog: components::settings_dialog::SettingsDialog::default(),
             clipboard_text: None,
             settings_changed: false,
         }
@@ -84,12 +88,8 @@ impl App for ThothApp {
             UpdateHandler::check_for_updates(&mut self.update_state);
         }
 
-        // Handle update messages (if update available, open settings in sidebar)
-        if UpdateHandler::handle_update_messages(&mut self.update_state, ctx) {
-            self.window_state.sidebar_expanded = true;
-            self.window_state.sidebar_selected_section =
-                Some(components::sidebar::SidebarSection::Settings);
-        }
+        // Handle update messages
+        UpdateHandler::handle_update_messages(&mut self.update_state, ctx);
 
         // Handle file drops
         self.handle_file_drop(ctx);
@@ -131,6 +131,12 @@ impl App for ThothApp {
 
         // Render error modal if there's an error
         self.render_error_modal(ctx);
+
+        // Render settings dialog and handle save
+        if let Some(new_settings) = self.settings_dialog.show(ctx) {
+            self.settings = new_settings;
+            self.settings_changed = true;
+        }
 
         // Show profiler if enabled (only when profiling feature is enabled)
         #[cfg(feature = "profiling")]
@@ -217,16 +223,8 @@ impl ThothApp {
                     self.create_new_window();
                 }
                 ShortcutAction::Settings => {
-                    // Toggle settings section
-                    let section = components::sidebar::SidebarSection::Settings;
-                    if self.window_state.sidebar_expanded
-                        && self.window_state.sidebar_selected_section == Some(section)
-                    {
-                        self.window_state.sidebar_expanded = false;
-                    } else {
-                        self.window_state.sidebar_expanded = true;
-                        self.window_state.sidebar_selected_section = Some(section);
-                    }
+                    // Open settings dialog
+                    self.settings_dialog.open(&self.settings);
                 }
                 ShortcutAction::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
@@ -364,6 +362,10 @@ impl ThothApp {
                 components::toolbar::ToolbarEvent::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
                     self.settings_changed = true;
+                }
+                components::toolbar::ToolbarEvent::OpenSettings => {
+                    // Open settings dialog
+                    self.settings_dialog.open(&self.settings);
                 }
             }
         }
@@ -503,8 +505,6 @@ impl ThothApp {
                 sidebar_width: self.persistent_state.get_sidebar_width(),
                 selected_section: self.window_state.sidebar_selected_section,
                 focus_search,
-                update_status: &self.update_state.update_status,
-                current_version: env!("CARGO_PKG_VERSION"),
                 search_state: &self.window_state.search_engine_state.search,
                 search_history: self
                     .window_state
@@ -606,38 +606,6 @@ impl ThothApp {
                             );
                         }
                     }
-                }
-                components::sidebar::SidebarEvent::CheckForUpdates => {
-                    // Trigger update check
-                    UpdateHandler::handle_settings_action(
-                        components::settings_panel::SettingsPanelEvent::CheckForUpdates,
-                        &mut self.update_state,
-                        ctx,
-                    );
-                }
-                components::sidebar::SidebarEvent::DownloadUpdate => {
-                    // Trigger update download
-                    UpdateHandler::handle_settings_action(
-                        components::settings_panel::SettingsPanelEvent::DownloadUpdate,
-                        &mut self.update_state,
-                        ctx,
-                    );
-                }
-                components::sidebar::SidebarEvent::InstallUpdate => {
-                    // Trigger update installation
-                    UpdateHandler::handle_settings_action(
-                        components::settings_panel::SettingsPanelEvent::InstallUpdate,
-                        &mut self.update_state,
-                        ctx,
-                    );
-                }
-                components::sidebar::SidebarEvent::RetryUpdate => {
-                    // Retry update check
-                    UpdateHandler::handle_settings_action(
-                        components::settings_panel::SettingsPanelEvent::RetryUpdate,
-                        &mut self.update_state,
-                        ctx,
-                    );
                 }
             }
         }
