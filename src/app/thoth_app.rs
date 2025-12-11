@@ -97,11 +97,15 @@ impl App for ThothApp {
         // Update window title
         self.update_window_title(ctx);
 
-        // Get user's action from Toolbar
-        self.render_toolbar(ctx);
+        // Get user's action from Toolbar (if enabled)
+        if self.settings.ui.show_toolbar {
+            self.render_toolbar(ctx);
+        }
 
-        // Render status bar (before sidebar so it spans full width)
-        self.render_status_bar(ctx);
+        // Render status bar (before sidebar so it spans full width) (if enabled)
+        if self.settings.ui.show_status_bar {
+            self.render_status_bar(ctx);
+        }
 
         // Render sidebar and handle events (may return search message)
         let sidebar_msg = self.render_sidebar(ctx);

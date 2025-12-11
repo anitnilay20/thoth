@@ -269,6 +269,11 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
         egui::FontId::monospace(font_size),
     );
 
+    // Apply animation settings
+    if !settings.ui.enable_animations {
+        style.animation_time = 0.0;
+    }
+
     ctx.set_style(style);
 }
 
