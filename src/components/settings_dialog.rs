@@ -79,6 +79,21 @@ impl SettingsDialog {
         save_settings
     }
 
+    /// Render settings directly without window wrapper (for standalone settings window)
+    pub fn show_direct(&mut self, ctx: &egui::Context) -> Option<Settings> {
+        let mut save_settings = None;
+
+        if !self.open {
+            return None;
+        }
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            self.render_content(ui, &mut save_settings);
+        });
+
+        save_settings
+    }
+
     fn render_content(&mut self, ui: &mut egui::Ui, save_settings: &mut Option<Settings>) {
         // Horizontal layout: tabs on left, content on right
         ui.horizontal(|ui| {

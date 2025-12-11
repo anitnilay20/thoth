@@ -46,8 +46,8 @@ impl App for SettingsWindow {
         // Apply theme
         theme::apply_theme(ctx, &self.settings);
 
-        // Show settings dialog
-        if let Some(new_settings) = self.settings_dialog.show(ctx) {
+        // Show settings dialog directly (without window wrapper)
+        if let Some(new_settings) = self.settings_dialog.show_direct(ctx) {
             // Save settings to disk
             if let Err(e) = new_settings.save() {
                 eprintln!("Failed to save settings: {}", e);
