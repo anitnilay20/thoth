@@ -115,7 +115,9 @@ impl SettingsDialog {
                 // Left sidebar with tabs - fixed width, full height
                 ui.vertical(|ui| {
                     ui.set_width(180.0);
-                    ui.set_min_height(ui.available_height() - 60.0); // Reserve space for buttons
+                    // Set min height but ensure it's not negative
+                    let min_height = (ui.available_height() - 60.0).max(100.0);
+                    ui.set_min_height(min_height);
                     ui.add_space(8.0);
 
                     ui.selectable_value(&mut self.selected_tab, SettingsTab::General, "🏠 General");
