@@ -23,6 +23,7 @@ enum SettingsTab {
     Performance,
     Viewer,
     Shortcuts,
+    Updates,
     Advanced,
 }
 
@@ -95,82 +96,109 @@ impl SettingsDialog {
     }
 
     fn render_content(&mut self, ui: &mut egui::Ui, save_settings: &mut Option<Settings>) {
-        // Horizontal layout: tabs on left, content on right
-        ui.horizontal(|ui| {
-            // Left sidebar with tabs
-            ui.vertical(|ui| {
-                ui.set_width(150.0);
-                ui.add_space(4.0);
-
-                ui.selectable_value(&mut self.selected_tab, SettingsTab::General, "🏠 General");
-                ui.selectable_value(
-                    &mut self.selected_tab,
-                    SettingsTab::Appearance,
-                    "🎨 Appearance",
-                );
-                ui.selectable_value(
-                    &mut self.selected_tab,
-                    SettingsTab::Performance,
-                    "⚡ Performance",
-                );
-                ui.selectable_value(&mut self.selected_tab, SettingsTab::Viewer, "📄 Viewer");
-                ui.selectable_value(
-                    &mut self.selected_tab,
-                    SettingsTab::Shortcuts,
-                    "⌨ Shortcuts",
-                );
-                ui.selectable_value(&mut self.selected_tab, SettingsTab::Advanced, "🔧 Advanced");
-            });
-
-            ui.separator();
-
-            // Right content area with scroll
-            egui::ScrollArea::vertical()
-                .id_salt("settings_content")
-                .show(ui, |ui| {
-                    ui.set_min_width(600.0);
+        // Use vertical layout to ensure proper full-height stretching
+        ui.vertical(|ui| {
+            // Top section: tabs and content (use available space)
+            ui.horizontal(|ui| {
+                // Left sidebar with tabs - fixed width, full height
+                ui.vertical(|ui| {
+                    ui.set_width(180.0);
+                    ui.set_min_height(ui.available_height() - 60.0); // Reserve space for buttons
                     ui.add_space(8.0);
 
-                    match self.selected_tab {
-                        SettingsTab::General => self.render_general_tab(ui),
-                        SettingsTab::Appearance => self.render_appearance_tab(ui),
-                        SettingsTab::Performance => self.render_performance_tab(ui),
-                        SettingsTab::Viewer => self.render_viewer_tab(ui),
-                        SettingsTab::Shortcuts => self.render_shortcuts_tab(ui),
-                        SettingsTab::Advanced => self.render_advanced_tab(ui),
+                    ui.selectable_value(&mut self.selected_tab, SettingsTab::General, "🏠 General");
+                    ui.selectable_value(
+                        &mut self.selected_tab,
+                        SettingsTab::Appearance,
+                        "🎨 Appearance",
+                    );
+                    ui.selectable_value(
+                        &mut self.selected_tab,
+                        SettingsTab::Performance,
+                        "⚡ Performance",
+                    );
+                    ui.selectable_value(&mut self.selected_tab, SettingsTab::Viewer, "📄 Viewer");
+                    ui.selectable_value(
+                        &mut self.selected_tab,
+                        SettingsTab::Shortcuts,
+                        "⌨ Shortcuts",
+                    );
+                    ui.selectable_value(&mut self.selected_tab, SettingsTab::Updates, "🔄 Updates");
+                    ui.selectable_value(
+                        &mut self.selected_tab,
+                        SettingsTab::Advanced,
+                        "🔧 Advanced",
+                    );
+                });
+
+                ui.separator();
+
+                // Right content area with scroll - takes remaining space
+                egui::ScrollArea::vertical()
+                    .id_salt("settings_content")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.set_min_height(ui.available_height());
+
+                        // Add padding around content
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(12.0);
+                            ui.vertical(|ui| {
+                                ui.set_max_width(ui.available_width() - 24.0);
+
+                                match self.selected_tab {
+                                    SettingsTab::General => self.render_general_tab(ui),
+                                    SettingsTab::Appearance => self.render_appearance_tab(ui),
+                                    SettingsTab::Performance => self.render_performance_tab(ui),
+                                    SettingsTab::Viewer => self.render_viewer_tab(ui),
+                                    SettingsTab::Shortcuts => self.render_shortcuts_tab(ui),
+                                    SettingsTab::Updates => self.render_updates_tab(ui),
+                                    SettingsTab::Advanced => self.render_advanced_tab(ui),
+                                }
+                            });
+                        });
+                    });
+            });
+
+            ui.add_space(8.0);
+            ui.separator();
+
+            // Bottom buttons - fixed height
+            ui.horizontal(|ui| {
+                ui.set_height(40.0);
+
+                // Show modified indicator
+                if self.modified {
+                    ui.colored_label(egui::Color32::from_rgb(255, 165, 0), "● Modified");
+                }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.close();
+                    }
+
+                    ui.add_space(8.0);
+
+                    if ui.button("Reset to Defaults").clicked() {
+                        self.draft_settings = Settings::default();
+                        self.modified = true;
+                    }
+
+                    ui.add_space(8.0);
+
+                    let save_button = ui.button("💾 Save");
+                    if save_button.clicked() {
+                        *save_settings = Some(self.draft_settings.clone());
+                        self.close();
+                    }
+
+                    // Make save button visually distinct if modified
+                    if self.modified {
+                        save_button.highlight();
                     }
                 });
-        });
-
-        ui.separator();
-
-        // Bottom buttons
-        ui.horizontal(|ui| {
-            // Show modified indicator
-            if self.modified {
-                ui.colored_label(egui::Color32::from_rgb(255, 165, 0), "● Modified");
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Cancel").clicked() {
-                    self.close();
-                }
-
-                if ui.button("Reset to Defaults").clicked() {
-                    self.draft_settings = Settings::default();
-                    self.modified = true;
-                }
-
-                let save_button = ui.button("💾 Save");
-                if save_button.clicked() {
-                    *save_settings = Some(self.draft_settings.clone());
-                    self.close();
-                }
-
-                // Make save button visually distinct if modified
-                if self.modified {
-                    save_button.highlight();
-                }
             });
         });
     }
@@ -479,6 +507,59 @@ impl SettingsDialog {
             )
             .italics(),
         );
+    }
+
+    fn render_updates_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Updates");
+        ui.add_space(16.0);
+
+        ui.group(|ui| {
+            ui.set_width(ui.available_width());
+            ui.label(egui::RichText::new("Application Updates").strong());
+            ui.add_space(8.0);
+
+            ui.label("Current Version: v0.2.16");
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                if ui.button("Check for Updates").clicked() {
+                    // TODO: Implement update check
+                }
+                ui.label("Check if a new version of Thoth is available");
+            });
+
+            ui.add_space(16.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            ui.label(egui::RichText::new("Update Settings").strong());
+            ui.add_space(8.0);
+
+            if ui
+                .checkbox(
+                    &mut self.draft_settings.updates.auto_check,
+                    "Automatically check for updates on startup",
+                )
+                .changed()
+            {
+                self.modified = true;
+            }
+            ui.label("Thoth will check for new versions when the application starts");
+        });
+
+        ui.add_space(16.0);
+
+        ui.group(|ui| {
+            ui.set_width(ui.available_width());
+            ui.label(egui::RichText::new("Release Information").strong());
+            ui.add_space(8.0);
+
+            ui.label("View release notes and download updates at:");
+            ui.hyperlink_to(
+                "github.com/yourusername/thoth/releases",
+                "https://github.com/yourusername/thoth/releases",
+            );
+        });
     }
 
     fn render_advanced_tab(&mut self, ui: &mut egui::Ui) {
