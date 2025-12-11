@@ -37,10 +37,16 @@ impl ThothApp {
         // Load persistent state (recent files, sidebar width, etc.)
         let persistent_state = PersistentState::default();
 
+        // Initialize window state with saved sidebar state if remember_sidebar_state is enabled
+        let mut window_state = state::WindowState::default();
+        if settings.ui.remember_sidebar_state {
+            window_state.sidebar_expanded = persistent_state.get_sidebar_expanded();
+        }
+
         Self {
             settings,
             persistent_state,
-            window_state: state::WindowState::default(),
+            window_state,
             update_state: state::ApplicationUpdateState::default(),
             settings_dialog: components::settings_dialog::SettingsDialog::default(),
             clipboard_text: None,
@@ -253,6 +259,13 @@ impl ThothApp {
                         self.window_state.sidebar_expanded = true;
                         self.window_state.sidebar_selected_section = Some(section);
                     }
+
+                    // Save sidebar state if remember_sidebar_state is enabled
+                    if self.settings.ui.remember_sidebar_state {
+                        self.persistent_state
+                            .set_sidebar_expanded(self.window_state.sidebar_expanded);
+                        let _ = self.persistent_state.save();
+                    }
                 }
                 ShortcutAction::NextMatch => {
                     // TODO: Implement next match navigation
@@ -264,6 +277,12 @@ impl ThothApp {
                     // Close sidebar if open
                     if self.window_state.sidebar_expanded {
                         self.window_state.sidebar_expanded = false;
+
+                        // Save sidebar state if remember_sidebar_state is enabled
+                        if self.settings.ui.remember_sidebar_state {
+                            self.persistent_state.set_sidebar_expanded(false);
+                            let _ = self.persistent_state.save();
+                        }
                     }
                 }
                 // Tree operations
@@ -588,6 +607,13 @@ impl ThothApp {
                             self.window_state.sidebar_selected_section;
                         self.window_state.sidebar_expanded = true;
                         self.window_state.sidebar_selected_section = Some(section);
+                    }
+
+                    // Save sidebar state if remember_sidebar_state is enabled
+                    if self.settings.ui.remember_sidebar_state {
+                        self.persistent_state
+                            .set_sidebar_expanded(self.window_state.sidebar_expanded);
+                        let _ = self.persistent_state.save();
                     }
                 }
                 components::sidebar::SidebarEvent::WidthChanged(new_width) => {
