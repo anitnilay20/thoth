@@ -21,9 +21,6 @@ pub struct ThothApp {
     // Update state
     pub update_state: state::ApplicationUpdateState,
 
-    // Settings dialog
-    settings_dialog: components::settings_dialog::SettingsDialog,
-
     // Clipboard text to copy (set by shortcuts, copied in update loop)
     clipboard_text: Option<String>,
 
@@ -48,7 +45,6 @@ impl ThothApp {
             persistent_state,
             window_state,
             update_state: state::ApplicationUpdateState::default(),
-            settings_dialog: components::settings_dialog::SettingsDialog::default(),
             clipboard_text: None,
             settings_changed: false,
         }
@@ -67,6 +63,26 @@ impl ThothApp {
                 }
                 Err(e) => {
                     eprintln!("Failed to spawn new window: {}", e);
+                }
+            }
+        } else {
+            eprintln!("Failed to get current executable path");
+        }
+    }
+
+    /// Open settings in a new window (spawns a new process with --settings flag)
+    fn open_settings_window(&mut self, _ctx: &egui::Context) {
+        use std::process::Command;
+
+        // Get the current executable path
+        if let Ok(exe_path) = std::env::current_exe() {
+            // Spawn a new instance of Thoth in settings mode
+            match Command::new(exe_path).arg("--settings").spawn() {
+                Ok(_) => {
+                    eprintln!("Settings window spawned successfully");
+                }
+                Err(e) => {
+                    eprintln!("Failed to spawn settings window: {}", e);
                 }
             }
         } else {
@@ -142,11 +158,7 @@ impl App for ThothApp {
         // Render error modal if there's an error
         self.render_error_modal(ctx);
 
-        // Render settings dialog and handle save
-        if let Some(new_settings) = self.settings_dialog.show(ctx) {
-            self.settings = new_settings;
-            self.settings_changed = true;
-        }
+        // Settings are now opened in a separate window via open_settings_window()
 
         // Show profiler if enabled (only when profiling feature is enabled)
         #[cfg(feature = "profiling")]
@@ -236,8 +248,8 @@ impl ThothApp {
                     self.create_new_window();
                 }
                 ShortcutAction::Settings => {
-                    // Open settings dialog
-                    self.settings_dialog.open(&self.settings);
+                    // Open settings in a new window
+                    self.open_settings_window(ctx);
                 }
                 ShortcutAction::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
@@ -393,8 +405,8 @@ impl ThothApp {
                     self.settings_changed = true;
                 }
                 components::toolbar::ToolbarEvent::OpenSettings => {
-                    // Open settings dialog
-                    self.settings_dialog.open(&self.settings);
+                    // Open settings in a new window
+                    self.open_settings_window(ctx);
                 }
             }
         }
