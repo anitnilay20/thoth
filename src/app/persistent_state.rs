@@ -135,16 +135,22 @@ impl PersistentState {
     // Recent Files methods
 
     /// Add a file to recent files (moves to top if already exists)
-    pub fn add_recent_file(&mut self, file_path: String) {
+    pub fn add_recent_file(&mut self, file_path: String, max_recent_files: usize) {
         // Remove if already exists
         self.recent_files.retain(|f| f != &file_path);
 
         // Add to front
         self.recent_files.insert(0, file_path);
 
-        // Limit to MAX_RECENT_FILES
-        if self.recent_files.len() > MAX_RECENT_FILES {
-            self.recent_files.truncate(MAX_RECENT_FILES);
+        // Limit to configured max (or fallback to constant)
+        let limit = if max_recent_files > 0 {
+            max_recent_files
+        } else {
+            MAX_RECENT_FILES
+        };
+
+        if self.recent_files.len() > limit {
+            self.recent_files.truncate(limit);
         }
     }
 

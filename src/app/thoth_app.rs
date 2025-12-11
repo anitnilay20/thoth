@@ -201,7 +201,10 @@ impl ThothApp {
                     {
                         // Add to recent files
                         if let Some(path_str) = path.to_str() {
-                            self.persistent_state.add_recent_file(path_str.to_string());
+                            self.persistent_state.add_recent_file(
+                                path_str.to_string(),
+                                self.settings.performance.max_recent_files,
+                            );
                             let _ = self.persistent_state.save();
                         }
 
@@ -341,7 +344,10 @@ impl ThothApp {
                 components::toolbar::ToolbarEvent::FileOpen { path, file_type } => {
                     // Add to recent files
                     if let Some(path_str) = path.to_str() {
-                        self.persistent_state.add_recent_file(path_str.to_string());
+                        self.persistent_state.add_recent_file(
+                            path_str.to_string(),
+                            self.settings.performance.max_recent_files,
+                        );
                         let _ = self.persistent_state.save();
                     }
 
@@ -435,6 +441,7 @@ impl ThothApp {
                 file_type: self.window_state.file_type,
                 error: &self.window_state.error,
                 search_message,
+                cache_size: self.settings.performance.cache_size,
             },
         );
 
@@ -448,7 +455,10 @@ impl ThothApp {
                 } => {
                     // Add to recent files
                     if let Some(path_str) = path.to_str() {
-                        self.persistent_state.add_recent_file(path_str.to_string());
+                        self.persistent_state.add_recent_file(
+                            path_str.to_string(),
+                            self.settings.performance.max_recent_files,
+                        );
                         let _ = self.persistent_state.save();
                     }
 
@@ -549,7 +559,10 @@ impl ThothApp {
                     {
                         // Add to recent files
                         if let Some(path_str) = path.to_str() {
-                            self.persistent_state.add_recent_file(path_str.to_string());
+                            self.persistent_state.add_recent_file(
+                                path_str.to_string(),
+                                self.settings.performance.max_recent_files,
+                            );
                             let _ = self.persistent_state.save();
                         }
 
