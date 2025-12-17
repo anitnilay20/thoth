@@ -430,8 +430,12 @@ mod tests {
 
     #[test]
     fn test_migration() {
-        let mut settings = Settings::default();
-        settings.version = 0; // Simulate old version
+        let mut settings = Settings {
+            version: 0,
+            ..Default::default()
+        };
+        // let mut settings = Settings::default();
+        // settings.version = 0; // Simulate old version
         settings.migrate();
         assert_eq!(settings.version, Settings::CURRENT_VERSION);
     }

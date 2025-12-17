@@ -43,9 +43,6 @@ impl SettingsWindow {
 
 impl App for SettingsWindow {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
-        // Apply theme
-        theme::apply_theme(ctx, &self.settings);
-
         // Show settings dialog directly (without window wrapper)
         if let Some(new_settings) = self.settings_dialog.show_direct(ctx) {
             // Save settings to disk
@@ -64,10 +61,21 @@ impl App for SettingsWindow {
 
 /// Run the settings window
 fn run_settings_window(settings: settings::Settings) -> Result<()> {
+    let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
+
+    // Configure window with app icon
+    let mut viewport = egui::ViewportBuilder::default();
+    if let Some(icon_data) = icon {
+        viewport = viewport.with_icon(icon_data);
+    }
+
     let options = NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([900.0, 700.0])
-            .with_title("Thoth Settings")
+        viewport: viewport
+            .with_inner_size([900.0, 600.0])
+            .with_fullsize_content_view(true)
+            .with_title("Thoth - Settings")
+            .with_title_shown(true)
+            .with_titlebar_shown(false)
             .with_resizable(true),
         ..Default::default()
     };
