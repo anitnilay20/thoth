@@ -103,7 +103,13 @@ impl App for ThothApp {
         }
 
         // Handle update messages
-        UpdateHandler::handle_update_messages(&mut self.update_state, ctx);
+        let should_show_updates =
+            UpdateHandler::handle_update_messages(&mut self.update_state, ctx);
+
+        // Auto-open settings on Updates tab if a new update is available
+        if should_show_updates && !self.settings_dialog.open {
+            self.settings_dialog.open_updates(&self.settings);
+        }
 
         // Handle file drops
         self.handle_file_drop(ctx);
@@ -138,24 +144,65 @@ impl App for ThothApp {
             self.window_state.error = Some(error);
         }
 
-        // Render settings dialog in a separate viewport if open (before theme application)
-        let settings_result = self.settings_dialog.show_viewport(ctx);
+        // Render settings dialog using ContextComponent trait
+        use crate::components::settings_dialog::{SettingsDialogEvent, SettingsDialogProps};
+        use crate::components::traits::ContextComponent;
 
-        // Apply theme and font settings (use draft settings if viewport is open for live preview)
-        if self.settings_dialog.open {
-            if let Some(draft) = self.settings_dialog.get_draft_settings() {
-                crate::theme::apply_theme(ctx, &draft);
-            } else {
-                crate::theme::apply_theme(ctx, &self.settings);
-            }
-        } else {
+        let settings_output = self.settings_dialog.render(
+            ctx,
+            SettingsDialogProps {
+                update_state: Some(&self.update_state.update_status.state),
+                current_version: crate::update::UpdateManager::get_current_version(),
+            },
+        );
+
+        // Apply theme (draft settings are applied inside render() when viewport is open)
+        if !self.settings_dialog.open {
             crate::theme::apply_theme(ctx, &self.settings);
         }
 
-        // Handle settings changes from viewport
-        if let Some(new_settings) = settings_result {
+        // Handle settings changes
+        if let Some(new_settings) = settings_output.new_settings {
             self.settings = new_settings;
             self.settings_changed = true;
+        }
+
+        // Handle settings dialog events
+        for event in settings_output.events {
+            match event {
+                SettingsDialogEvent::CheckForUpdates => {
+                    UpdateHandler::check_for_updates(&mut self.update_state);
+                }
+                SettingsDialogEvent::DownloadUpdate => {
+                    // Clone the latest release to avoid borrow checker issues
+                    let latest_release =
+                        if let crate::update::UpdateState::UpdateAvailable { releases, .. } =
+                            &self.update_state.update_status.state
+                        {
+                            releases.first().cloned()
+                        } else {
+                            None
+                        };
+
+                    if let Some(latest) = latest_release {
+                        self.update_state.pending_download_release = Some(latest.clone());
+                        self.update_state.update_status.state =
+                            crate::update::UpdateState::Downloading {
+                                progress: 0.0,
+                                version: latest.tag_name.clone(),
+                            };
+                        self.update_state.update_manager.download_update(&latest);
+                        ctx.request_repaint();
+                    }
+                }
+                SettingsDialogEvent::InstallUpdate => {
+                    if let Some(path) = self.update_state.pending_install_path.take() {
+                        self.update_state.update_status.state =
+                            crate::update::UpdateState::Installing;
+                        self.update_state.update_manager.install_update(path);
+                    }
+                }
+            }
         }
 
         // Save settings when they have changed

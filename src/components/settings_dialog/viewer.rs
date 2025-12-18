@@ -10,9 +10,18 @@ impl ViewerTab {
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                ui.heading("Viewer");
-                ui.add_space(16.0);
-                ui.label("Viewer settings will go here");
+                // Add padding to the content
+                ui.add_space(24.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(24.0);
+                    ui.vertical(|ui| {
+                        ui.set_max_width(ui.available_width() - 24.0);
+
+                        ui.heading("Viewer");
+                        ui.add_space(16.0);
+                        ui.label("Viewer settings will go here");
+                    });
+                });
             });
     }
 }
