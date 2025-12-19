@@ -8,7 +8,6 @@ use crate::{components, error::ThothError, file, search, update};
 
 /// Per-window state - each window has its own file, search, and UI components
 /// Note: This is independent of PersistentState which is shared application-wide
-#[derive(Default)]
 pub struct WindowState {
     // File state
     pub file_path: Option<PathBuf>,
@@ -33,6 +32,27 @@ pub struct WindowState {
     pub central_panel: components::central_panel::CentralPanel,
     pub status_bar: components::status_bar::StatusBar,
     pub error_modal: components::error_modal::ErrorModal,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            file_path: None,
+            file_type: file::lazy_loader::FileType::default(),
+            error: None,
+            total_items: 0,
+            search_engine_state: SearchEngineState::default(),
+            sidebar_expanded: true,
+            sidebar_selected_section: Some(components::sidebar::SidebarSection::RecentFiles),
+            previous_sidebar_section: None,
+            previous_sidebar_expanded: false,
+            sidebar: components::sidebar::Sidebar::default(),
+            toolbar: components::toolbar::Toolbar::default(),
+            central_panel: components::central_panel::CentralPanel::default(),
+            status_bar: components::status_bar::StatusBar::default(),
+            error_modal: components::error_modal::ErrorModal::default(),
+        }
+    }
 }
 
 // ============================================================================
