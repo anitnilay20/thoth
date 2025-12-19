@@ -13,6 +13,7 @@ pub struct GeneralTabProps<'a> {
 
 /// Events emitted by the General tab
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum GeneralTabEvent {
     WindowWidthChanged(f32),
     WindowHeightChanged(f32),

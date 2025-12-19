@@ -400,6 +400,7 @@ impl JsonTreeViewer {
     }
 
     /// Render the JSON tree and return whether rows need to be rebuilt
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         ui: &mut Ui,

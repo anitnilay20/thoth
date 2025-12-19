@@ -49,6 +49,7 @@ pub trait FileFormatViewer {
     /// * `should_scroll_to_selection` - Whether to scroll to the selected item (mutable, will be reset after scrolling)
     /// * `is_search_navigation` - Whether this is search navigation (large jump) vs keyboard navigation
     /// * `syntax_highlighting` - Whether to enable syntax highlighting
+    #[allow(clippy::too_many_arguments)]
     fn render(
         &mut self,
         ui: &mut Ui,

@@ -201,7 +201,7 @@ impl AppearanceTab {
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     let dropdown_width =
-                                        (ui.available_width() - 16.0).max(200.0).min(300.0);
+                                        (ui.available_width() - 16.0).clamp(200.0, 300.0);
                                     let btn = ui.add_sized(
                                         [dropdown_width, 32.0],
                                         egui::Button::new(
@@ -229,7 +229,7 @@ impl AppearanceTab {
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     let dropdown_width =
-                                        (ui.available_width() - 16.0).max(200.0).min(300.0);
+                                        (ui.available_width() - 16.0).clamp(200.0, 300.0);
                                     let btn = ui.add_sized(
                                         [dropdown_width, 32.0],
                                         egui::Button::new(

@@ -49,8 +49,8 @@ impl Default for WindowState {
             sidebar: components::sidebar::Sidebar::default(),
             toolbar: components::toolbar::Toolbar::default(),
             central_panel: components::central_panel::CentralPanel::default(),
-            status_bar: components::status_bar::StatusBar::default(),
-            error_modal: components::error_modal::ErrorModal::default(),
+            status_bar: components::status_bar::StatusBar,
+            error_modal: components::error_modal::ErrorModal,
         }
     }
 }
