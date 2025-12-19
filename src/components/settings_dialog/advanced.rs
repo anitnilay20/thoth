@@ -28,6 +28,7 @@ impl StatelessComponent for AdvancedTab {
     type Output = AdvancedTabOutput;
 
     fn render(ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
+        #[allow(unused_mut)] // mut needed when profiling feature is enabled
         let mut events = Vec::new();
 
         egui::ScrollArea::vertical()
