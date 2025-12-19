@@ -8,6 +8,7 @@ pub struct AdvancedTab;
 
 /// Props for the Advanced tab
 pub struct AdvancedTabProps<'a> {
+    #[allow(dead_code)] // Used when profiling feature is enabled
     pub dev_settings: &'a DeveloperSettings,
     pub theme_colors: &'a ThemeColors,
 }
@@ -15,6 +16,7 @@ pub struct AdvancedTabProps<'a> {
 /// Events emitted by the Advanced tab
 #[derive(Debug, Clone)]
 pub enum AdvancedTabEvent {
+    #[allow(dead_code)] // Used when profiling feature is enabled
     ShowProfilerChanged(bool),
 }
 

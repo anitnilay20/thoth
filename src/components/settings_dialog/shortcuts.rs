@@ -21,6 +21,7 @@ pub enum ShortcutsTabEvent {
 
 /// Output from the Shortcuts tab
 pub struct ShortcutsTabOutput {
+    #[allow(dead_code)] // Reserved for future shortcut customization
     pub events: Vec<ShortcutsTabEvent>,
 }
 
