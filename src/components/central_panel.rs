@@ -86,9 +86,6 @@ impl CentralPanel {
                         events.push(CentralPanelEvent::ErrorCleared);
                         // clear any prior search filter on new file
                         self.file_viewer.set_root_filter(None);
-                        // Apply syntax highlighting setting
-                        self.file_viewer
-                            .set_syntax_highlighting(props.syntax_highlighting);
 
                         // Emit event if file type changed during opening
                         if file_type != props.file_type {
@@ -164,6 +161,10 @@ impl CentralPanel {
                 ui.label("Open a JSON/NDJSON file from the top bar to begin.");
                 return;
             }
+
+            // Update viewer settings right before rendering (so changes apply immediately)
+            self.file_viewer
+                .set_syntax_highlighting(props.syntax_highlighting);
 
             // Render the viewer (no filtering UI needed - search results shown in sidebar)
             self.file_viewer.ui(ui);

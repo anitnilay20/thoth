@@ -242,7 +242,23 @@ impl SettingsDialog {
                 }
             }
             SettingsTab::Viewer => {
-                ViewerTab::render(ui, settings, theme_colors);
+                let output = ViewerTab::render(
+                    ui,
+                    viewer::ViewerTabProps {
+                        viewer_settings: &settings.viewer,
+                        theme_colors,
+                    },
+                );
+
+                // Handle events
+                for event in output.events {
+                    use viewer::ViewerTabEvent;
+                    match event {
+                        ViewerTabEvent::SyntaxHighlightingChanged(enabled) => {
+                            settings.viewer.syntax_highlighting = enabled;
+                        }
+                    }
+                }
             }
             SettingsTab::Shortcuts => {
                 let _output = ShortcutsTab::render(
@@ -288,7 +304,23 @@ impl SettingsDialog {
                 }
             }
             SettingsTab::Advanced => {
-                AdvancedTab::render(ui, settings, theme_colors);
+                let output = AdvancedTab::render(
+                    ui,
+                    advanced::AdvancedTabProps {
+                        dev_settings: &settings.dev,
+                        theme_colors,
+                    },
+                );
+
+                // Handle events
+                for event in output.events {
+                    use advanced::AdvancedTabEvent;
+                    match event {
+                        AdvancedTabEvent::ShowProfilerChanged(enabled) => {
+                            settings.dev.show_profiler = enabled;
+                        }
+                    }
+                }
             }
         }
     }
