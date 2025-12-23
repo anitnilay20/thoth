@@ -18,6 +18,9 @@ mod shortcuts;
 mod updates;
 mod viewer;
 
+#[cfg(test)]
+mod tests;
+
 pub use advanced::AdvancedTab;
 pub use appearance::AppearanceTab;
 pub use general::GeneralTab;
