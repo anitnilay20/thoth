@@ -2,6 +2,9 @@ use std::path::PathBuf;
 
 use crate::{components, error::ThothError, file, search, update};
 
+#[cfg(test)]
+mod tests;
+
 // ============================================================================
 // Window State - Per-window state (file, search, UI)
 // ============================================================================
