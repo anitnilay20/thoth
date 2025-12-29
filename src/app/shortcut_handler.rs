@@ -90,6 +90,15 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::NavForward);
         }
 
+        // Browser-style mouse back/forward buttons
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1)) {
+            actions.push(ShortcutAction::NavBack);
+        }
+
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra2)) {
+            actions.push(ShortcutAction::NavForward);
+        }
+
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.escape.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::Escape);
         }

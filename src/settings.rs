@@ -87,6 +87,10 @@ pub struct PerformanceSettings {
 
     /// Number of recent files to remember (default: 10)
     pub max_recent_files: usize,
+
+    /// Navigation history size (default: 100)
+    /// Number of navigation steps to remember for back/forward navigation
+    pub navigation_history_size: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +161,7 @@ impl Default for PerformanceSettings {
         Self {
             cache_size: 100,
             max_recent_files: 10,
+            navigation_history_size: 100,
         }
     }
 }
