@@ -8,11 +8,19 @@ use crate::theme::Theme;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Configuration file version for migration support
+    #[serde(default)]
+    pub version: u32,
+
     /// Dark mode enabled
     pub dark_mode: bool,
 
     /// Font size for UI
     pub font_size: f32,
+
+    /// Font family for UI
+    #[serde(default)]
+    pub font_family: Option<String>,
 
     /// Window settings for multi-window support
     pub window: WindowSettings,
@@ -28,6 +36,18 @@ pub struct Settings {
 
     /// Theme color settings
     pub theme: Theme,
+
+    /// Performance settings
+    #[serde(default)]
+    pub performance: PerformanceSettings,
+
+    /// File viewer behavior settings
+    #[serde(default)]
+    pub viewer: ViewerSettings,
+
+    /// UI preferences
+    #[serde(default)]
+    pub ui: UiSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -58,16 +78,58 @@ pub struct UpdateSettings {
     pub check_interval_hours: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PerformanceSettings {
+    /// LRU cache size for parsed JSON values (default: 100)
+    /// Higher values use more memory but improve performance when re-visiting nodes
+    pub cache_size: usize,
+
+    /// Number of recent files to remember (default: 10)
+    pub max_recent_files: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ViewerSettings {
+    /// Enable syntax highlighting in JSON viewer (default: true)
+    pub syntax_highlighting: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UiSettings {
+    /// Default sidebar width (default: 350px)
+    pub sidebar_width: f32,
+
+    /// Remember sidebar state across sessions (default: true)
+    pub remember_sidebar_state: bool,
+
+    /// Show status bar (default: true)
+    pub show_status_bar: bool,
+
+    /// Show toolbar (default: true)
+    pub show_toolbar: bool,
+
+    /// Enable animations (default: true)
+    pub enable_animations: bool,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            version: 1,
             dark_mode: true,
             font_size: 14.0,
+            font_family: None,
             window: WindowSettings::default(),
             updates: UpdateSettings::default(),
             shortcuts: KeyboardShortcuts::default(),
             dev: DeveloperSettings::default(),
             theme: Theme::default(),
+            performance: PerformanceSettings::default(),
+            viewer: ViewerSettings::default(),
+            ui: UiSettings::default(),
         }
     }
 }
@@ -90,7 +152,39 @@ impl Default for UpdateSettings {
     }
 }
 
+impl Default for PerformanceSettings {
+    fn default() -> Self {
+        Self {
+            cache_size: 100,
+            max_recent_files: 10,
+        }
+    }
+}
+
+impl Default for ViewerSettings {
+    fn default() -> Self {
+        Self {
+            syntax_highlighting: true,
+        }
+    }
+}
+
+impl Default for UiSettings {
+    fn default() -> Self {
+        Self {
+            sidebar_width: 350.0,
+            remember_sidebar_state: true,
+            show_status_bar: true,
+            show_toolbar: true,
+            enable_animations: true,
+        }
+    }
+}
+
 impl Settings {
+    /// Current configuration version
+    pub const CURRENT_VERSION: u32 = 1;
+
     /// Get the path to the settings file
     /// Returns: ~/.config/thoth/settings.toml on Linux/macOS
     ///          %APPDATA%/thoth/settings.toml on Windows
@@ -113,6 +207,101 @@ impl Settings {
         Ok(thoth_config_dir.join("settings.toml"))
     }
 
+    /// Validate settings and return user-friendly error messages
+    pub fn validate(&self) -> Result<()> {
+        // Validate font size
+        if self.font_size < 8.0 || self.font_size > 72.0 {
+            return Err(ThothError::SettingsLoadError {
+                reason: format!(
+                    "Invalid font_size: {}. Must be between 8.0 and 72.0",
+                    self.font_size
+                ),
+            });
+        }
+
+        // Validate window dimensions
+        if self.window.default_width < 400.0 || self.window.default_width > 7680.0 {
+            return Err(ThothError::SettingsLoadError {
+                reason: format!(
+                    "Invalid window width: {}. Must be between 400.0 and 7680.0",
+                    self.window.default_width
+                ),
+            });
+        }
+
+        if self.window.default_height < 300.0 || self.window.default_height > 4320.0 {
+            return Err(ThothError::SettingsLoadError {
+                reason: format!(
+                    "Invalid window height: {}. Must be between 300.0 and 4320.0",
+                    self.window.default_height
+                ),
+            });
+        }
+
+        // Validate performance settings
+        if self.performance.cache_size == 0 {
+            return Err(ThothError::SettingsLoadError {
+                reason: "Invalid cache_size: 0. Must be at least 1".to_string(),
+            });
+        }
+
+        if self.performance.cache_size > 10000 {
+            return Err(ThothError::SettingsLoadError {
+                reason: format!(
+                    "Invalid cache_size: {}. Maximum is 10000 (recommended: 100-1000)",
+                    self.performance.cache_size
+                ),
+            });
+        }
+
+        if self.performance.max_recent_files == 0 || self.performance.max_recent_files > 100 {
+            return Err(ThothError::SettingsLoadError {
+                reason: format!(
+                    "Invalid max_recent_files: {}. Must be between 1 and 100",
+                    self.performance.max_recent_files
+                ),
+            });
+        }
+
+        // Validate UI settings
+        if self.ui.sidebar_width < 200.0 || self.ui.sidebar_width > 1000.0 {
+            return Err(ThothError::SettingsLoadError {
+                reason: format!(
+                    "Invalid sidebar_width: {}. Must be between 200.0 and 1000.0",
+                    self.ui.sidebar_width
+                ),
+            });
+        }
+
+        // Validate update settings
+        if self.updates.check_interval_hours == 0 {
+            return Err(ThothError::SettingsLoadError {
+                reason: "Invalid check_interval_hours: 0. Must be at least 1".to_string(),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Migrate settings from older versions to current version
+    fn migrate(&mut self) {
+        // Currently at version 1, no migrations needed yet
+        // This structure allows for future migrations:
+        // if self.version < 2 {
+        //     // Migrate from v1 to v2
+        //     self.version = 2;
+        // }
+        // if self.version < 3 {
+        //     // Migrate from v2 to v3
+        //     self.version = 3;
+        // }
+
+        // Ensure version is current
+        if self.version < Self::CURRENT_VERSION {
+            self.version = Self::CURRENT_VERSION;
+        }
+    }
+
     /// Load settings from file, or create default if file doesn't exist
     pub fn load() -> Result<Self> {
         let settings_path = Self::settings_file_path()?;
@@ -124,10 +313,16 @@ impl Settings {
                 }
             })?;
 
-            let settings: Settings =
+            let mut settings: Settings =
                 toml::from_str(&contents).map_err(|e| ThothError::SettingsLoadError {
                     reason: format!("Failed to parse settings file: {}", e),
                 })?;
+
+            // Migrate settings if needed
+            settings.migrate();
+
+            // Validate settings
+            settings.validate()?;
 
             // Save settings back to file to ensure any new fields are added
             // This allows seamless updates when new settings are added to the struct
@@ -166,10 +361,15 @@ mod tests {
     #[test]
     fn test_default_settings() {
         let settings = Settings::default();
+        assert_eq!(settings.version, 1);
         assert!(settings.dark_mode);
         assert_eq!(settings.font_size, 14.0);
         assert_eq!(settings.window.default_width, 1200.0);
         assert_eq!(settings.window.default_height, 800.0);
+        assert_eq!(settings.performance.cache_size, 100);
+        assert_eq!(settings.performance.max_recent_files, 10);
+        assert!(settings.viewer.syntax_highlighting);
+        assert_eq!(settings.ui.sidebar_width, 350.0);
     }
 
     #[test]
@@ -180,5 +380,86 @@ mod tests {
 
         assert_eq!(settings.dark_mode, deserialized.dark_mode);
         assert_eq!(settings.font_size, deserialized.font_size);
+        assert_eq!(
+            settings.performance.cache_size,
+            deserialized.performance.cache_size
+        );
+        assert_eq!(
+            settings.viewer.syntax_highlighting,
+            deserialized.viewer.syntax_highlighting
+        );
+    }
+
+    #[test]
+    fn test_validation_valid_settings() {
+        let settings = Settings::default();
+        assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validation_invalid_font_size() {
+        let mut settings = Settings {
+            font_size: 5.0,
+            ..Default::default()
+        };
+        assert!(settings.validate().is_err());
+
+        settings.font_size = 100.0; // Too large
+        assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn test_validation_invalid_cache_size() {
+        let mut settings = Settings::default();
+        settings.performance.cache_size = 0;
+        assert!(settings.validate().is_err());
+
+        settings.performance.cache_size = 20000;
+        assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn test_validation_invalid_window_size() {
+        let mut settings = Settings::default();
+        settings.window.default_width = 100.0; // Too small
+        assert!(settings.validate().is_err());
+
+        settings.window.default_width = 10000.0; // Too large
+        assert!(settings.validate().is_err());
+    }
+
+    #[test]
+    fn test_migration() {
+        let mut settings = Settings {
+            version: 0,
+            ..Default::default()
+        };
+        // let mut settings = Settings::default();
+        // settings.version = 0; // Simulate old version
+        settings.migrate();
+        assert_eq!(settings.version, Settings::CURRENT_VERSION);
+    }
+
+    #[test]
+    fn test_performance_settings_defaults() {
+        let perf = PerformanceSettings::default();
+        assert_eq!(perf.cache_size, 100);
+        assert_eq!(perf.max_recent_files, 10);
+    }
+
+    #[test]
+    fn test_viewer_settings_defaults() {
+        let viewer = ViewerSettings::default();
+        assert!(viewer.syntax_highlighting);
+    }
+
+    #[test]
+    fn test_ui_settings_defaults() {
+        let ui = UiSettings::default();
+        assert_eq!(ui.sidebar_width, 350.0);
+        assert!(ui.remember_sidebar_state);
+        assert!(ui.show_status_bar);
+        assert!(ui.show_toolbar);
+        assert!(ui.enable_animations);
     }
 }

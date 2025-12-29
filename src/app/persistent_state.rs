@@ -20,6 +20,8 @@ pub struct PersistentState {
     recent_files: Vec<String>,
     #[serde(default = "default_sidebar_width")]
     sidebar_width: f32,
+    #[serde(default)]
+    sidebar_expanded: bool,
 }
 
 fn default_sidebar_width() -> f32 {
@@ -32,6 +34,7 @@ impl Default for PersistentState {
         Self::load().unwrap_or(Self {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
         })
     }
 }
@@ -99,6 +102,7 @@ impl PersistentState {
                 let new_state = PersistentState {
                     recent_files: old_data.files,
                     sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+                    sidebar_expanded: false,
                 };
 
                 // Save in new format
@@ -116,6 +120,7 @@ impl PersistentState {
         Ok(Self {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
         })
     }
 
@@ -135,16 +140,22 @@ impl PersistentState {
     // Recent Files methods
 
     /// Add a file to recent files (moves to top if already exists)
-    pub fn add_recent_file(&mut self, file_path: String) {
+    pub fn add_recent_file(&mut self, file_path: String, max_recent_files: usize) {
         // Remove if already exists
         self.recent_files.retain(|f| f != &file_path);
 
         // Add to front
         self.recent_files.insert(0, file_path);
 
-        // Limit to MAX_RECENT_FILES
-        if self.recent_files.len() > MAX_RECENT_FILES {
-            self.recent_files.truncate(MAX_RECENT_FILES);
+        // Limit to configured max (or fallback to constant)
+        let limit = if max_recent_files > 0 {
+            max_recent_files
+        } else {
+            MAX_RECENT_FILES
+        };
+
+        if self.recent_files.len() > limit {
+            self.recent_files.truncate(limit);
         }
     }
 
@@ -168,6 +179,18 @@ impl PersistentState {
     /// Get the sidebar width
     pub fn get_sidebar_width(&self) -> f32 {
         self.sidebar_width
+    }
+
+    // Sidebar expanded state methods
+
+    /// Set sidebar expanded state
+    pub fn set_sidebar_expanded(&mut self, expanded: bool) {
+        self.sidebar_expanded = expanded;
+    }
+
+    /// Get sidebar expanded state
+    pub fn get_sidebar_expanded(&self) -> bool {
+        self.sidebar_expanded
     }
 
     // Search history methods (single file with LRU for most recently used files)
@@ -309,9 +332,10 @@ mod tests {
         let mut state = PersistentState {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
         };
-        state.add_recent_file("file1.json".to_string());
-        state.add_recent_file("file2.json".to_string());
+        state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
+        state.add_recent_file("file2.json".to_string(), MAX_RECENT_FILES);
 
         assert_eq!(state.get_recent_files().len(), 2);
         assert_eq!(state.get_recent_files()[0], "file2.json");
@@ -323,10 +347,11 @@ mod tests {
         let mut state = PersistentState {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
         };
-        state.add_recent_file("file1.json".to_string());
-        state.add_recent_file("file2.json".to_string());
-        state.add_recent_file("file1.json".to_string());
+        state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
+        state.add_recent_file("file2.json".to_string(), MAX_RECENT_FILES);
+        state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
 
         assert_eq!(state.get_recent_files().len(), 2);
         assert_eq!(state.get_recent_files()[0], "file1.json");
@@ -338,9 +363,10 @@ mod tests {
         let mut state = PersistentState {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
         };
         for i in 0..15 {
-            state.add_recent_file(format!("file{}.json", i));
+            state.add_recent_file(format!("file{}.json", i), MAX_RECENT_FILES);
         }
 
         assert_eq!(state.get_recent_files().len(), MAX_RECENT_FILES);
@@ -352,9 +378,10 @@ mod tests {
         let mut state = PersistentState {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
         };
-        state.add_recent_file("file1.json".to_string());
-        state.add_recent_file("file2.json".to_string());
+        state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
+        state.add_recent_file("file2.json".to_string(), MAX_RECENT_FILES);
         state.remove_recent_file("file1.json");
 
         assert_eq!(state.get_recent_files().len(), 1);

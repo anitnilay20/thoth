@@ -26,6 +26,9 @@ pub struct DataRowProps<'a> {
 
     /// Highlight terms to emphasize within key/value text
     pub highlights: RowHighlights,
+
+    /// Enable syntax highlighting
+    pub syntax_highlighting: bool,
 }
 
 /// Output from DataRow component (events flow up)
@@ -81,15 +84,22 @@ impl StatelessComponent for DataRow {
         let highlight_bg = ui.visuals().selection.bg_fill;
         let highlight_fg = ui.visuals().strong_text_color();
 
+        let base_text_color = ui.visuals().text_color();
+
         let _frame_response = egui::Frame::new().fill(background).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
-                // Key part (with syntax highlighting)
+                // Key part (with syntax highlighting if enabled)
                 let key_label_text = format!("{}{}", key_part, if has_colon { ":" } else { "" });
+                let key_color = palette.color_with_highlighting(
+                    props.text_tokens.0,
+                    props.syntax_highlighting,
+                    base_text_color,
+                );
                 let key_label = highlighted_text(
                     ui,
                     &key_label_text,
-                    palette.color(props.text_tokens.0),
+                    key_color,
                     &props.highlights.key_ranges,
                     highlight_bg,
                     highlight_fg,
@@ -98,10 +108,15 @@ impl StatelessComponent for DataRow {
 
                 // Value part (if exists, with different token)
                 if let Some(value_token) = props.text_tokens.1 {
+                    let value_color = palette.color_with_highlighting(
+                        value_token,
+                        props.syntax_highlighting,
+                        base_text_color,
+                    );
                     let value_label = highlighted_text(
                         ui,
                         value_part,
-                        palette.color(value_token),
+                        value_color,
                         &props.highlights.value_ranges,
                         highlight_bg,
                         highlight_fg,

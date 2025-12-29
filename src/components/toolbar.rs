@@ -33,6 +33,7 @@ pub enum ToolbarEvent {
     NewWindow,
     FileTypeChange(FileType),
     ToggleTheme,
+    OpenSettings,
 }
 
 pub struct ToolbarOutput {
@@ -244,6 +245,22 @@ impl Toolbar {
                         .clicked
                         {
                             events.push(ToolbarEvent::ToggleTheme);
+                        }
+
+                        // Settings button (icon-only)
+                        if IconButton::render(
+                            ui,
+                            IconButtonProps {
+                                icon: egui_phosphor::regular::GEAR,
+                                frame: false,
+                                tooltip: Some("Settings (Cmd/Ctrl+,)"),
+                                badge_color: None,
+                                size: Some(button_size),
+                            },
+                        )
+                        .clicked
+                        {
+                            events.push(ToolbarEvent::OpenSettings);
                         }
                     });
                 });

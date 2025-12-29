@@ -400,6 +400,7 @@ impl JsonTreeViewer {
     }
 
     /// Render the JSON tree and return whether rows need to be rebuilt
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         ui: &mut Ui,
@@ -408,6 +409,7 @@ impl JsonTreeViewer {
         loader: &mut LazyJsonFile,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
+        syntax_highlighting: bool,
     ) -> bool {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -575,6 +577,7 @@ impl JsonTreeViewer {
                                 background: bg,
                                 row_id: path,
                                 highlights: row.highlights.clone(),
+                                syntax_highlighting,
                             },
                         );
 
@@ -723,6 +726,7 @@ impl FileFormatViewer for JsonTreeViewer {
         loader: &mut LazyJsonFile,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
+        syntax_highlighting: bool,
     ) -> bool {
         self.render(
             ui,
@@ -731,6 +735,7 @@ impl FileFormatViewer for JsonTreeViewer {
             loader,
             should_scroll_to_selection,
             is_search_navigation,
+            syntax_highlighting,
         )
     }
 

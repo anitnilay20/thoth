@@ -22,6 +22,7 @@ fn test_data_row_basic() {
                 background: ui.visuals().widgets.noninteractive.bg_fill,
                 row_id: "test-row",
                 highlights: RowHighlights::default(),
+                syntax_highlighting: true,
             },
         );
 
@@ -42,6 +43,7 @@ fn test_data_row_with_brackets() {
                 background: ui.visuals().widgets.noninteractive.bg_fill,
                 row_id: "array-row",
                 highlights: RowHighlights::default(),
+                syntax_highlighting: true,
             },
         );
 
@@ -62,6 +64,7 @@ fn test_data_row_with_indentation() {
                     background: ui.visuals().widgets.noninteractive.bg_fill,
                     row_id: &format!("indent-{}", level),
                     highlights: RowHighlights::default(),
+                    syntax_highlighting: true,
                 },
             );
 
@@ -89,6 +92,7 @@ fn test_data_row_different_text_tokens() {
                     background: ui.visuals().widgets.noninteractive.bg_fill,
                     row_id: &format!("token-{}", i),
                     highlights: RowHighlights::default(),
+                    syntax_highlighting: true,
                 },
             );
 
@@ -110,6 +114,7 @@ fn test_data_row_with_selection_background() {
                 background: selected_bg,
                 row_id: "selected-row",
                 highlights: RowHighlights::default(),
+                syntax_highlighting: true,
             },
         );
 
