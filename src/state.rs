@@ -23,6 +23,8 @@ pub struct WindowState {
 
     // Navigation state
     pub navigation_history: NavigationHistory,
+    /// Pending navigation to apply after file loads
+    pub pending_navigation: Option<String>,
 
     // UI state
     pub sidebar_expanded: bool,
@@ -49,6 +51,7 @@ impl Default for WindowState {
             total_items: 0,
             search_engine_state: SearchEngineState::default(),
             navigation_history: NavigationHistory::default(),
+            pending_navigation: None,
             sidebar_expanded: true,
             sidebar_selected_section: Some(components::sidebar::SidebarSection::RecentFiles),
             previous_sidebar_section: None,

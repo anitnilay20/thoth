@@ -195,10 +195,6 @@ impl Bookmarks {
         }
 
         if response.clicked() {
-            eprintln!(
-                "DEBUG: Bookmark clicked - file: {}, path: {}",
-                bookmark.file_path, bookmark.path
-            );
             events.push(BookmarksEvent::NavigateToBookmark {
                 file_path: bookmark.file_path.clone(),
                 path: bookmark.path.clone(),
