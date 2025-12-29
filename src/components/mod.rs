@@ -1,3 +1,4 @@
+pub mod bookmarks;
 pub mod central_panel;
 pub mod data_row;
 pub mod drag_and_drop;

@@ -628,6 +628,12 @@ impl ThothApp {
             ctx,
             components::sidebar::SidebarProps {
                 recent_files: self.persistent_state.get_recent_files(),
+                bookmarks: self.persistent_state.get_bookmarks(),
+                current_file_path: self
+                    .window_state
+                    .file_path
+                    .as_ref()
+                    .and_then(|path| path.to_str()),
                 expanded: self.window_state.sidebar_expanded,
                 sidebar_width: self.persistent_state.get_sidebar_width(),
                 selected_section: self.window_state.sidebar_selected_section,
@@ -742,6 +748,38 @@ impl ThothApp {
                                 path_str,
                             );
                         }
+                    }
+                }
+                components::sidebar::SidebarEvent::NavigateToBookmark { file_path, path } => {
+                    // Check if we need to open a different file
+                    let current_file = self
+                        .window_state
+                        .file_path
+                        .as_ref()
+                        .and_then(|p| p.to_str());
+
+                    if current_file != Some(&file_path) {
+                        // Open the bookmarked file
+                        let path_buf = std::path::PathBuf::from(&file_path);
+                        self.window_state.file_path = Some(path_buf);
+                        self.window_state.error = None;
+
+                        // Add to recent files
+                        self.persistent_state.add_recent_file(
+                            file_path.clone(),
+                            self.settings.performance.max_recent_files,
+                        );
+                        let _ = self.persistent_state.save();
+                    }
+
+                    // Navigate to the bookmarked path in the viewer
+                    self.window_state.central_panel.navigate_to_path(path);
+                }
+                components::sidebar::SidebarEvent::RemoveBookmark(index) => {
+                    // Remove the bookmark
+                    self.persistent_state.remove_bookmark(index);
+                    if let Err(e) = self.persistent_state.save() {
+                        eprintln!("Failed to save bookmarks: {}", e);
                     }
                 }
             }

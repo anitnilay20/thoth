@@ -1,3 +1,5 @@
+use crate::app::persistent_state::Bookmark;
+use crate::components::bookmarks::{Bookmarks, BookmarksEvent, BookmarksProps};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 use crate::components::search::{Search, SearchEvent, SearchProps};
 use crate::components::traits::{ContextComponent, StatefulComponent};
@@ -10,11 +12,14 @@ use eframe::egui;
 pub enum SidebarSection {
     RecentFiles,
     Search,
+    Bookmarks,
 }
 
 /// Props passed to the Sidebar (immutable, one-way binding)
 pub struct SidebarProps<'a> {
     pub recent_files: &'a [String],
+    pub bookmarks: &'a [Bookmark],
+    pub current_file_path: Option<&'a str>,
     pub expanded: bool,
     pub sidebar_width: f32,
     pub selected_section: Option<SidebarSection>,
@@ -38,6 +43,9 @@ pub enum SidebarEvent {
     Search(SearchMessage),
     NavigateToSearchResult { record_index: usize },
     ClearSearchHistory,
+    // Bookmark events
+    NavigateToBookmark { file_path: String, path: String },
+    RemoveBookmark(usize),
 }
 
 pub struct SidebarOutput {
@@ -54,6 +62,7 @@ pub struct Sidebar {
     // Child components that Sidebar fully controls
     recent_files: RecentFiles,
     search: Search,
+    bookmarks: Bookmarks,
 }
 
 impl Default for Sidebar {
@@ -61,6 +70,7 @@ impl Default for Sidebar {
         Self {
             recent_files: RecentFiles,
             search: Search::default(),
+            bookmarks: Bookmarks::default(),
         }
     }
 }
@@ -100,6 +110,27 @@ impl Sidebar {
             }
             Some(SidebarSection::Search) => {
                 self.render_search_section(ui, props, events);
+            }
+            Some(SidebarSection::Bookmarks) => {
+                let output = self.bookmarks.render(
+                    ui,
+                    BookmarksProps {
+                        bookmarks: props.bookmarks,
+                        current_file_path: props.current_file_path,
+                    },
+                );
+
+                // Convert BookmarksEvent to SidebarEvent
+                for event in output.events {
+                    match event {
+                        BookmarksEvent::NavigateToBookmark { file_path, path } => {
+                            events.push(SidebarEvent::NavigateToBookmark { file_path, path });
+                        }
+                        BookmarksEvent::RemoveBookmark(index) => {
+                            events.push(SidebarEvent::RemoveBookmark(index));
+                        }
+                    }
+                }
             }
             None => {}
         }
@@ -144,6 +175,20 @@ impl Sidebar {
         ) {
             // Emit toggle event - parent will decide whether to collapse or expand
             events.push(SidebarEvent::SectionToggled(SidebarSection::Search));
+        }
+
+        // Bookmarks button
+        let bookmarks_selected = props.selected_section == Some(SidebarSection::Bookmarks);
+        if self.render_icon_button(
+            ui,
+            egui_phosphor::regular::BOOKMARK_SIMPLE,
+            "Bookmarks",
+            bookmarks_selected,
+            (button_size, icon_size),
+            (hover_bg, selection_bg, text_color),
+        ) {
+            // Emit toggle event - parent will decide whether to collapse or expand
+            events.push(SidebarEvent::SectionToggled(SidebarSection::Bookmarks));
         }
     }
 
