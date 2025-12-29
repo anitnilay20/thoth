@@ -175,8 +175,8 @@ impl Default for KeyboardShortcuts {
             // Bookmarks
             toggle_bookmark: Shortcut::new("D").command(),
 
-            // Go to path
-            go_to_path: Shortcut::new("G").command().shift(),
+            // Go to path (Jump to path)
+            go_to_path: Shortcut::new("J").command(),
 
             // Tree operations
             expand_node: Shortcut::new("ArrowRight"),

@@ -897,7 +897,7 @@ impl ThothApp {
     }
 
     fn render_go_to_path_dialog(&mut self, ctx: &egui::Context) {
-        use crate::components::traits::StatefulComponent;
+        use crate::components::traits::ContextComponent;
 
         // Get theme colors
         let theme_colors = ctx.memory(|mem| {
@@ -908,22 +908,14 @@ impl ThothApp {
                 })
         });
 
-        // Render the dialog using Area so it overlays everything
-        let mut output = None;
-        egui::Area::new("go_to_path_dialog_area".into())
-            .movable(false)
-            .interactable(true)
-            .show(ctx, |ui| {
-                output = Some(self.window_state.go_to_path_dialog.render(
-                    ui,
-                    components::go_to_path_dialog::GoToPathDialogProps {
-                        open: self.window_state.go_to_path_dialog_open,
-                        theme_colors: &theme_colors,
-                    },
-                ));
-            });
-
-        let Some(output) = output else { return };
+        // Render the panel as a top banner
+        let output = self.window_state.go_to_path_dialog.render(
+            ctx,
+            components::go_to_path_dialog::GoToPathDialogProps {
+                open: self.window_state.go_to_path_dialog_open,
+                theme_colors: &theme_colors,
+            },
+        );
 
         // Handle dialog events
         for event in output.events {
