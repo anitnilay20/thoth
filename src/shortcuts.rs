@@ -129,6 +129,9 @@ pub struct KeyboardShortcuts {
     // Bookmarks
     pub toggle_bookmark: Shortcut,
 
+    // Go to path
+    pub go_to_path: Shortcut,
+
     // Tree operations
     pub expand_node: Shortcut,
     pub collapse_node: Shortcut,
@@ -171,6 +174,9 @@ impl Default for KeyboardShortcuts {
 
             // Bookmarks
             toggle_bookmark: Shortcut::new("D").command(),
+
+            // Go to path
+            go_to_path: Shortcut::new("G").command().shift(),
 
             // Tree operations
             expand_node: Shortcut::new("ArrowRight"),

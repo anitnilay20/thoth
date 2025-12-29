@@ -218,6 +218,9 @@ impl App for ThothApp {
         // Render error modal if there's an error
         self.render_error_modal(ctx);
 
+        // Render go-to-path dialog if open
+        self.render_go_to_path_dialog(ctx);
+
         // Show profiler if enabled (only when profiling feature is enabled)
         #[cfg(feature = "profiling")]
         if self.settings.dev.show_profiler {
@@ -392,6 +395,10 @@ impl ThothApp {
                             }
                         }
                     }
+                }
+                ShortcutAction::GoToPath => {
+                    // Open the go-to-path dialog
+                    self.window_state.go_to_path_dialog_open = true;
                 }
                 // Tree operations
                 ShortcutAction::ExpandNode => {
@@ -884,6 +891,50 @@ impl ThothApp {
                         self.window_state.total_items = 0;
                     }
                     _ => {}
+                }
+            }
+        }
+    }
+
+    fn render_go_to_path_dialog(&mut self, ctx: &egui::Context) {
+        use crate::components::traits::StatefulComponent;
+
+        // Get theme colors
+        let theme_colors = ctx.memory(|mem| {
+            mem.data
+                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+                .unwrap_or_else(|| {
+                    crate::theme::Theme::for_dark_mode(ctx.style().visuals.dark_mode).colors()
+                })
+        });
+
+        // Render the dialog using Area so it overlays everything
+        let mut output = None;
+        egui::Area::new("go_to_path_dialog_area".into())
+            .movable(false)
+            .interactable(true)
+            .show(ctx, |ui| {
+                output = Some(self.window_state.go_to_path_dialog.render(
+                    ui,
+                    components::go_to_path_dialog::GoToPathDialogProps {
+                        open: self.window_state.go_to_path_dialog_open,
+                        theme_colors: &theme_colors,
+                    },
+                ));
+            });
+
+        let Some(output) = output else { return };
+
+        // Handle dialog events
+        for event in output.events {
+            match event {
+                components::go_to_path_dialog::GoToPathDialogEvent::NavigateToPath(path) => {
+                    // Navigate to the specified path
+                    self.window_state.central_panel.navigate_to_path(path);
+                    self.window_state.go_to_path_dialog_open = false;
+                }
+                components::go_to_path_dialog::GoToPathDialogEvent::Close => {
+                    self.window_state.go_to_path_dialog_open = false;
                 }
             }
         }
