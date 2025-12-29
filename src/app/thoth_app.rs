@@ -777,6 +777,11 @@ impl ThothApp {
                     }
                 }
                 components::sidebar::SidebarEvent::NavigateToBookmark { file_path, path } => {
+                    eprintln!(
+                        "DEBUG: NavigateToBookmark event - file: {}, path: {}",
+                        file_path, path
+                    );
+
                     // Check if we need to open a different file
                     let current_file = self
                         .window_state
@@ -784,7 +789,10 @@ impl ThothApp {
                         .as_ref()
                         .and_then(|p| p.to_str());
 
-                    if current_file != Some(&file_path) {
+                    eprintln!("DEBUG: Current file: {:?}", current_file);
+
+                    if current_file != Some(file_path.as_str()) {
+                        eprintln!("DEBUG: Opening different file: {}", file_path);
                         // Open the bookmarked file
                         let path_buf = std::path::PathBuf::from(&file_path);
                         self.window_state.file_path = Some(path_buf);
@@ -796,9 +804,12 @@ impl ThothApp {
                             self.settings.performance.max_recent_files,
                         );
                         let _ = self.persistent_state.save();
+                    } else {
+                        eprintln!("DEBUG: Same file, just navigating to path");
                     }
 
                     // Navigate to the bookmarked path in the viewer
+                    eprintln!("DEBUG: Calling navigate_to_path with: {}", path);
                     self.window_state.central_panel.navigate_to_path(path);
                 }
                 components::sidebar::SidebarEvent::RemoveBookmark(index) => {

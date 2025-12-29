@@ -137,8 +137,29 @@ impl FileViewer {
 
     /// Navigate to a specific JSON path
     /// This selects the path and scrolls to it
-    /// Note: Parent nodes should already be expanded for the path to be visible
+    /// Automatically expands parent nodes to make the path visible
     pub fn navigate_to_path(&mut self, path: String) {
+        // Auto-expand parent nodes to make the path visible
+        if let Some(viewer) = self.viewer.as_mut() {
+            // Expand each parent node in the path hierarchy
+            let path_parts: Vec<&str> = path.split('.').collect();
+            let mut current_path = String::new();
+
+            for (i, part) in path_parts.iter().enumerate() {
+                if i > 0 {
+                    current_path.push('.');
+                }
+                current_path.push_str(part);
+
+                // Expand this node (except the leaf)
+                if i < path_parts.len() - 1 {
+                    viewer
+                        .as_viewer_mut()
+                        .expand_selected(&Some(current_path.clone()));
+                }
+            }
+        }
+
         // Set selection to the path
         self.state.selected = Some(path);
 
