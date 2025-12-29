@@ -135,6 +135,24 @@ impl FileViewer {
         false
     }
 
+    /// Navigate to a specific JSON path
+    /// This selects the path and scrolls to it
+    /// Note: Parent nodes should already be expanded for the path to be visible
+    pub fn navigate_to_path(&mut self, path: String) {
+        // Set selection to the path
+        self.state.selected = Some(path);
+
+        // Trigger scroll to selection on next render
+        self.state.should_scroll_to_selection = true;
+        // Mark this as search navigation (large jump) not keyboard navigation
+        self.state.is_search_navigation = true;
+    }
+
+    /// Get the currently selected path
+    pub fn get_selected_path(&self) -> Option<&String> {
+        self.state.selected.as_ref()
+    }
+
     /// Render the file viewer UI
     pub fn ui(&mut self, ui: &mut Ui) {
         let (Some(loader), Some(viewer_box)) = (self.loader.as_mut(), self.viewer.as_mut()) else {
