@@ -1,6 +1,5 @@
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 use crate::components::search::{Search, SearchEvent, SearchProps};
-use crate::components::settings_panel::{SettingsPanel, SettingsPanelEvent, SettingsPanelProps};
 use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
 use crate::search::SearchMessage;
@@ -11,7 +10,6 @@ use eframe::egui;
 pub enum SidebarSection {
     RecentFiles,
     Search,
-    Settings,
 }
 
 /// Props passed to the Sidebar (immutable, one-way binding)
@@ -22,10 +20,6 @@ pub struct SidebarProps<'a> {
     pub selected_section: Option<SidebarSection>,
     /// Whether the search section should receive focus (when just opened)
     pub focus_search: bool,
-    /// Update status for settings panel
-    pub update_status: &'a crate::update::UpdateStatus,
-    /// Current version for settings panel
-    pub current_version: &'a str,
     /// Current search state with results
     pub search_state: &'a crate::search::Search,
     /// Search history for the current file
@@ -44,11 +38,6 @@ pub enum SidebarEvent {
     Search(SearchMessage),
     NavigateToSearchResult { record_index: usize },
     ClearSearchHistory,
-    // Settings events
-    CheckForUpdates,
-    DownloadUpdate,
-    InstallUpdate,
-    RetryUpdate,
 }
 
 pub struct SidebarOutput {
@@ -65,7 +54,6 @@ pub struct Sidebar {
     // Child components that Sidebar fully controls
     recent_files: RecentFiles,
     search: Search,
-    settings_panel: SettingsPanel,
 }
 
 impl Default for Sidebar {
@@ -73,7 +61,6 @@ impl Default for Sidebar {
         Self {
             recent_files: RecentFiles,
             search: Search::default(),
-            settings_panel: SettingsPanel,
         }
     }
 }
@@ -113,9 +100,6 @@ impl Sidebar {
             }
             Some(SidebarSection::Search) => {
                 self.render_search_section(ui, props, events);
-            }
-            Some(SidebarSection::Settings) => {
-                self.render_settings_section(ui, props, events);
             }
             None => {}
         }
@@ -160,20 +144,6 @@ impl Sidebar {
         ) {
             // Emit toggle event - parent will decide whether to collapse or expand
             events.push(SidebarEvent::SectionToggled(SidebarSection::Search));
-        }
-
-        // Settings button
-        let settings_selected = props.selected_section == Some(SidebarSection::Settings);
-        if self.render_icon_button(
-            ui,
-            egui_phosphor::regular::GEAR,
-            "Settings",
-            settings_selected,
-            (button_size, icon_size),
-            (hover_bg, selection_bg, text_color),
-        ) {
-            // Emit toggle event - parent will decide whether to collapse or expand
-            events.push(SidebarEvent::SectionToggled(SidebarSection::Settings));
         }
     }
 
@@ -239,40 +209,6 @@ impl Sidebar {
                     events.push(SidebarEvent::NavigateToSearchResult { record_index })
                 }
                 SearchEvent::ClearHistory => events.push(SidebarEvent::ClearSearchHistory),
-            }
-        }
-    }
-
-    fn render_settings_section(
-        &mut self,
-        ui: &mut egui::Ui,
-        props: &SidebarProps<'_>,
-        events: &mut Vec<SidebarEvent>,
-    ) {
-        // Render the SettingsPanel component
-        let settings_output = self.settings_panel.render(
-            ui,
-            SettingsPanelProps {
-                update_status: props.update_status,
-                current_version: props.current_version,
-            },
-        );
-
-        // Convert SettingsPanelEvent to SidebarEvent
-        for event in settings_output.events {
-            match event {
-                SettingsPanelEvent::CheckForUpdates => {
-                    events.push(SidebarEvent::CheckForUpdates);
-                }
-                SettingsPanelEvent::DownloadUpdate => {
-                    events.push(SidebarEvent::DownloadUpdate);
-                }
-                SettingsPanelEvent::InstallUpdate => {
-                    events.push(SidebarEvent::InstallUpdate);
-                }
-                SettingsPanelEvent::RetryUpdate => {
-                    events.push(SidebarEvent::RetryUpdate);
-                }
             }
         }
     }

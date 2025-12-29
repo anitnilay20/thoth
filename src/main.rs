@@ -36,11 +36,23 @@ fn main() -> Result<()> {
     #[cfg(feature = "profiling")]
     puffin::set_scopes_on(true);
 
+    // Note: Settings mode is no longer supported
+    // Settings are now opened via viewport mode from the main application
+    //
+    // // Check if launched in settings mode
+    // let args: Vec<String> = std::env::args().collect();
+    // let is_settings_mode = args.iter().any(|arg| arg == "--settings");
+
     // Load settings first
     let settings = settings::Settings::load().unwrap_or_else(|e| {
         eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);
         settings::Settings::default()
     });
+
+    // // If in settings mode, launch settings window instead of main app
+    // if is_settings_mode {
+    //     return run_settings_window(settings);
+    // }
 
     let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
 

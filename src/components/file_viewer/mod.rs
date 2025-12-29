@@ -45,6 +45,9 @@ pub struct FileViewer {
 
     /// Highlights for records and paths from search results
     highlights: HashMap<usize, Arc<Vec<MatchFragment>>>,
+
+    /// Enable syntax highlighting
+    syntax_highlighting: bool,
 }
 
 impl FileViewer {
@@ -63,7 +66,13 @@ impl FileViewer {
             state: ViewerState::default(),
             file_path: None,
             highlights: HashMap::new(),
+            syntax_highlighting: true, // Default to enabled
         }
+    }
+
+    /// Set syntax highlighting enabled/disabled
+    pub fn set_syntax_highlighting(&mut self, enabled: bool) {
+        self.syntax_highlighting = enabled;
     }
 
     /// Open a file for viewing (compatible with old JsonViewer API)
@@ -154,6 +163,7 @@ impl FileViewer {
             loader,
             &mut self.state.should_scroll_to_selection,
             self.state.is_search_navigation,
+            self.syntax_highlighting,
         );
 
         // Reset the search navigation flag after rendering

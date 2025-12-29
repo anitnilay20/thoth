@@ -269,6 +269,11 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
         egui::FontId::monospace(font_size),
     );
 
+    // Apply animation settings
+    if !settings.ui.enable_animations {
+        style.animation_time = 0.0;
+    }
+
     ctx.set_style(style);
 }
 
@@ -378,6 +383,20 @@ impl TextPalette {
             TextToken::Number => self.number,
             TextToken::Boolean => self.boolean,
             TextToken::Bracket => self.bracket,
+        }
+    }
+
+    /// Get color for a token, or base text color if syntax highlighting is disabled
+    pub fn color_with_highlighting(
+        &self,
+        token: TextToken,
+        syntax_highlighting: bool,
+        base_color: Color32,
+    ) -> Color32 {
+        if syntax_highlighting {
+            self.color(token)
+        } else {
+            base_color
         }
     }
 }

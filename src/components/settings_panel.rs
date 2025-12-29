@@ -23,6 +23,7 @@ pub enum SettingsPanelEvent {
 }
 
 pub struct SettingsPanelOutput {
+    #[allow(dead_code)] // Old settings panel, kept for compatibility
     pub events: Vec<SettingsPanelEvent>,
 }
 

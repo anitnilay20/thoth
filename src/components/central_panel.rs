@@ -12,6 +12,8 @@ pub struct CentralPanelProps<'a> {
     pub file_type: FileType,
     pub error: &'a Option<ThothError>,
     pub search_message: Option<search::SearchMessage>,
+    pub cache_size: usize,
+    pub syntax_highlighting: bool,
 }
 
 /// Events emitted by the central panel (bottom-to-top communication)
@@ -111,7 +113,7 @@ impl CentralPanel {
                 }
             }
             (None, Some(_), _) => {
-                self.file_viewer = FileViewer::new();
+                self.file_viewer = FileViewer::with_cache_size(props.cache_size);
                 self.loaded_path = None;
                 self.loaded_type = None;
                 self.last_open_err = None;
@@ -159,6 +161,10 @@ impl CentralPanel {
                 ui.label("Open a JSON/NDJSON file from the top bar to begin.");
                 return;
             }
+
+            // Update viewer settings right before rendering (so changes apply immediately)
+            self.file_viewer
+                .set_syntax_highlighting(props.syntax_highlighting);
 
             // Render the viewer (no filtering UI needed - search results shown in sidebar)
             self.file_viewer.ui(ui);

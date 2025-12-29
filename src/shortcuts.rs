@@ -79,52 +79,33 @@ impl Shortcut {
         egui::KeyboardShortcut::new(modifiers, key)
     }
 
-    /// Format shortcut for display (e.g., "Cmd+O", "Ctrl+Shift+F")
+    /// Format shortcut for display using egui-phosphor icons
     pub fn format(&self) -> String {
         let mut parts = Vec::new();
 
-        #[cfg(target_os = "macos")]
-        {
-            if self.ctrl {
-                parts.push("⌃");
-            }
-            if self.alt {
-                parts.push("⌥");
-            }
-            if self.shift {
-                parts.push("⇧");
-            }
-            if self.command {
-                parts.push("⌘");
-            }
+        // Add modifier icons (using egui-phosphor)
+        if self.ctrl {
+            parts.push(egui_phosphor::regular::CONTROL); // Ctrl icon
         }
+        if self.alt {
+            parts.push(egui_phosphor::regular::OPTION); // Alt/Option icon
+        }
+        if self.shift {
+            parts.push(egui_phosphor::regular::ARROW_FAT_UP); // Shift icon
+        }
+        if self.command {
+            #[cfg(target_os = "macos")]
+            parts.push(egui_phosphor::regular::COMMAND); // Command icon on macOS
 
-        #[cfg(not(target_os = "macos"))]
-        {
-            if self.command || self.ctrl {
-                parts.push("Ctrl");
-            }
-            if self.alt {
-                parts.push("Alt");
-            }
-            if self.shift {
-                parts.push("Shift");
-            }
+            #[cfg(not(target_os = "macos"))]
+            parts.push(egui_phosphor::regular::CONTROL); // Ctrl icon on other platforms
         }
 
         // Format the key name
         let key_display = format_key_name(&self.key);
         parts.push(&key_display);
 
-        #[cfg(target_os = "macos")]
-        {
-            parts.join("")
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            parts.join("+")
-        }
+        parts.join(" ")
     }
 }
 
@@ -303,13 +284,13 @@ fn parse_key(key_str: &str) -> egui::Key {
     }
 }
 
-/// Format key name for display
+/// Format key name for display using egui-phosphor icons where applicable
 fn format_key_name(key: &str) -> String {
     match key {
-        "ArrowLeft" => "←".to_string(),
-        "ArrowRight" => "→".to_string(),
-        "ArrowUp" => "↑".to_string(),
-        "ArrowDown" => "↓".to_string(),
+        "ArrowLeft" => egui_phosphor::regular::ARROW_LEFT.to_string(),
+        "ArrowRight" => egui_phosphor::regular::ARROW_RIGHT.to_string(),
+        "ArrowUp" => egui_phosphor::regular::ARROW_UP.to_string(),
+        "ArrowDown" => egui_phosphor::regular::ARROW_DOWN.to_string(),
         "Escape" => "Esc".to_string(),
         "Comma" => ",".to_string(),
         "Period" => ".".to_string(),
@@ -347,11 +328,14 @@ mod tests {
         let shortcut = Shortcut::new("O").command();
         let formatted = shortcut.format();
 
+        // Should contain the command/control icon and the key
+        assert!(formatted.contains("O"));
+
         #[cfg(target_os = "macos")]
-        assert_eq!(formatted, "⌘O");
+        assert!(formatted.contains(egui_phosphor::regular::COMMAND));
 
         #[cfg(not(target_os = "macos"))]
-        assert_eq!(formatted, "Ctrl+O");
+        assert!(formatted.contains(egui_phosphor::regular::CONTROL));
     }
 
     #[test]

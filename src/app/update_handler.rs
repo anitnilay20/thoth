@@ -1,4 +1,4 @@
-use crate::{components, error::ThothError, settings, state, update};
+use crate::{error::ThothError, settings, state, update};
 use eframe::egui;
 
 /// Handles all update-related logic
@@ -50,37 +50,6 @@ impl UpdateHandler {
             ctx.request_repaint();
         }
         should_show_settings
-    }
-
-    /// Handle settings panel events related to updates
-    pub fn handle_settings_action(
-        event: components::settings_panel::SettingsPanelEvent,
-        update_state: &mut state::ApplicationUpdateState,
-        ctx: &egui::Context,
-    ) {
-        match event {
-            components::settings_panel::SettingsPanelEvent::CheckForUpdates => {
-                Self::check_for_updates(update_state);
-            }
-            components::settings_panel::SettingsPanelEvent::DownloadUpdate => {
-                if let update::UpdateState::UpdateAvailable { releases, .. } =
-                    &update_state.update_status.state
-                {
-                    if let Some(latest) = releases.first() {
-                        Self::start_download(latest.clone(), update_state, ctx);
-                    }
-                }
-            }
-            components::settings_panel::SettingsPanelEvent::InstallUpdate => {
-                if let Some(path) = update_state.pending_install_path.take() {
-                    update_state.update_status.state = update::UpdateState::Installing;
-                    update_state.update_manager.install_update(path);
-                }
-            }
-            components::settings_panel::SettingsPanelEvent::RetryUpdate => {
-                Self::check_for_updates(update_state);
-            }
-        }
     }
 
     // Private helper methods
@@ -169,19 +138,5 @@ impl UpdateHandler {
                 update_state.update_status.state = update::UpdateState::Error(e);
             }
         }
-    }
-
-    fn start_download(
-        release: update::ReleaseInfo,
-        update_state: &mut state::ApplicationUpdateState,
-        ctx: &egui::Context,
-    ) {
-        update_state.pending_download_release = Some(release.clone());
-        update_state.update_status.state = update::UpdateState::Downloading {
-            progress: 0.0,
-            version: release.tag_name.clone(),
-        };
-        update_state.update_manager.download_update(&release);
-        ctx.request_repaint();
     }
 }
