@@ -339,6 +339,18 @@ impl ThothApp {
                 ShortcutAction::PrevMatch => {
                     // TODO: Implement previous match navigation
                 }
+                ShortcutAction::NavBack => {
+                    // Navigate back in history
+                    if let Some(path) = self.window_state.navigation_history.back() {
+                        self.window_state.central_panel.navigate_to_path(path);
+                    }
+                }
+                ShortcutAction::NavForward => {
+                    // Navigate forward in history
+                    if let Some(path) = self.window_state.navigation_history.forward() {
+                        self.window_state.central_panel.navigate_to_path(path);
+                    }
+                }
                 ShortcutAction::Escape => {
                     // Close sidebar if open
                     if self.window_state.sidebar_expanded {

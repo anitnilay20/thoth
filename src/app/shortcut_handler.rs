@@ -14,6 +14,8 @@ pub enum ShortcutAction {
     FocusSearch,
     NextMatch,
     PrevMatch,
+    NavBack,
+    NavForward,
     Escape,
 
     // Tree operations
@@ -78,6 +80,14 @@ impl ShortcutHandler {
 
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.prev_match.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::PrevMatch);
+        }
+
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.nav_back.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::NavBack);
+        }
+
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.nav_forward.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::NavForward);
         }
 
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.escape.to_keyboard_shortcut())) {
