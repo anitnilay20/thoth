@@ -7,6 +7,20 @@ use crate::constants::{DEFAULT_SIDEBAR_WIDTH, MAX_RECENT_FILES, MIN_SIDEBAR_WIDT
 
 const MAX_SEARCH_HISTORY_PER_FILE: usize = 10;
 const MAX_FILES_WITH_HISTORY: usize = 20; // Keep history for at most 20 files
+const MAX_BOOKMARKS: usize = 100; // Maximum number of bookmarks
+
+/// A bookmark for a specific JSON path within a file
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Bookmark {
+    /// The JSON path (e.g., "0.user.email")
+    pub path: String,
+    /// The file path
+    pub file_path: String,
+    /// Optional custom label for the bookmark
+    pub label: Option<String>,
+    /// Timestamp when bookmark was created
+    pub created_at: u64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SearchHistoryStore {
@@ -22,6 +36,8 @@ pub struct PersistentState {
     sidebar_width: f32,
     #[serde(default)]
     sidebar_expanded: bool,
+    #[serde(default)]
+    bookmarks: Vec<Bookmark>,
 }
 
 fn default_sidebar_width() -> f32 {
@@ -35,6 +51,7 @@ impl Default for PersistentState {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
+            bookmarks: Vec::new(),
         })
     }
 }
@@ -103,6 +120,7 @@ impl PersistentState {
                     recent_files: old_data.files,
                     sidebar_width: DEFAULT_SIDEBAR_WIDTH,
                     sidebar_expanded: false,
+                    bookmarks: Vec::new(),
                 };
 
                 // Save in new format
@@ -121,6 +139,7 @@ impl PersistentState {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
+            bookmarks: Vec::new(),
         })
     }
 
@@ -191,6 +210,90 @@ impl PersistentState {
     /// Get sidebar expanded state
     pub fn get_sidebar_expanded(&self) -> bool {
         self.sidebar_expanded
+    }
+
+    // Bookmark methods
+
+    /// Add a bookmark
+    pub fn add_bookmark(&mut self, path: String, file_path: String, label: Option<String>) {
+        // Check if bookmark already exists for this path and file
+        if self
+            .bookmarks
+            .iter()
+            .any(|b| b.path == path && b.file_path == file_path)
+        {
+            return; // Don't add duplicate
+        }
+
+        let bookmark = Bookmark {
+            path,
+            file_path,
+            label,
+            created_at: Self::current_timestamp(),
+        };
+
+        // Add to front (most recent first)
+        self.bookmarks.insert(0, bookmark);
+
+        // Enforce max limit
+        if self.bookmarks.len() > MAX_BOOKMARKS {
+            self.bookmarks.truncate(MAX_BOOKMARKS);
+        }
+    }
+
+    /// Remove a bookmark by index
+    pub fn remove_bookmark(&mut self, index: usize) {
+        if index < self.bookmarks.len() {
+            self.bookmarks.remove(index);
+        }
+    }
+
+    /// Remove a bookmark by path and file
+    pub fn remove_bookmark_by_path(&mut self, path: &str, file_path: &str) {
+        self.bookmarks
+            .retain(|b| !(b.path == path && b.file_path == file_path));
+    }
+
+    /// Check if a path is bookmarked for a specific file
+    pub fn is_bookmarked(&self, path: &str, file_path: &str) -> bool {
+        self.bookmarks
+            .iter()
+            .any(|b| b.path == path && b.file_path == file_path)
+    }
+
+    /// Toggle bookmark (add if not exists, remove if exists)
+    pub fn toggle_bookmark(&mut self, path: String, file_path: String) -> bool {
+        if let Some(index) = self
+            .bookmarks
+            .iter()
+            .position(|b| b.path == path && b.file_path == file_path)
+        {
+            self.bookmarks.remove(index);
+            false // Removed
+        } else {
+            self.add_bookmark(path, file_path, None);
+            true // Added
+        }
+    }
+
+    /// Get all bookmarks
+    pub fn get_bookmarks(&self) -> &[Bookmark] {
+        &self.bookmarks
+    }
+
+    /// Get bookmarks for a specific file
+    pub fn get_bookmarks_for_file(&self, file_path: &str) -> Vec<&Bookmark> {
+        self.bookmarks
+            .iter()
+            .filter(|b| b.file_path == file_path)
+            .collect()
+    }
+
+    /// Update bookmark label
+    pub fn update_bookmark_label(&mut self, index: usize, label: Option<String>) {
+        if let Some(bookmark) = self.bookmarks.get_mut(index) {
+            bookmark.label = label;
+        }
     }
 
     // Search history methods (single file with LRU for most recently used files)
@@ -333,6 +436,7 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
+            bookmarks: Vec::new(),
         };
         state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
         state.add_recent_file("file2.json".to_string(), MAX_RECENT_FILES);
@@ -348,6 +452,7 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
+            bookmarks: Vec::new(),
         };
         state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
         state.add_recent_file("file2.json".to_string(), MAX_RECENT_FILES);
@@ -364,6 +469,7 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
+            bookmarks: Vec::new(),
         };
         for i in 0..15 {
             state.add_recent_file(format!("file{}.json", i), MAX_RECENT_FILES);
@@ -379,6 +485,7 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
+            bookmarks: Vec::new(),
         };
         state.add_recent_file("file1.json".to_string(), MAX_RECENT_FILES);
         state.add_recent_file("file2.json".to_string(), MAX_RECENT_FILES);
@@ -400,5 +507,125 @@ mod tests {
         // Test minimum width enforcement
         state.set_sidebar_width(100.0);
         assert_eq!(state.get_sidebar_width(), MIN_SIDEBAR_WIDTH);
+    }
+
+    #[test]
+    fn test_add_bookmark() {
+        let mut state = PersistentState::default();
+
+        state.add_bookmark(
+            "users[0].name".to_string(),
+            "/path/to/file.json".to_string(),
+            Some("User name".to_string()),
+        );
+
+        assert_eq!(state.get_bookmarks().len(), 1);
+        assert_eq!(state.get_bookmarks()[0].path, "users[0].name");
+        assert_eq!(state.get_bookmarks()[0].file_path, "/path/to/file.json");
+        assert_eq!(
+            state.get_bookmarks()[0].label,
+            Some("User name".to_string())
+        );
+    }
+
+    #[test]
+    fn test_add_duplicate_bookmark() {
+        let mut state = PersistentState::default();
+
+        state.add_bookmark(
+            "users[0].name".to_string(),
+            "/path/to/file.json".to_string(),
+            None,
+        );
+        state.add_bookmark(
+            "users[0].name".to_string(),
+            "/path/to/file.json".to_string(),
+            None,
+        );
+
+        // Should not add duplicate
+        assert_eq!(state.get_bookmarks().len(), 1);
+    }
+
+    #[test]
+    fn test_remove_bookmark() {
+        let mut state = PersistentState::default();
+
+        state.add_bookmark("path1".to_string(), "/file1.json".to_string(), None);
+        state.add_bookmark("path2".to_string(), "/file2.json".to_string(), None);
+
+        assert_eq!(state.get_bookmarks().len(), 2);
+
+        state.remove_bookmark(0);
+        assert_eq!(state.get_bookmarks().len(), 1);
+        assert_eq!(state.get_bookmarks()[0].path, "path1");
+    }
+
+    #[test]
+    fn test_toggle_bookmark() {
+        let mut state = PersistentState::default();
+
+        // Toggle on (add)
+        let added = state.toggle_bookmark("path1".to_string(), "/file1.json".to_string());
+        assert!(added);
+        assert_eq!(state.get_bookmarks().len(), 1);
+
+        // Toggle off (remove)
+        let added = state.toggle_bookmark("path1".to_string(), "/file1.json".to_string());
+        assert!(!added);
+        assert_eq!(state.get_bookmarks().len(), 0);
+    }
+
+    #[test]
+    fn test_is_bookmarked() {
+        let mut state = PersistentState::default();
+
+        state.add_bookmark("path1".to_string(), "/file1.json".to_string(), None);
+
+        assert!(state.is_bookmarked("path1", "/file1.json"));
+        assert!(!state.is_bookmarked("path2", "/file1.json"));
+        assert!(!state.is_bookmarked("path1", "/file2.json"));
+    }
+
+    #[test]
+    fn test_get_bookmarks_for_file() {
+        let mut state = PersistentState::default();
+
+        state.add_bookmark("path1".to_string(), "/file1.json".to_string(), None);
+        state.add_bookmark("path2".to_string(), "/file1.json".to_string(), None);
+        state.add_bookmark("path3".to_string(), "/file2.json".to_string(), None);
+
+        let file1_bookmarks = state.get_bookmarks_for_file("/file1.json");
+        assert_eq!(file1_bookmarks.len(), 2);
+
+        let file2_bookmarks = state.get_bookmarks_for_file("/file2.json");
+        assert_eq!(file2_bookmarks.len(), 1);
+    }
+
+    #[test]
+    fn test_max_bookmarks() {
+        let mut state = PersistentState::default();
+
+        // Add more than MAX_BOOKMARKS
+        for i in 0..=MAX_BOOKMARKS {
+            state.add_bookmark(format!("path{}", i), "/file.json".to_string(), None);
+        }
+
+        // Should be limited to MAX_BOOKMARKS
+        assert_eq!(state.get_bookmarks().len(), MAX_BOOKMARKS);
+    }
+
+    #[test]
+    fn test_update_bookmark_label() {
+        let mut state = PersistentState::default();
+
+        state.add_bookmark("path1".to_string(), "/file1.json".to_string(), None);
+        assert_eq!(state.get_bookmarks()[0].label, None);
+
+        state.update_bookmark_label(0, Some("New Label".to_string()));
+        assert_eq!(
+            state.get_bookmarks()[0].label,
+            Some("New Label".to_string())
+        );
     }
 }
