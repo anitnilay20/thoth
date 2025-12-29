@@ -18,6 +18,9 @@ pub enum ShortcutAction {
     NavForward,
     Escape,
 
+    // Bookmarks
+    ToggleBookmark,
+
     // Tree operations
     ExpandNode,
     CollapseNode,
@@ -101,6 +104,12 @@ impl ShortcutHandler {
 
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.escape.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::Escape);
+        }
+
+        // Bookmarks
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.toggle_bookmark.to_keyboard_shortcut()))
+        {
+            actions.push(ShortcutAction::ToggleBookmark);
         }
 
         // Skip tree operations, clipboard, and movement shortcuts when text input has focus

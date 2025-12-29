@@ -126,6 +126,9 @@ pub struct KeyboardShortcuts {
     pub nav_forward: Shortcut,
     pub escape: Shortcut,
 
+    // Bookmarks
+    pub toggle_bookmark: Shortcut,
+
     // Tree operations
     pub expand_node: Shortcut,
     pub collapse_node: Shortcut,
@@ -165,6 +168,9 @@ impl Default for KeyboardShortcuts {
             nav_back: Shortcut::new("[").command(),
             nav_forward: Shortcut::new("]").command(),
             escape: Shortcut::new("Escape"),
+
+            // Bookmarks
+            toggle_bookmark: Shortcut::new("D").command(),
 
             // Tree operations
             expand_node: Shortcut::new("ArrowRight"),

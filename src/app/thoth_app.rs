@@ -367,6 +367,32 @@ impl ThothApp {
                         }
                     }
                 }
+                ShortcutAction::ToggleBookmark => {
+                    // Toggle bookmark for currently selected path
+                    if let Some(selected_path) = self.window_state.central_panel.get_selected_path()
+                    {
+                        if let Some(file_path) = &self.window_state.file_path {
+                            if let Some(file_path_str) = file_path.to_str() {
+                                let added = self.persistent_state.toggle_bookmark(
+                                    selected_path.clone(),
+                                    file_path_str.to_string(),
+                                );
+
+                                // Save bookmarks
+                                if let Err(e) = self.persistent_state.save() {
+                                    eprintln!("Failed to save bookmarks: {}", e);
+                                }
+
+                                // Optional: Show feedback to user
+                                if added {
+                                    // Could show a toast notification: "Bookmark added"
+                                } else {
+                                    // Could show a toast notification: "Bookmark removed"
+                                }
+                            }
+                        }
+                    }
+                }
                 // Tree operations
                 ShortcutAction::ExpandNode => {
                     self.window_state.central_panel.expand_selected_node();
