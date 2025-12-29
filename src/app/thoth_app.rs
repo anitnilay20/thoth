@@ -43,6 +43,10 @@ impl ThothApp {
             window_state.sidebar_expanded = persistent_state.get_sidebar_expanded();
         }
 
+        // Initialize navigation history with configured size
+        window_state.navigation_history =
+            state::NavigationHistory::with_capacity(settings.performance.navigation_history_size);
+
         Self {
             settings,
             persistent_state,
