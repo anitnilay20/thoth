@@ -538,6 +538,9 @@ impl ThothApp {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
+        // Track path selection changes for navigation history
+        let previous_path = self.window_state.central_panel.get_selected_path().cloned();
+
         // Render central panel using ContextComponent trait with one-way binding
         let output = self.window_state.central_panel.render(
             ctx,
@@ -550,6 +553,14 @@ impl ThothApp {
                 syntax_highlighting: self.settings.viewer.syntax_highlighting,
             },
         );
+
+        // After rendering, check if path changed and add to navigation history
+        let current_path = self.window_state.central_panel.get_selected_path();
+        if current_path != previous_path.as_ref() {
+            if let Some(path) = current_path {
+                self.window_state.navigation_history.push(path.clone());
+            }
+        }
 
         // Handle events emitted by the central panel (bottom-to-top communication)
         for event in output.events {
