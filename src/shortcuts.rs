@@ -122,6 +122,8 @@ pub struct KeyboardShortcuts {
     pub focus_search: Shortcut,
     pub next_match: Shortcut,
     pub prev_match: Shortcut,
+    pub nav_back: Shortcut,
+    pub nav_forward: Shortcut,
     pub escape: Shortcut,
 
     // Tree operations
@@ -160,6 +162,8 @@ impl Default for KeyboardShortcuts {
             focus_search: Shortcut::new("F").command(),
             next_match: Shortcut::new("G").command(),
             prev_match: Shortcut::new("G").command().shift(),
+            nav_back: Shortcut::new("[").command(),
+            nav_forward: Shortcut::new("]").command(),
             escape: Shortcut::new("Escape"),
 
             // Tree operations
