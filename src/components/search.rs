@@ -90,6 +90,7 @@ impl StatefulComponent for Search {
                         tooltip: Some("Clear search"),
                         badge_color: None,
                         size: None,
+                        disabled: false,
                     },
                 );
                 if clear_output.clicked {
@@ -111,6 +112,7 @@ impl StatefulComponent for Search {
                         tooltip: Some("Search"),
                         badge_color: None,
                         size: None,
+                        disabled: false,
                     },
                 );
                 if search_output.clicked && !self.search_query.is_empty() {
@@ -209,6 +211,7 @@ impl StatefulComponent for Search {
                                     tooltip: Some("Clear search history"),
                                     badge_color: None,
                                     size: Some(egui::vec2(16.0, 16.0)),
+                                    disabled: false,
                                 },
                             );
                             if clear_output.clicked {

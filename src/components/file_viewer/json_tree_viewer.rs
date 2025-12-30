@@ -542,6 +542,7 @@ impl JsonTreeViewer {
                                     tooltip: Some(tooltip_text),
                                     badge_color: None,
                                     size: None,
+                                    disabled: false,
                                 },
                             )
                             .clicked
@@ -563,6 +564,7 @@ impl JsonTreeViewer {
                                         tooltip: None,
                                         badge_color: None,
                                         size: None,
+                                        disabled: false,
                                     },
                                 );
                             });

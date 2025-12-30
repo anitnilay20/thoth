@@ -122,7 +122,13 @@ pub struct KeyboardShortcuts {
     pub focus_search: Shortcut,
     pub next_match: Shortcut,
     pub prev_match: Shortcut,
+    pub nav_back: Shortcut,
+    pub nav_forward: Shortcut,
     pub escape: Shortcut,
+
+    // Bookmarks
+    pub toggle_bookmark: Shortcut,
+    pub open_bookmarks: Shortcut,
 
     // Tree operations
     pub expand_node: Shortcut,
@@ -160,7 +166,13 @@ impl Default for KeyboardShortcuts {
             focus_search: Shortcut::new("F").command(),
             next_match: Shortcut::new("G").command(),
             prev_match: Shortcut::new("G").command().shift(),
+            nav_back: Shortcut::new("BracketLeft").command(),
+            nav_forward: Shortcut::new("BracketRight").command(),
             escape: Shortcut::new("Escape"),
+
+            // Bookmarks
+            toggle_bookmark: Shortcut::new("D").command(),
+            open_bookmarks: Shortcut::new("D").command().shift(),
 
             // Tree operations
             expand_node: Shortcut::new("ArrowRight"),

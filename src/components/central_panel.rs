@@ -229,4 +229,14 @@ impl CentralPanel {
     pub fn navigate_to_record(&mut self, record_index: usize) {
         self.file_viewer.navigate_to_root(record_index);
     }
+
+    /// Navigate to a specific JSON path (for navigation history)
+    pub fn navigate_to_path(&mut self, path: String) {
+        self.file_viewer.navigate_to_path(path);
+    }
+
+    /// Get the currently selected path (for navigation history tracking)
+    pub fn get_selected_path(&self) -> Option<&String> {
+        self.file_viewer.get_selected_path()
+    }
 }

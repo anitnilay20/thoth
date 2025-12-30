@@ -1,7 +1,8 @@
 use eframe::egui;
 use std::path::Path;
 
-use crate::components::traits::ContextComponent;
+use crate::components::breadcrumbs::{Breadcrumbs, BreadcrumbsEvent, BreadcrumbsProps};
+use crate::components::traits::{ContextComponent, StatelessComponent};
 use crate::file::loaders::FileType;
 
 /// Status bar component displaying file info and application status
@@ -24,6 +25,9 @@ pub struct StatusBarProps<'a> {
 
     /// Current status
     pub status: StatusBarStatus,
+
+    /// Currently selected path in the JSON (for breadcrumbs)
+    pub selected_path: Option<&'a str>,
 }
 
 /// Status indicator for the status bar
@@ -71,14 +75,25 @@ impl StatusBarStatus {
     }
 }
 
-/// Output from status bar component (currently no events)
-pub struct StatusBarOutput;
+/// Events emitted by the status bar
+#[derive(Debug, Clone)]
+pub enum StatusBarEvent {
+    /// User clicked on a breadcrumb to navigate
+    NavigateToPath(String),
+}
+
+/// Output from status bar component
+pub struct StatusBarOutput {
+    pub events: Vec<StatusBarEvent>,
+}
 
 impl ContextComponent for StatusBar {
     type Props<'a> = StatusBarProps<'a>;
     type Output = StatusBarOutput;
 
     fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+        let mut events = Vec::new();
+
         // Use theme colors from context
         let bg_color = ctx.memory(|mem| {
             mem.data
@@ -161,6 +176,26 @@ impl ContextComponent for StatusBar {
                     };
                     ui.label(format!("{} {:?}", file_type_icon, props.file_type));
 
+                    // Breadcrumbs navigation
+                    if props.selected_path.is_some() {
+                        ui.separator();
+                        let breadcrumbs_output = Breadcrumbs::render(
+                            ui,
+                            BreadcrumbsProps {
+                                current_path: props.selected_path,
+                            },
+                        );
+
+                        // Convert breadcrumb events to status bar events
+                        for event in breadcrumbs_output.events {
+                            match event {
+                                BreadcrumbsEvent::NavigateToPath(path) => {
+                                    events.push(StatusBarEvent::NavigateToPath(path));
+                                }
+                            }
+                        }
+                    }
+
                     // Push status to the right
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Status indicator
@@ -171,6 +206,6 @@ impl ContextComponent for StatusBar {
                 });
             });
 
-        StatusBarOutput
+        StatusBarOutput { events }
     }
 }

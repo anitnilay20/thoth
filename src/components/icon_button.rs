@@ -17,6 +17,8 @@ pub struct IconButtonProps<'a> {
     pub badge_color: Option<egui::Color32>,
     /// Optional custom size (defaults to 20.0 x 20.0)
     pub size: Option<egui::Vec2>,
+    /// Whether the button is disabled
+    pub disabled: bool,
 }
 
 /// Output from the IconButton component
@@ -35,7 +37,11 @@ impl StatelessComponent for IconButton {
 
     fn render(ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         // Get theme colors
-        let base_color = ui.style().visuals.text_color();
+        let base_color = if props.disabled {
+            ui.style().visuals.weak_text_color()
+        } else {
+            ui.style().visuals.text_color()
+        };
         let hover_color = ui.style().visuals.strong_text_color();
 
         // Create button with custom styling
@@ -53,11 +59,15 @@ impl StatelessComponent for IconButton {
         .frame(props.frame)
         .min_size(size);
 
-        let response = ui.add(button);
+        let response = ui.add_enabled(!props.disabled, button);
 
-        // Change cursor to pointer on hover
+        // Change cursor based on state
         if response.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            if props.disabled {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::NotAllowed);
+            } else {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
         }
 
         // Apply hover color by redrawing the text

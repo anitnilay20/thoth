@@ -241,6 +241,9 @@ impl SettingsDialog {
                         PerformanceTabEvent::MaxRecentFilesChanged(max) => {
                             settings.performance.max_recent_files = max;
                         }
+                        PerformanceTabEvent::NavigationHistorySizeChanged(size) => {
+                            settings.performance.navigation_history_size = size;
+                        }
                     }
                 }
             }

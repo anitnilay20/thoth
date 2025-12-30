@@ -14,9 +14,11 @@ pub struct PerformanceTabProps<'a> {
 
 /// Events emitted by the Performance tab
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum PerformanceTabEvent {
     CacheSizeChanged(usize),
     MaxRecentFilesChanged(usize),
+    NavigationHistorySizeChanged(usize),
 }
 
 /// Output from the Performance tab
@@ -115,6 +117,48 @@ impl StatelessComponent for PerformanceTab {
                             egui::RichText::new("Number of recent files to remember")
                                 .size(12.0)
                                 .color(props.theme_colors.overlay1),
+                        );
+
+                        ui.add_space(16.0);
+                        ui.separator();
+                        ui.add_space(16.0);
+
+                        // Navigation History Section
+                        ui.label(egui::RichText::new("Navigation").size(16.0));
+                        ui.add_space(8.0);
+
+                        // Navigation history size
+                        ui.horizontal(|ui| {
+                            ui.label("Navigation history size:");
+                            ui.add_space(8.0);
+
+                            let mut history_size =
+                                props.performance_settings.navigation_history_size;
+                            let slider = egui::Slider::new(&mut history_size, 10..=1000)
+                                .min_decimals(0)
+                                .max_decimals(0);
+
+                            let response =
+                                ui.add_sized([ui.available_width().min(300.0), 20.0], slider);
+
+                            if response.changed() {
+                                events.push(PerformanceTabEvent::NavigationHistorySizeChanged(
+                                    history_size,
+                                ));
+                            }
+
+                            if response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                        });
+
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Number of navigation steps to remember for back/forward",
+                            )
+                            .size(12.0)
+                            .color(props.theme_colors.overlay1),
                         );
 
                         ui.add_space(16.0);
