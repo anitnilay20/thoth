@@ -70,6 +70,10 @@ impl StatelessComponent for ShortcutsTab {
                                 ("Focus search", &props.shortcuts.focus_search),
                                 ("Next match", &props.shortcuts.next_match),
                                 ("Previous match", &props.shortcuts.prev_match),
+                                ("Navigate back", &props.shortcuts.nav_back),
+                                ("Navigate forward", &props.shortcuts.nav_forward),
+                                ("Toggle bookmark", &props.shortcuts.toggle_bookmark),
+                                ("Open bookmarks", &props.shortcuts.open_bookmarks),
                                 ("Escape", &props.shortcuts.escape),
                             ],
                         );

@@ -43,6 +43,10 @@ impl ThothApp {
             window_state.sidebar_expanded = persistent_state.get_sidebar_expanded();
         }
 
+        // Initialize navigation history with configured size
+        window_state.navigation_history =
+            state::NavigationHistory::with_capacity(settings.performance.navigation_history_size);
+
         Self {
             settings,
             persistent_state,
@@ -339,6 +343,18 @@ impl ThothApp {
                 ShortcutAction::PrevMatch => {
                     // TODO: Implement previous match navigation
                 }
+                ShortcutAction::NavBack => {
+                    // Navigate back in history
+                    if let Some(path) = self.window_state.navigation_history.back() {
+                        self.window_state.central_panel.navigate_to_path(path);
+                    }
+                }
+                ShortcutAction::NavForward => {
+                    // Navigate forward in history
+                    if let Some(path) = self.window_state.navigation_history.forward() {
+                        self.window_state.central_panel.navigate_to_path(path);
+                    }
+                }
                 ShortcutAction::Escape => {
                     // Close sidebar if open
                     if self.window_state.sidebar_expanded {
@@ -349,6 +365,44 @@ impl ThothApp {
                             self.persistent_state.set_sidebar_expanded(false);
                             let _ = self.persistent_state.save();
                         }
+                    }
+                }
+                ShortcutAction::ToggleBookmark => {
+                    // Toggle bookmark for currently selected path
+                    if let Some(selected_path) = self.window_state.central_panel.get_selected_path()
+                    {
+                        if let Some(file_path) = &self.window_state.file_path {
+                            if let Some(file_path_str) = file_path.to_str() {
+                                let added = self.persistent_state.toggle_bookmark(
+                                    selected_path.clone(),
+                                    file_path_str.to_string(),
+                                );
+
+                                // Save bookmarks
+                                if let Err(e) = self.persistent_state.save() {
+                                    eprintln!("Failed to save bookmarks: {}", e);
+                                }
+
+                                // Optional: Show feedback to user
+                                if added {
+                                    // Could show a toast notification: "Bookmark added"
+                                } else {
+                                    // Could show a toast notification: "Bookmark removed"
+                                }
+                            }
+                        }
+                    }
+                }
+                ShortcutAction::OpenBookmarks => {
+                    // Open bookmarks panel in sidebar
+                    self.window_state.sidebar_expanded = true;
+                    self.window_state.sidebar_selected_section =
+                        Some(components::sidebar::SidebarSection::Bookmarks);
+
+                    // Save sidebar state if remember_sidebar_state is enabled
+                    if self.settings.ui.remember_sidebar_state {
+                        self.persistent_state.set_sidebar_expanded(true);
+                        let _ = self.persistent_state.save();
                     }
                 }
                 // Tree operations
@@ -416,6 +470,9 @@ impl ThothApp {
         puffin::profile_function!();
 
         // Render toolbar using ContextComponent trait with one-way binding
+        let can_go_back = self.window_state.navigation_history.can_go_back();
+        let can_go_forward = self.window_state.navigation_history.can_go_forward();
+
         let output = self.window_state.toolbar.render(
             ctx,
             components::toolbar::ToolbarProps {
@@ -424,6 +481,8 @@ impl ThothApp {
                 shortcuts: &self.settings.shortcuts,
                 file_path: self.window_state.file_path.as_deref(),
                 is_fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
+                can_go_back,
+                can_go_forward,
             },
         );
 
@@ -451,9 +510,6 @@ impl ThothApp {
                 components::toolbar::ToolbarEvent::NewWindow => {
                     self.create_new_window();
                 }
-                components::toolbar::ToolbarEvent::FileTypeChange(file_type) => {
-                    self.window_state.file_type = file_type;
-                }
                 components::toolbar::ToolbarEvent::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
                     self.settings_changed = true;
@@ -461,6 +517,18 @@ impl ThothApp {
                 components::toolbar::ToolbarEvent::OpenSettings => {
                     // Open settings in a new window
                     self.open_settings_window(ctx);
+                }
+                components::toolbar::ToolbarEvent::NavigateBack => {
+                    // Navigate back in history
+                    if let Some(path) = self.window_state.navigation_history.back() {
+                        self.window_state.central_panel.navigate_to_path(path);
+                    }
+                }
+                components::toolbar::ToolbarEvent::NavigateForward => {
+                    // Navigate forward in history
+                    if let Some(path) = self.window_state.navigation_history.forward() {
+                        self.window_state.central_panel.navigate_to_path(path);
+                    }
                 }
             }
         }
@@ -501,7 +569,10 @@ impl ThothApp {
             None
         };
 
-        self.window_state.status_bar.render(
+        // Get selected path for breadcrumbs
+        let selected_path = self.window_state.central_panel.get_selected_path();
+
+        let status_bar_output = self.window_state.status_bar.render(
             ctx,
             components::status_bar::StatusBarProps {
                 file_path: self.window_state.file_path.as_deref(),
@@ -509,8 +580,20 @@ impl ThothApp {
                 item_count,
                 filtered_count,
                 status,
+                selected_path: selected_path.as_ref().map(|s| s.as_str()),
             },
         );
+
+        // Handle status bar events
+        for event in status_bar_output.events {
+            match event {
+                components::status_bar::StatusBarEvent::NavigateToPath(path) => {
+                    // Track in navigation history before navigating
+                    self.window_state.navigation_history.push(path.clone());
+                    self.window_state.central_panel.navigate_to_path(path);
+                }
+            }
+        }
     }
 
     /// Render central panel and handle events
@@ -521,6 +604,9 @@ impl ThothApp {
     ) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
+
+        // Track path selection changes for navigation history
+        let previous_path = self.window_state.central_panel.get_selected_path().cloned();
 
         // Render central panel using ContextComponent trait with one-way binding
         let output = self.window_state.central_panel.render(
@@ -534,6 +620,14 @@ impl ThothApp {
                 syntax_highlighting: self.settings.viewer.syntax_highlighting,
             },
         );
+
+        // After rendering, check if path changed and add to navigation history
+        let current_path = self.window_state.central_panel.get_selected_path();
+        if current_path != previous_path.as_ref() {
+            if let Some(path) = current_path {
+                self.window_state.navigation_history.push(path.clone());
+            }
+        }
 
         // Handle events emitted by the central panel (bottom-to-top communication)
         for event in output.events {
@@ -555,6 +649,13 @@ impl ThothApp {
                     self.window_state.file_path = Some(path);
                     self.window_state.file_type = file_type;
                     self.window_state.total_items = total_items;
+
+                    // Apply pending navigation if exists
+                    if let Some(pending_path) = self.window_state.pending_navigation.take() {
+                        self.window_state
+                            .central_panel
+                            .navigate_to_path(pending_path);
+                    }
                 }
                 components::central_panel::CentralPanelEvent::FileOpenError(msg) => {
                     self.window_state.error = Some(msg);
@@ -601,6 +702,12 @@ impl ThothApp {
             ctx,
             components::sidebar::SidebarProps {
                 recent_files: self.persistent_state.get_recent_files(),
+                bookmarks: self.persistent_state.get_bookmarks(),
+                current_file_path: self
+                    .window_state
+                    .file_path
+                    .as_ref()
+                    .and_then(|path| path.to_str()),
                 expanded: self.window_state.sidebar_expanded,
                 sidebar_width: self.persistent_state.get_sidebar_width(),
                 selected_section: self.window_state.sidebar_selected_section,
@@ -716,6 +823,49 @@ impl ThothApp {
                             );
                         }
                     }
+                }
+                components::sidebar::SidebarEvent::NavigateToBookmark { file_path, path } => {
+                    // Check if we need to open a different file
+                    let current_file = self
+                        .window_state
+                        .file_path
+                        .as_ref()
+                        .and_then(|p| p.to_str());
+
+                    if current_file != Some(file_path.as_str()) {
+                        // Open the bookmarked file
+                        let path_buf = std::path::PathBuf::from(&file_path);
+                        self.window_state.file_path = Some(path_buf);
+                        self.window_state.error = None;
+
+                        // Store pending navigation to apply after file loads
+                        self.window_state.pending_navigation = Some(path.clone());
+
+                        // Add to recent files
+                        self.persistent_state.add_recent_file(
+                            file_path.clone(),
+                            self.settings.performance.max_recent_files,
+                        );
+                        let _ = self.persistent_state.save();
+                    } else {
+                        // Navigate immediately if same file
+                        // Track in navigation history before navigating
+                        self.window_state.navigation_history.push(path.clone());
+                        self.window_state.central_panel.navigate_to_path(path);
+                    }
+                }
+                components::sidebar::SidebarEvent::RemoveBookmark(index) => {
+                    // Remove the bookmark
+                    self.persistent_state.remove_bookmark(index);
+                    if let Err(e) = self.persistent_state.save() {
+                        eprintln!("Failed to save bookmarks: {}", e);
+                    }
+                }
+                components::sidebar::SidebarEvent::JumpToPath(path) => {
+                    // Jump to the specified path in the current file
+                    // Track in navigation history before navigating
+                    self.window_state.navigation_history.push(path.clone());
+                    self.window_state.central_panel.navigate_to_path(path);
                 }
             }
         }

@@ -14,7 +14,13 @@ pub enum ShortcutAction {
     FocusSearch,
     NextMatch,
     PrevMatch,
+    NavBack,
+    NavForward,
     Escape,
+
+    // Bookmarks
+    ToggleBookmark,
+    OpenBookmarks,
 
     // Tree operations
     ExpandNode,
@@ -72,16 +78,48 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::FocusSearch);
         }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.next_match.to_keyboard_shortcut())) {
+        // Check more specific shortcuts (with Shift) before less specific ones
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.prev_match.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::PrevMatch);
+        } else if ctx
+            .input_mut(|i| i.consume_shortcut(&shortcuts.next_match.to_keyboard_shortcut()))
+        {
             actions.push(ShortcutAction::NextMatch);
         }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.prev_match.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::PrevMatch);
+        // Navigation shortcuts - using direct key handling for bracket keys
+        if ctx.input_mut(|i| {
+            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket)
+        }) {
+            actions.push(ShortcutAction::NavBack);
+        }
+
+        if ctx.input_mut(|i| {
+            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket)
+        }) {
+            actions.push(ShortcutAction::NavForward);
+        }
+
+        // Browser-style mouse back/forward buttons
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1)) {
+            actions.push(ShortcutAction::NavBack);
+        }
+
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra2)) {
+            actions.push(ShortcutAction::NavForward);
         }
 
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.escape.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::Escape);
+        }
+
+        // Bookmarks - Check more specific shortcuts first (with modifiers) before less specific ones
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.open_bookmarks.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::OpenBookmarks);
+        } else if ctx
+            .input_mut(|i| i.consume_shortcut(&shortcuts.toggle_bookmark.to_keyboard_shortcut()))
+        {
+            actions.push(ShortcutAction::ToggleBookmark);
         }
 
         // Skip tree operations, clipboard, and movement shortcuts when text input has focus
