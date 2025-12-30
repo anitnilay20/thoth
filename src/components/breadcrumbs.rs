@@ -170,3 +170,69 @@ impl Breadcrumbs {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_path_simple() {
+        let segments = Breadcrumbs::parse_path("0.user.name");
+        assert_eq!(segments, vec!["[0]", "user", "name"]);
+    }
+
+    #[test]
+    fn test_parse_path_array_indices() {
+        let segments = Breadcrumbs::parse_path("items.2.title");
+        assert_eq!(segments, vec!["items", "[2]", "title"]);
+    }
+
+    #[test]
+    fn test_parse_path_mixed() {
+        let segments = Breadcrumbs::parse_path("data.0.items.1.value");
+        assert_eq!(segments, vec!["data", "[0]", "items", "[1]", "value"]);
+    }
+
+    #[test]
+    fn test_parse_path_single_segment() {
+        let segments = Breadcrumbs::parse_path("users");
+        assert_eq!(segments, vec!["users"]);
+    }
+
+    #[test]
+    fn test_parse_path_single_index() {
+        let segments = Breadcrumbs::parse_path("0");
+        assert_eq!(segments, vec!["[0]"]);
+    }
+
+    #[test]
+    fn test_parse_path_empty() {
+        let segments = Breadcrumbs::parse_path("");
+        assert_eq!(segments, Vec::<String>::new());
+    }
+
+    #[test]
+    fn test_parse_path_trailing_dot() {
+        let segments = Breadcrumbs::parse_path("user.name.");
+        assert_eq!(segments, vec!["user", "name"]);
+    }
+
+    #[test]
+    fn test_parse_path_multiple_dots() {
+        let segments = Breadcrumbs::parse_path("a..b");
+        assert_eq!(segments, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn test_breadcrumbs_event_debug() {
+        let event = BreadcrumbsEvent::NavigateToPath("test".to_string());
+        assert!(format!("{:?}", event).contains("NavigateToPath"));
+    }
+
+    #[test]
+    fn test_breadcrumbs_event_clone() {
+        let event = BreadcrumbsEvent::NavigateToPath("test".to_string());
+        let cloned = event.clone();
+        assert!(matches!(cloned, BreadcrumbsEvent::NavigateToPath(_)));
+    }
+}

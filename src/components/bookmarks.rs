@@ -297,3 +297,54 @@ impl Bookmarks {
         response.on_hover_text(tooltip_text);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bookmarks_default() {
+        let bookmarks = Bookmarks::default();
+        assert_eq!(bookmarks.jump_input, "");
+    }
+
+    #[test]
+    fn test_bookmarks_event_navigate_debug() {
+        let event = BookmarksEvent::NavigateToBookmark {
+            file_path: "/test.json".to_string(),
+            path: "0.user".to_string(),
+        };
+        assert!(format!("{:?}", event).contains("NavigateToBookmark"));
+    }
+
+    #[test]
+    fn test_bookmarks_event_remove_debug() {
+        let event = BookmarksEvent::RemoveBookmark(5);
+        assert!(format!("{:?}", event).contains("RemoveBookmark"));
+    }
+
+    #[test]
+    fn test_bookmarks_event_jump_debug() {
+        let event = BookmarksEvent::JumpToPath("test.path".to_string());
+        assert!(format!("{:?}", event).contains("JumpToPath"));
+    }
+
+    #[test]
+    fn test_bookmarks_event_clone() {
+        let event = BookmarksEvent::JumpToPath("test".to_string());
+        let cloned = event.clone();
+        assert!(matches!(cloned, BookmarksEvent::JumpToPath(_)));
+    }
+
+    #[test]
+    fn test_bookmark_colors() {
+        let colors = BookmarkColors {
+            hover_bg: egui::Color32::RED,
+            text_color: egui::Color32::GREEN,
+            muted_color: egui::Color32::BLUE,
+        };
+        assert_eq!(colors.hover_bg, egui::Color32::RED);
+        assert_eq!(colors.text_color, egui::Color32::GREEN);
+        assert_eq!(colors.muted_color, egui::Color32::BLUE);
+    }
+}
