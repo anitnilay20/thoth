@@ -143,6 +143,11 @@ impl StatefulComponent for Bookmarks {
                         );
                     });
                 } else {
+                    let colors = BookmarkColors {
+                        hover_bg,
+                        text_color,
+                        muted_color,
+                    };
                     for (index, bookmark) in props.bookmarks.iter().enumerate() {
                         Self::render_bookmark_item(
                             ui,
@@ -150,9 +155,7 @@ impl StatefulComponent for Bookmarks {
                             index,
                             props.current_file_path,
                             &mut events,
-                            hover_bg,
-                            text_color,
-                            muted_color,
+                            &colors,
                         );
                     }
                 }
@@ -164,17 +167,20 @@ impl StatefulComponent for Bookmarks {
     }
 }
 
+struct BookmarkColors {
+    hover_bg: egui::Color32,
+    text_color: egui::Color32,
+    muted_color: egui::Color32,
+}
+
 impl Bookmarks {
-    #[allow(clippy::too_many_arguments)]
     fn render_bookmark_item(
         ui: &mut egui::Ui,
         bookmark: &Bookmark,
         index: usize,
         current_file_path: Option<&str>,
         events: &mut Vec<BookmarksEvent>,
-        hover_bg: egui::Color32,
-        text_color: egui::Color32,
-        muted_color: egui::Color32,
+        colors: &BookmarkColors,
     ) {
         let available_width = ui.available_width() - 8.0;
 
@@ -194,7 +200,7 @@ impl Bookmarks {
 
         // Background on hover
         if response.hovered() {
-            ui.painter().rect_filled(rect, 2.0, hover_bg);
+            ui.painter().rect_filled(rect, 2.0, colors.hover_bg);
         }
 
         // Reserve 24px on the right for the remove button
@@ -219,7 +225,7 @@ impl Bookmarks {
             egui::Align2::LEFT_TOP,
             &display_text,
             egui::FontId::proportional(13.0),
-            text_color,
+            colors.text_color,
         );
 
         // Show file name on second line if different from current file
@@ -234,7 +240,7 @@ impl Bookmarks {
                 egui::Align2::LEFT_TOP,
                 filename,
                 egui::FontId::proportional(11.0),
-                muted_color,
+                colors.muted_color,
             );
         }
 
@@ -271,7 +277,7 @@ impl Bookmarks {
                 egui::Align2::CENTER_CENTER,
                 egui_phosphor::regular::X,
                 egui::FontId::proportional(12.0),
-                text_color,
+                colors.text_color,
             );
 
             if remove_response.clicked() {
