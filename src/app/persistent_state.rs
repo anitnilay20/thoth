@@ -248,19 +248,6 @@ impl PersistentState {
         }
     }
 
-    /// Remove a bookmark by path and file
-    pub fn remove_bookmark_by_path(&mut self, path: &str, file_path: &str) {
-        self.bookmarks
-            .retain(|b| !(b.path == path && b.file_path == file_path));
-    }
-
-    /// Check if a path is bookmarked for a specific file
-    pub fn is_bookmarked(&self, path: &str, file_path: &str) -> bool {
-        self.bookmarks
-            .iter()
-            .any(|b| b.path == path && b.file_path == file_path)
-    }
-
     /// Toggle bookmark (add if not exists, remove if exists)
     pub fn toggle_bookmark(&mut self, path: String, file_path: String) -> bool {
         if let Some(index) = self
@@ -279,21 +266,6 @@ impl PersistentState {
     /// Get all bookmarks
     pub fn get_bookmarks(&self) -> &[Bookmark] {
         &self.bookmarks
-    }
-
-    /// Get bookmarks for a specific file
-    pub fn get_bookmarks_for_file(&self, file_path: &str) -> Vec<&Bookmark> {
-        self.bookmarks
-            .iter()
-            .filter(|b| b.file_path == file_path)
-            .collect()
-    }
-
-    /// Update bookmark label
-    pub fn update_bookmark_label(&mut self, index: usize, label: Option<String>) {
-        if let Some(bookmark) = self.bookmarks.get_mut(index) {
-            bookmark.label = label;
-        }
     }
 
     // Search history methods (single file with LRU for most recently used files)
@@ -577,32 +549,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_bookmarked() {
-        let mut state = PersistentState::default();
-
-        state.add_bookmark("path1".to_string(), "/file1.json".to_string(), None);
-
-        assert!(state.is_bookmarked("path1", "/file1.json"));
-        assert!(!state.is_bookmarked("path2", "/file1.json"));
-        assert!(!state.is_bookmarked("path1", "/file2.json"));
-    }
-
-    #[test]
-    fn test_get_bookmarks_for_file() {
-        let mut state = PersistentState::default();
-
-        state.add_bookmark("path1".to_string(), "/file1.json".to_string(), None);
-        state.add_bookmark("path2".to_string(), "/file1.json".to_string(), None);
-        state.add_bookmark("path3".to_string(), "/file2.json".to_string(), None);
-
-        let file1_bookmarks = state.get_bookmarks_for_file("/file1.json");
-        assert_eq!(file1_bookmarks.len(), 2);
-
-        let file2_bookmarks = state.get_bookmarks_for_file("/file2.json");
-        assert_eq!(file2_bookmarks.len(), 1);
-    }
-
-    #[test]
     fn test_max_bookmarks() {
         let mut state = PersistentState::default();
 
@@ -613,19 +559,5 @@ mod tests {
 
         // Should be limited to MAX_BOOKMARKS
         assert_eq!(state.get_bookmarks().len(), MAX_BOOKMARKS);
-    }
-
-    #[test]
-    fn test_update_bookmark_label() {
-        let mut state = PersistentState::default();
-
-        state.add_bookmark("path1".to_string(), "/file1.json".to_string(), None);
-        assert_eq!(state.get_bookmarks()[0].label, None);
-
-        state.update_bookmark_label(0, Some("New Label".to_string()));
-        assert_eq!(
-            state.get_bookmarks()[0].label,
-            Some("New Label".to_string())
-        );
     }
 }

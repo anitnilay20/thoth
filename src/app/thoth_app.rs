@@ -510,9 +510,6 @@ impl ThothApp {
                 components::toolbar::ToolbarEvent::NewWindow => {
                     self.create_new_window();
                 }
-                components::toolbar::ToolbarEvent::FileTypeChange(file_type) => {
-                    self.window_state.file_type = file_type;
-                }
                 components::toolbar::ToolbarEvent::ToggleTheme => {
                     self.settings.dark_mode = !self.settings.dark_mode;
                     self.settings_changed = true;

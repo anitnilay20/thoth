@@ -166,27 +166,6 @@ impl NavigationHistory {
         self.current_index
             .map_or(false, |idx| idx + 1 < self.history.len())
     }
-
-    /// Get current path
-    pub fn current(&self) -> Option<&String> {
-        self.current_index.and_then(|idx| self.history.get(idx))
-    }
-
-    /// Clear all history
-    pub fn clear(&mut self) {
-        self.history.clear();
-        self.current_index = None;
-    }
-
-    /// Get the size of the history
-    pub fn len(&self) -> usize {
-        self.history.len()
-    }
-
-    /// Check if history is empty
-    pub fn is_empty(&self) -> bool {
-        self.history.is_empty()
-    }
 }
 
 impl Default for NavigationHistory {

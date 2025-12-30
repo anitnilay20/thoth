@@ -33,7 +33,6 @@ pub enum ToolbarEvent {
     FileOpen { path: PathBuf, file_type: FileType },
     FileClear,
     NewWindow,
-    FileTypeChange(FileType),
     ToggleTheme,
     OpenSettings,
     NavigateBack,
