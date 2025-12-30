@@ -24,6 +24,8 @@ pub struct ToolbarProps<'a> {
     pub shortcuts: &'a KeyboardShortcuts,
     pub file_path: Option<&'a Path>,
     pub is_fullscreen: bool,
+    pub can_go_back: bool,
+    pub can_go_forward: bool,
 }
 
 /// Events emitted by the toolbar (bottom-to-top communication)
@@ -34,6 +36,8 @@ pub enum ToolbarEvent {
     FileTypeChange(FileType),
     ToggleTheme,
     OpenSettings,
+    NavigateBack,
+    NavigateForward,
 }
 
 pub struct ToolbarOutput {
@@ -136,6 +140,49 @@ impl Toolbar {
                     // Button size to match ComboBox height
                     let button_size = egui::vec2(28.0, 28.0);
 
+                    // Navigation buttons (back/forward)
+                    let back_button = IconButton::render(
+                        ui,
+                        IconButtonProps {
+                            icon: egui_phosphor::regular::CARET_LEFT,
+                            frame: false,
+                            tooltip: Some(&format!(
+                                "Go back ({})",
+                                props.shortcuts.nav_back.format()
+                            )),
+                            badge_color: None,
+                            size: Some(button_size),
+                            disabled: !props.can_go_back,
+                        },
+                    );
+
+                    if back_button.clicked {
+                        events.push(ToolbarEvent::NavigateBack);
+                    }
+
+                    let forward_button = IconButton::render(
+                        ui,
+                        IconButtonProps {
+                            icon: egui_phosphor::regular::CARET_RIGHT,
+                            frame: false,
+                            tooltip: Some(&format!(
+                                "Go forward ({})",
+                                props.shortcuts.nav_forward.format()
+                            )),
+                            badge_color: None,
+                            size: Some(button_size),
+                            disabled: !props.can_go_forward,
+                        },
+                    );
+
+                    if forward_button.clicked {
+                        events.push(ToolbarEvent::NavigateForward);
+                    }
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
                     // File actions (icon-only buttons)
                     if IconButton::render(
                         ui,
@@ -148,6 +195,7 @@ impl Toolbar {
                             )),
                             badge_color: None,
                             size: Some(button_size),
+                            disabled: false,
                         },
                     )
                     .clicked
@@ -173,6 +221,7 @@ impl Toolbar {
                             )),
                             badge_color: None,
                             size: Some(button_size),
+                            disabled: false,
                         },
                     )
                     .clicked
@@ -191,32 +240,12 @@ impl Toolbar {
                             )),
                             badge_color: None,
                             size: Some(button_size),
+                            disabled: false,
                         },
                     )
                     .clicked
                     {
                         events.push(ToolbarEvent::NewWindow);
-                    }
-
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // File type selector (compact, no label)
-                    let mut current_file_type = *props.file_type;
-                    egui::ComboBox::from_id_salt("file_type")
-                        .selected_text(format!("{:?}", current_file_type))
-                        .width(80.0)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut current_file_type, FileType::Json, "JSON");
-                            ui.selectable_value(&mut current_file_type, FileType::Ndjson, "NDJSON");
-                        });
-
-                    if self.previous_file_type != current_file_type
-                        && current_file_type != *props.file_type
-                    {
-                        events.push(ToolbarEvent::FileTypeChange(current_file_type));
-                        self.previous_file_type = current_file_type;
                     }
 
                     // Spacer to push right-side items to the right
@@ -240,6 +269,7 @@ impl Toolbar {
                                 )),
                                 badge_color: None,
                                 size: Some(button_size),
+                                disabled: false,
                             },
                         )
                         .clicked
@@ -256,6 +286,7 @@ impl Toolbar {
                                 tooltip: Some("Settings (Cmd/Ctrl+,)"),
                                 badge_color: None,
                                 size: Some(button_size),
+                                disabled: false,
                             },
                         )
                         .clicked

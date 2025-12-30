@@ -1,10 +1,10 @@
 pub mod bookmarks;
+pub mod breadcrumbs;
 pub mod central_panel;
 pub mod data_row;
 pub mod drag_and_drop;
 pub mod error_modal;
 pub mod file_viewer;
-pub mod go_to_path_dialog;
 pub mod icon_button;
 pub mod recent_files;
 pub mod search;

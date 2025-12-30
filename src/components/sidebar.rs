@@ -46,6 +46,7 @@ pub enum SidebarEvent {
     // Bookmark events
     NavigateToBookmark { file_path: String, path: String },
     RemoveBookmark(usize),
+    JumpToPath(String),
 }
 
 pub struct SidebarOutput {
@@ -128,6 +129,9 @@ impl Sidebar {
                         }
                         BookmarksEvent::RemoveBookmark(index) => {
                             events.push(SidebarEvent::RemoveBookmark(index));
+                        }
+                        BookmarksEvent::JumpToPath(path) => {
+                            events.push(SidebarEvent::JumpToPath(path));
                         }
                     }
                 }

@@ -15,15 +15,20 @@ pub enum BookmarksEvent {
     NavigateToBookmark { file_path: String, path: String },
     /// User wants to remove a bookmark
     RemoveBookmark(usize),
+    /// User wants to jump to a specific path
+    JumpToPath(String),
 }
 
 pub struct BookmarksOutput {
     pub events: Vec<BookmarksEvent>,
 }
 
-/// Bookmarks list component
+/// Bookmarks list component with integrated jump-to-path
 #[derive(Default)]
-pub struct Bookmarks;
+pub struct Bookmarks {
+    /// Jump to path input
+    jump_input: String,
+}
 
 impl StatefulComponent for Bookmarks {
     type Props<'a> = BookmarksProps<'a>;
@@ -73,6 +78,43 @@ impl StatefulComponent for Bookmarks {
         );
 
         ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        // Jump to path input
+        ui.horizontal(|ui| {
+            ui.add_space(4.0);
+
+            // Crosshair icon
+            ui.label(egui::RichText::new(egui_phosphor::regular::CROSSHAIR).color(header_color));
+
+            ui.add_space(4.0);
+
+            // Text input
+            let text_edit = egui::TextEdit::singleline(&mut self.jump_input)
+                .hint_text("Jump to path (e.g., 0.user.name)")
+                .desired_width(ui.available_width() - 8.0)
+                .font(egui::FontId::proportional(13.0));
+
+            let response = ui.add(text_edit);
+
+            // Handle Enter key to jump
+            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if !self.jump_input.is_empty() {
+                    events.push(BookmarksEvent::JumpToPath(self.jump_input.clone()));
+                    self.jump_input.clear();
+                }
+            }
+
+            // Handle Escape to clear
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.jump_input.clear();
+            }
+
+            ui.add_space(4.0);
+        });
+
+        ui.add_space(8.0);
         ui.separator();
         ui.add_space(4.0);
 

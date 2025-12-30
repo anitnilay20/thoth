@@ -128,9 +128,7 @@ pub struct KeyboardShortcuts {
 
     // Bookmarks
     pub toggle_bookmark: Shortcut,
-
-    // Go to path
-    pub go_to_path: Shortcut,
+    pub open_bookmarks: Shortcut,
 
     // Tree operations
     pub expand_node: Shortcut,
@@ -168,15 +166,13 @@ impl Default for KeyboardShortcuts {
             focus_search: Shortcut::new("F").command(),
             next_match: Shortcut::new("G").command(),
             prev_match: Shortcut::new("G").command().shift(),
-            nav_back: Shortcut::new("[").command(),
-            nav_forward: Shortcut::new("]").command(),
+            nav_back: Shortcut::new("BracketLeft").command(),
+            nav_forward: Shortcut::new("BracketRight").command(),
             escape: Shortcut::new("Escape"),
 
             // Bookmarks
             toggle_bookmark: Shortcut::new("D").command(),
-
-            // Go to path (Jump to path)
-            go_to_path: Shortcut::new("J").command(),
+            open_bookmarks: Shortcut::new("D").command().shift(),
 
             // Tree operations
             expand_node: Shortcut::new("ArrowRight"),

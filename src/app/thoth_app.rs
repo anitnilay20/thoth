@@ -218,9 +218,6 @@ impl App for ThothApp {
         // Render error modal if there's an error
         self.render_error_modal(ctx);
 
-        // Render go-to-path dialog if open
-        self.render_go_to_path_dialog(ctx);
-
         // Show profiler if enabled (only when profiling feature is enabled)
         #[cfg(feature = "profiling")]
         if self.settings.dev.show_profiler {
@@ -396,9 +393,17 @@ impl ThothApp {
                         }
                     }
                 }
-                ShortcutAction::GoToPath => {
-                    // Open the go-to-path dialog
-                    self.window_state.go_to_path_dialog_open = true;
+                ShortcutAction::OpenBookmarks => {
+                    // Open bookmarks panel in sidebar
+                    self.window_state.sidebar_expanded = true;
+                    self.window_state.sidebar_selected_section =
+                        Some(components::sidebar::SidebarSection::Bookmarks);
+
+                    // Save sidebar state if remember_sidebar_state is enabled
+                    if self.settings.ui.remember_sidebar_state {
+                        self.persistent_state.set_sidebar_expanded(true);
+                        let _ = self.persistent_state.save();
+                    }
                 }
                 // Tree operations
                 ShortcutAction::ExpandNode => {
@@ -465,6 +470,9 @@ impl ThothApp {
         puffin::profile_function!();
 
         // Render toolbar using ContextComponent trait with one-way binding
+        let can_go_back = self.window_state.navigation_history.can_go_back();
+        let can_go_forward = self.window_state.navigation_history.can_go_forward();
+
         let output = self.window_state.toolbar.render(
             ctx,
             components::toolbar::ToolbarProps {
@@ -473,6 +481,8 @@ impl ThothApp {
                 shortcuts: &self.settings.shortcuts,
                 file_path: self.window_state.file_path.as_deref(),
                 is_fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
+                can_go_back,
+                can_go_forward,
             },
         );
 
@@ -510,6 +520,18 @@ impl ThothApp {
                 components::toolbar::ToolbarEvent::OpenSettings => {
                     // Open settings in a new window
                     self.open_settings_window(ctx);
+                }
+                components::toolbar::ToolbarEvent::NavigateBack => {
+                    // Navigate back in history
+                    if let Some(path) = self.window_state.navigation_history.back() {
+                        self.window_state.central_panel.navigate_to_path(path);
+                    }
+                }
+                components::toolbar::ToolbarEvent::NavigateForward => {
+                    // Navigate forward in history
+                    if let Some(path) = self.window_state.navigation_history.forward() {
+                        self.window_state.central_panel.navigate_to_path(path);
+                    }
                 }
             }
         }
@@ -550,7 +572,10 @@ impl ThothApp {
             None
         };
 
-        self.window_state.status_bar.render(
+        // Get selected path for breadcrumbs
+        let selected_path = self.window_state.central_panel.get_selected_path();
+
+        let status_bar_output = self.window_state.status_bar.render(
             ctx,
             components::status_bar::StatusBarProps {
                 file_path: self.window_state.file_path.as_deref(),
@@ -558,8 +583,20 @@ impl ThothApp {
                 item_count,
                 filtered_count,
                 status,
+                selected_path: selected_path.as_ref().map(|s| s.as_str()),
             },
         );
+
+        // Handle status bar events
+        for event in status_bar_output.events {
+            match event {
+                components::status_bar::StatusBarEvent::NavigateToPath(path) => {
+                    // Track in navigation history before navigating
+                    self.window_state.navigation_history.push(path.clone());
+                    self.window_state.central_panel.navigate_to_path(path);
+                }
+            }
+        }
     }
 
     /// Render central panel and handle events
@@ -815,6 +852,8 @@ impl ThothApp {
                         let _ = self.persistent_state.save();
                     } else {
                         // Navigate immediately if same file
+                        // Track in navigation history before navigating
+                        self.window_state.navigation_history.push(path.clone());
                         self.window_state.central_panel.navigate_to_path(path);
                     }
                 }
@@ -824,6 +863,12 @@ impl ThothApp {
                     if let Err(e) = self.persistent_state.save() {
                         eprintln!("Failed to save bookmarks: {}", e);
                     }
+                }
+                components::sidebar::SidebarEvent::JumpToPath(path) => {
+                    // Jump to the specified path in the current file
+                    // Track in navigation history before navigating
+                    self.window_state.navigation_history.push(path.clone());
+                    self.window_state.central_panel.navigate_to_path(path);
                 }
             }
         }
@@ -891,42 +936,6 @@ impl ThothApp {
                         self.window_state.total_items = 0;
                     }
                     _ => {}
-                }
-            }
-        }
-    }
-
-    fn render_go_to_path_dialog(&mut self, ctx: &egui::Context) {
-        use crate::components::traits::ContextComponent;
-
-        // Get theme colors
-        let theme_colors = ctx.memory(|mem| {
-            mem.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
-                .unwrap_or_else(|| {
-                    crate::theme::Theme::for_dark_mode(ctx.style().visuals.dark_mode).colors()
-                })
-        });
-
-        // Render the panel as a top banner
-        let output = self.window_state.go_to_path_dialog.render(
-            ctx,
-            components::go_to_path_dialog::GoToPathDialogProps {
-                open: self.window_state.go_to_path_dialog_open,
-                theme_colors: &theme_colors,
-            },
-        );
-
-        // Handle dialog events
-        for event in output.events {
-            match event {
-                components::go_to_path_dialog::GoToPathDialogEvent::NavigateToPath(path) => {
-                    // Navigate to the specified path
-                    self.window_state.central_panel.navigate_to_path(path);
-                    self.window_state.go_to_path_dialog_open = false;
-                }
-                components::go_to_path_dialog::GoToPathDialogEvent::Close => {
-                    self.window_state.go_to_path_dialog_open = false;
                 }
             }
         }

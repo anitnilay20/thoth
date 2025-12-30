@@ -40,8 +40,6 @@ pub struct WindowState {
     pub central_panel: components::central_panel::CentralPanel,
     pub status_bar: components::status_bar::StatusBar,
     pub error_modal: components::error_modal::ErrorModal,
-    pub go_to_path_dialog: components::go_to_path_dialog::GoToPathDialog,
-    pub go_to_path_dialog_open: bool,
 }
 
 impl Default for WindowState {
@@ -63,8 +61,6 @@ impl Default for WindowState {
             central_panel: components::central_panel::CentralPanel::default(),
             status_bar: components::status_bar::StatusBar,
             error_modal: components::error_modal::ErrorModal,
-            go_to_path_dialog: components::go_to_path_dialog::GoToPathDialog::default(),
-            go_to_path_dialog_open: false,
         }
     }
 }
