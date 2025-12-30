@@ -99,11 +99,12 @@ impl StatefulComponent for Bookmarks {
             let response = ui.add(text_edit);
 
             // Handle Enter key to jump
-            if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                if !self.jump_input.is_empty() {
-                    events.push(BookmarksEvent::JumpToPath(self.jump_input.clone()));
-                    self.jump_input.clear();
-                }
+            if response.lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && !self.jump_input.is_empty()
+            {
+                events.push(BookmarksEvent::JumpToPath(self.jump_input.clone()));
+                self.jump_input.clear();
             }
 
             // Handle Escape to clear
@@ -164,6 +165,7 @@ impl StatefulComponent for Bookmarks {
 }
 
 impl Bookmarks {
+    #[allow(clippy::too_many_arguments)]
     fn render_bookmark_item(
         ui: &mut egui::Ui,
         bookmark: &Bookmark,

@@ -14,6 +14,7 @@ pub struct PerformanceTabProps<'a> {
 
 /// Events emitted by the Performance tab
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum PerformanceTabEvent {
     CacheSizeChanged(usize),
     MaxRecentFilesChanged(usize),

@@ -158,13 +158,35 @@ impl NavigationHistory {
 
     /// Check if we can navigate back
     pub fn can_go_back(&self) -> bool {
-        self.current_index.map_or(false, |idx| idx > 0)
+        self.current_index.is_some_and(|idx| idx > 0)
     }
 
     /// Check if we can navigate forward
     pub fn can_go_forward(&self) -> bool {
         self.current_index
-            .map_or(false, |idx| idx + 1 < self.history.len())
+            .is_some_and(|idx| idx + 1 < self.history.len())
+    }
+
+    // Test-only methods
+    #[cfg(test)]
+    pub fn current(&self) -> Option<&String> {
+        self.current_index.and_then(|idx| self.history.get(idx))
+    }
+
+    #[cfg(test)]
+    pub fn clear(&mut self) {
+        self.history.clear();
+        self.current_index = None;
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.history.len()
+    }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.history.is_empty()
     }
 }
 

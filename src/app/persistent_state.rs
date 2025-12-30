@@ -483,7 +483,12 @@ mod tests {
 
     #[test]
     fn test_add_bookmark() {
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            recent_files: Vec::new(),
+            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
+            bookmarks: Vec::new(),
+        };
 
         state.add_bookmark(
             "users[0].name".to_string(),
@@ -502,7 +507,12 @@ mod tests {
 
     #[test]
     fn test_add_duplicate_bookmark() {
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            recent_files: Vec::new(),
+            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
+            bookmarks: Vec::new(),
+        };
 
         state.add_bookmark(
             "users[0].name".to_string(),
@@ -521,7 +531,12 @@ mod tests {
 
     #[test]
     fn test_remove_bookmark() {
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            recent_files: Vec::new(),
+            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
+            bookmarks: Vec::new(),
+        };
 
         state.add_bookmark("path1".to_string(), "/file1.json".to_string(), None);
         state.add_bookmark("path2".to_string(), "/file2.json".to_string(), None);
@@ -535,7 +550,12 @@ mod tests {
 
     #[test]
     fn test_toggle_bookmark() {
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            recent_files: Vec::new(),
+            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
+            bookmarks: Vec::new(),
+        };
 
         // Toggle on (add)
         let added = state.toggle_bookmark("path1".to_string(), "/file1.json".to_string());
@@ -550,7 +570,12 @@ mod tests {
 
     #[test]
     fn test_max_bookmarks() {
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            recent_files: Vec::new(),
+            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
+            bookmarks: Vec::new(),
+        };
 
         // Add more than MAX_BOOKMARKS
         for i in 0..=MAX_BOOKMARKS {
