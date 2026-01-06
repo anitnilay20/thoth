@@ -15,7 +15,7 @@
 </div>
 
 <div align="center">
-  <img src="assets/app_sreen_recording.gif"/>
+  <img src="website/public/demo.gif"/>
 </div>
 
 Thoth is a high-performance, feature-rich desktop application for viewing and exploring JSON and NDJSON files with a clean, intuitive interface.
