@@ -1,0 +1,164 @@
+---
+// Features showcase section
+---
+
+<section class="py-20 px-4 relative">
+  <div class="max-w-7xl mx-auto">
+    <!-- Section header -->
+    <div class="text-center mb-16">
+      <h2 class="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+        Built for Speed & Scale
+      </h2>
+      <p class="text-lg text-gray-400 max-w-2xl mx-auto">
+        Handle JSON files of any size with features designed for real-world workflows
+      </p>
+    </div>
+
+    <!-- Features grid -->
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+      <!-- Lazy Loading -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-blue-500/50 transition-all hover:shadow-xl hover:shadow-blue-500/10">
+        <div class="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Lazy Loading</h3>
+        <p class="text-gray-400 mb-4">
+          Only loads visible data. Navigate gigabyte-sized files instantly without waiting for full parse.
+        </p>
+        <div class="text-sm font-mono text-blue-400/70">
+          // Handles multi-GB files effortlessly
+        </div>
+      </div>
+
+      <!-- JSONPath Search -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-purple-500/50 transition-all hover:shadow-xl hover:shadow-purple-500/10">
+        <div class="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Powerful Search</h3>
+        <p class="text-gray-400 mb-4">
+          Full JSONPath support with regex. Find exactly what you need across nested structures.
+        </p>
+        <div class="text-sm font-mono text-purple-400/70">
+          $.users[?(@.age > 30)].name
+        </div>
+      </div>
+
+      <!-- Multi-Format Support -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-pink-500/50 transition-all hover:shadow-xl hover:shadow-pink-500/10">
+        <div class="w-12 h-12 rounded-xl bg-pink-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Multi-Format Support</h3>
+        <p class="text-gray-400 mb-4">
+          Handles JSON, NDJSON, and JSON arrays seamlessly with automatic format detection.
+        </p>
+        <div class="text-sm font-mono text-pink-400/70">
+          .json | .ndjson | .jsonl
+        </div>
+      </div>
+
+      <!-- Keyboard Shortcuts -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-cyan-500/50 transition-all hover:shadow-xl hover:shadow-cyan-500/10">
+        <div class="w-12 h-12 rounded-xl bg-cyan-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Keyboard Shortcuts</h3>
+        <p class="text-gray-400 mb-4">
+          Navigate, search, and control everything without touching your mouse. Fully customizable.
+        </p>
+        <div class="text-sm font-mono text-cyan-400/70">
+          Cmd+F | Cmd+K | Cmd+P
+        </div>
+      </div>
+
+      <!-- Theme Support -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-amber-500/50 transition-all hover:shadow-xl hover:shadow-amber-500/10">
+        <div class="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Dark/Light Mode</h3>
+        <p class="text-gray-400 mb-4">
+          Beautiful themes that reduce eye strain. Switch between dark and light modes instantly.
+        </p>
+        <div class="text-sm font-mono text-amber-400/70">
+          Catppuccin themes built-in
+        </div>
+      </div>
+
+      <!-- Multi-Window -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-green-500/50 transition-all hover:shadow-xl hover:shadow-green-500/10">
+        <div class="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Multi-Window Support</h3>
+        <p class="text-gray-400 mb-4">
+          Open multiple files side-by-side. Compare data across different JSON sources easily.
+        </p>
+        <div class="text-sm font-mono text-green-400/70">
+          Cmd+N for new window
+        </div>
+      </div>
+
+      <!-- Auto Updates -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-indigo-500/50 transition-all hover:shadow-xl hover:shadow-indigo-500/10">
+        <div class="w-12 h-12 rounded-xl bg-indigo-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Auto-Updates</h3>
+        <p class="text-gray-400 mb-4">
+          Stay up-to-date with automatic update notifications and one-click installation.
+        </p>
+        <div class="text-sm font-mono text-indigo-400/70">
+          Over-the-air updates
+        </div>
+      </div>
+
+      <!-- Copy Support -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-violet-500/50 transition-all hover:shadow-xl hover:shadow-violet-500/10">
+        <div class="w-12 h-12 rounded-xl bg-violet-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Easy Copy</h3>
+        <p class="text-gray-400 mb-4">
+          Copy JSON paths, values, and entire structures with a single click or keyboard shortcut.
+        </p>
+        <div class="text-sm font-mono text-violet-400/70">
+          Right-click context menu
+        </div>
+      </div>
+
+      <!-- Customizable Settings -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-rose-500/50 transition-all hover:shadow-xl hover:shadow-rose-500/10">
+        <div class="w-12 h-12 rounded-xl bg-rose-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Fully Customizable</h3>
+        <p class="text-gray-400 mb-4">
+          Customize keyboard shortcuts, themes, cache sizes, and more via comprehensive settings UI.
+        </p>
+        <div class="text-sm font-mono text-rose-400/70">
+          Settings saved in TOML
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
