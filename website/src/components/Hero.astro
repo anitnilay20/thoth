@@ -1,0 +1,108 @@
+---
+// Hero section with demo and download buttons
+---
+
+<section class="relative min-h-screen flex items-center justify-center px-4 py-20 overflow-hidden">
+  <!-- Background gradient -->
+  <div class="absolute inset-0 bg-gradient-to-br from-blue-950/20 via-purple-950/10 to-gray-950 pointer-events-none"></div>
+
+  <!-- Content -->
+  <div class="relative z-10 max-w-7xl mx-auto text-center">
+    <!-- Logo/Icon -->
+    <div class="mb-8 inline-block">
+      <img
+        src="/thoth/icon.png"
+        alt="Thoth Logo"
+        class="w-24 h-24 rounded-2xl shadow-2xl shadow-blue-500/30"
+      />
+    </div>
+
+    <!-- Heading -->
+    <h1 class="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+      Thoth
+    </h1>
+
+    <p class="text-xl md:text-2xl text-gray-300 mb-4 max-w-3xl mx-auto">
+      A blazingly fast JSON viewer for <span class="text-blue-400 font-semibold">massive files</span>
+    </p>
+
+    <p class="text-base md:text-lg text-gray-400 mb-12 max-w-2xl mx-auto">
+      Navigate gigabyte-sized JSON with ease. Built with Rust and egui for maximum performance.
+    </p>
+
+    <!-- Download buttons -->
+    <div class="flex flex-wrap gap-4 justify-center mb-16">
+      <a
+        href="https://github.com/anitnilay20/thoth/releases/download/v0.3.0/Thoth_0.3.0_aarch64.dmg"
+        class="group inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 rounded-xl font-semibold transition-all transform hover:scale-105 shadow-lg shadow-blue-500/30"
+      >
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+        </svg>
+        macOS (Apple Silicon)
+      </a>
+
+      <a
+        href="https://github.com/anitnilay20/thoth/releases/download/v0.3.0/thoth-x86_64-apple-darwin.tar.gz"
+        class="inline-flex items-center gap-2 px-8 py-4 bg-gray-800 hover:bg-gray-700 rounded-xl font-semibold transition-all border border-gray-700"
+      >
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+        </svg>
+        macOS (Intel)
+      </a>
+
+      <a
+        href="https://github.com/anitnilay20/thoth/releases/download/v0.3.0/thoth_0.3.0_x64_en-US.msi"
+        class="inline-flex items-center gap-2 px-8 py-4 bg-gray-800 hover:bg-gray-700 rounded-xl font-semibold transition-all border border-gray-700"
+      >
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+        </svg>
+        Windows
+      </a>
+
+      <a
+        href="https://github.com/anitnilay20/thoth/releases/download/v0.3.0/thoth-x86_64-unknown-linux-gnu.tar.gz"
+        class="inline-flex items-center gap-2 px-8 py-4 bg-gray-800 hover:bg-gray-700 rounded-xl font-semibold transition-all border border-gray-700"
+      >
+        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.835-.41 1.66-.348 2.402.145 1.735 1.491 3.066 3.642 3.599 2.203.545 4.562-.464 5.8-2.428 1.09-1.729 1.675-4.182 1.698-6.614.022-2.388-.553-4.603-1.825-6.238-.935-1.201-2.09-2.062-3.551-2.581z"/>
+        </svg>
+        Linux
+      </a>
+    </div>
+
+    <!-- Demo GIF -->
+    <div class="max-w-5xl mx-auto">
+      <div class="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 border border-gray-800 bg-gray-900">
+        <img
+          src="/thoth/demo.gif"
+          alt="Thoth JSON Viewer Demo"
+          class="w-full h-auto"
+          loading="eager"
+        />
+      </div>
+    </div>
+
+    <!-- Quick stats -->
+    <div class="mt-16 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
+      <div class="text-center">
+        <div class="text-3xl font-bold text-blue-400 mb-2">🚀</div>
+        <div class="text-sm text-gray-400">Instant Loading</div>
+      </div>
+      <div class="text-center">
+        <div class="text-3xl font-bold text-purple-400 mb-2">∞</div>
+        <div class="text-sm text-gray-400">Unlimited Size</div>
+      </div>
+      <div class="text-center">
+        <div class="text-3xl font-bold text-pink-400 mb-2">🔍</div>
+        <div class="text-sm text-gray-400">Powerful Search</div>
+      </div>
+      <div class="text-center">
+        <div class="text-3xl font-bold text-cyan-400 mb-2">⚡</div>
+        <div class="text-sm text-gray-400">Built in Rust</div>
+      </div>
+    </div>
+  </div>
+</section>
