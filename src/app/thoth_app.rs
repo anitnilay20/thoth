@@ -214,7 +214,7 @@ impl App for ThothApp {
                     }
                 }
                 SettingsDialogEvent::RegisterInPath => {
-                    match crate::path_registry::register_in_path() {
+                    match crate::platform::path_registry::register_in_path() {
                         Ok(()) => {
                             // Success - no need to show message, the UI will update automatically
                             ctx.request_repaint();
@@ -225,7 +225,7 @@ impl App for ThothApp {
                     }
                 }
                 SettingsDialogEvent::UnregisterFromPath => {
-                    match crate::path_registry::unregister_from_path() {
+                    match crate::platform::path_registry::unregister_from_path() {
                         Ok(()) => {
                             // Success - no need to show message, the UI will update automatically
                             ctx.request_repaint();

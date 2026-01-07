@@ -17,7 +17,6 @@ mod constants;
 mod error;
 mod file;
 mod helpers;
-mod path_registry;
 mod platform;
 mod search;
 mod settings;

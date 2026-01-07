@@ -311,7 +311,7 @@ impl SettingsDialog {
             }
             SettingsTab::Advanced => {
                 // Check if thoth is in PATH
-                let is_in_path = crate::path_registry::is_in_path();
+                let is_in_path = crate::platform::path_registry::is_in_path();
 
                 let output = AdvancedTab::render(
                     ui,
