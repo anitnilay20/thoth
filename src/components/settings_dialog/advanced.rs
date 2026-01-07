@@ -148,9 +148,9 @@ impl StatelessComponent for AdvancedTab {
                         ui.label(
                             egui::RichText::new(
                                 if cfg!(target_os = "windows") {
-                                    "Note: You may need to restart your terminal for changes to take effect"
+                                    "Note: Restart Thoth and your terminal for changes to take effect"
                                 } else {
-                                    "Note: You'll need to restart your terminal or run 'source ~/.zshrc' (or ~/.bashrc)"
+                                    "Note: Restart Thoth and your terminal, or run 'source ~/.zshrc' (or ~/.bashrc)"
                                 }
                             )
                             .size(11.0)
