@@ -67,12 +67,10 @@ pub fn register_in_path() -> Result<()> {
             })?;
         let reader = BufReader::new(file);
 
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if line.contains(&*exe_dir_str) && line.contains("PATH") {
-                    // Already registered
-                    return Ok(());
-                }
+        for line in reader.lines().map_while(|r| r.ok()) {
+            if line.contains(&*exe_dir_str) && line.contains("PATH") {
+                // Already registered
+                return Ok(());
             }
         }
     }
@@ -219,7 +217,7 @@ pub fn unregister_from_path() -> Result<()> {
                 reason: format!("Failed to read shell profile: {}", e),
             })?;
         let reader = BufReader::new(file);
-        let mut lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+        let mut lines: Vec<String> = reader.lines().map_while(|r| r.ok()).collect();
 
         // Remove lines containing the Thoth PATH
         let original_len = lines.len();
@@ -272,7 +270,7 @@ pub fn unregister_from_path() -> Result<()> {
                 reason: format!("Failed to read shell profile: {}", e),
             })?;
         let reader = BufReader::new(file);
-        let mut lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
+        let mut lines: Vec<String> = reader.lines().map_while(|r| r.ok()).collect();
 
         // Remove lines containing the Thoth PATH
         let original_len = lines.len();
