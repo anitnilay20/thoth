@@ -124,12 +124,10 @@ pub fn register_in_path() -> Result<()> {
             })?;
         let reader = BufReader::new(file);
 
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if line.contains(&*exe_dir_str) && line.contains("PATH") {
-                    // Already registered
-                    return Ok(());
-                }
+        for line in reader.lines().map_while(|r| r.ok()) {
+            if line.contains(&*exe_dir_str) && line.contains("PATH") {
+                // Already registered
+                return Ok(());
             }
         }
     }
