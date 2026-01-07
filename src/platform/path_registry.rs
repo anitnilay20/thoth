@@ -7,9 +7,9 @@ use crate::error::{Result, ThothError};
 use std::env;
 use std::path::PathBuf;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::fs::OpenOptions;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::io::{BufRead, BufReader, Write};
 
 #[cfg(target_os = "windows")]
