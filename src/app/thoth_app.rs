@@ -213,6 +213,28 @@ impl App for ThothApp {
                         self.update_state.update_manager.install_update(path);
                     }
                 }
+                SettingsDialogEvent::RegisterInPath => {
+                    match crate::path_registry::register_in_path() {
+                        Ok(()) => {
+                            // Success - no need to show message, the UI will update automatically
+                            ctx.request_repaint();
+                        }
+                        Err(e) => {
+                            self.window_state.error = Some(e);
+                        }
+                    }
+                }
+                SettingsDialogEvent::UnregisterFromPath => {
+                    match crate::path_registry::unregister_from_path() {
+                        Ok(()) => {
+                            // Success - no need to show message, the UI will update automatically
+                            ctx.request_repaint();
+                        }
+                        Err(e) => {
+                            self.window_state.error = Some(e);
+                        }
+                    }
+                }
             }
         }
 

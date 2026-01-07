@@ -254,6 +254,7 @@ fn test_advanced_tab_renders() {
             advanced::AdvancedTabProps {
                 dev_settings: &dev_settings,
                 theme_colors: &theme_colors,
+                is_in_path: false,
             },
         );
 
