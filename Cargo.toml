@@ -50,9 +50,28 @@ icons = ["assets/thoth_icon_256.png", "assets/Thoth.icns", "assets/thoth_icon_25
 # Resources to include in the bundle
 resources = ["assets"]
 
-# Debian package configuration
+# macOS bundle configuration
+[package.metadata.packager.macos]
+# File associations for macOS "Open With" and default app
+files = [
+  { ext = ["json"], name = "JSON File", role = "Editor", mime = "application/json" },
+  { ext = ["ndjson", "jsonl"], name = "NDJSON File", role = "Editor", mime = "application/x-ndjson" },
+  { ext = ["geojson"], name = "GeoJSON File", role = "Editor", mime = "application/geo+json" },
+]
+
+# Windows installer configuration
+[package.metadata.packager.windows]
+# File associations for Windows "Open With" and default app
+file_associations = [
+  { ext = ["json"], name = "JSON File", description = "JSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/json" },
+  { ext = ["ndjson", "jsonl"], name = "NDJSON File", description = "Newline Delimited JSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/x-ndjson" },
+  { ext = ["geojson"], name = "GeoJSON File", description = "GeoJSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/geo+json" },
+]
+
+# Debian/Linux package configuration
 [package.metadata.packager.deb]
 depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
+desktop_template = "assets/thoth.desktop"
 
 
 [dependencies]
