@@ -106,12 +106,12 @@ impl StatelessComponent for AdvancedTab {
                             ui.label("Command-line access:");
                             if props.is_in_path {
                                 ui.label(
-                                    egui::RichText::new("✓ Available")
+                                    egui::RichText::new(format!("{} Available", egui_phosphor::regular::CHECK_CIRCLE))
                                         .color(props.theme_colors.success),
                                 );
                             } else {
                                 ui.label(
-                                    egui::RichText::new("✗ Not available")
+                                    egui::RichText::new(format!("{} Not available", egui_phosphor::regular::X_CIRCLE))
                                         .color(props.theme_colors.overlay1),
                                 );
                             }
