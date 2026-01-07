@@ -137,7 +137,7 @@ impl StatelessComponent for AdvancedTab {
                                 }
                             } else {
                                 let button = egui::Button::new("Add to PATH")
-                                    .fill(props.theme_colors.info);
+                                    .fill(props.theme_colors.overlay1);
                                 if ui.add(button).clicked() {
                                     events.push(AdvancedTabEvent::RegisterInPath);
                                 }

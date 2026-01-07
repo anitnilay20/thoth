@@ -331,9 +331,13 @@ impl SettingsDialog {
                         }
                         AdvancedTabEvent::RegisterInPath => {
                             dialog_events.push(SettingsDialogEvent::RegisterInPath);
+                            // Request repaint to update UI immediately
+                            ui.ctx().request_repaint();
                         }
                         AdvancedTabEvent::UnregisterFromPath => {
                             dialog_events.push(SettingsDialogEvent::UnregisterFromPath);
+                            // Request repaint to update UI immediately
+                            ui.ctx().request_repaint();
                         }
                     }
                 }
