@@ -139,8 +139,28 @@ See [RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) for more details on the releas
 
 ## Usage
 
-1. Launch the application
+### Opening Files
+
+**From the Application:**
+
+1. Launch Thoth
 2. Use the top bar to open a JSON or NDJSON file (or press `Cmd/Ctrl+O`)
+
+**From the Command Line:**
+
+```bash
+thoth document.json
+thoth /path/to/data.ndjson
+```
+
+**From File Manager:**
+
+- Double-click any `.json`, `.ndjson`, `.jsonl`, or `.geojson` file
+- Right-click and select "Open With" → "Thoth"
+- Set Thoth as your default JSON viewer (see [File Associations](docs/FILE_ASSOCIATIONS.md))
+
+### Navigation and Features
+
 3. Navigate through the file using the tree view
 4. Use the search functionality to find specific values (`Cmd/Ctrl+F` to focus)
 5. Toggle between dark and light mode as needed (`Cmd/Ctrl+Shift+T`)
@@ -164,6 +184,7 @@ For a complete list of keyboard shortcuts, see the [Keyboard Shortcuts Guide](do
 ## Documentation
 
 - **[Component Architecture](docs/COMPONENT_ARCHITECTURE.md)**: Detailed guide on Thoth's component system and one-way data binding pattern
+- **[File Associations](docs/FILE_ASSOCIATIONS.md)**: How to open JSON files directly from your file manager and set Thoth as default viewer
 - **[Keyboard Shortcuts](docs/KEYBOARD_SHORTCUTS.md)**: Complete reference of all keyboard shortcuts
 - **[Design System](docs/DESIGN_SYSTEM.md)**: UI design guidelines and patterns
 - **[Profiling](/docs/PROFILING.md)**: Performance profiling and optimization techniques used in Thoth
