@@ -271,6 +271,10 @@ fn test_advanced_tab_profiler_event() {
         advanced::AdvancedTabEvent::ShowProfilerChanged(enabled) => {
             assert!(enabled);
         }
+        advanced::AdvancedTabEvent::RegisterInPath
+        | advanced::AdvancedTabEvent::UnregisterFromPath => {
+            panic!("Expected ShowProfilerChanged event");
+        }
     }
 }
 
