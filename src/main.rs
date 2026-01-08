@@ -42,7 +42,7 @@ fn parse_file_argument(args: &[String]) -> Result<Option<PathBuf>> {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Error: Cannot open file '{}': {}", file_path_str, e);
-            return Err(format!("File not found: {}", file_path_str).into());
+            return Err(format!("Cannot open file '{}': {}", file_path_str, e).into());
         }
     };
 
