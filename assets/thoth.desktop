@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Thoth
+Comment=Fast JSON and NDJSON Viewer
+Exec=thoth %F
+Icon=thoth
+Terminal=false
+Type=Application
+Categories=Development;Utility;
+MimeType=application/json;application/x-ndjson;application/geo+json;
+StartupWMClass=Thoth

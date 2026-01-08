@@ -1,4 +1,5 @@
 use eframe::{App, Frame, egui};
+use std::path::PathBuf;
 
 use crate::{components, components::traits::ContextComponent, settings, state};
 
@@ -32,8 +33,8 @@ pub struct ThothApp {
 }
 
 impl ThothApp {
-    /// Create a new ThothApp with loaded settings
-    pub fn new(settings: settings::Settings) -> Self {
+    /// Create a new ThothApp with loaded settings and optional file to open
+    pub fn new(settings: settings::Settings, file_to_open: Option<PathBuf>) -> Self {
         // Load persistent state (recent files, sidebar width, etc.)
         let persistent_state = PersistentState::default();
 
@@ -46,6 +47,12 @@ impl ThothApp {
         // Initialize navigation history with configured size
         window_state.navigation_history =
             state::NavigationHistory::with_capacity(settings.performance.navigation_history_size);
+
+        // If a file path was provided via command line, set it up to load
+        if let Some(path) = file_to_open {
+            window_state.file_path = Some(path);
+            // The file will be loaded in the first update() call via the file loading logic
+        }
 
         Self {
             settings,
@@ -204,6 +211,28 @@ impl App for ThothApp {
                         self.update_state.update_status.state =
                             crate::update::UpdateState::Installing;
                         self.update_state.update_manager.install_update(path);
+                    }
+                }
+                SettingsDialogEvent::RegisterInPath => {
+                    match crate::platform::path_registry::register_in_path() {
+                        Ok(()) => {
+                            // Success - no need to show message, the UI will update automatically
+                            ctx.request_repaint();
+                        }
+                        Err(e) => {
+                            self.window_state.error = Some(e);
+                        }
+                    }
+                }
+                SettingsDialogEvent::UnregisterFromPath => {
+                    match crate::platform::path_registry::unregister_from_path() {
+                        Ok(()) => {
+                            // Success - no need to show message, the UI will update automatically
+                            ctx.request_repaint();
+                        }
+                        Err(e) => {
+                            self.window_state.error = Some(e);
+                        }
                     }
                 }
             }

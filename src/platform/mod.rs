@@ -16,6 +16,7 @@
 pub mod archive;
 pub mod file_io;
 pub mod fs;
+pub mod path_registry;
 
 pub use archive::get_extractor_for_file;
 pub use file_io::FileIO;
