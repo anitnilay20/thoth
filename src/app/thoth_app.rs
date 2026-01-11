@@ -32,8 +32,8 @@ pub struct ThothApp {
 }
 
 impl ThothApp {
-    /// Create a new ThothApp with loaded settings
-    pub fn new(settings: settings::Settings) -> Self {
+    /// Create a new ThothApp with loaded settings and optional initial file to open
+    pub fn new(settings: settings::Settings, initial_file: Option<std::path::PathBuf>) -> Self {
         // Load persistent state (recent files, sidebar width, etc.)
         let persistent_state = PersistentState::default();
 
@@ -41,6 +41,12 @@ impl ThothApp {
         let mut window_state = state::WindowState::default();
         if settings.ui.remember_sidebar_state {
             window_state.sidebar_expanded = persistent_state.get_sidebar_expanded();
+        }
+
+        // If an initial file was provided via CLI, set it so central panel will attempt to open it on first render
+        if let Some(path) = initial_file {
+            window_state.file_path = Some(path);
+            window_state.error = None;
         }
 
         // Initialize navigation history with configured size
