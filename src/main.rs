@@ -39,9 +39,17 @@ fn main() -> Result<()> {
     // Note: Settings mode is no longer supported
     // Settings are now opened via viewport mode from the main application
     //
-    // // Check if launched in settings mode
-    // let args: Vec<String> = std::env::args().collect();
-    // let is_settings_mode = args.iter().any(|arg| arg == "--settings");
+    // Parse simple CLI flags: --help / -h and optional FILE arg
+    let mut cli_file: Option<std::path::PathBuf> = None;
+    for arg in std::env::args_os().skip(1) {
+        if arg == std::ffi::OsString::from("--help") || arg == std::ffi::OsString::from("-h") {
+            println!("Thoth — JSON & NDJSON Viewer\n\nUsage: thoth [OPTIONS] [FILE]\n\nOptions:\n  -h, --help    Show this help message\n\nIf a FILE is supplied, Thoth will open it on startup.");
+            return Ok(());
+        }
+        // First non-flag arg is treated as file path
+        cli_file = Some(std::path::PathBuf::from(arg));
+        break;
+    }
 
     // Load settings first
     let settings = settings::Settings::load().unwrap_or_else(|e| {
@@ -84,7 +92,7 @@ fn main() -> Result<()> {
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
             cc.egui_ctx.set_fonts(fonts);
 
-            Ok(Box::new(app::ThothApp::new(settings)))
+            Ok(Box::new(app::ThothApp::new(settings, cli_file)))
         }),
     );
 
