@@ -11,6 +11,7 @@ pub struct AdvancedTabProps<'a> {
     #[allow(dead_code)] // Used when profiling feature is enabled
     pub dev_settings: &'a DeveloperSettings,
     pub theme_colors: &'a ThemeColors,
+    pub is_in_path: bool,
 }
 
 /// Events emitted by the Advanced tab
@@ -18,6 +19,8 @@ pub struct AdvancedTabProps<'a> {
 pub enum AdvancedTabEvent {
     #[allow(dead_code)] // Used when profiling feature is enabled
     ShowProfilerChanged(bool),
+    RegisterInPath,
+    UnregisterFromPath,
 }
 
 /// Output from the Advanced tab
@@ -80,7 +83,7 @@ impl StatelessComponent for AdvancedTab {
                         #[cfg(not(feature = "profiling"))]
                         {
                             ui.label(
-                                egui::RichText::new("No advanced settings available")
+                                egui::RichText::new("No developer settings available")
                                     .color(props.theme_colors.overlay1),
                             );
                             ui.add_space(4.0);
@@ -92,6 +95,68 @@ impl StatelessComponent for AdvancedTab {
                                 .color(props.theme_colors.overlay1),
                             );
                         }
+
+                        ui.add_space(24.0);
+
+                        // System Integration Section
+                        ui.label(egui::RichText::new("System Integration").size(16.0));
+                        ui.add_space(8.0);
+
+                        ui.horizontal(|ui| {
+                            ui.label("Command-line access:");
+                            if props.is_in_path {
+                                ui.label(
+                                    egui::RichText::new(format!("{} Available", egui_phosphor::regular::CHECK_CIRCLE))
+                                        .color(props.theme_colors.success),
+                                );
+                            } else {
+                                ui.label(
+                                    egui::RichText::new(format!("{} Not available", egui_phosphor::regular::X_CIRCLE))
+                                        .color(props.theme_colors.overlay1),
+                                );
+                            }
+                        });
+
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Add Thoth to your system PATH to use the 'thoth' command from any terminal",
+                            )
+                            .size(12.0)
+                            .color(props.theme_colors.overlay1),
+                        );
+
+                        ui.add_space(8.0);
+
+                        ui.horizontal(|ui| {
+                            if props.is_in_path {
+                                let button = egui::Button::new("Remove from PATH")
+                                    .fill(props.theme_colors.surface0);
+                                if ui.add(button).clicked() {
+                                    events.push(AdvancedTabEvent::UnregisterFromPath);
+                                }
+                            } else {
+                                let button = egui::Button::new("Add to PATH")
+                                    .fill(props.theme_colors.overlay1);
+                                if ui.add(button).clicked() {
+                                    events.push(AdvancedTabEvent::RegisterInPath);
+                                }
+                            }
+                        });
+
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(
+                                if cfg!(target_os = "windows") {
+                                    "Note: Restart Thoth and your terminal for changes to take effect"
+                                } else {
+                                    "Note: Restart Thoth and your terminal, or run 'source ~/.zshrc' (or ~/.bashrc)"
+                                }
+                            )
+                            .size(11.0)
+                            .italics()
+                            .color(props.theme_colors.overlay1),
+                        );
 
                         ui.add_space(16.0);
                     });

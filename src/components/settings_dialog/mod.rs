@@ -310,11 +310,15 @@ impl SettingsDialog {
                 }
             }
             SettingsTab::Advanced => {
+                // Check if thoth is in PATH
+                let is_in_path = crate::platform::path_registry::is_in_path();
+
                 let output = AdvancedTab::render(
                     ui,
                     advanced::AdvancedTabProps {
                         dev_settings: &settings.dev,
                         theme_colors,
+                        is_in_path,
                     },
                 );
 
@@ -324,6 +328,16 @@ impl SettingsDialog {
                     match event {
                         AdvancedTabEvent::ShowProfilerChanged(enabled) => {
                             settings.dev.show_profiler = enabled;
+                        }
+                        AdvancedTabEvent::RegisterInPath => {
+                            dialog_events.push(SettingsDialogEvent::RegisterInPath);
+                            // Request repaint to update UI immediately
+                            ui.ctx().request_repaint();
+                        }
+                        AdvancedTabEvent::UnregisterFromPath => {
+                            dialog_events.push(SettingsDialogEvent::UnregisterFromPath);
+                            // Request repaint to update UI immediately
+                            ui.ctx().request_repaint();
                         }
                     }
                 }
@@ -346,6 +360,8 @@ pub enum SettingsDialogEvent {
     CheckForUpdates,
     DownloadUpdate,
     InstallUpdate,
+    RegisterInPath,
+    UnregisterFromPath,
 }
 
 /// Output from SettingsDialog
