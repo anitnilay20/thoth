@@ -46,6 +46,9 @@ impl ErrorRecovery {
             ThothError::SettingsLoadError { .. } => RecoveryAction::ClearError,
             ThothError::SettingsSaveError { .. } => RecoveryAction::ShowError,
 
+            // PATH registry errors - show and continue
+            ThothError::PathRegistryError { .. } => RecoveryAction::ShowError,
+
             // Unknown errors
             ThothError::Unknown { .. } => RecoveryAction::ShowError,
         }
@@ -70,6 +73,10 @@ impl ErrorRecovery {
             ThothError::UpdateDownloadError { .. } => {
                 Some("Check your internet connection and try again.".to_string())
             }
+            ThothError::PathRegistryError { .. } => Some(
+                "You may need administrator privileges or manually add Thoth to your PATH."
+                    .to_string(),
+            ),
             _ => None,
         }
     }

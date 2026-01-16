@@ -29,6 +29,9 @@ pub enum ThothError {
     SettingsLoadError { reason: String },
     SettingsSaveError { reason: String },
 
+    // PATH registry errors
+    PathRegistryError { reason: String },
+
     // Generic/unknown errors
     Unknown { message: String },
 }
@@ -97,6 +100,11 @@ impl std::fmt::Display for ThothError {
             }
             ThothError::SettingsSaveError { reason } => {
                 write!(f, "Failed to save settings: {}", reason)
+            }
+
+            // PATH registry errors
+            ThothError::PathRegistryError { reason } => {
+                write!(f, "Failed to register PATH: {}", reason)
             }
 
             // Generic

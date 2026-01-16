@@ -254,6 +254,7 @@ fn test_advanced_tab_renders() {
             advanced::AdvancedTabProps {
                 dev_settings: &dev_settings,
                 theme_colors: &theme_colors,
+                is_in_path: false,
             },
         );
 
@@ -269,6 +270,10 @@ fn test_advanced_tab_profiler_event() {
     match event {
         advanced::AdvancedTabEvent::ShowProfilerChanged(enabled) => {
             assert!(enabled);
+        }
+        advanced::AdvancedTabEvent::RegisterInPath
+        | advanced::AdvancedTabEvent::UnregisterFromPath => {
+            panic!("Expected ShowProfilerChanged event");
         }
     }
 }

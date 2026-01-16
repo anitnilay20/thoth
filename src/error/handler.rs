@@ -81,6 +81,14 @@ impl ErrorHandler {
                 format!("Could not save settings:\n{}", reason)
             }
 
+            // PATH registry errors
+            ThothError::PathRegistryError { reason } => {
+                format!(
+                    "Could not modify system PATH:\n{}\n\nYou may need to add Thoth to your PATH manually.",
+                    reason
+                )
+            }
+
             // Generic
             ThothError::Unknown { message } => {
                 format!("An unexpected error occurred:\n{}", message)
@@ -121,6 +129,9 @@ impl ErrorHandler {
             // Settings errors - recoverable
             ThothError::SettingsLoadError { .. } => true,
             ThothError::SettingsSaveError { .. } => true,
+
+            // PATH registry errors - recoverable
+            ThothError::PathRegistryError { .. } => true,
 
             // Unknown errors - assume not recoverable
             ThothError::Unknown { .. } => false,
