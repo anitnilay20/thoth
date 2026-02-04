@@ -34,6 +34,10 @@ path = "src/lib.rs"
 name = "thoth"
 path = "src/main.rs"
 
+[profile.release]
+codegen-units = 1
+lto = true
+
 # cargo-packager configuration (stable cross-platform bundler)
 [package.metadata.packager]
 product_name = "Thoth"
