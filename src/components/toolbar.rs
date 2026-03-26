@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use eframe::egui;
-use rfd::FileDialog;
 
 use crate::{
     components::{
@@ -10,6 +9,7 @@ use crate::{
     },
     file::lazy_loader::FileType,
     shortcuts::KeyboardShortcuts,
+    app::pick_file,
 };
 
 #[derive(Default)]
@@ -199,9 +199,7 @@ impl Toolbar {
                     )
                     .clicked
                     {
-                        if let Some(path) = FileDialog::new()
-                            .add_filter("JSON", &["json", "ndjson"])
-                            .pick_file()
+                        if let Some(path) = pick_file()
                         {
                             let file_type = infer_file_type(&path).unwrap_or(*props.file_type);
                             events.push(ToolbarEvent::FileOpen { path, file_type });

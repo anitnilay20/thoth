@@ -24,3 +24,6 @@ target
 
 # Claude Code local files
 .claude/
+
+# Compiled plugin artifacts (built by build.rs)
+assets/plugins/**/*.wasm

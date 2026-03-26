@@ -7,23 +7,14 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 
 use eframe::{NativeOptions, egui};
 use std::path::PathBuf;
-use thoth::error::Result;
-
-use crate::helpers::load_icon;
-
-mod app;
-mod components;
-mod constants;
-mod error;
-mod file;
-mod helpers;
-mod platform;
-mod search;
-mod settings;
-mod shortcuts;
-mod state;
-mod theme;
-mod update;
+use thoth::{
+    PLUGIN_MANAGER,
+    app,
+    error::Result,
+    helpers::load_icon,
+    plugin::manager::PluginManager,
+    settings,
+};
 
 /// Parse command-line arguments to extract file path
 fn parse_file_argument(args: &[String]) -> Result<Option<PathBuf>> {
@@ -89,10 +80,18 @@ fn main() -> Result<()> {
         settings::Settings::default()
     });
 
-    // // If in settings mode, launch settings window instead of main app
-    // if is_settings_mode {
-    //     return run_settings_window(settings);
-    // }
+    // Load Plugins
+    PLUGIN_MANAGER
+        .set(
+            PluginManager::init()
+                .map_err(|err| {
+                    eprintln!("Warning Unable to load plugins: {}", err);
+                })
+                .ok(),
+        )
+        .unwrap();
+
+    println!("{:?}", PLUGIN_MANAGER);
 
     let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
 

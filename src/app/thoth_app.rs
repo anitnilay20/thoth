@@ -1,7 +1,7 @@
 use eframe::{App, Frame, egui};
 use std::path::PathBuf;
 
-use crate::{components, components::traits::ContextComponent, settings, state};
+use crate::{app::pick_file, components::{self, traits::ContextComponent}, settings, state};
 
 use super::{
     ShortcutAction, persistent_state::PersistentState, search_handler::SearchHandler,
@@ -778,10 +778,7 @@ impl ThothApp {
                 }
                 components::sidebar::SidebarEvent::OpenFilePicker => {
                     // Open file picker dialog
-                    use rfd::FileDialog;
-                    if let Some(path) = FileDialog::new()
-                        .add_filter("JSON", &["json", "ndjson"])
-                        .pick_file()
+                    if let Some(path) = pick_file()
                     {
                         // Add to recent files
                         if let Some(path_str) = path.to_str() {

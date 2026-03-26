@@ -14,3 +14,4 @@ pub mod sidebar;
 pub mod status_bar;
 pub mod toolbar;
 pub mod traits;
+pub mod card;

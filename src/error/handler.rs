@@ -7,7 +7,6 @@ impl ErrorHandler {
     /// Get a user-friendly error message for display in the UI
     pub fn get_user_message(error: &ThothError) -> String {
         match error {
-            // File errors - user-friendly messages
             ThothError::FileNotFound { path } => {
                 format!("Could not find the file:\n{}", path.display())
             }
@@ -30,8 +29,6 @@ impl ErrorHandler {
                     expected
                 )
             }
-
-            // JSON errors
             ThothError::JsonParseError { line, reason } => {
                 if let Some(line) = line {
                     format!("Invalid JSON at line {}:\n{}", line, reason)
@@ -42,21 +39,15 @@ impl ErrorHandler {
             ThothError::InvalidJsonStructure { reason } => {
                 format!("The JSON structure is not valid:\n{}", reason)
             }
-
-            // Search errors
             ThothError::SearchError { query, reason } => {
                 format!("Search failed for '{}':\n{}", query, reason)
             }
-
-            // UI errors
             ThothError::UIRenderError { component, reason } => {
                 format!("Display error in {}:\n{}", component, reason)
             }
             ThothError::StateError { reason } => {
                 format!("Application state error:\n{}", reason)
             }
-
-            // Update errors
             ThothError::UpdateCheckError { reason } => {
                 format!(
                     "Could not check for updates:\n{}\n\nPlease check your internet connection.",
@@ -69,8 +60,6 @@ impl ErrorHandler {
             ThothError::UpdateInstallError { reason } => {
                 format!("Failed to install update:\n{}", reason)
             }
-
-            // Settings errors
             ThothError::SettingsLoadError { reason } => {
                 format!(
                     "Could not load settings:\n{}\n\nDefault settings will be used.",
@@ -80,16 +69,21 @@ impl ErrorHandler {
             ThothError::SettingsSaveError { reason } => {
                 format!("Could not save settings:\n{}", reason)
             }
-
-            // PATH registry errors
             ThothError::PathRegistryError { reason } => {
                 format!(
                     "Could not modify system PATH:\n{}\n\nYou may need to add Thoth to your PATH manually.",
                     reason
                 )
             }
-
-            // Generic
+            ThothError::PluginDirectoryInvalid { dir } => {
+                format!("Unable to find Plugins Directory at {}", dir)
+            }
+            ThothError::PluginFileInvalid { path } => {
+                format!("Invalid Plugin File: {}", path.display())
+            }
+            ThothError::PluginLoadError { path, reason } => {
+                format!("Plugin Load Error: {} - {}", path.display(), reason)
+            }
             ThothError::Unknown { message } => {
                 format!("An unexpected error occurred:\n{}", message)
             }
@@ -132,6 +126,11 @@ impl ErrorHandler {
 
             // PATH registry errors - recoverable
             ThothError::PathRegistryError { .. } => true,
+
+            //Plugins
+            ThothError::PluginDirectoryInvalid { .. } => true,
+            ThothError::PluginFileInvalid { .. } => true,
+            ThothError::PluginLoadError { .. } => true,
 
             // Unknown errors - assume not recoverable
             ThothError::Unknown { .. } => false,

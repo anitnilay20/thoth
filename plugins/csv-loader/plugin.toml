@@ -1,0 +1,9 @@
+id          = "com.thoth.csv-loader"
+name        = "CSV Loader"
+version     = "0.1.0"
+description = "Load CSV and TSV files as tabular JSON records"
+author      = "Thoth contributors"
+capabilities = ["file-loader"]
+
+[file-loader]
+supported-extensions = ["csv", "tsv"]

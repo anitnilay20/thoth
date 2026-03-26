@@ -14,6 +14,7 @@ mod advanced;
 mod appearance;
 mod general;
 mod performance;
+mod plugins;
 mod shortcuts;
 mod updates;
 mod viewer;
@@ -29,6 +30,7 @@ pub use shortcuts::ShortcutsTab;
 pub use updates::UpdatesTab;
 pub use viewer::ViewerTab;
 
+use crate::components::settings_dialog::plugins::{PluginsTab, PluginsTabProps};
 use crate::components::traits::ContextComponent;
 use crate::settings::Settings;
 use crate::theme::{self, ThemeColors};
@@ -69,6 +71,7 @@ pub enum SettingsTab {
     Performance,
     Viewer,
     Shortcuts,
+    Plugins,
     Updates,
     Advanced,
 }
@@ -81,6 +84,7 @@ impl SettingsTab {
             SettingsTab::Performance => "Performance",
             SettingsTab::Viewer => "Viewer",
             SettingsTab::Shortcuts => "Shortcuts",
+            SettingsTab::Plugins => "Plugins",
             SettingsTab::Updates => "Updates",
             SettingsTab::Advanced => "Advanced",
         }
@@ -93,6 +97,7 @@ impl SettingsTab {
             SettingsTab::Performance => egui_phosphor::regular::GAUGE,
             SettingsTab::Viewer => egui_phosphor::regular::EYE,
             SettingsTab::Shortcuts => egui_phosphor::regular::KEYBOARD,
+            SettingsTab::Plugins => egui_phosphor::regular::PLUGS,
             SettingsTab::Updates => egui_phosphor::regular::ARROWS_CLOCKWISE,
             SettingsTab::Advanced => egui_phosphor::regular::WRENCH,
         }
@@ -105,6 +110,7 @@ impl SettingsTab {
             SettingsTab::Performance,
             SettingsTab::Viewer,
             SettingsTab::Shortcuts,
+            SettingsTab::Plugins,
             SettingsTab::Updates,
             SettingsTab::Advanced,
         ]
@@ -275,6 +281,9 @@ impl SettingsDialog {
                     },
                 );
                 // No events to handle yet - shortcuts are read-only
+            }
+            SettingsTab::Plugins => {
+                let _output = PluginsTab::render(ui, PluginsTabProps {});
             }
             SettingsTab::Updates => {
                 let output = UpdatesTab::render(
@@ -508,73 +517,77 @@ impl ContextComponent for SettingsDialog {
                     .show(ctx, |ui| {
                         ui.add_space(16.0);
 
-                        // Render navigation tabs with icons
-                        for tab in SettingsTab::all() {
-                            let is_selected = if let Ok(current_tab) = selected_tab.lock() {
-                                *current_tab == *tab
-                            } else {
-                                false
-                            };
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                // Render navigation tabs with icons
+                                for tab in SettingsTab::all() {
+                                    let is_selected = if let Ok(current_tab) = selected_tab.lock() {
+                                        *current_tab == *tab
+                                    } else {
+                                        false
+                                    };
 
-                            let bg_color = if is_selected {
-                                theme_colors.surface1
-                            } else {
-                                egui::Color32::TRANSPARENT
-                            };
+                                    let bg_color = if is_selected {
+                                        theme_colors.surface1
+                                    } else {
+                                        egui::Color32::TRANSPARENT
+                                    };
 
-                            let hover_color = if !is_selected {
-                                theme_colors.surface0
-                            } else {
-                                theme_colors.surface1
-                            };
+                                    let hover_color = if !is_selected {
+                                        theme_colors.surface0
+                                    } else {
+                                        theme_colors.surface1
+                                    };
 
-                            ui.vertical(|ui| {
-                                let (rect, response) = ui.allocate_exact_size(
-                                    egui::vec2(ui.available_width(), 56.0),
-                                    egui::Sense::click(),
-                                );
+                                    ui.vertical(|ui| {
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            egui::vec2(ui.available_width(), 56.0),
+                                            egui::Sense::click(),
+                                        );
 
-                                // Draw background
-                                let bg = if response.hovered() {
-                                    hover_color
-                                } else {
-                                    bg_color
-                                };
+                                        // Draw background
+                                        let bg = if response.hovered() {
+                                            hover_color
+                                        } else {
+                                            bg_color
+                                        };
 
-                                ui.painter().rect_filled(rect, 4.0, bg);
+                                        ui.painter().rect_filled(rect, 4.0, bg);
 
-                                // Draw icon and label
-                                let icon_pos = rect.center_top() + egui::vec2(0.0, 12.0);
-                                ui.painter().text(
-                                    icon_pos,
-                                    egui::Align2::CENTER_TOP,
-                                    tab.icon(),
-                                    egui::FontId::proportional(20.0),
-                                    theme_colors.text,
-                                );
+                                        // Draw icon and label
+                                        let icon_pos = rect.center_top() + egui::vec2(0.0, 12.0);
+                                        ui.painter().text(
+                                            icon_pos,
+                                            egui::Align2::CENTER_TOP,
+                                            tab.icon(),
+                                            egui::FontId::proportional(20.0),
+                                            theme_colors.text,
+                                        );
 
-                                let label_pos = icon_pos + egui::vec2(0.0, 24.0);
-                                ui.painter().text(
-                                    label_pos,
-                                    egui::Align2::CENTER_TOP,
-                                    tab.label(),
-                                    egui::FontId::proportional(13.0),
-                                    theme_colors.text,
-                                );
+                                        let label_pos = icon_pos + egui::vec2(0.0, 24.0);
+                                        ui.painter().text(
+                                            label_pos,
+                                            egui::Align2::CENTER_TOP,
+                                            tab.label(),
+                                            egui::FontId::proportional(13.0),
+                                            theme_colors.text,
+                                        );
 
-                                if response.hovered() {
-                                    ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                                        if response.hovered() {
+                                            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                                        }
+
+                                        if response.clicked() {
+                                            if let Ok(mut current_tab) = selected_tab.lock() {
+                                                *current_tab = *tab;
+                                            }
+                                        }
+                                    });
+
+                                    ui.add_space(8.0);
                                 }
-
-                                if response.clicked() {
-                                    if let Ok(mut current_tab) = selected_tab.lock() {
-                                        *current_tab = *tab;
-                                    }
-                                }
-                            });
-
-                            ui.add_space(8.0);
-                        }
+                            })
                     });
 
                 // Central content area
