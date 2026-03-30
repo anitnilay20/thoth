@@ -31,7 +31,8 @@ pub use updates::UpdatesTab;
 pub use viewer::ViewerTab;
 
 use crate::components::settings_dialog::plugins::{PluginsTab, PluginsTabProps};
-use crate::components::traits::ContextComponent;
+use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
+use crate::components::traits::{ContextComponent, StatelessComponent};
 use crate::settings::Settings;
 use crate::theme::{self, ThemeColors};
 use eframe::egui;
@@ -283,7 +284,18 @@ impl SettingsDialog {
                 // No events to handle yet - shortcuts are read-only
             }
             SettingsTab::Plugins => {
-                let _output = PluginsTab::render(ui, PluginsTabProps {});
+                let output = PluginsTab::render(ui, PluginsTabProps {
+                    plugin_setting: settings.plugins.clone(),
+                });
+
+                for event in output.events {
+                    use plugins::PluginsTabEvent;
+                    match event {
+                        PluginsTabEvent::EnablePlugins(enabled) => {
+                            settings.plugins.enabled = enabled;
+                        }
+                    }
+                }
             }
             SettingsTab::Updates => {
                 let output = UpdatesTab::render(
@@ -454,14 +466,19 @@ impl ContextComponent for SettingsDialog {
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     // Edit settings.toml button
-                                    let btn = ui.button(
-                                        egui::RichText::new("Edit settings in settings.toml")
-                                            .size(13.0),
+                                    let btn = Button::render(
+                                        ui,
+                                        ButtonProps {
+                                            label: "Edit settings in settings.toml".to_string(),
+                                            button_type: ButtonType::Text,
+                                            color: ButtonColor::Default,
+                                            hover_text: None,
+                                            size: Some(13.0),
+                                            width: None,
+                                            height: None,
+                                        },
                                     );
-                                    if btn.hovered() {
-                                        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-                                    }
-                                    if btn.clicked() {
+                                    if btn.clicked {
                                         if let Ok(path) = Settings::settings_file_path() {
                                             let _ = open::that(path);
                                         }
@@ -480,11 +497,19 @@ impl ContextComponent for SettingsDialog {
                     )
                     .show(ctx, |ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let apply_btn = ui.button(egui::RichText::new("Apply").size(14.0));
-                            if apply_btn.hovered() {
-                                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-                            }
-                            if apply_btn.clicked() {
+                            let apply_btn = Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: "Apply".to_string(),
+                                    button_type: ButtonType::Elevated,
+                                    color: ButtonColor::Success,
+                                    hover_text: None,
+                                    size: Some(14.0),
+                                    width: None,
+                                    height: None,
+                                },
+                            );
+                            if apply_btn.clicked {
                                 if let Ok(settings) = draft_settings.lock() {
                                     new_settings = Some(settings.clone());
                                 }
@@ -492,11 +517,19 @@ impl ContextComponent for SettingsDialog {
 
                             ui.add_space(8.0);
 
-                            let cancel_btn = ui.button(egui::RichText::new("Cancel").size(14.0));
-                            if cancel_btn.hovered() {
-                                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-                            }
-                            if cancel_btn.clicked() {
+                            let cancel_btn = Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: "Cancel".to_string(),
+                                    button_type: ButtonType::Elevated,
+                                    color: ButtonColor::Default,
+                                    hover_text: None,
+                                    size: Some(14.0),
+                                    width: None,
+                                    height: None,
+                                },
+                            );
+                            if cancel_btn.clicked {
                                 if let Ok(mut closed) = viewport_closed.lock() {
                                     *closed = true;
                                 }

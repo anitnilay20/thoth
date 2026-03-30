@@ -7,14 +7,14 @@
 mod bindings;
 
 use std::cell::RefCell;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 
 use bindings::exports::thoth::plugin::{
-    file_loader::Guest as FileLoaderGuest,
-    plugin_lifecycle::Guest as LifecycleGuest,
+    file_loader::Guest as FileLoaderGuest, plugin_lifecycle::Guest as LifecycleGuest,
     plugin_meta::Guest as MetaGuest,
 };
 use bindings::thoth::plugin::types::{Capability, PluginError};
-use csv::ReaderBuilder;
 use serde_json::{Map, Value};
 
 struct CsvPlugin;
@@ -23,7 +23,7 @@ struct CsvPlugin;
 
 struct State {
     headers: Vec<String>,
-    records: Vec<Vec<String>>,
+    file: PathBuf,
 }
 
 thread_local! {
@@ -35,13 +35,13 @@ thread_local! {
 impl MetaGuest for CsvPlugin {
     fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
         bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-            id:           "com.thoth.csv-loader".to_string(),
-            name:         "CSV Loader".to_string(),
-            version:      "0.1.0".to_string(),
-            description:  "Load CSV and TSV files as tabular JSON records".to_string(),
+            id: "com.thoth.csv-loader".to_string(),
+            name: "CSV Loader".to_string(),
+            version: "0.1.0".to_string(),
+            description: "Load CSV and TSV files as tabular JSON records".to_string(),
             capabilities: vec![Capability::FileLoader],
-            author:       Some("Thoth contributors".to_string()),
-            homepage:     None,
+            author: Some("Thoth contributors".to_string()),
+            homepage: None,
         }
     }
 }
@@ -64,50 +64,50 @@ impl FileLoaderGuest for CsvPlugin {
     }
 
     fn open(path: String) -> Result<u64, PluginError> {
-        let delimiter = if path.ends_with(".tsv") { b'\t' } else { b',' };
+        let file = std::fs::File::open(&path).map_err(|e| plugin_err(1, e.to_string()))?;
+        let mut reader = BufReader::new(file);
+        let mut buf = String::new();
+        reader
+            .read_line(&mut buf)
+            .map_err(|err| plugin_err(1, err.to_string()))?;
+        let headers: Vec<String> = buf.trim_end().split(',').map(String::from).collect();
 
-        let mut reader = ReaderBuilder::new()
-            .delimiter(delimiter)
-            .from_path(&path)
-            .map_err(|e: csv::Error| plugin_err(1, e.to_string()))?;
-
-        let headers: Vec<String> = reader
-            .headers()
-            .map_err(|e: csv::Error| plugin_err(1, e.to_string()))?
-            .iter()
-            .map(str::to_owned)
-            .collect();
-
-        let records: Vec<Vec<String>> = reader
-            .records()
-            .map(|r: Result<csv::StringRecord, csv::Error>| {
-                r.map(|row: csv::StringRecord| row.iter().map(str::to_owned).collect())
-                    .map_err(|e| plugin_err(1, e.to_string()))
+        STATE.with(|s| {
+            *s.borrow_mut() = Some(State {
+                headers,
+                file: PathBuf::from(path),
             })
-            .collect::<Result<_, _>>()?;
-
-        let count = records.len() as u64;
-        STATE.with(|s| *s.borrow_mut() = Some(State { headers, records }));
-        Ok(count)
+        });
+        Ok(reader.lines().count() as u64)
     }
 
     fn get(idx: u64) -> Result<String, PluginError> {
         STATE.with(|s| {
             let guard = s.borrow();
             let state = guard.as_ref().ok_or(plugin_err(2, "file not opened"))?;
-            let row = state
-                .records
-                .get(idx as usize)
-                .ok_or(plugin_err(2, "index out of range"))?;
 
-            let obj: Map<String, Value> = state
-                .headers
-                .iter()
-                .zip(row.iter())
-                .map(|(k, v): (&String, &String)| (k.clone(), Value::String(v.clone())))
-                .collect();
+            let file =
+                std::fs::File::open(&state.file).map_err(|e| plugin_err(1, e.to_string()))?;
+            let reader = BufReader::new(file);
 
-            serde_json::to_string(&Value::Object(obj)).map_err(|e| plugin_err(3, e.to_string()))
+            for (index, line_result) in reader.lines().enumerate() {
+                // Skip the header line (index 0) and check if we've reached the desired record index.
+                if index - 1 == idx as usize {
+                    let line = line_result.map_err(|e| plugin_err(1, e.to_string()))?;
+                    let values: Vec<String> =
+                        line.trim_end().split(',').map(String::from).collect();
+                    let obj: Map<String, Value> = state
+                        .headers
+                        .iter()
+                        .zip(values.iter())
+                        .map(|(k, v): (&String, &String)| (k.clone(), Value::String(v.clone())))
+                        .collect();
+                    return serde_json::to_string(&Value::Object(obj))
+                        .map_err(|e| plugin_err(3, e.to_string()));
+                }
+            }
+
+            Err(plugin_err(2, "record index out of bounds"))
         })
     }
 
@@ -122,5 +122,8 @@ bindings::export!(CsvPlugin with_types_in bindings);
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 fn plugin_err(code: u32, message: impl Into<String>) -> PluginError {
-    PluginError { code, message: message.into() }
+    PluginError {
+        code,
+        message: message.into(),
+    }
 }

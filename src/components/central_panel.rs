@@ -1,7 +1,7 @@
 use crate::components::file_viewer::FileViewer;
 use crate::components::traits::ContextComponent;
 use crate::error::{ErrorHandler, ThothError};
-use crate::file::loaders::FileType;
+use crate::file::loaders::FileKind;
 use crate::search;
 use eframe::egui;
 use std::path::PathBuf;
@@ -9,7 +9,7 @@ use std::path::PathBuf;
 /// Props passed down to the CentralPanel (immutable, one-way binding)
 pub struct CentralPanelProps<'a> {
     pub file_path: &'a Option<PathBuf>,
-    pub file_type: FileType,
+    pub file_type: FileKind,
     pub error: &'a Option<ThothError>,
     pub search_message: Option<search::SearchMessage>,
     pub cache_size: usize,
@@ -20,12 +20,12 @@ pub struct CentralPanelProps<'a> {
 pub enum CentralPanelEvent {
     FileOpened {
         path: PathBuf,
-        file_type: FileType,
+        file_type: FileKind,
         total_items: usize,
     },
     FileOpenError(ThothError),
     FileClosed,
-    FileTypeChanged(FileType),
+    FileTypeChanged(FileKind),
     ErrorCleared,
 }
 
@@ -37,7 +37,7 @@ pub struct CentralPanelOutput {
 pub struct CentralPanel {
     file_viewer: FileViewer,
     loaded_path: Option<PathBuf>,
-    loaded_type: Option<FileType>,
+    loaded_type: Option<FileKind>,
     last_open_err: Option<ThothError>,
     searching: bool,
 }

@@ -2,6 +2,8 @@ use eframe::egui;
 
 use crate::PLUGIN_MANAGER;
 use crate::components::card::{Card, CardIcon, CardProps};
+use crate::components::toggle_switch::{self, ToggleSwitchProps};
+use crate::settings::PluginSettings;
 use crate::{
     components::traits::StatelessComponent,
     plugin::{Capability, Plugin},
@@ -9,16 +11,26 @@ use crate::{
 
 pub struct PluginsTab;
 
-pub struct PluginsTabProps {}
+pub struct PluginsTabProps {
+    pub plugin_setting: PluginSettings,
+}
 
-pub struct PluginsTabOutput {}
+pub enum PluginsTabEvent {
+    EnablePlugins(bool),
+}
+
+pub struct PluginsTabOutput {
+    pub events: Vec<PluginsTabEvent>,
+}
 
 impl StatelessComponent for PluginsTab {
     type Props<'a> = PluginsTabProps;
 
     type Output = PluginsTabOutput;
 
-    fn render(ui: &mut eframe::egui::Ui, _props: Self::Props<'_>) -> Self::Output {
+    fn render(ui: &mut eframe::egui::Ui, props: Self::Props<'_>) -> Self::Output {
+        let mut pluggin_tab_output = PluginsTabOutput { events: Vec::new() };
+
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
@@ -27,14 +39,35 @@ impl StatelessComponent for PluginsTab {
                     ui.add_space(24.0);
                     ui.vertical(|ui| {
                         ui.set_max_width(ui.available_width() - 24.0);
-                        ui.heading("Plugins");
+                        ui.horizontal(|ui| {
+                            ui.heading("Plugins");
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.add_space(24.0);
+                                let toggle_switch = toggle_switch::ToggleSwitch::render(
+                                    ui,
+                                    ToggleSwitchProps {
+                                        enabled: props.plugin_setting.enabled,
+                                        hover_text: Some("Enable or disable all plugins".into()),
+                                    },
+                                );
+                                for event in toggle_switch.events {
+                                    match event {
+                                        toggle_switch::ToggleSwitchEvent::Toggled(toggled) => {
+                                            pluggin_tab_output
+                                                .events
+                                                .push(PluginsTabEvent::EnablePlugins(toggled));
+                                        }
+                                    }
+                                }
+                            });
+                        });
                         ui.add_space(16.0);
                         Self::render_all_capability(ui)
-                    })
+                    });
                 });
             });
 
-        PluginsTabOutput {}
+        pluggin_tab_output
     }
 }
 

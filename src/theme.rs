@@ -411,3 +411,27 @@ pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
     // Use widget hovered state color which we set from theme.surface1
     ui.visuals().widgets.hovered.bg_fill
 }
+
+/// Determine if white or black text provides better contrast against a background color
+/// Returns Color32::WHITE if background is dark, Color32::BLACK if background is light
+pub fn get_contrast_text_color(bg_color: Color32) -> Color32 {
+    // Calculate luminance using relative luminance formula from WCAG 2.0
+    // https://www.w3.org/TR/WCAG20/#relativeluminancedef
+    let r = bg_color.r() as f32 / 255.0;
+    let g = bg_color.g() as f32 / 255.0;
+    let b = bg_color.b() as f32 / 255.0;
+
+    let r = if r <= 0.03928 { r / 12.92 } else { ((r + 0.055) / 1.055).powf(2.4) };
+    let g = if g <= 0.03928 { g / 12.92 } else { ((g + 0.055) / 1.055).powf(2.4) };
+    let b = if b <= 0.03928 { b / 12.92 } else { ((b + 0.055) / 1.055).powf(2.4) };
+
+    let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    // If luminance > 0.5, background is light, use black text
+    // Otherwise, background is dark, use white text
+    if luminance > 0.5 {
+        Color32::BLACK
+    } else {
+        Color32::WHITE
+    }
+}

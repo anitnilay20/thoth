@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::components::breadcrumbs::{Breadcrumbs, BreadcrumbsEvent, BreadcrumbsProps};
 use crate::components::traits::{ContextComponent, StatelessComponent};
-use crate::file::loaders::FileType;
+use crate::file::loaders::FileKind;
 
 /// Status bar component displaying file info and application status
 #[derive(Default)]
@@ -15,7 +15,7 @@ pub struct StatusBarProps<'a> {
     pub file_path: Option<&'a Path>,
 
     /// File type
-    pub file_type: &'a FileType,
+    pub file_type: &'a FileKind,
 
     /// Total item count
     pub item_count: usize,
@@ -167,11 +167,14 @@ impl ContextComponent for StatusBar {
 
                     // File type with icon
                     let file_type_icon = match props.file_type {
-                        crate::file::lazy_loader::FileType::Json => {
+                        FileKind::Json => {
                             egui_phosphor::regular::BRACKETS_CURLY
                         }
-                        crate::file::lazy_loader::FileType::Ndjson => {
+                        FileKind::Ndjson => {
                             egui_phosphor::regular::LIST_DASHES
+                        }
+                        FileKind::Plugin => {
+                            egui_phosphor::regular::PLUG
                         }
                     };
                     ui.label(format!("{} {:?}", file_type_icon, props.file_type));

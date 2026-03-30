@@ -10,7 +10,6 @@ crate-type = ["cdylib"]   # required for WASM component output
 # Runtime support for cargo-component generated bindings (must match the version
 # cargo-component uses internally — check with: head -3 src/bindings.rs)
 wit-bindgen-rt = "0.41"
-csv            = "1"
 serde_json     = "1"
 
 [package.metadata.component]

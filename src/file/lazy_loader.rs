@@ -8,4 +8,4 @@
 // - loaders/mod.rs: Common types and FileLoader interface
 
 #[allow(unused_imports)]
-pub use crate::file::loaders::{FileType, LazyJsonFile, load_file_auto};
+pub use crate::file::loaders::{FileKind, FileType, load_file_auto};

@@ -2,10 +2,10 @@ use std::path::Path;
 
 use eframe::egui::{self, Color32, CornerRadius, Frame, Layout, Sense, TextureHandle, Vec2};
 
+use crate::components::toggle_switch::{ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps};
+use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 use crate::components::traits::StatelessComponent;
 use crate::theme::{Theme, ThemeColors};
-
-// ── Icon ──────────────────────────────────────────────────────────────────────
 
 pub enum CardIcon<'a> {
     /// Render a colored circle placeholder (default when no image is available)
@@ -15,8 +15,6 @@ pub enum CardIcon<'a> {
     /// frames hit the egui `TextureHandle` cache with no I/O or allocation.
     Path(&'a Path),
 }
-
-// ── Action definition ─────────────────────────────────────────────────────────
 
 pub struct CardAction<'a> {
     pub label: &'a str,
@@ -30,8 +28,6 @@ pub enum CardActionVariant {
     Danger,
 }
 
-// ── Props ─────────────────────────────────────────────────────────────────────
-
 pub struct CardProps<'a> {
     pub title: &'a str,
     pub subtitle: &'a str,
@@ -44,16 +40,16 @@ pub struct CardProps<'a> {
     pub actions: &'a [CardAction<'a>],
 }
 
-// ── Output ────────────────────────────────────────────────────────────────────
-
-pub struct CardOutput {
-    /// `true` when the toggle was clicked (only meaningful when `is_enabled` is `Some`)
-    pub toggled: bool,
-    /// Index into `props.actions` of the button that was clicked, if any
-    pub action_clicked: Option<usize>,
+pub enum CardEvent {
+    /// Emitted when the toggle switch (if shown) is toggled. The new value is provided.
+    Toggled(bool),
+    /// Emitted when an action button is clicked. The index of the clicked button is provided.
+    ActionClicked(usize),
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+pub struct CardOutput {
+    pub events: Vec<CardEvent>,
+}
 
 pub struct Card;
 
@@ -68,10 +64,7 @@ impl StatelessComponent for Card {
                 .unwrap_or_else(|| Theme::default().colors())
         });
 
-        let mut output = CardOutput {
-            toggled: false,
-            action_clicked: None,
-        };
+        let mut output = CardOutput { events: Vec::new() };
 
         Frame::new()
             .fill(colors.surface0)
@@ -80,8 +73,7 @@ impl StatelessComponent for Card {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     // Icon — 48×48 box
-                    let (rect, _) =
-                        ui.allocate_exact_size(Vec2::new(48.0, 48.0), Sense::hover());
+                    let (rect, _) = ui.allocate_exact_size(Vec2::new(48.0, 48.0), Sense::hover());
                     match &props.icon {
                         CardIcon::Color(color) => {
                             ui.painter().rect_filled(
@@ -93,8 +85,12 @@ impl StatelessComponent for Card {
                         }
                         CardIcon::Path(path) => {
                             let texture = load_icon_texture(ui.ctx(), path);
-                            ui.put(rect, egui::Image::new(&texture).fit_to_exact_size(rect.size())
-                                .corner_radius(CornerRadius::same(10)));
+                            ui.put(
+                                rect,
+                                egui::Image::new(&texture)
+                                    .fit_to_exact_size(rect.size())
+                                    .corner_radius(CornerRadius::same(10)),
+                            );
                         }
                     }
 
@@ -110,21 +106,24 @@ impl StatelessComponent for Card {
                                     .strong(),
                             );
                             if let Some(enabled) = props.is_enabled {
-                                ui.with_layout(
-                                    Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if toggle_switch(
-                                            ui,
+                                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let toggle_switch = ToggleSwitch::render(
+                                        ui,
+                                        ToggleSwitchProps {
                                             enabled,
-                                            colors.success,
-                                            colors.surface2,
-                                        )
-                                        .clicked()
-                                        {
-                                            output.toggled = true;
+                                            hover_text: Some(
+                                                "Enable or disable this plugin".into(),
+                                            ),
+                                        },
+                                    );
+                                    for events in toggle_switch.events {
+                                        match events {
+                                            ToggleSwitchEvent::Toggled(toggled) => {
+                                                output.events.push(CardEvent::Toggled(toggled))
+                                            }
                                         }
-                                    },
-                                );
+                                    }
+                                });
                             }
                         });
 
@@ -147,27 +146,31 @@ impl StatelessComponent for Card {
 
                         if !props.actions.is_empty() {
                             ui.add_space(8.0);
-                            ui.with_layout(
-                                Layout::right_to_left(egui::Align::Min),
-                                |ui| {
-                                    // Right-to-left layout: iterate in reverse so buttons
-                                    // appear in the order the caller declared them.
-                                    for (i, action) in props.actions.iter().enumerate().rev() {
-                                        let label_color = match action.variant {
-                                            CardActionVariant::Primary => colors.text,
-                                            CardActionVariant::Danger => colors.error,
-                                        };
-                                        let btn = egui::Button::new(
-                                            egui::RichText::new(action.label).color(label_color),
-                                        )
-                                        .fill(colors.surface1)
-                                        .corner_radius(6.0);
-                                        if ui.add(btn).clicked() {
-                                            output.action_clicked = Some(i);
-                                        }
+                            ui.with_layout(Layout::right_to_left(egui::Align::Min), |ui| {
+                                // Right-to-left layout: iterate in reverse so buttons
+                                // appear in the order the caller declared them.
+                                for (i, action) in props.actions.iter().enumerate().rev() {
+                                    let button_color = match action.variant {
+                                        CardActionVariant::Primary => ButtonColor::Default,
+                                        CardActionVariant::Danger => ButtonColor::Danger,
+                                    };
+                                    let btn = Button::render(
+                                        ui,
+                                        ButtonProps {
+                                            label: action.label.to_string(),
+                                            button_type: ButtonType::Elevated,
+                                            color: button_color,
+                                            hover_text: None,
+                                            size: None,
+                                            width: None,
+                                            height: None,
+                                        },
+                                    );
+                                    if btn.clicked {
+                                        output.events.push(CardEvent::ActionClicked(i));
                                     }
-                                },
-                            );
+                                }
+                            });
                         }
                     });
                 });
@@ -177,6 +180,7 @@ impl StatelessComponent for Card {
     }
 }
 
+// TODO: Move load icon texture logic to a shared utility module if other components need it
 // ── Icon texture loader ───────────────────────────────────────────────────────
 
 /// Decode a PNG from `path` and upload it to the GPU as an egui texture.
@@ -210,31 +214,4 @@ fn decode_png_to_texture(ctx: &egui::Context, path: &Path) -> TextureHandle {
         color_image,
         egui::TextureOptions::LINEAR,
     )
-}
-
-// ── Toggle switch helper ──────────────────────────────────────────────────────
-
-/// Pill-shaped toggle. Returns a `Response` — check `.clicked()` to detect changes.
-fn toggle_switch(
-    ui: &mut egui::Ui,
-    enabled: bool,
-    on_color: Color32,
-    off_color: Color32,
-) -> egui::Response {
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(36.0, 20.0), Sense::click());
-
-    if ui.is_rect_visible(rect) {
-        let bg = if enabled { on_color } else { off_color };
-        ui.painter().rect_filled(rect, CornerRadius::same(10), bg);
-        let knob_x = if enabled {
-            rect.right() - 10.0
-        } else {
-            rect.left() + 10.0
-        };
-        ui.painter()
-            .circle_filled(egui::pos2(knob_x, rect.center().y), 8.0, Color32::WHITE);
-    }
-
-    response
 }

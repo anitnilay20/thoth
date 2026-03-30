@@ -14,7 +14,7 @@ use super::results::{
     FieldComponent, MatchFragment, MatchPreview, MatchTarget, SearchHit, SearchResults,
 };
 use crate::error::ThothError;
-use crate::file::loaders::{FileType, LazyJsonFile, load_file_auto};
+use crate::file::loaders::{FileKind, FileType, load_file_auto};
 
 const MAX_FRAGMENTS_PER_RECORD: usize = 64;
 const PREVIEW_CONTEXT_BYTES: usize = 36;
@@ -42,7 +42,7 @@ impl Search {
     pub fn start_scanning(
         &self,
         file: &Option<PathBuf>,
-        file_type: &FileType,
+        file_type: &FileKind,
     ) -> mpsc::Receiver<Search> {
         let (tx, rx) = mpsc::channel();
         let mut job = self.clone();
@@ -62,7 +62,7 @@ impl Search {
 
     /// Parallel substring scan over the file's records.
     /// Populates `self.results` with matching root indices, then sets `scanning = false`.
-    pub fn start_scanning_internal(&mut self, file: &Option<PathBuf>, _file_type: &FileType) {
+    pub fn start_scanning_internal(&mut self, file: &Option<PathBuf>, _file_type: &FileKind) {
         self.scanning = true;
         self.results.clear();
         self.error = None;
@@ -134,7 +134,7 @@ impl Search {
 }
 
 fn parallel_scan(
-    store: Arc<LazyJsonFile>,
+    store: Arc<FileType>,
     query: &str,
     match_case: bool,
 ) -> crate::error::Result<SearchResults> {
@@ -190,7 +190,7 @@ fn parallel_scan(
 }
 
 fn jsonpath_scan(
-    store: Arc<LazyJsonFile>,
+    store: Arc<FileType>,
     query: &JsonPathQuery,
     match_case: bool,
 ) -> crate::error::Result<SearchResults> {

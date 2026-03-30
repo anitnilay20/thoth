@@ -1,5 +1,7 @@
 use crate::components::traits::StatelessComponent;
+use crate::theme::ThemeColors;
 use eframe::egui;
+use egui::Color32;
 
 // Default button and icon sizes
 const DEFAULT_BUTTON_SIZE: f32 = 20.0;
@@ -37,12 +39,17 @@ impl StatelessComponent for IconButton {
 
     fn render(ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         // Get theme colors
+        let colors = ui.ctx().memory(|mem| {
+            mem.data
+                .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
+                .unwrap_or_else(|| crate::theme::Theme::default().colors())
+        });
+
         let base_color = if props.disabled {
             ui.style().visuals.weak_text_color()
         } else {
             ui.style().visuals.text_color()
         };
-        let hover_color = ui.style().visuals.strong_text_color();
 
         // Create button with custom styling
         let size = props
@@ -51,15 +58,32 @@ impl StatelessComponent for IconButton {
         // Scale icon size proportionally to button size
         let icon_size = (size.y / DEFAULT_BUTTON_SIZE) * DEFAULT_ICON_SIZE;
 
-        let button = egui::Button::new(
-            egui::RichText::new(props.icon)
-                .size(icon_size)
-                .color(base_color),
-        )
-        .frame(props.frame)
-        .min_size(size);
+        let text = egui::RichText::new(props.icon)
+            .size(icon_size)
+            .color(base_color);
+
+        let button = egui::Button::new(text)
+            .fill(if props.frame {
+                colors.surface1
+            } else {
+                egui::Color32::TRANSPARENT
+            })
+            .stroke(egui::Stroke::NONE)
+            .frame(props.frame)
+            .min_size(size);
 
         let response = ui.add_enabled(!props.disabled, button);
+
+        // Apply hover background effect (similar to text button)
+        if response.hovered() && !props.disabled && ui.is_rect_visible(response.rect) {
+            let hover_bg = Color32::from_rgba_premultiplied(
+                colors.surface1.r(),
+                colors.surface1.g(),
+                colors.surface1.b(),
+                40, // Low alpha for subtle effect
+            );
+            ui.painter().rect_filled(response.rect, 4.0, hover_bg);
+        }
 
         // Change cursor based on state
         if response.hovered() {
@@ -68,18 +92,6 @@ impl StatelessComponent for IconButton {
             } else {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
-        }
-
-        // Apply hover color by redrawing the text
-        if response.hovered() {
-            let painter = ui.painter();
-            painter.text(
-                response.rect.center(),
-                egui::Align2::CENTER_CENTER,
-                props.icon,
-                egui::FontId::proportional(icon_size),
-                hover_color,
-            );
         }
 
         let response = if let Some(tooltip) = props.tooltip {

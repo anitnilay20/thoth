@@ -12,7 +12,8 @@ use std::sync::Arc;
 
 use self::types::ViewerState;
 use self::viewer_type::ViewerType;
-use crate::file::loaders::{FileType, LazyJsonFile, load_file_auto};
+use crate::file::loaders::{FileKind, FileType, load_file_auto};
+use crate::PLUGIN_MANAGER;
 use crate::helpers::LruCache;
 use crate::search::results::{MatchFragment, SearchResults};
 
@@ -26,7 +27,7 @@ use crate::search::results::{MatchFragment, SearchResults};
 /// 4. That's it! FileViewer will automatically work with the new viewer
 pub struct FileViewer {
     /// File loader for lazy parsing
-    loader: Option<LazyJsonFile>,
+    loader: Option<FileType>,
 
     /// LRU cache for parsed values
     cache: LruCache<usize, Value>,
@@ -76,12 +77,47 @@ impl FileViewer {
     }
 
     /// Open a file for viewing (compatible with old JsonViewer API)
-    pub fn open(&mut self, path: &Path, file_type: &mut FileType) -> crate::error::Result<()> {
-        // Load file and detect type
-        let (detected_type, loader) = load_file_auto(path)?;
-        *file_type = detected_type.into();
+    pub fn open(&mut self, path: &Path, file_type: &mut FileKind) -> crate::error::Result<()> {
+        // Built-in extensions handled without plugins.
+        const JSON_EXTENSIONS: &[&str] = &["json", "ndjson", "jsonl", "geojson"];
 
-        // Store state
+        let ext = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase());
+        let ext_str = ext.as_deref().unwrap_or("");
+
+        // Check if a plugin is registered for this extension.
+        // If one is registered, its result (success or error) is used — we do NOT
+        // silently fall through to JSON parsing when a plugin claims the format.
+        let plugin_result = PLUGIN_MANAGER
+            .get()
+            .and_then(|opt| opt.as_ref())
+            .and_then(|pm| {
+                if pm.find_loader_for_extension(ext_str).is_some() {
+                    Some(pm.open_file(ext_str, path))
+                } else {
+                    None
+                }
+            });
+
+        let (loader, kind) = match plugin_result {
+            Some(Ok(wasm_loader)) => (FileType::Plugin(wasm_loader), FileKind::Plugin),
+            Some(Err(e)) => return Err(e),
+            None if JSON_EXTENSIONS.contains(&ext_str) => {
+                let (detected, ft) = load_file_auto(path)?;
+                (ft, detected.into())
+            }
+            None => {
+                return Err(crate::error::ThothError::InvalidFileType {
+                    path: path.to_path_buf(),
+                    expected: format!(
+                        "a supported format (.json, .ndjson) or an installed plugin for .{ext_str} files"
+                    ),
+                });
+            }
+        };
+
+        *file_type = kind;
         self.loader = Some(loader);
         self.file_path = Some(path.to_path_buf());
 

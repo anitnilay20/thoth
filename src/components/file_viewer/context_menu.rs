@@ -1,7 +1,9 @@
 use eframe::egui::Ui;
 
-use crate::file::loaders::LazyJsonFile;
+use crate::file::loaders::FileType;
 use crate::helpers::{LruCache, get_context_menu_shortcuts};
+use crate::components::traits::StatelessComponent;
+use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 
 use serde_json::Value;
 
@@ -81,36 +83,80 @@ where
     let mut action_selected = false;
 
     // Copy Key
-    if config.show_copy_key && ui.button(format!("Copy Key ({})", copy_key_sc)).clicked() {
+    let copy_key_btn = Button::render(
+        ui,
+        ButtonProps {
+            label: format!("Copy Key ({})", copy_key_sc),
+            button_type: ButtonType::Text,
+            color: ButtonColor::Default,
+            hover_text: None,
+            size: None,
+            width: None,
+            height: None,
+        },
+    );
+    if copy_key_btn.clicked && config.show_copy_key {
         on_action(ContextMenuAction::CopyKey);
         ui.close();
         action_selected = true;
     }
 
     // Copy Value (only show for simple values)
-    if config.show_copy_value
-        && ui
-            .button(format!("Copy Value ({})", copy_value_sc))
-            .clicked()
-    {
-        on_action(ContextMenuAction::CopyValue);
-        ui.close();
-        action_selected = true;
+    if config.show_copy_value {
+        let copy_value_btn = Button::render(
+            ui,
+            ButtonProps {
+                label: format!("Copy Value ({})", copy_value_sc),
+                button_type: ButtonType::Text,
+                color: ButtonColor::Default,
+                hover_text: None,
+                size: None,
+                width: None,
+                height: None,
+            },
+        );
+        if copy_value_btn.clicked {
+            on_action(ContextMenuAction::CopyValue);
+            ui.close();
+            action_selected = true;
+        }
     }
 
     // Copy Object (only show for bracket values - objects and arrays)
-    if config.show_copy_object
-        && ui
-            .button(format!("Copy Object ({})", copy_object_sc))
-            .clicked()
-    {
-        on_action(ContextMenuAction::CopyObject);
-        ui.close();
-        action_selected = true;
+    if config.show_copy_object {
+        let copy_object_btn = Button::render(
+            ui,
+            ButtonProps {
+                label: format!("Copy Object ({})", copy_object_sc),
+                button_type: ButtonType::Text,
+                color: ButtonColor::Default,
+                hover_text: None,
+                size: None,
+                width: None,
+                height: None,
+            },
+        );
+        if copy_object_btn.clicked {
+            on_action(ContextMenuAction::CopyObject);
+            ui.close();
+            action_selected = true;
+        }
     }
 
     // Copy Path
-    if config.show_copy_path && ui.button(format!("Copy Path ({})", copy_path_sc)).clicked() {
+    let copy_path_btn = Button::render(
+        ui,
+        ButtonProps {
+            label: format!("Copy Path ({})", copy_path_sc),
+            button_type: ButtonType::Text,
+            color: ButtonColor::Default,
+            hover_text: None,
+            size: None,
+            width: None,
+            height: None,
+        },
+    );
+    if copy_path_btn.clicked && config.show_copy_path {
         on_action(ContextMenuAction::CopyPath);
         ui.close();
         action_selected = true;
@@ -131,7 +177,7 @@ pub trait ContextMenuHandler {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
     ) -> Option<String>;
 
     /// Copy the entire object/array of the selected item
@@ -139,7 +185,7 @@ pub trait ContextMenuHandler {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
     ) -> Option<String>;
 
     /// Copy the path of the selected item
@@ -162,7 +208,7 @@ pub fn execute_context_menu_action(
     handler: &impl ContextMenuHandler,
     selected: &Option<String>,
     cache: &mut LruCache<usize, Value>,
-    loader: &mut LazyJsonFile,
+    loader: &mut FileType,
 ) -> Option<String> {
     match action {
         ContextMenuAction::CopyKey => handler.copy_selected_key(selected),

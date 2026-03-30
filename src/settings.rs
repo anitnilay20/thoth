@@ -48,6 +48,10 @@ pub struct Settings {
     /// UI preferences
     #[serde(default)]
     pub ui: UiSettings,
+
+    /// Plugin system settings
+    #[serde(default)]
+    pub plugins: PluginSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -119,6 +123,17 @@ pub struct UiSettings {
     pub enable_animations: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PluginSettings {
+    /// Enable plugin system (default: true)
+    pub enabled: bool,
+
+    /// List of enabled plugins (by name or path)
+    #[serde(default)]
+    pub enabled_plugins: Vec<String>,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -134,6 +149,7 @@ impl Default for Settings {
             performance: PerformanceSettings::default(),
             viewer: ViewerSettings::default(),
             ui: UiSettings::default(),
+            plugins: PluginSettings::default(),
         }
     }
 }
@@ -182,6 +198,15 @@ impl Default for UiSettings {
             show_status_bar: true,
             show_toolbar: true,
             enable_animations: true,
+        }
+    }
+}
+
+impl Default for PluginSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            enabled_plugins: Vec::new(),
         }
     }
 }

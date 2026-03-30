@@ -1,6 +1,6 @@
 use super::json_tree_viewer::JsonTreeViewer;
 use super::viewer_trait::FileFormatViewer;
-use crate::file::loaders::FileType;
+use crate::file::loaders::FileKind;
 
 /// Enum representing different file format viewers
 ///
@@ -49,9 +49,11 @@ pub enum ViewerType {
 
 impl ViewerType {
     /// Create a viewer based on file type
-    pub fn from_file_type(file_type: FileType) -> Self {
+    pub fn from_file_type(file_type: FileKind) -> Self {
         match file_type {
-            FileType::Json | FileType::Ndjson => ViewerType::Json(JsonTreeViewer::new()),
+            FileKind::Json | FileKind::Ndjson | FileKind::Plugin => {
+                ViewerType::Json(JsonTreeViewer::new())
+            }
             // Future file types:
             // FileType::Csv => ViewerType::Csv(CsvTableViewer::new()),
             // FileType::Xml => ViewerType::Xml(XmlTreeViewer::new()),

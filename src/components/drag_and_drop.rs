@@ -1,6 +1,6 @@
 use crate::{
     app,
-    file::{detect_file_type::sniff_file_type, lazy_loader::FileType},
+    file::{detect_file_type::sniff_file_type, lazy_loader::FileKind},
 };
 use eframe::egui::{self};
 
@@ -53,7 +53,7 @@ impl app::ThothApp {
                 if let Some(path) = file.path {
                     match sniff_file_type(&path) {
                         Ok(detected) => {
-                            let ft: FileType = detected.into();
+                            let ft: FileKind = detected.into();
                             self.window_state.file_type = ft;
                             self.window_state.file_path = Some(path);
                             self.window_state.error = None;

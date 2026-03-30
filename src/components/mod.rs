@@ -1,5 +1,7 @@
 pub mod bookmarks;
 pub mod breadcrumbs;
+pub mod button;
+pub mod card;
 pub mod central_panel;
 pub mod data_row;
 pub mod drag_and_drop;
@@ -12,6 +14,6 @@ pub mod settings_dialog;
 pub mod settings_panel;
 pub mod sidebar;
 pub mod status_bar;
+pub mod toggle_switch;
 pub mod toolbar;
 pub mod traits;
-pub mod card;

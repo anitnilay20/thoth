@@ -38,6 +38,22 @@ impl PluginRegistry {
     pub fn get_by_id(&self, id: &str) -> Option<&Plugin> {
         self.plugin_key.get(id)
     }
+
+    /// Find a FileLoader plugin that declares support for the given extension.
+    /// `ext` should be lowercase without the leading dot (e.g. `"csv"`).
+    pub fn find_loader_for_extension(&self, ext: &str) -> Option<&Plugin> {
+        let ext_lower = ext.to_lowercase();
+        self.capability_index
+            .get(&crate::plugin::Capability::FileLoader)?
+            .iter()
+            .flat_map(|id| self.plugin_key.get(id))
+            .find(|p| {
+                p.file_loader
+                    .as_ref()
+                    .map(|fl| fl.supported_extensions.iter().any(|e| e == &ext_lower))
+                    .unwrap_or(false)
+            })
+    }
 }
 
 impl Default for PluginRegistry {

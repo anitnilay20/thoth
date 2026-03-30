@@ -1,5 +1,5 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use wasmtime::component::ResourceTable;
 use wasmtime::{Config, Engine, Store};
@@ -8,6 +8,7 @@ use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 use crate::error::Result;
 use crate::plugin::Capability;
 use crate::plugin::plugin_registry::PluginRegistry;
+use crate::plugin::wasm_loader::WasmFileLoader;
 use crate::{error::ThothError, plugin::Plugin};
 
 #[derive(Debug, Default)]
@@ -35,6 +36,24 @@ impl PluginManager {
 
     pub fn get_all_plugin_by_capability(&self, capability: Capability) -> Vec<&Plugin> {
         self.registry.get_by_capability(capability)
+    }
+
+    /// Return the wasm path for the first FileLoader plugin that declares support
+    /// for `ext` (lowercase, no leading dot). Returns `None` if no plugin handles it.
+    pub fn find_loader_for_extension(&self, ext: &str) -> Option<PathBuf> {
+        let plugin = self.registry.find_loader_for_extension(ext)?;
+        plugin.location.as_deref().map(PathBuf::from)
+    }
+
+    /// Open `file_path` using the WASM plugin that handles its extension.
+    /// Returns an error if no plugin is registered for that extension.
+    pub fn open_file(&self, ext: &str, file_path: &Path) -> Result<WasmFileLoader> {
+        let wasm_path =
+            self.find_loader_for_extension(ext)
+                .ok_or_else(|| ThothError::Unknown {
+                    message: format!("No plugin registered for .{ext}"),
+                })?;
+        WasmFileLoader::open(&self.engine, &wasm_path, file_path)
     }
 
     fn scan_all_directories(&mut self) -> Result<()> {

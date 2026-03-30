@@ -7,19 +7,19 @@ use crate::{
         icon_button::{IconButton, IconButtonProps},
         traits::{ContextComponent, StatelessComponent},
     },
-    file::lazy_loader::FileType,
+    file::lazy_loader::FileKind,
     shortcuts::KeyboardShortcuts,
     app::pick_file,
 };
 
 #[derive(Default)]
 pub struct Toolbar {
-    pub previous_file_type: FileType,
+    pub previous_file_type: FileKind,
 }
 
 /// Props passed down to the Toolbar (immutable, one-way binding)
 pub struct ToolbarProps<'a> {
-    pub file_type: &'a FileType,
+    pub file_type: &'a FileKind,
     pub dark_mode: bool,
     pub shortcuts: &'a KeyboardShortcuts,
     pub file_path: Option<&'a Path>,
@@ -30,7 +30,7 @@ pub struct ToolbarProps<'a> {
 
 /// Events emitted by the toolbar (bottom-to-top communication)
 pub enum ToolbarEvent {
-    FileOpen { path: PathBuf, file_type: FileType },
+    FileOpen { path: PathBuf, file_type: FileKind },
     FileClear,
     NewWindow,
     ToggleTheme,
@@ -296,10 +296,10 @@ impl Toolbar {
     }
 }
 
-fn infer_file_type(path: &Path) -> Option<FileType> {
+fn infer_file_type(path: &Path) -> Option<FileKind> {
     match path.extension()?.to_str()?.to_lowercase().as_str() {
-        "ndjson" => Some(FileType::Ndjson),
-        "json" => Some(FileType::Json),
+        "ndjson" => Some(FileKind::Ndjson),
+        "json" => Some(FileKind::Json),
         _ => None,
     }
 }

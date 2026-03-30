@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::components::icon_button::{IconButton, IconButtonProps};
+use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
 use crate::search::results::MatchPreview;
 use crate::search::{QueryMode, Search as SearchState, SearchMessage, decode_history_entry};
@@ -229,18 +230,20 @@ impl StatefulComponent for Search {
                             continue;
                         }
 
-                        let button =
-                            egui::Button::new(egui::RichText::new(&entry_query).size(12.0))
-                                .frame(true)
-                                .min_size(egui::vec2(ui.available_width(), 24.0));
+                        let button = Button::render(
+                            ui,
+                            ButtonProps {
+                                label: entry_query.clone(),
+                                button_type: ButtonType::Text,
+                                color: ButtonColor::Default,
+                                hover_text: None,
+                                size: Some(12.0),
+                                width: Some(ui.available_width()),
+                                height: Some(24.0),
+                            },
+                        );
 
-                        let response = ui.add(button);
-
-                        if response.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                        }
-
-                        if response.clicked() {
+                        if button.clicked {
                             self.search_query = entry_query.clone();
                             let query_mode = detect_query_mode(&entry_query);
                             if let Some(msg) = SearchMessage::create_search(
@@ -291,28 +294,23 @@ impl StatefulComponent for Search {
                                 continue;
                             };
                             let record_index = hit.record_index;
-                            let is_even = idx % 2 == 0;
-                            let bg_color = if is_even {
-                                ui.visuals().faint_bg_color
-                            } else {
-                                ui.visuals().extreme_bg_color
-                            };
 
                             let button_text =
                                 build_result_preview_text(ui, record_index, hit.preview.as_ref());
-                            let button = egui::Button::new(button_text)
-                                .fill(bg_color)
-                                .frame(true)
-                                .min_size(egui::vec2(ui.available_width(), row_height - 4.0));
+                            let button = Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: button_text.text().to_string(),
+                                    button_type: ButtonType::Text,
+                                    color: ButtonColor::Default,
+                                    hover_text: None,
+                                    size: None,
+                                    width: Some(ui.available_width()),
+                                    height: Some(row_height - 4.0),
+                                },
+                            );
 
-                            let response = ui.add(button);
-
-                            // Set pointer cursor on hover
-                            if response.hovered() {
-                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                            }
-
-                            if response.clicked() {
+                            if button.clicked {
                                 events.push(SearchEvent::NavigateToResult { record_index });
                             }
 

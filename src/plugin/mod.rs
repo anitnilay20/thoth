@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod manager;
 pub mod plugin_registry;
+pub mod wasm_loader;
 
 // ── Capability-specific metadata ──────────────────────────────────────────────
 
