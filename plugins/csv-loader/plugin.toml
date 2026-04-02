@@ -5,5 +5,10 @@ description = "Load CSV and TSV files as tabular JSON records"
 author      = "Thoth contributors"
 capabilities = ["file-loader"]
 
-[file-loader]
-supported-extensions = ["csv", "tsv"]
+[[file-loader]]
+file-type = "text/csv"
+supported-extensions = ["csv"]
+
+[[file-loader]]
+file-type = "text/tab-separated-values"
+supported-extensions = ["tsv"]

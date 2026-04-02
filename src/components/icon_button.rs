@@ -26,7 +26,6 @@ pub struct IconButtonProps<'a> {
 /// Output from the IconButton component
 pub struct IconButtonOutput {
     pub clicked: bool,
-    #[allow(dead_code)]
     pub response: egui::Response,
 }
 

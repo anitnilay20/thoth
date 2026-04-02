@@ -103,8 +103,8 @@ desktop_template = "assets/thoth.desktop"
 
 
 [dependencies]
-eframe = "0.32.0"
-egui-phosphor = "0.10"
+eframe = "0.34"
+egui-phosphor = "0.12"
 image = { version = "0.25", default-features = false, features = [
   "png",
   "ico",
@@ -133,12 +133,9 @@ which = "7.0"
 wasmtime = { version = "43.0.0", features = ["component-model"] }
 wasmtime-wasi = "43.0.0"
 wit-bindgen = "0.54.0"
+egui-notify = "0.22.0"
 
 [dependencies.puffin]
-git = "https://github.com/EmbarkStudios/puffin"
-optional = true
-
-[dependencies.puffin_egui]
 git = "https://github.com/EmbarkStudios/puffin"
 optional = true
 
@@ -153,7 +150,7 @@ tempfile = "3.15"
 
 [features]
 default = []
-profiling = ["puffin", "puffin_egui", "dhat"]
+profiling = ["puffin", "dhat"]
 
 [[bench]]
 name = "file_loading"

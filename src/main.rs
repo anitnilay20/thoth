@@ -8,12 +8,8 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 use eframe::{NativeOptions, egui};
 use std::path::PathBuf;
 use thoth::{
-    PLUGIN_MANAGER,
-    app,
-    error::Result,
-    helpers::load_icon,
-    plugin::manager::PluginManager,
-    settings,
+    NOTIFICATION_MANAGER, PLUGIN_MANAGER, app, error::Result, helpers::load_icon,
+    notification::NotificationManager, plugin::manager::PluginManager, settings,
 };
 
 /// Parse command-line arguments to extract file path
@@ -80,18 +76,24 @@ fn main() -> Result<()> {
         settings::Settings::default()
     });
 
-    // Load Plugins
-    PLUGIN_MANAGER
-        .set(
-            PluginManager::init()
-                .map_err(|err| {
-                    eprintln!("Warning Unable to load plugins: {}", err);
-                })
-                .ok(),
-        )
-        .unwrap();
+    NOTIFICATION_MANAGER
+        .set(std::sync::Mutex::new(NotificationManager::new()))
+        .ok();
 
-    println!("{:?}", PLUGIN_MANAGER);
+    // Load Plugins
+    if settings.plugins.enabled {
+        std::thread::spawn(|| {
+            PLUGIN_MANAGER
+                .set(
+                    PluginManager::init()
+                        .map_err(|err| {
+                            eprintln!("Warning Unable to load plugins: {}", err);
+                        })
+                        .ok(),
+                )
+                .unwrap();
+        });
+    }
 
     let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
 

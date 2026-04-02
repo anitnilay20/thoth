@@ -47,9 +47,9 @@ impl ContextComponent for Toolbar {
     type Props<'a> = ToolbarProps<'a>;
     type Output = ToolbarOutput;
 
-    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         let mut events = Vec::new();
-        self.render_ui(ctx, props, &mut events);
+        self.render_ui(ui, props, &mut events);
 
         ToolbarOutput { events }
     }
@@ -58,25 +58,25 @@ impl ContextComponent for Toolbar {
 impl Toolbar {
     fn render_ui(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         props: ToolbarProps<'_>,
         events: &mut Vec<ToolbarEvent>,
     ) {
         // Use theme colors from context
-        let bg_color = ctx.style().visuals.extreme_bg_color; // Catppuccin Mantle
+        let bg_color = ui.ctx().global_style().visuals.extreme_bg_color; // Catppuccin Mantle
 
         // Row 1: Title bar (32px height - integrated with window controls, with title)
         // Hide completely in fullscreen mode
         if !props.is_fullscreen {
-            egui::TopBottomPanel::top("title_bar_row")
-                .exact_height(32.0)
+            egui::Panel::top("title_bar_row")
+                .exact_size(32.0)
                 .frame(egui::Frame::NONE.fill(bg_color).inner_margin(egui::Margin {
                     left: 8,
                     right: 8,
                     top: 0,
                     bottom: 0,
                 }))
-                .show(ctx, |ui| {
+                .show_inside(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.horizontal_centered(|ui| {
                             // Space for macOS traffic light buttons
@@ -100,7 +100,7 @@ impl Toolbar {
 
                             // Calculate centering: total width - traffic light space, then center within that
                             let available_width = ui.available_width();
-                            let text_width = ui.fonts(|f| {
+                            let text_width = ui.fonts_mut(|f| {
                                 f.layout_no_wrap(
                                     title.clone(),
                                     egui::FontId::proportional(13.0),
@@ -124,15 +124,15 @@ impl Toolbar {
         }
 
         // Row 2: Button toolbar (32px height)
-        egui::TopBottomPanel::top("button_toolbar")
-            .exact_height(32.0)
+        egui::Panel::top("button_toolbar")
+            .exact_size(32.0)
             .frame(egui::Frame::NONE.fill(bg_color).inner_margin(egui::Margin {
                 left: 8,
                 right: 8,
                 top: 0,
                 bottom: 0,
             }))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
 

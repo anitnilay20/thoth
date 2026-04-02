@@ -6,6 +6,7 @@ use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 
 use crate::error::Result;
+use crate::notification::{Notification, NotificationManager, NotificationStatus};
 use crate::plugin::Capability;
 use crate::plugin::plugin_registry::PluginRegistry;
 use crate::plugin::wasm_loader::WasmFileLoader;
@@ -20,6 +21,13 @@ pub struct PluginManager {
 // #[allow(dead_code)]
 impl PluginManager {
     pub fn init() -> Result<Self> {
+        let notification_id = NotificationManager::notify(
+            Notification::new("Loading Plugins", "Initializing plugin system...")
+                .with_status_bar(true)
+                .with_toast(false)
+                .with_status(NotificationStatus::Running),
+        );
+
         let mut config = Config::new();
         config.consume_fuel(true);
         let engine = Engine::new(&config).map_err(|e| ThothError::PluginLoadError {
@@ -31,6 +39,9 @@ impl PluginManager {
             registry: PluginRegistry::new(),
         };
         manager.scan_all_directories()?;
+
+        NotificationManager::mark_notification_as_complete(&notification_id);
+
         Ok(manager)
     }
 
@@ -48,11 +59,11 @@ impl PluginManager {
     /// Open `file_path` using the WASM plugin that handles its extension.
     /// Returns an error if no plugin is registered for that extension.
     pub fn open_file(&self, ext: &str, file_path: &Path) -> Result<WasmFileLoader> {
-        let wasm_path =
-            self.find_loader_for_extension(ext)
-                .ok_or_else(|| ThothError::Unknown {
-                    message: format!("No plugin registered for .{ext}"),
-                })?;
+        let wasm_path = self
+            .find_loader_for_extension(ext)
+            .ok_or_else(|| ThothError::Unknown {
+                message: format!("No plugin registered for .{ext}"),
+            })?;
         WasmFileLoader::open(&self.engine, &wasm_path, file_path)
     }
 
@@ -87,9 +98,11 @@ impl PluginManager {
         let exe = env::current_exe().map_err(|_| ThothError::PluginDirectoryInvalid {
             dir: "Bundled".to_string(),
         })?;
-        let exe_dir = exe.parent().ok_or_else(|| ThothError::PluginDirectoryInvalid {
-            dir: "Bundled".to_string(),
-        })?;
+        let exe_dir = exe
+            .parent()
+            .ok_or_else(|| ThothError::PluginDirectoryInvalid {
+                dir: "Bundled".to_string(),
+            })?;
 
         // cargo-packager copies resources/ next to the exe on Linux/Windows,
         // and into Contents/Resources/ on macOS.

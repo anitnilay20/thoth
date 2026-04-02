@@ -14,6 +14,9 @@ pub mod wasm_loader;
 pub struct FileLoaderMeta {
     /// File extensions this plugin handles, e.g. `["csv", "tsv"]`.
     /// Must be lowercase, without the leading dot.
+    #[serde(rename = "file-type")]
+    pub file_type: String,
+
     #[serde(rename = "supported-extensions")]
     pub supported_extensions: Vec<String>,
 }
@@ -56,7 +59,7 @@ pub struct Plugin {
     pub homepage: Option<String>,
     // ── Capability-specific metadata (from plugin.toml sections) ──────────────
     #[serde(rename = "file-loader")]
-    pub file_loader: Option<FileLoaderMeta>,
+    pub file_loader: Vec<FileLoaderMeta>,
     #[serde(rename = "data-source")]
     pub data_source: Option<DataSourceMeta>,
     pub exporter: Option<ExporterMeta>,

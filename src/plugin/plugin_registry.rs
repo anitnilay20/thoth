@@ -26,10 +26,7 @@ impl PluginRegistry {
 
     pub fn get_by_capability(&self, c: Capability) -> Vec<&Plugin> {
         if let Some(plugin_ids) = self.capability_index.get(&c) {
-            plugin_ids
-                .iter()
-                .flat_map(|f| self.get_by_id(f))
-                .collect()
+            plugin_ids.iter().flat_map(|f| self.get_by_id(f)).collect()
         } else {
             Vec::new()
         }
@@ -49,9 +46,8 @@ impl PluginRegistry {
             .flat_map(|id| self.plugin_key.get(id))
             .find(|p| {
                 p.file_loader
-                    .as_ref()
-                    .map(|fl| fl.supported_extensions.iter().any(|e| e == &ext_lower))
-                    .unwrap_or(false)
+                    .iter()
+                    .any(|fl| fl.supported_extensions.iter().any(|e| e == &ext_lower))
             })
     }
 }

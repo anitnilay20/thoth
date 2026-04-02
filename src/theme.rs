@@ -240,7 +240,7 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
     ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(system_theme));
 
     // Apply style settings (spacing, fonts, etc.)
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
 
     // Spacing: VS Code design system uses 4px grid
     style.spacing.item_spacing = egui::vec2(SPACING_MEDIUM, SPACING_SMALL);
@@ -274,7 +274,7 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
         style.animation_time = 0.0;
     }
 
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 /// Create egui visuals from theme colors
@@ -362,7 +362,7 @@ impl TextPalette {
                 .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
                 .unwrap_or_else(|| {
                     // Fallback: create default theme based on dark mode from visuals
-                    let dark_mode = ctx.style().visuals.dark_mode;
+                    let dark_mode = ctx.global_style().visuals.dark_mode;
                     Theme::for_dark_mode(dark_mode).colors()
                 });
 

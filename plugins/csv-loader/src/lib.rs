@@ -90,9 +90,9 @@ impl FileLoaderGuest for CsvPlugin {
                 std::fs::File::open(&state.file).map_err(|e| plugin_err(1, e.to_string()))?;
             let reader = BufReader::new(file);
 
-            for (index, line_result) in reader.lines().enumerate() {
-                // Skip the header line (index 0) and check if we've reached the desired record index.
-                if index - 1 == idx as usize {
+            // skip(1) drops the header row; enumerate then gives 0-based data-row indices.
+            for (index, line_result) in reader.lines().skip(1).enumerate() {
+                if index == idx as usize {
                     let line = line_result.map_err(|e| plugin_err(1, e.to_string()))?;
                     let values: Vec<String> =
                         line.trim_end().split(',').map(String::from).collect();

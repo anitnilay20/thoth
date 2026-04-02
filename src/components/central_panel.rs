@@ -46,12 +46,12 @@ impl ContextComponent for CentralPanel {
     type Props<'a> = CentralPanelProps<'a>;
     type Output = CentralPanelOutput;
 
-    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let mut events = Vec::new();
-        self.render_ui(ctx, props, &mut events);
+        self.render_ui(ui, props, &mut events);
         CentralPanelOutput { events }
     }
 }
@@ -59,7 +59,7 @@ impl ContextComponent for CentralPanel {
 impl CentralPanel {
     fn render_ui(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         props: CentralPanelProps<'_>,
         events: &mut Vec<CentralPanelEvent>,
     ) {
@@ -140,7 +140,7 @@ impl CentralPanel {
             }
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             // Show any error (either from props or open attempt)
             if let Some(err) = props.error.as_ref().or(self.last_open_err.as_ref()) {
                 let message = ErrorHandler::get_user_message(err);

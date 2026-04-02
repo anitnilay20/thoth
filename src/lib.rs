@@ -21,5 +21,7 @@ pub mod shortcuts;
 pub mod state;
 pub mod theme;
 pub mod update;
+pub mod notification;
 
 pub static PLUGIN_MANAGER: OnceLock<Option<PluginManager>> = OnceLock::new();
+pub static NOTIFICATION_MANAGER: OnceLock<std::sync::Mutex<notification::NotificationManager>> = OnceLock::new();

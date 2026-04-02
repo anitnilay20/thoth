@@ -155,7 +155,7 @@ impl RecentFiles {
             egui::vec2(text_width, full_height),
         );
 
-        let galley = ui.fonts(|f| {
+        let galley = ui.fonts_mut(|f| {
             f.layout_no_wrap(
                 filename.to_string(),
                 egui::FontId::proportional(13.0),

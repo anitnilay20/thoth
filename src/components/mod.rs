@@ -8,6 +8,7 @@ pub mod drag_and_drop;
 pub mod error_modal;
 pub mod file_viewer;
 pub mod icon_button;
+pub mod list;
 pub mod recent_files;
 pub mod search;
 pub mod settings_dialog;

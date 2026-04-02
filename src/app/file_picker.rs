@@ -15,10 +15,12 @@ fn supported_files() -> Vec<(String, Vec<String>)> {
             .get_all_plugin_by_capability(Capability::FileLoader)
             .iter()
             .for_each(|p| {
-                if let Some(extensions) = &p.file_loader {
-                    all_suported_file_types
-                        .push((p.id.clone(), extensions.supported_extensions.clone()));
-                }
+                p.file_loader.iter().for_each(|file_type| {
+                    all_suported_file_types.push((
+                        file_type.file_type.clone(),
+                        file_type.supported_extensions.clone(),
+                    ));
+                });
             });
     }
 

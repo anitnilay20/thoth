@@ -397,7 +397,7 @@ impl ContextComponent for SettingsDialog {
     type Props<'a> = SettingsDialogProps<'a>;
     type Output = SettingsDialogOutput;
 
-    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         // If not open, return early
         if !self.open {
             return SettingsDialogOutput {
@@ -420,13 +420,15 @@ impl ContextComponent for SettingsDialog {
         let update_state_clone = props.update_state.cloned();
         let current_version = props.current_version.to_string();
 
-        ctx.show_viewport_deferred(
+        ui.ctx().show_viewport_deferred(
             viewport_id,
             egui::ViewportBuilder::default()
                 .with_title("Thoth - Settings")
                 .with_inner_size([900.0, 600.0])
                 .with_min_inner_size([800.0, 500.0]),
-            move |ctx, class| {
+            move |ui, class| {
+                let ctx = ui.ctx().clone();
+
                 // Check if viewport is being closed (X button clicked)
                 if class == egui::ViewportClass::Deferred
                     && ctx.input(|i| i.viewport().close_requested())
@@ -439,7 +441,7 @@ impl ContextComponent for SettingsDialog {
 
                 // Apply theme from draft settings so changes preview in real-time
                 if let Ok(settings) = draft_settings.lock() {
-                    theme::apply_theme(ctx, &settings);
+                    theme::apply_theme(&ctx, &settings);
                 }
 
                 // Get theme colors
@@ -447,20 +449,20 @@ impl ContextComponent for SettingsDialog {
                     mem.data
                         .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
                         .unwrap_or_else(|| {
-                            theme::Theme::for_dark_mode(ctx.style().visuals.dark_mode).colors()
+                            theme::Theme::for_dark_mode(ctx.global_style().visuals.dark_mode).colors()
                         })
                 });
 
                 let mut new_settings = None;
 
                 // Top panel with title and buttons
-                egui::TopBottomPanel::top("settings_top")
+                egui::Panel::top("settings_top")
                     .frame(
                         egui::Frame::default()
                             .fill(theme_colors.crust)
                             .inner_margin(egui::Margin::symmetric(16, 12)),
                     )
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -489,13 +491,13 @@ impl ContextComponent for SettingsDialog {
                     });
 
                 // Bottom panel with Cancel/Apply buttons
-                egui::TopBottomPanel::bottom("settings_bottom")
+                egui::Panel::bottom("settings_bottom")
                     .frame(
                         egui::Frame::default()
                             .fill(theme_colors.crust)
                             .inner_margin(egui::Margin::symmetric(16, 12)),
                     )
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let apply_btn = Button::render(
                                 ui,
@@ -539,15 +541,15 @@ impl ContextComponent for SettingsDialog {
                     });
 
                 // Left sidebar with icons
-                egui::SidePanel::left("settings_sidebar")
+                egui::Panel::left("settings_sidebar")
                     .resizable(false)
-                    .exact_width(200.0)
+                    .exact_size(200.0)
                     .frame(
                         egui::Frame::default()
                             .fill(theme_colors.mantle)
                             .inner_margin(12.0),
                     )
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         ui.add_space(16.0);
 
                         egui::ScrollArea::vertical()
@@ -626,7 +628,7 @@ impl ContextComponent for SettingsDialog {
                 // Central content area
                 egui::CentralPanel::default()
                     .frame(egui::Frame::default().fill(theme_colors.base))
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         if let (Ok(current_tab), Ok(mut settings), Ok(mut events)) = (
                             selected_tab.lock(),
                             draft_settings.lock(),

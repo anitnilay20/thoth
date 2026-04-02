@@ -35,13 +35,13 @@ impl app::ThothApp {
                 egui::Order::Foreground,
                 egui::Id::new("file_drop_overlay"),
             ));
-            let screen_rect = ctx.screen_rect();
+            let screen_rect = ctx.content_rect();
             painter.rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(180));
             painter.text(
                 screen_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 text,
-                egui::TextStyle::Heading.resolve(&ctx.style()),
+                egui::TextStyle::Heading.resolve(&ctx.global_style()),
                 egui::Color32::WHITE,
             );
         }
