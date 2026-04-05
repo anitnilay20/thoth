@@ -134,6 +134,7 @@ wasmtime = { version = "43.0.0", features = ["component-model"] }
 wasmtime-wasi = "43.0.0"
 wit-bindgen = "0.54.0"
 egui-notify = "0.22.0"
+egui_extras = "0.34.1"
 
 [dependencies.puffin]
 git = "https://github.com/EmbarkStudios/puffin"

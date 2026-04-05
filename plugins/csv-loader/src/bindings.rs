@@ -466,6 +466,328 @@ pub mod exports {
                 );
             }
             /// ---------------------------------------------------------------------------
+            /// file-viewer — implement when capability = file-viewer
+            ///
+            /// Lets a plugin control how its records are *rendered* inside the viewer
+            /// panel. Without this capability the host falls back to the default JSON
+            /// tree renderer.
+            ///
+            /// Because WASM cannot call egui directly, the plugin returns a lightweight
+            /// render-node tree (think virtual DOM). The host walks the tree and draws
+            /// it with egui.
+            /// ---------------------------------------------------------------------------
+            #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+            pub mod file_viewer {
+                #[used]
+                #[doc(hidden)]
+                static __FORCE_SECTION_REF: fn() = super::super::super::super::__link_custom_section_describing_imports;
+                use super::super::super::super::_rt;
+                pub type PluginError = super::super::super::super::thoth::plugin::types::PluginError;
+                /// How the plugin wants its data displayed.
+                ///
+                /// table  — host renders a styled table using column-headers() and the raw
+                ///          JSON values from file-loader.get(). render-record() is never
+                ///          called. This is the simplest option: the plugin only needs to
+                ///          declare headers and the host takes care of the rest.
+                ///
+                /// custom — host calls render-record() for every visible row and draws
+                ///          the returned RenderNode tree. Use this when you need badges,
+                ///          colours, links, nested tables, or any non-trivial cell content.
+                #[repr(u8)]
+                #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+                pub enum DisplayMode {
+                    Table,
+                    Custom,
+                }
+                impl ::core::fmt::Debug for DisplayMode {
+                    fn fmt(
+                        &self,
+                        f: &mut ::core::fmt::Formatter<'_>,
+                    ) -> ::core::fmt::Result {
+                        match self {
+                            DisplayMode::Table => {
+                                f.debug_tuple("DisplayMode::Table").finish()
+                            }
+                            DisplayMode::Custom => {
+                                f.debug_tuple("DisplayMode::Custom").finish()
+                            }
+                        }
+                    }
+                }
+                impl DisplayMode {
+                    #[doc(hidden)]
+                    pub unsafe fn _lift(val: u8) -> DisplayMode {
+                        if !cfg!(debug_assertions) {
+                            return ::core::mem::transmute(val);
+                        }
+                        match val {
+                            0 => DisplayMode::Table,
+                            1 => DisplayMode::Custom,
+                            _ => panic!("invalid enum discriminant"),
+                        }
+                    }
+                }
+                /// A node in the render tree.
+                /// Recursive types are not allowed in WIT, so children are encoded as
+                /// a JSON string following the RenderNode schema below.
+                /// Schema (recursive):
+                ///   { "type": "text",       "value": "hello" }
+                ///   { "type": "bold",       "child": <RenderNode> }
+                ///   { "type": "italic",     "child": <RenderNode> }
+                ///   { "type": "colored",    "color": "#ff6b6b", "child": <RenderNode> }
+                ///   { "type": "badge",      "label": "WARN", "color": "#fbca04" }
+                ///   { "type": "link",       "label": "docs", "url": "https://..." }
+                ///   { "type": "row",        "children": [<RenderNode>, ...] }
+                ///   { "type": "column",     "children": [<RenderNode>, ...] }
+                ///   { "type": "key-value",  "key": "id",  "value": <RenderNode> }
+                ///   { "type": "collapsible","label": "...", "children": [<RenderNode>, ...] }
+                ///   { "type": "table",      "headers": ["col1", ...], "rows": [[<RenderNode>, ...], ...] }
+                ///   { "type": "json-tree",  "value": <any JSON value> }
+                #[derive(Clone)]
+                pub struct RenderOutput {
+                    /// JSON-encoded RenderNode tree (see schema above)
+                    pub node_json: _rt::String,
+                    /// Optional: height hint in logical pixels. 0 = auto.
+                    pub height_hint: u32,
+                }
+                impl ::core::fmt::Debug for RenderOutput {
+                    fn fmt(
+                        &self,
+                        f: &mut ::core::fmt::Formatter<'_>,
+                    ) -> ::core::fmt::Result {
+                        f.debug_struct("RenderOutput")
+                            .field("node-json", &self.node_json)
+                            .field("height-hint", &self.height_hint)
+                            .finish()
+                    }
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_preferred_display_cabi<T: Guest>() -> i32 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let result0 = T::preferred_display();
+                    result0.clone() as i32
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_render_record_cabi<T: Guest>(
+                    arg0: *mut u8,
+                    arg1: usize,
+                ) -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let len0 = arg1;
+                    let bytes0 = _rt::Vec::from_raw_parts(arg0.cast(), len0, len0);
+                    let result1 = T::render_record(_rt::string_lift(bytes0));
+                    let ptr2 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result1 {
+                        Ok(e) => {
+                            *ptr2.add(0).cast::<u8>() = (0i32) as u8;
+                            let RenderOutput {
+                                node_json: node_json3,
+                                height_hint: height_hint3,
+                            } = e;
+                            let vec4 = (node_json3.into_bytes()).into_boxed_slice();
+                            let ptr4 = vec4.as_ptr().cast::<u8>();
+                            let len4 = vec4.len();
+                            ::core::mem::forget(vec4);
+                            *ptr2
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len4;
+                            *ptr2
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr4.cast_mut();
+                            *ptr2
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(height_hint3);
+                        }
+                        Err(e) => {
+                            *ptr2.add(0).cast::<u8>() = (1i32) as u8;
+                            let super::super::super::super::thoth::plugin::types::PluginError {
+                                code: code5,
+                                message: message5,
+                            } = e;
+                            *ptr2
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(code5);
+                            let vec6 = (message5.into_bytes()).into_boxed_slice();
+                            let ptr6 = vec6.as_ptr().cast::<u8>();
+                            let len6 = vec6.len();
+                            ::core::mem::forget(vec6);
+                            *ptr2
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len6;
+                            *ptr2
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr6.cast_mut();
+                        }
+                    };
+                    ptr2
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_render_record<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = *arg0
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l1, l2, 1);
+                        }
+                        _ => {
+                            let l3 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l4 = *arg0
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l3, l4, 1);
+                        }
+                    }
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_column_headers_cabi<T: Guest>() -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let result0 = T::column_headers();
+                    let ptr1 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result0 {
+                        Some(e) => {
+                            *ptr1.add(0).cast::<u8>() = (1i32) as u8;
+                            let vec3 = e;
+                            let len3 = vec3.len();
+                            let layout3 = _rt::alloc::Layout::from_size_align_unchecked(
+                                vec3.len() * (2 * ::core::mem::size_of::<*const u8>()),
+                                ::core::mem::size_of::<*const u8>(),
+                            );
+                            let result3 = if layout3.size() != 0 {
+                                let ptr = _rt::alloc::alloc(layout3).cast::<u8>();
+                                if ptr.is_null() {
+                                    _rt::alloc::handle_alloc_error(layout3);
+                                }
+                                ptr
+                            } else {
+                                ::core::ptr::null_mut()
+                            };
+                            for (i, e) in vec3.into_iter().enumerate() {
+                                let base = result3
+                                    .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                {
+                                    let vec2 = (e.into_bytes()).into_boxed_slice();
+                                    let ptr2 = vec2.as_ptr().cast::<u8>();
+                                    let len2 = vec2.len();
+                                    ::core::mem::forget(vec2);
+                                    *base
+                                        .add(::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>() = len2;
+                                    *base.add(0).cast::<*mut u8>() = ptr2.cast_mut();
+                                }
+                            }
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len3;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = result3;
+                        }
+                        None => {
+                            *ptr1.add(0).cast::<u8>() = (0i32) as u8;
+                        }
+                    };
+                    ptr1
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_column_headers<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {}
+                        _ => {
+                            let l1 = *arg0
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            let base5 = l1;
+                            let len5 = l2;
+                            for i in 0..len5 {
+                                let base = base5
+                                    .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                {
+                                    let l3 = *base.add(0).cast::<*mut u8>();
+                                    let l4 = *base
+                                        .add(::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>();
+                                    _rt::cabi_dealloc(l3, l4, 1);
+                                }
+                            }
+                            _rt::cabi_dealloc(
+                                base5,
+                                len5 * (2 * ::core::mem::size_of::<*const u8>()),
+                                ::core::mem::size_of::<*const u8>(),
+                            );
+                        }
+                    }
+                }
+                pub trait Guest {
+                    /// Declare how this plugin's data should be displayed.
+                    /// Called once after open(). Defaults to `table` if not implemented.
+                    fn preferred_display() -> DisplayMode;
+                    /// Given a single record as a JSON string (as returned by file-loader's
+                    /// get()), return a render tree for the host to draw.
+                    fn render_record(
+                        record_json: _rt::String,
+                    ) -> Result<RenderOutput, PluginError>;
+                    /// Optional custom column headers for the table view.
+                    /// Return `none` to use the keys from the first record as headers.
+                    fn column_headers() -> Option<_rt::Vec<_rt::String>>;
+                }
+                #[doc(hidden)]
+                macro_rules! __export_thoth_plugin_file_viewer_0_1_0_cabi {
+                    ($ty:ident with_types_in $($path_to_types:tt)*) => {
+                        const _ : () = { #[unsafe (export_name =
+                        "thoth:plugin/file-viewer@0.1.0#preferred-display")] unsafe
+                        extern "C" fn export_preferred_display() -> i32 { unsafe {
+                        $($path_to_types)*:: _export_preferred_display_cabi::<$ty > () }
+                        } #[unsafe (export_name =
+                        "thoth:plugin/file-viewer@0.1.0#render-record")] unsafe extern
+                        "C" fn export_render_record(arg0 : * mut u8, arg1 : usize,) -> *
+                        mut u8 { unsafe { $($path_to_types)*::
+                        _export_render_record_cabi::<$ty > (arg0, arg1) } } #[unsafe
+                        (export_name =
+                        "cabi_post_thoth:plugin/file-viewer@0.1.0#render-record")] unsafe
+                        extern "C" fn _post_return_render_record(arg0 : * mut u8,) {
+                        unsafe { $($path_to_types)*:: __post_return_render_record::<$ty >
+                        (arg0) } } #[unsafe (export_name =
+                        "thoth:plugin/file-viewer@0.1.0#column-headers")] unsafe extern
+                        "C" fn export_column_headers() -> * mut u8 { unsafe {
+                        $($path_to_types)*:: _export_column_headers_cabi::<$ty > () } }
+                        #[unsafe (export_name =
+                        "cabi_post_thoth:plugin/file-viewer@0.1.0#column-headers")]
+                        unsafe extern "C" fn _post_return_column_headers(arg0 : * mut
+                        u8,) { unsafe { $($path_to_types)*::
+                        __post_return_column_headers::<$ty > (arg0) } } };
+                    };
+                }
+                #[doc(hidden)]
+                pub(crate) use __export_thoth_plugin_file_viewer_0_1_0_cabi;
+                #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                struct _RetArea(
+                    [::core::mem::MaybeUninit<
+                        u8,
+                    >; 4 * ::core::mem::size_of::<*const u8>()],
+                );
+                static mut _RET_AREA: _RetArea = _RetArea(
+                    [::core::mem::MaybeUninit::uninit(); 4
+                        * ::core::mem::size_of::<*const u8>()],
+                );
+            }
+            /// ---------------------------------------------------------------------------
             /// plugin-meta — required by every plugin
             ///
             /// Maps from src/wit/mod.rs `Plugin` struct (as the return type of get-info).
@@ -871,7 +1193,7 @@ mod _rt {
 /// ```
 #[allow(unused_macros)]
 #[doc(hidden)]
-macro_rules! __export_file_loader_plugin_impl {
+macro_rules! __export_file_viewer_plugin_impl {
     ($ty:ident) => {
         self::export!($ty with_types_in self);
     };
@@ -879,6 +1201,9 @@ macro_rules! __export_file_loader_plugin_impl {
         $($path_to_types_root)*::
         exports::thoth::plugin::file_loader::__export_thoth_plugin_file_loader_0_1_0_cabi!($ty
         with_types_in $($path_to_types_root)*:: exports::thoth::plugin::file_loader);
+        $($path_to_types_root)*::
+        exports::thoth::plugin::file_viewer::__export_thoth_plugin_file_viewer_0_1_0_cabi!($ty
+        with_types_in $($path_to_types_root)*:: exports::thoth::plugin::file_viewer);
         $($path_to_types_root)*::
         exports::thoth::plugin::plugin_meta::__export_thoth_plugin_plugin_meta_0_1_0_cabi!($ty
         with_types_in $($path_to_types_root)*:: exports::thoth::plugin::plugin_meta);
@@ -889,16 +1214,16 @@ macro_rules! __export_file_loader_plugin_impl {
     };
 }
 #[doc(inline)]
-pub(crate) use __export_file_loader_plugin_impl as export;
+pub(crate) use __export_file_viewer_plugin_impl as export;
 #[cfg(target_arch = "wasm32")]
 #[unsafe(
-    link_section = "component-type:wit-bindgen:0.41.0:thoth:plugin@0.1.0:file-loader-plugin:encoded world"
+    link_section = "component-type:wit-bindgen:0.41.0:thoth:plugin@0.1.0:file-viewer-plugin:encoded world"
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 768] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xf7\x04\x01A\x02\x01\
-A\x0a\x01B\x08\x01m\x04\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1008] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe7\x06\x01A\x02\x01\
+A\x0c\x01B\x08\x01m\x04\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x04\0\x0acapability\x03\0\0\x01p\x01\x01ks\x01r\x07\x02ids\x04names\x07versions\
 \x0bdescriptions\x0ccapabilities\x02\x06author\x03\x08homepage\x03\x04\0\x0bplug\
 in-info\x03\0\x04\x01r\x02\x04codey\x07messages\x04\0\x0cplugin-error\x03\0\x06\x03\
@@ -907,13 +1232,18 @@ in-info\x03\0\x04\x01r\x02\x04codey\x07messages\x04\0\x0cplugin-error\x03\0\x06\
 -extensions\x01\x03\x01j\x01w\x01\x01\x01@\x01\x04paths\0\x04\x04\0\x04open\x01\x05\
 \x01j\x01s\x01\x01\x01@\x01\x03idxw\0\x06\x04\0\x03get\x01\x07\x01p}\x01j\x01\x08\
 \x01\x01\x01@\x01\x03idxw\0\x09\x04\0\x09raw-bytes\x01\x0a\x04\0\x1ethoth:plugin\
-/file-loader@0.1.0\x05\x02\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x03\
-\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1eth\
-oth:plugin/plugin-meta@0.1.0\x05\x04\x01B\x03\x01@\0\x01\0\x04\0\x07on-load\x01\0\
-\x04\0\x08on-close\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x05\x04\0\
-%thoth:plugin/file-loader-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12file-loader-plugin\
-\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10\
-wit-bindgen-rust\x060.41.0";
+/file-loader@0.1.0\x05\x02\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\
+\0\0\x01m\x02\x05table\x06custom\x04\0\x0cdisplay-mode\x03\0\x02\x01r\x02\x09nod\
+e-jsons\x0bheight-hinty\x04\0\x0drender-output\x03\0\x04\x01@\0\0\x03\x04\0\x11p\
+referred-display\x01\x06\x01j\x01\x05\x01\x01\x01@\x01\x0brecord-jsons\0\x07\x04\
+\0\x0drender-record\x01\x08\x01ps\x01k\x09\x01@\0\0\x0a\x04\0\x0ecolumn-headers\x01\
+\x0b\x04\0\x1ethoth:plugin/file-viewer@0.1.0\x05\x03\x02\x03\0\0\x0bplugin-info\x01\
+B\x04\x02\x03\x02\x01\x04\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08get\
+-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x05\x01B\x03\x01@\0\x01\
+\0\x04\0\x07on-load\x01\0\x04\0\x08on-close\x01\0\x04\0#thoth:plugin/plugin-life\
+cycle@0.1.0\x05\x06\x04\0%thoth:plugin/file-viewer-plugin@0.1.0\x04\0\x0b\x18\x01\
+\0\x12file-viewer-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-\
+component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

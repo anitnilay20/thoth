@@ -11,7 +11,9 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 use bindings::exports::thoth::plugin::{
-    file_loader::Guest as FileLoaderGuest, plugin_lifecycle::Guest as LifecycleGuest,
+    file_loader::Guest as FileLoaderGuest,
+    file_viewer::{DisplayMode, Guest as FileViewerGuest},
+    plugin_lifecycle::Guest as LifecycleGuest,
     plugin_meta::Guest as MetaGuest,
 };
 use bindings::thoth::plugin::types::{Capability, PluginError};
@@ -39,7 +41,7 @@ impl MetaGuest for CsvPlugin {
             name: "CSV Loader".to_string(),
             version: "0.1.0".to_string(),
             description: "Load CSV and TSV files as tabular JSON records".to_string(),
-            capabilities: vec![Capability::FileLoader],
+            capabilities: vec![Capability::FileLoader, Capability::FileViewer],
             author: Some("Thoth contributors".to_string()),
             homepage: None,
         }
@@ -113,6 +115,23 @@ impl FileLoaderGuest for CsvPlugin {
 
     fn raw_bytes(idx: u64) -> Result<Vec<u8>, PluginError> {
         Self::get(idx).map(String::into_bytes)
+    }
+}
+
+// ── file-viewer ───────────────────────────────────────────────────────────────
+
+impl FileViewerGuest for CsvPlugin {
+    fn preferred_display() -> DisplayMode {
+        DisplayMode::Table
+    }
+
+    fn column_headers() -> Option<Vec<String>> {
+        STATE.with(|s| s.borrow().as_ref().map(|state| state.headers.clone()))
+    }
+
+    fn render_record(_record_json: String) -> Result<bindings::exports::thoth::plugin::file_viewer::RenderOutput, PluginError> {
+        // Not called in table mode — host renders cells directly from file-loader.get()
+        Err(plugin_err(0, "not used in table mode"))
     }
 }
 

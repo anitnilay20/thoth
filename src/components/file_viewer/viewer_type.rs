@@ -1,4 +1,5 @@
 use super::json_tree_viewer::JsonTreeViewer;
+use super::plugin_table_viewer::PluginTableViewer;
 use super::viewer_trait::FileFormatViewer;
 use crate::file::loaders::FileKind;
 
@@ -40,11 +41,8 @@ use crate::file::loaders::FileKind;
 pub enum ViewerType {
     /// JSON/NDJSON tree viewer (implements FileFormatViewer)
     Json(JsonTreeViewer),
-    // Future viewers:
-    // Csv(CsvTableViewer),
-    // Xml(XmlTreeViewer),
-    // Yaml(YamlTreeViewer),
-    // Text(TextViewer),
+    /// Plugin-driven tabular viewer (implements FileFormatViewer)
+    PluginTable(PluginTableViewer),
 }
 
 impl ViewerType {
@@ -54,11 +52,7 @@ impl ViewerType {
             FileKind::Json | FileKind::Ndjson | FileKind::Plugin => {
                 ViewerType::Json(JsonTreeViewer::new())
             }
-            // Future file types:
-            // FileType::Csv => ViewerType::Csv(CsvTableViewer::new()),
-            // FileType::Xml => ViewerType::Xml(XmlTreeViewer::new()),
-            // FileType::Yaml => ViewerType::Yaml(YamlTreeViewer::new()),
-            // _ => ViewerType::Text(TextViewer::new()),  // Fallback
+            FileKind::PluginTable => ViewerType::PluginTable(PluginTableViewer::new()),
         }
     }
 
@@ -76,8 +70,7 @@ impl ViewerType {
     pub fn as_viewer_mut(&mut self) -> &mut dyn FileFormatViewer {
         match self {
             ViewerType::Json(viewer) => viewer,
-            // ViewerType::Csv(viewer) => viewer,
-            // ViewerType::Xml(viewer) => viewer,
+            ViewerType::PluginTable(viewer) => viewer,
         }
     }
 }

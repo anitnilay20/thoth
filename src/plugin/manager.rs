@@ -9,6 +9,7 @@ use crate::error::Result;
 use crate::notification::{Notification, NotificationManager, NotificationStatus};
 use crate::plugin::Capability;
 use crate::plugin::plugin_registry::PluginRegistry;
+use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
 use crate::plugin::wasm_loader::WasmFileLoader;
 use crate::{error::ThothError, plugin::Plugin};
 
@@ -54,6 +55,29 @@ impl PluginManager {
     pub fn find_loader_for_extension(&self, ext: &str) -> Option<PathBuf> {
         let plugin = self.registry.find_loader_for_extension(ext)?;
         plugin.location.as_deref().map(PathBuf::from)
+    }
+
+    /// Returns true if the plugin registered for `ext` declares `capability`.
+    pub fn plugin_has_capability(&self, ext: &str, capability: &Capability) -> bool {
+        self.registry
+            .find_loader_for_extension(ext)
+            .map(|p| p.capabilities.contains(capability))
+            .unwrap_or(false)
+    }
+
+    /// Open `file_path` using a plugin that implements both file-loader and file-viewer.
+    /// Returns an error if no plugin is registered for that extension.
+    pub fn open_file_with_viewer(
+        &self,
+        ext: &str,
+        file_path: &Path,
+    ) -> Result<WasmFileViewerLoader> {
+        let wasm_path = self
+            .find_loader_for_extension(ext)
+            .ok_or_else(|| ThothError::Unknown {
+                message: format!("No plugin registered for .{ext}"),
+            })?;
+        WasmFileViewerLoader::open(&self.engine, &wasm_path, file_path)
     }
 
     /// Open `file_path` using the WASM plugin that handles its extension.

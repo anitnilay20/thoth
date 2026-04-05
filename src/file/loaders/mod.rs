@@ -8,6 +8,7 @@ pub use single::SingleValueFile;
 
 use crate::error::Result;
 use crate::file::detect_file_type::DetectedFileType;
+use crate::plugin::wasm_file_viewer_loader::{DisplayMode, WasmFileViewerLoader};
 use crate::plugin::wasm_loader::WasmFileLoader;
 use serde_json::Value;
 use std::path::Path;
@@ -48,6 +49,7 @@ pub enum FileKind {
     Ndjson,
     Json,
     Plugin,
+    PluginTable,
 }
 
 impl From<DetectedFileType> for FileKind {
@@ -67,8 +69,10 @@ pub enum FileType {
     Ndjson(NdjsonFile),
     JsonArray(JsonArrayFile),
     Single(SingleValueFile),
-    /// Loaded via a WASM plugin.
+    /// Loaded via a WASM plugin (file-loader only).
     Plugin(WasmFileLoader),
+    /// Loaded via a WASM plugin that also controls rendering (file-loader + file-viewer).
+    PluginWithViewer(WasmFileViewerLoader),
 }
 
 impl FileType {
@@ -79,6 +83,7 @@ impl FileType {
             FileType::Ndjson(_) => FileKind::Ndjson,
             FileType::JsonArray(_) | FileType::Single(_) => FileKind::Json,
             FileType::Plugin(_) => FileKind::Plugin,
+            FileType::PluginWithViewer(_) => FileKind::PluginTable,
         }
     }
 
@@ -90,6 +95,7 @@ impl FileType {
             FileType::JsonArray(f) => f.len(),
             FileType::Single(_) => 1,
             FileType::Plugin(f) => f.len(),
+            FileType::PluginWithViewer(f) => f.len(),
         }
     }
 
@@ -100,6 +106,7 @@ impl FileType {
             FileType::JsonArray(f) => f.get(idx),
             FileType::Single(f) => f.get(idx),
             FileType::Plugin(f) => f.get(idx),
+            FileType::PluginWithViewer(f) => f.get(idx),
         }
     }
 
@@ -110,6 +117,33 @@ impl FileType {
             FileType::JsonArray(f) => f.raw_element(idx),
             FileType::Single(f) => f.raw_all(),
             FileType::Plugin(f) => f.raw_bytes(idx),
+            FileType::PluginWithViewer(f) => f.raw_bytes(idx),
+        }
+    }
+
+    /// Ask the plugin how it wants its data displayed.
+    /// Only available for PluginWithViewer loaders; defaults to Table.
+    pub fn preferred_display(&mut self) -> DisplayMode {
+        match self {
+            FileType::PluginWithViewer(f) => f.preferred_display(),
+            _ => DisplayMode::Table,
+        }
+    }
+
+    /// Ask the plugin to render the given JSON record; returns the node_json string.
+    /// Only available for PluginWithViewer loaders.
+    pub fn render_record(&mut self, record_json: &str) -> Option<String> {
+        match self {
+            FileType::PluginWithViewer(f) => f.render_record(record_json).ok(),
+            _ => None,
+        }
+    }
+
+    /// Return plugin-supplied column headers. Only available for PluginWithViewer loaders.
+    pub fn column_headers(&mut self) -> Option<Vec<String>> {
+        match self {
+            FileType::PluginWithViewer(f) => f.column_headers(),
+            _ => None,
         }
     }
 }

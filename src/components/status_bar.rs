@@ -173,6 +173,7 @@ impl ContextComponent for StatusBar {
                         FileKind::Json => egui_phosphor::regular::BRACKETS_CURLY,
                         FileKind::Ndjson => egui_phosphor::regular::LIST_DASHES,
                         FileKind::Plugin => egui_phosphor::regular::PLUG,
+                        FileKind::PluginTable => egui_phosphor::regular::TABLE,
                     };
                     ui.label(format!("{} {:?}", file_type_icon, props.file_type));
 

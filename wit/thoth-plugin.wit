@@ -131,6 +131,25 @@ interface file-loader {
 interface file-viewer {
     use types.{plugin-error};
 
+    /// How the plugin wants its data displayed.
+    ///
+    /// table  — host renders a styled table using column-headers() and the raw
+    ///          JSON values from file-loader.get(). render-record() is never
+    ///          called. This is the simplest option: the plugin only needs to
+    ///          declare headers and the host takes care of the rest.
+    ///
+    /// custom — host calls render-record() for every visible row and draws
+    ///          the returned RenderNode tree. Use this when you need badges,
+    ///          colours, links, nested tables, or any non-trivial cell content.
+    enum display-mode {
+        table,
+        custom,
+    }
+
+    /// Declare how this plugin's data should be displayed.
+    /// Called once after open(). Defaults to `table` if not implemented.
+    preferred-display: func() -> display-mode;
+
     /// A node in the render tree.
     /// Recursive types are not allowed in WIT, so children are encoded as
     /// a JSON string following the RenderNode schema below.
@@ -145,6 +164,8 @@ interface file-viewer {
     ///   { "type": "column",     "children": [<RenderNode>, ...] }
     ///   { "type": "key-value",  "key": "id",  "value": <RenderNode> }
     ///   { "type": "collapsible","label": "...", "children": [<RenderNode>, ...] }
+    ///   { "type": "table",      "headers": ["col1", ...], "rows": [[<RenderNode>, ...], ...] }
+    ///   { "type": "json-tree",  "value": <any JSON value> }
     record render-output {
         /// JSON-encoded RenderNode tree (see schema above)
         node-json: string,

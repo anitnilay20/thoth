@@ -17,4 +17,4 @@ package = "thoth:csv-loader"
 
 [package.metadata.component.target]
 path  = "../../wit"
-world = "file-loader-plugin"
+world = "file-viewer-plugin"

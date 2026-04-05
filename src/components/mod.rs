@@ -15,6 +15,7 @@ pub mod settings_dialog;
 pub mod settings_panel;
 pub mod sidebar;
 pub mod status_bar;
+pub mod table_view;
 pub mod toggle_switch;
 pub mod toolbar;
 pub mod traits;
