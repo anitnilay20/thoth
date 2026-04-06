@@ -70,6 +70,10 @@ pub struct Plugin {
     /// Path to icon.png next to plugin.wasm. Set by PluginManager at scan time.
     #[serde(skip)]
     pub icon_path: Option<std::path::PathBuf>,
+
+    /// True when this plugin ships with the app and cannot be uninstalled.
+    #[serde(skip)]
+    pub bundled: bool,
 }
 
 pub trait PluginLifeCycle {

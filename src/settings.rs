@@ -132,6 +132,10 @@ pub struct PluginSettings {
     /// List of enabled plugins (by name or path)
     #[serde(default)]
     pub enabled_plugins: Vec<String>,
+
+    /// Plugin IDs that the user has explicitly disabled.
+    #[serde(default)]
+    pub disabled_plugin_ids: Vec<String>,
 }
 
 impl Default for Settings {
@@ -207,6 +211,7 @@ impl Default for PluginSettings {
         Self {
             enabled: true,
             enabled_plugins: Vec::new(),
+            disabled_plugin_ids: Vec::new(),
         }
     }
 }

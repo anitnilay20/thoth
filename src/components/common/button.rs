@@ -54,11 +54,15 @@ impl StatelessComponent for Button {
             ButtonColor::Success => colors.success,
         };
 
-        let text_color = get_contrast_text_color(bg_color);
-
         let mut response = match props.button_type {
-            ButtonType::Elevated => Self::elevated_button(ui, text.color(text_color), bg_color, props.width, props.height),
-            ButtonType::Text => Self::text_button(ui, text.color(text_color), colors.surface1, props.width, props.height),
+            ButtonType::Elevated => {
+                let text_color = get_contrast_text_color(bg_color);
+                Self::elevated_button(ui, text.color(text_color), bg_color, props.width, props.height)
+            }
+            ButtonType::Text => {
+                // Text buttons use the color as the text color, not the background.
+                Self::text_button(ui, text.color(bg_color), colors.surface1, props.width, props.height)
+            }
         };
 
         if let Some(hover_text) = props.hover_text {

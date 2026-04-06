@@ -36,6 +36,16 @@ impl PluginRegistry {
         self.plugin_key.get(id)
     }
 
+    pub fn remove_plugin(&mut self, id: &str) {
+        if let Some(plugin) = self.plugin_key.remove(id) {
+            for cap in &plugin.capabilities {
+                if let Some(set) = self.capability_index.get_mut(cap) {
+                    set.remove(id);
+                }
+            }
+        }
+    }
+
     /// Find a FileLoader plugin that declares support for the given extension.
     /// `ext` should be lowercase without the leading dot (e.g. `"csv"`).
     pub fn find_loader_for_extension(&self, ext: &str) -> Option<&Plugin> {

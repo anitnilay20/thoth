@@ -16,7 +16,7 @@ use crate::{error::ThothError, plugin::Plugin};
 #[derive(Debug, Default)]
 pub struct PluginManager {
     engine: Engine,
-    registry: PluginRegistry,
+    pub registry: PluginRegistry,
 }
 
 // #[allow(dead_code)]
@@ -55,6 +55,38 @@ impl PluginManager {
     pub fn find_loader_for_extension(&self, ext: &str) -> Option<PathBuf> {
         let plugin = self.registry.find_loader_for_extension(ext)?;
         plugin.location.as_deref().map(PathBuf::from)
+    }
+
+    /// Uninstall a user-installed plugin by id: removes its directory from disk
+    /// and deregisters it from the registry. Bundled plugins are rejected.
+    pub fn uninstall_plugin(&mut self, id: &str) -> Result<()> {
+        let plugin = self
+            .registry
+            .get_by_id(id)
+            .ok_or_else(|| ThothError::Unknown {
+                message: format!("Plugin '{id}' not found"),
+            })?;
+
+        if plugin.bundled {
+            return Err(ThothError::Unknown {
+                message: format!("Plugin '{id}' is bundled and cannot be uninstalled"),
+            });
+        }
+
+        // location holds the full path to plugin.wasm — delete the parent dir
+        if let Some(location) = &plugin.location {
+            let wasm_path = std::path::Path::new(location);
+            if let Some(plugin_dir) = wasm_path.parent() {
+                if plugin_dir.exists() {
+                    std::fs::remove_dir_all(plugin_dir).map_err(|e| ThothError::Unknown {
+                        message: format!("Failed to delete plugin directory: {e}"),
+                    })?;
+                }
+            }
+        }
+
+        self.registry.remove_plugin(id);
+        Ok(())
     }
 
     /// Returns true if the plugin registered for `ext` declares `capability`.
@@ -170,6 +202,7 @@ impl PluginManager {
                         reason: e.to_string(),
                     })?;
                 plugin.location = Some("BUNDLE".to_string());
+                plugin.bundled = true;
                 let icon = path.join("icon.png");
                 if icon.exists() {
                     plugin.icon_path = Some(icon);

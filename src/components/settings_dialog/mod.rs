@@ -285,7 +285,7 @@ impl SettingsDialog {
             }
             SettingsTab::Plugins => {
                 let output = PluginsTab::render(ui, PluginsTabProps {
-                    plugin_setting: settings.plugins.clone(),
+                    plugin_settings: settings.plugins.clone(),
                 });
 
                 for event in output.events {
@@ -293,6 +293,36 @@ impl SettingsDialog {
                     match event {
                         PluginsTabEvent::EnablePlugins(enabled) => {
                             settings.plugins.enabled = enabled;
+                        }
+                        PluginsTabEvent::TogglePlugin { id, enabled } => {
+                            if enabled {
+                                settings.plugins.disabled_plugin_ids.retain(|x| x != &id);
+                            } else if !settings.plugins.disabled_plugin_ids.contains(&id) {
+                                settings.plugins.disabled_plugin_ids.push(id);
+                            }
+                        }
+                        PluginsTabEvent::UninstallPlugin(id) => {
+                            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() {
+                                // PLUGIN_MANAGER holds an immutable ref — uninstall
+                                // requires mutation so we operate on a fresh manager.
+                                // For now: delete from disk, remove from disabled list.
+                                // The registry update takes effect on next app restart.
+                                let wasm_path = pm
+                                    .registry
+                                    .get_by_id(&id)
+                                    .and_then(|p| p.location.clone());
+
+                                if let Some(location) = wasm_path {
+                                    let path = std::path::Path::new(&location);
+                                    if let Some(dir) = path.parent() {
+                                        if dir.exists() {
+                                            let _ = std::fs::remove_dir_all(dir);
+                                        }
+                                    }
+                                }
+
+                                settings.plugins.disabled_plugin_ids.retain(|x| x != &id);
+                            }
                         }
                     }
                 }

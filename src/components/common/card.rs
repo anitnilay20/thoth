@@ -33,6 +33,8 @@ pub struct CardProps<'a> {
     pub subtitle: &'a str,
     /// Optional single-line metadata shown below the subtitle (e.g. "v1.0 | by Author")
     pub meta: Option<&'a str>,
+    /// Optional tags rendered as small pill badges below the subtitle
+    pub tags: &'a [&'a str],
     /// `Some(bool)` shows a toggle in the header; `None` hides it
     pub is_enabled: Option<bool>,
     pub icon: CardIcon<'a>,
@@ -134,6 +136,26 @@ impl StatelessComponent for Card {
                                 .color(colors.overlay1)
                                 .size(13.0),
                         );
+
+                        if !props.tags.is_empty() {
+                            ui.add_space(6.0);
+                            ui.horizontal(|ui| {
+                                for tag in props.tags {
+                                    egui::Frame::new()
+                                        .fill(colors.surface1)
+                                        .corner_radius(4.0)
+                                        .inner_margin(egui::Margin::symmetric(6, 2))
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                egui::RichText::new(*tag)
+                                                    .size(10.0)
+                                                    .color(colors.info),
+                                            );
+                                        });
+                                    ui.add_space(2.0);
+                                }
+                            });
+                        }
 
                         if let Some(meta) = props.meta {
                             ui.add_space(4.0);
