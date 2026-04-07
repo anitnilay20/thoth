@@ -1,7 +1,7 @@
 use eframe::{App, Frame, egui};
 use std::path::PathBuf;
 
-use crate::{app::pick_file, components::{self, traits::ContextComponent}, settings, state};
+use crate::{app::{file_picker, pick_file}, components::{self, traits::ContextComponent}, settings, state};
 
 use super::{
     ShortcutAction, persistent_state::PersistentState, search_handler::SearchHandler,
@@ -299,14 +299,11 @@ impl App for ThothApp {
 impl ThothApp {
     /// Handle keyboard shortcut actions
     fn handle_shortcut_actions(&mut self, ctx: &egui::Context, actions: Vec<ShortcutAction>) {
-        use rfd::FileDialog;
 
         for action in actions {
             match action {
                 ShortcutAction::OpenFile => {
-                    if let Some(path) = FileDialog::new()
-                        .add_filter("JSON", &["json", "ndjson"])
-                        .pick_file()
+                    if let Some(path) = file_picker::pick_file()
                     {
                         // Add to recent files
                         if let Some(path_str) = path.to_str() {

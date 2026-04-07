@@ -26,6 +26,8 @@ interface types {
         file-viewer,
         data-source,
         exporter,
+        search-provider,
+        new-ui-component,
     }
 
     /// Maps from src/wit/mod.rs `Plugin` struct.

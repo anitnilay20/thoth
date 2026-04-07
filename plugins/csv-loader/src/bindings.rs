@@ -23,6 +23,8 @@ pub mod thoth {
                 FileViewer,
                 DataSource,
                 Exporter,
+                SearchProvider,
+                NewUiComponent,
             }
             impl ::core::fmt::Debug for Capability {
                 fn fmt(
@@ -42,6 +44,12 @@ pub mod thoth {
                         Capability::Exporter => {
                             f.debug_tuple("Capability::Exporter").finish()
                         }
+                        Capability::SearchProvider => {
+                            f.debug_tuple("Capability::SearchProvider").finish()
+                        }
+                        Capability::NewUiComponent => {
+                            f.debug_tuple("Capability::NewUiComponent").finish()
+                        }
                     }
                 }
             }
@@ -56,6 +64,8 @@ pub mod thoth {
                         1 => Capability::FileViewer,
                         2 => Capability::DataSource,
                         3 => Capability::Exporter,
+                        4 => Capability::SearchProvider,
+                        5 => Capability::NewUiComponent,
                         _ => panic!("invalid enum discriminant"),
                     }
                 }
@@ -1221,29 +1231,30 @@ pub(crate) use __export_file_viewer_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1008] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe7\x06\x01A\x02\x01\
-A\x0c\x01B\x08\x01m\x04\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
-\x04\0\x0acapability\x03\0\0\x01p\x01\x01ks\x01r\x07\x02ids\x04names\x07versions\
-\x0bdescriptions\x0ccapabilities\x02\x06author\x03\x08homepage\x03\x04\0\x0bplug\
-in-info\x03\0\x04\x01r\x02\x04codey\x07messages\x04\0\x0cplugin-error\x03\0\x06\x03\
-\0\x18thoth:plugin/types@0.1.0\x05\0\x02\x03\0\0\x0cplugin-error\x01B\x0f\x02\x03\
-\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01ps\x01@\0\0\x02\x04\0\x14supported\
--extensions\x01\x03\x01j\x01w\x01\x01\x01@\x01\x04paths\0\x04\x04\0\x04open\x01\x05\
-\x01j\x01s\x01\x01\x01@\x01\x03idxw\0\x06\x04\0\x03get\x01\x07\x01p}\x01j\x01\x08\
-\x01\x01\x01@\x01\x03idxw\0\x09\x04\0\x09raw-bytes\x01\x0a\x04\0\x1ethoth:plugin\
-/file-loader@0.1.0\x05\x02\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\
-\0\0\x01m\x02\x05table\x06custom\x04\0\x0cdisplay-mode\x03\0\x02\x01r\x02\x09nod\
-e-jsons\x0bheight-hinty\x04\0\x0drender-output\x03\0\x04\x01@\0\0\x03\x04\0\x11p\
-referred-display\x01\x06\x01j\x01\x05\x01\x01\x01@\x01\x0brecord-jsons\0\x07\x04\
-\0\x0drender-record\x01\x08\x01ps\x01k\x09\x01@\0\0\x0a\x04\0\x0ecolumn-headers\x01\
-\x0b\x04\0\x1ethoth:plugin/file-viewer@0.1.0\x05\x03\x02\x03\0\0\x0bplugin-info\x01\
-B\x04\x02\x03\x02\x01\x04\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08get\
--info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x05\x01B\x03\x01@\0\x01\
-\0\x04\0\x07on-load\x01\0\x04\0\x08on-close\x01\0\x04\0#thoth:plugin/plugin-life\
-cycle@0.1.0\x05\x06\x04\0%thoth:plugin/file-viewer-plugin@0.1.0\x04\0\x0b\x18\x01\
-\0\x12file-viewer-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-\
-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1041] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x88\x07\x01A\x02\x01\
+A\x0c\x01B\x08\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
+\x0fsearch-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01\
+ks\x01r\x07\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
+uthor\x03\x08homepage\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04codey\x07me\
+ssages\x04\0\x0cplugin-error\x03\0\x06\x03\0\x18thoth:plugin/types@0.1.0\x05\0\x02\
+\x03\0\0\x0cplugin-error\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\
+\0\x01ps\x01@\0\0\x02\x04\0\x14supported-extensions\x01\x03\x01j\x01w\x01\x01\x01\
+@\x01\x04paths\0\x04\x04\0\x04open\x01\x05\x01j\x01s\x01\x01\x01@\x01\x03idxw\0\x06\
+\x04\0\x03get\x01\x07\x01p}\x01j\x01\x08\x01\x01\x01@\x01\x03idxw\0\x09\x04\0\x09\
+raw-bytes\x01\x0a\x04\0\x1ethoth:plugin/file-loader@0.1.0\x05\x02\x01B\x0f\x02\x03\
+\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01m\x02\x05table\x06custom\x04\0\x0c\
+display-mode\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0drender-ou\
+tput\x03\0\x04\x01@\0\0\x03\x04\0\x11preferred-display\x01\x06\x01j\x01\x05\x01\x01\
+\x01@\x01\x0brecord-jsons\0\x07\x04\0\x0drender-record\x01\x08\x01ps\x01k\x09\x01\
+@\0\0\x0a\x04\0\x0ecolumn-headers\x01\x0b\x04\0\x1ethoth:plugin/file-viewer@0.1.\
+0\x05\x03\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x04\x04\0\x0bplugi\
+n-info\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plug\
+in-meta@0.1.0\x05\x05\x01B\x03\x01@\0\x01\0\x04\0\x07on-load\x01\0\x04\0\x08on-c\
+lose\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x06\x04\0%thoth:plugin/\
+file-viewer-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12file-viewer-plugin\x03\0\0\0G\x09\
+producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rus\
+t\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

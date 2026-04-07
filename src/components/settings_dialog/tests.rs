@@ -14,8 +14,8 @@ where
     F: FnMut(&mut egui::Ui),
 {
     let ctx = egui::Context::default();
-    let _ = ctx.run(egui::RawInput::default(), |ctx| {
-        egui::CentralPanel::default().show(ctx, &mut f);
+    let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show_inside(ctx, &mut f);
     });
 }
 

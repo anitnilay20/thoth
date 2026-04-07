@@ -47,6 +47,8 @@ pub enum Capability {
     FileViewer,
     DataSource,
     Exporter,
+    SearchProvider,
+    NewUIComponent,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +93,8 @@ impl Display for Capability {
                 Capability::FileViewer => "File Viewer".to_string(),
                 Capability::DataSource => "Data Source".to_string(),
                 Capability::Exporter => "Exporter".to_string(),
+                Capability::SearchProvider => "Search Provider".to_string(),
+                Capability::NewUIComponent => "New UI Component".to_string(),
             }
         )
     }

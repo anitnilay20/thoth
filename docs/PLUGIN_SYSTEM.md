@@ -15,10 +15,11 @@ This document describes Thoth's plugin architecture — how it works, how plugin
 - [WIT Interface Definitions](#wit-interface-definitions)
 - [How the Runtime Works](#how-the-runtime-works)
 - [Implementing a File Loader Plugin](#implementing-a-file-loader-plugin)
+- [Implementing a File Viewer Plugin](#implementing-a-file-viewer-plugin)
 - [Implementing a Data Source Plugin](#implementing-a-data-source-plugin)
+- [RenderNode Schema Reference](#rendernode-schema-reference)
 - [Security Model](#security-model)
 - [Integration with Core](#integration-with-core)
-- [Step-by-Step: Adding the Plugin Runtime to Thoth](#step-by-step-adding-the-plugin-runtime-to-thoth)
 
 ---
 
@@ -31,8 +32,6 @@ Features like API/network support, database connectivity, and additional file fo
 - **Third-party extensibility** — anyone can write a plugin without touching core
 - **Clean separation of concerns** — each plugin owns its domain fully
 
-Issues #14 (network/API support) and #35 (additional file formats) are the first candidates to land as first-party plugins once this foundation is in place.
-
 ---
 
 ## Architecture Overview
@@ -42,7 +41,7 @@ Issues #14 (network/API support) and #35 (additional file formats) are the first
 │                  ThothApp                        │
 │                                                  │
 │  ┌──────────────┐     ┌──────────────────────┐  │
-│  │ PluginManager│────▶│  Plugin Registry      │  │
+│  │ PluginManager│────▶│  PluginRegistry       │  │
 │  │              │     │  (in-memory, runtime) │  │
 │  └──────┬───────┘     └──────────────────────┘  │
 │         │                                        │
@@ -57,19 +56,17 @@ Issues #14 (network/API support) and #35 (additional file formats) are the first
 │  │  └────────────┘  └────────────────────┘  │   │
 │  └──────────────────────────────────────────┘   │
 │                                                  │
-│  ┌──────────────┐  ┌──────────────────────────┐ │
-│  │ FileLoader   │  │  DataSource              │ │
-│  │ (core trait) │  │  (core trait)            │ │
-│  │              │  │                          │ │
-│  │  bridges to  │  │  bridges to              │ │
-│  │  WASM plugins│  │  WASM plugins            │ │
-│  └──────────────┘  └──────────────────────────┘ │
+│  ┌───────────────┐  ┌──────────────────────────┐ │
+│  │ WasmFileLoader│  │  WasmFileViewerLoader    │ │
+│  │ (file-loader  │  │  (file-loader +          │ │
+│  │  world)       │  │   file-viewer world)     │ │
+│  └───────────────┘  └──────────────────────────┘ │
 └─────────────────────────────────────────────────┘
 ```
 
 The `PluginManager` is initialized once at app startup, scans all plugin directories, loads each `.wasm` file into its own sandboxed Wasmtime instance, and registers it against the capabilities it declares in `plugin.toml`.
 
-Core code then talks to plugins through thin bridge types that implement the existing core traits (`FileLoader`, `DataSource`), so the rest of the app is unaware of whether it is talking to a built-in loader or a WASM plugin.
+When a file is opened the host checks whether the matching plugin also implements `file-viewer`. If it does, a `WasmFileViewerLoader` is used and the viewer renders either a native table (when the plugin returns `preferred-display: table`) or a custom `RenderNode` tree (when it returns `custom`).
 
 ---
 
@@ -97,81 +94,80 @@ WASM wins on portability, safety, and distribution simplicity. A plugin author c
 | Type | Capability key | What it does |
 |---|---|---|
 | **File Loader** | `file-loader` | Teaches Thoth to open a new file format (CSV, YAML, Parquet, etc.) |
-| **File Viewer** | `file-viewer` | Controls how records are *rendered* — custom virtual DOM tree returned to the host |
+| **File Viewer** | `file-viewer` | Controls how records are *rendered* — table mode or custom RenderNode tree |
 | **Data Source** | `data-source` | Connects to an external source — REST API, database, message queue |
 | **Exporter** | `exporter` | Adds new export formats or destinations |
+| **Search Provider** | `search-provider` | Extends the search experience with custom indexing or remote results |
+| **New UI Component** | `new-ui-component` | Registers additional UI panels or toolbar widgets |
 
-A single plugin can declare multiple capabilities. `file-viewer` always pairs with `file-loader` — use the `file-viewer-plugin` world.
+A single plugin can declare multiple capabilities. `file-viewer` always pairs with `file-loader` — use the `file-viewer-plugin` world for this combination.
 
 ---
 
 ## Plugin Storage and Discovery
 
-Thoth scans three locations at startup, in the following order (higher scope wins on conflict):
+Thoth scans three locations at startup:
 
 | Scope | Path | Purpose |
 |---|---|---|
 | Bundled | Next to the Thoth binary / inside the app bundle | First-party plugins shipped with Thoth |
-| User | `~/.config/thoth/plugins/` (Linux/macOS) `%APPDATA%\thoth\plugins\` (Windows) | Personal plugins installed by the user |
-| Project | `.thoth/plugins/` relative to the opened file | Per-project plugins committed to a repo |
+| User | `~/.config/thoth/plugins/` (Linux/macOS)  `%APPDATA%\thoth\plugins\` (Windows) | Personal plugins installed by the user |
+| Debug | `<workspace>/assets/plugins/` | Dev-only: found by cargo run without a full install |
 
 Discovery algorithm:
 
-1. Walk each directory above in order.
-2. For each entry that is either a `.wasm` file or a directory containing `plugin.toml` + `plugin.wasm`, attempt to load it.
+1. Walk each directory in order.
+2. For each subdirectory that contains `plugin.toml` + `plugin.wasm`, attempt to load it.
 3. Read `plugin.toml` to extract `id`, `name`, `version`, and `capabilities`.
-4. Register the plugin under each capability it declares.
-5. Skip and log a warning for any plugin that fails validation or sandbox initialization.
+4. Validate that the WASM component exports `thoth:plugin/plugin-meta`.
+5. Register the plugin under each capability it declares.
+6. Skip and log a warning for any plugin that fails validation or sandbox initialization.
+
+Plugins installed via the Settings → Plugins UI land in the user directory. Bundled plugins cannot be uninstalled but can be disabled via the toggle in Settings → Plugins.
 
 ---
 
 ## Plugin Structure
 
-A plugin is either:
+A plugin is a **directory** containing:
 
-**A single file** (simple plugins with no metadata override):
-```
-~/.config/thoth/plugins/my-loader.wasm
-```
-The plugin ID defaults to the filename stem. Metadata is read from exported WASM functions.
-
-**A directory** (recommended for non-trivial plugins):
 ```
 ~/.config/thoth/plugins/
 └── csv-loader/
     ├── plugin.toml   ← required metadata
-    └── plugin.wasm   ← compiled WASM component
+    ├── plugin.wasm   ← compiled WASM component
+    └── icon.png      ← optional 64×64 icon shown in Settings
 ```
 
 ### `plugin.toml` format
 
 ```toml
-id          = "com.example.csv-loader"  # Reverse-domain unique identifier
+id          = "com.example.csv-loader"   # Reverse-domain unique identifier
 name        = "CSV Loader"
 version     = "0.2.1"
 description = "Load CSV and TSV files as tabular JSON records"
 author      = "Your Name <you@example.com>"
+homepage    = "https://github.com/example/csv-loader"   # optional
 
-capabilities = ["file-loader"]
+capabilities = ["file-loader", "file-viewer"]
 
-# Capability-specific metadata
-[file-loader]
-supported-extensions = ["csv", "tsv"]
+# One [[file-loader]] block per distinct MIME type / extension group
+[[file-loader]]
+file-type            = "text/csv"
+supported-extensions = ["csv"]
 
-# WASI permissions this plugin needs (user is prompted to approve on first load)
-[permissions]
-# filesystem = ["read:~/.config/myapp"]  # Example; most plugins need none
+[[file-loader]]
+file-type            = "text/tab-separated-values"
+supported-extensions = ["tsv"]
 ```
 
 ---
 
 ## WIT Interface Definitions
 
-The full interface is defined in `wit/thoth-plugin.wit` at the repository root. Below is the complete reference — this is the single source of truth that all language toolchains generate bindings from.
+The full interface is defined in `wit/thoth-plugin.wit` at the repository root. This is the **single source of truth** — all language toolchains generate their bindings from this file.
 
 ### Shared types
-
-Every interface uses the types defined here. `plugin-error` is the standard error type across all `result<T, E>` returns.
 
 ```wit
 interface types {
@@ -180,6 +176,8 @@ interface types {
         file-viewer,
         data-source,
         exporter,
+        search-provider,
+        new-ui-component,
     }
 
     record plugin-info {
@@ -211,8 +209,6 @@ interface plugin-meta {
 
 ### `plugin-lifecycle` — required by every plugin
 
-Maps directly from `src/wit/mod.rs` `PluginLifeCycle` trait.
-
 ```wit
 interface plugin-lifecycle {
     on-load:  func();   // called after plugin is registered
@@ -221,8 +217,6 @@ interface plugin-lifecycle {
 ```
 
 ### `file-loader` — capability: `file-loader`
-
-Maps to the core `FileLoader` trait in `src/file/loaders/mod.rs`. `raw-bytes` is required by the copy-to-clipboard and exporter paths.
 
 ```wit
 interface file-loader {
@@ -235,60 +229,44 @@ interface file-loader {
 }
 ```
 
+`open` indexes the file and returns the total record count. `get` returns a single record as a JSON object string. `raw-bytes` returns the same record as raw UTF-8 bytes (used by copy-to-clipboard and exporters).
+
 ### `file-viewer` — capability: `file-viewer`
-
-Returns a virtual render tree the host draws with egui. Because WASM cannot call egui directly and WIT does not support recursive types, the tree is serialised as a JSON string following this schema:
-
-```
-{ "type": "text",        "value": "hello" }
-{ "type": "bold",        "child": <node> }
-{ "type": "italic",      "child": <node> }
-{ "type": "colored",     "color": "#ff6b6b", "child": <node> }
-{ "type": "badge",       "label": "WARN", "color": "#fbca04" }
-{ "type": "link",        "label": "docs", "url": "https://..." }
-{ "type": "row",         "children": [<node>, ...] }
-{ "type": "column",      "children": [<node>, ...] }
-{ "type": "key-value",   "key": "id", "value": <node> }
-{ "type": "collapsible", "label": "...", "children": [<node>, ...] }
-```
 
 ```wit
 interface file-viewer {
     use types.{plugin-error};
 
-    record render-output {
-        node-json:   string,   // JSON-encoded render tree (schema above)
-        height-hint: u32,      // logical pixels; 0 = auto
+    // How the plugin wants its data displayed.
+    // table  — host renders a native table using column-headers() and the raw
+    //          JSON values from file-loader.get(). render-record() is never called.
+    // custom — host calls render-record() for every visible row and draws the
+    //          returned RenderNode tree (see RenderNode Schema Reference below).
+    enum display-mode {
+        table,
+        custom,
     }
 
-    render-record:  func(record-json: string) -> result<render-output, plugin-error>;
-    column-headers: func() -> option<list<string>>;
+    preferred-display:  func() -> display-mode;
+    column-headers:     func() -> option<list<string>>;
+    render-record:      func(record-json: string) -> result<render-output, plugin-error>;
+
+    record render-output {
+        node-json:   string,   // JSON-encoded RenderNode tree
+        height-hint: u32,      // logical pixels; 0 = auto
+    }
 }
 ```
 
 ### `data-source` — capability: `data-source`
 
-`required-config` lets the host auto-generate the "Connect to source" form. `schema` populates the source explorer sidebar after connecting.
-
 ```wit
 interface data-source {
     use types.{plugin-error};
 
-    record config-entry {
-        key:   string,
-        value: string,
-    }
-
-    record field-schema {
-        name:      string,
-        type-hint: string,   // "string" | "number" | "boolean" | "object"
-        nullable:  bool,
-    }
-
-    record source-schema {
-        name:   string,
-        fields: list<field-schema>,
-    }
+    record config-entry   { key: string, value: string }
+    record field-schema   { name: string, type-hint: string, nullable: bool }
+    record source-schema  { name: string, fields: list<field-schema> }
 
     required-config: func() -> list<config-entry>;
     connect:         func(config: list<config-entry>)    -> result<string, plugin-error>;
@@ -300,18 +278,14 @@ interface data-source {
 
 ### `exporter` — capability: `exporter`
 
-`available-options` drives a dynamic export dialog. `export` returns raw file bytes the host writes to disk.
-
 ```wit
 interface exporter {
     use types.{plugin-error};
 
     record export-option {
-        key:           string,
-        label:         string,
-        default-value: string,
-        input-type:    string,   // "text" | "bool" | "select"
-        choices:       list<string>,
+        key: string, label: string, default-value: string,
+        input-type: string,    // "text" | "bool" | "select"
+        choices: list<string>,
     }
 
     name:              func() -> string;
@@ -325,17 +299,17 @@ interface exporter {
 ### Worlds — pick the one that matches your plugin
 
 ```wit
-world base-plugin {
+world base-plugin {           // every plugin satisfies this
     export plugin-meta;
     export plugin-lifecycle;
 }
 
-world file-loader-plugin {
+world file-loader-plugin {    // file format support only
     include base-plugin;
     export file-loader;
 }
 
-world file-viewer-plugin {       // file-viewer always pairs with file-loader
+world file-viewer-plugin {    // file format + custom rendering
     include base-plugin;
     export file-loader;
     export file-viewer;
@@ -361,45 +335,48 @@ world exporter-plugin {
 ```
 ThothApp::new()
     └── PluginManager::init()
-            ├── scan_directory(bundled_plugins_dir)
-            ├── scan_directory(user_plugins_dir)
-            └── scan_directory(project_plugins_dir)
-                    └── for each plugin:
-                            ├── read plugin.toml
-                            ├── wasmtime::Engine::new()       ← one engine, shared
-                            ├── wasmtime::Module::from_file() ← compile .wasm
-                            ├── wasmtime::Linker::new()       ← wire host functions
-                            ├── wasmtime::Store::new()        ← per-plugin state + fuel limit
-                            ├── validate WIT exports
+            ├── scan bundled_plugins_dir
+            ├── scan user_plugins_dir
+            └── (debug) scan assets/plugins/
+                    └── for each plugin directory:
+                            ├── read plugin.toml  → Plugin struct
+                            ├── set plugin.bundled = true/false
+                            ├── compile .wasm with wasmtime Engine
+                            ├── validate: component exports thoth:plugin/plugin-meta
+                            ├── link WASI host functions
+                            ├── instantiate (validates all imports satisfied)
                             └── register in PluginRegistry
 ```
 
 ### Per-call flow (file-loader example)
 
 ```
-LazyJsonFile::open(path)
-    └── PluginManager::find_loader_for_extension("csv")
-            └── WasmFileLoader::open(path)
-                    └── wasmtime call: plugin.file_loader_open(path)
-                            └── [inside sandbox] CSV plugin indexes the file
-                                returns record count
+FileViewer::open(path)
+    └── PluginManager::plugin_has_capability("csv", FileViewer) → true
+    └── PluginManager::open_file_with_viewer("csv", path)
+            └── WasmFileViewerLoader::open(engine, wasm_path, path)
+                    ├── WASI: preopened dir = file's parent (read-only)
+                    ├── set fuel = u64::MAX / 2
+                    └── wasmtime call: file-loader.open(path) → record_count
+
+Per frame (virtual scrolling — only visible rows):
+    PluginTableViewer::render()
+        ├── loader.column_headers()   → ["Name", "Age", ...]  [called once, cached]
+        ├── loader.preferred_display() → Table                 [called once, cached]
+        └── for each visible row idx:
+                loader.get(idx)       → serde_json::Value      [cached in LRU]
+                (Table mode: host renders cells natively — render_record not called)
 ```
 
-```
-LazyJsonFile::get(idx)
-    └── WasmFileLoader::get(idx)
-            └── wasmtime call: plugin.file_loader_get(idx)
-                    └── [inside sandbox] plugin reads row, serializes to JSON string
-                            └── core deserializes JSON → serde_json::Value
-```
+### Fuel replenishment
 
-The `WasmFileLoader` struct implements the core `FileLoader` trait, so the viewer, search engine, and all other components are completely unaware they are talking to a plugin.
+Each WIT call replenishes fuel to `u64::MAX / 2` before calling into the plugin. This prevents fuel exhaustion across many sequential calls while still bounding any single infinite-loop.
 
 ---
 
 ## Implementing a File Loader Plugin
 
-This walkthrough creates a CSV plugin in Rust.
+This walkthrough creates a CSV plugin in Rust using `cargo-component`.
 
 ### 1. Install tooling
 
@@ -415,183 +392,292 @@ cargo component new --lib csv-loader
 cd csv-loader
 ```
 
-### 3. Add dependencies to `Cargo.toml`
+### 3. Configure `Cargo.toml`
 
 ```toml
 [package]
-name = "csv-loader"
+name    = "csv-loader"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib"]   # required for WASM component output
 
 [dependencies]
-csv = "1"
-serde_json = "1"
+# Must match the version cargo-component uses internally.
+# Check the generated src/bindings.rs header for the exact version.
+wit-bindgen-rt = "0.41"
+serde_json     = "1"
 
 [package.metadata.component]
 package = "com.example:csv-loader"
+
+[package.metadata.component.target]
+path  = "../../wit"          # path to thoth-plugin.wit
+world = "file-loader-plugin"
 ```
 
-### 4. Define the WIT (copy from Thoth's `wit/` directory)
+### 4. Copy the WIT file
 
 ```bash
 cp -r /path/to/thoth/wit ./wit
 ```
 
-### 5. Implement the plugin (`src/lib.rs`)
+### 5. Generate bindings
+
+```bash
+cargo component build
+# cargo-component generates src/bindings.rs automatically.
+# Do NOT call wit_bindgen::generate! manually — cargo-component does it.
+```
+
+### 6. Implement the plugin (`src/lib.rs`)
 
 ```rust
+// cargo-component generates src/bindings.rs — import it here.
+mod bindings;
+
 use std::cell::RefCell;
-use csv::ReaderBuilder;
+use bindings::exports::thoth::plugin::{
+    file_loader::Guest as FileLoaderGuest,
+    plugin_lifecycle::Guest as LifecycleGuest,
+    plugin_meta::Guest as MetaGuest,
+};
+use bindings::thoth::plugin::types::{Capability, PluginError};
 use serde_json::{Map, Value};
-
-// State stored per plugin instance (inside the WASM sandbox)
-struct State {
-    records: Vec<Vec<String>>,
-    headers: Vec<String>,
-}
-
-thread_local! {
-    static STATE: RefCell<Option<State>> = RefCell::new(None);
-}
-
-// Generated by cargo-component from the WIT definition
-wit_bindgen::generate!({
-    world: "file-loader-plugin",
-    exports: {
-        "thoth:plugin/plugin-meta":     CsvPlugin,
-        "thoth:plugin/plugin-lifecycle": CsvPlugin,
-        "thoth:plugin/file-loader":     CsvPlugin,
-    }
-});
 
 struct CsvPlugin;
 
-impl exports::thoth::plugin::plugin_meta::Guest for CsvPlugin {
-    fn get_info() -> exports::thoth::plugin::plugin_meta::PluginInfo {
-        exports::thoth::plugin::plugin_meta::PluginInfo {
+struct State {
+    headers: Vec<String>,
+    records: Vec<Vec<String>>,
+}
+
+thread_local! {
+    static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
+}
+
+impl MetaGuest for CsvPlugin {
+    fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
+        bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
             id:           "com.example.csv-loader".to_string(),
             name:         "CSV Loader".to_string(),
             version:      "0.1.0".to_string(),
-            description:  "Load CSV and TSV files as JSON records".to_string(),
-            capabilities: vec![
-                exports::thoth::plugin::plugin_meta::Capability::FileLoader,
-            ],
-            author:   Some("Your Name <you@example.com>".to_string()),
-            homepage: None,
+            description:  "Load CSV files as JSON records".to_string(),
+            capabilities: vec![Capability::FileLoader],
+            author:       Some("Your Name <you@example.com>".to_string()),
+            homepage:     None,
         }
     }
 }
 
-impl exports::thoth::plugin::plugin_lifecycle::Guest for CsvPlugin {
-    fn on_load() {}    // nothing to initialise for this plugin
+impl LifecycleGuest for CsvPlugin {
+    fn on_load() {}
     fn on_close() {
-        // Clear any state held in memory
         STATE.with(|s| *s.borrow_mut() = None);
     }
 }
 
-impl exports::thoth::plugin::file_loader::Guest for CsvPlugin {
+impl FileLoaderGuest for CsvPlugin {
     fn supported_extensions() -> Vec<String> {
         vec!["csv".to_string(), "tsv".to_string()]
     }
 
-    fn open(path: String) -> Result<u64, exports::thoth::plugin::types::PluginError> {
-        let err = |msg: String| exports::thoth::plugin::types::PluginError { code: 1, message: msg };
-        let delimiter = if path.ends_with(".tsv") { b'\t' } else { b',' };
-
-        let mut reader = ReaderBuilder::new()
-            .delimiter(delimiter)
-            .from_path(&path)
-            .map_err(|e| err(e.to_string()))?;
-
-        let headers: Vec<String> = reader
-            .headers()
-            .map_err(|e| err(e.to_string()))?
-            .iter()
+    fn open(path: String) -> Result<u64, PluginError> {
+        let err = |msg: &str| PluginError { code: 1, message: msg.to_string() };
+        let content = std::fs::read_to_string(&path).map_err(|e| PluginError {
+            code: 1, message: e.to_string(),
+        })?;
+        let mut lines = content.lines();
+        let headers: Vec<String> = lines
+            .next()
+            .ok_or(err("empty file"))?
+            .split(',')
             .map(str::to_owned)
             .collect();
-
-        let records: Vec<Vec<String>> = reader
-            .records()
-            .map(|r| r.map(|row| row.iter().map(str::to_owned).collect()))
-            .collect::<Result<_, _>>()
-            .map_err(|e| err(e.to_string()))?;
-
+        let records: Vec<Vec<String>> = lines
+            .map(|l| l.split(',').map(str::to_owned).collect())
+            .collect();
         let count = records.len() as u64;
-        STATE.with(|s| *s.borrow_mut() = Some(State { records, headers }));
+        STATE.with(|s| *s.borrow_mut() = Some(State { headers, records }));
         Ok(count)
     }
 
-    fn get(idx: u64) -> Result<String, exports::thoth::plugin::types::PluginError> {
-        let err = |msg: &str| exports::thoth::plugin::types::PluginError {
-            code: 2, message: msg.to_string(),
-        };
+    fn get(idx: u64) -> Result<String, PluginError> {
         STATE.with(|s| {
-            let state = s.borrow();
-            let state = state.as_ref().ok_or(err("file not opened"))?;
-            let row = state.records.get(idx as usize).ok_or(err("index out of range"))?;
-
-            let obj: Map<String, Value> = state.headers
-                .iter()
+            let guard = s.borrow();
+            let state = guard.as_ref()
+                .ok_or(PluginError { code: 2, message: "file not opened".into() })?;
+            let row = state.records.get(idx as usize)
+                .ok_or(PluginError { code: 2, message: "index out of range".into() })?;
+            let obj: Map<String, Value> = state.headers.iter()
                 .zip(row.iter())
                 .map(|(k, v)| (k.clone(), Value::String(v.clone())))
                 .collect();
-
             serde_json::to_string(&Value::Object(obj))
-                .map_err(|e| exports::thoth::plugin::types::PluginError { code: 3, message: e.to_string() })
+                .map_err(|e| PluginError { code: 3, message: e.to_string() })
         })
     }
 
-    fn raw_bytes(idx: u64) -> Result<Vec<u8>, exports::thoth::plugin::types::PluginError> {
-        // Re-use get() and return its UTF-8 bytes — sufficient for CSV
-        let json = Self::get(idx)?;
-        Ok(json.into_bytes())
+    fn raw_bytes(idx: u64) -> Result<Vec<u8>, PluginError> {
+        Self::get(idx).map(String::into_bytes)
     }
 }
+
+// Register all exports with the WASM component runtime
+bindings::export!(CsvPlugin with_types_in bindings);
 ```
 
-### 6. Build
+### 7. Write `plugin.toml`
+
+```toml
+id          = "com.example.csv-loader"
+name        = "CSV Loader"
+version     = "0.1.0"
+description = "Load CSV files as JSON records"
+author      = "Your Name <you@example.com>"
+capabilities = ["file-loader"]
+
+[[file-loader]]
+file-type            = "text/csv"
+supported-extensions = ["csv", "tsv"]
+```
+
+### 8. Build and install
 
 ```bash
 cargo component build --release
 # Output: target/wasm32-wasip1/release/csv_loader.wasm
-```
 
-### 7. Install
-
-```bash
 mkdir -p ~/.config/thoth/plugins/csv-loader
 cp target/wasm32-wasip1/release/csv_loader.wasm ~/.config/thoth/plugins/csv-loader/plugin.wasm
-
-cat > ~/.config/thoth/plugins/csv-loader/plugin.toml <<EOF
-id           = "com.example.csv-loader"
-name         = "CSV Loader"
-version      = "0.1.0"
-description  = "Load CSV and TSV files"
-capabilities = ["file-loader"]
-
-[file-loader]
-supported-extensions = ["csv", "tsv"]
-EOF
+cp plugin.toml ~/.config/thoth/plugins/csv-loader/plugin.toml
+# optionally: cp icon.png ~/.config/thoth/plugins/csv-loader/icon.png
 ```
 
-Restart Thoth. Opening a `.csv` file will now use your plugin automatically.
+Restart Thoth — opening a `.csv` file will now use your plugin.
+
+---
+
+## Implementing a File Viewer Plugin
+
+A file viewer plugin controls *how* records are displayed in the viewer panel. It always pairs with `file-loader` — use the `file-viewer-plugin` world.
+
+The plugin declares its preferred rendering mode in `preferred-display()`:
+
+- **`table`** — The host renders a native, horizontally-scrollable table. The plugin only needs to return column headers; the host reads cell values directly from `file-loader.get()`. `render-record()` is never called.
+- **`custom`** — The host calls `render-record()` for each visible row and draws the returned `RenderNode` JSON tree. Use this for badges, colours, links, nested tables, or any cell content that goes beyond plain text.
+
+### `Cargo.toml` changes
+
+Change the world to `file-viewer-plugin`:
+
+```toml
+[package.metadata.component.target]
+path  = "../../wit"
+world = "file-viewer-plugin"
+```
+
+### Additional imports
+
+```rust
+use bindings::exports::thoth::plugin::{
+    file_viewer::{DisplayMode, Guest as FileViewerGuest, RenderOutput},
+    // ... rest of imports
+};
+```
+
+### Implement `FileViewerGuest`
+
+**Table mode** (simplest — host renders the table natively):
+
+```rust
+impl FileViewerGuest for MyPlugin {
+    fn preferred_display() -> DisplayMode {
+        DisplayMode::Table
+    }
+
+    fn column_headers() -> Option<Vec<String>> {
+        // Return None to use the JSON keys from the first record as headers.
+        // Return Some(...) to use custom header labels.
+        STATE.with(|s| s.borrow().as_ref().map(|st| st.headers.clone()))
+    }
+
+    fn render_record(_record_json: String) -> Result<RenderOutput, PluginError> {
+        // Not called in table mode.
+        Err(PluginError { code: 0, message: "not used in table mode".into() })
+    }
+}
+```
+
+**Custom mode** (full control via RenderNode tree):
+
+```rust
+impl FileViewerGuest for MyPlugin {
+    fn preferred_display() -> DisplayMode {
+        DisplayMode::Custom
+    }
+
+    fn column_headers() -> Option<Vec<String>> {
+        None  // not used in custom mode
+    }
+
+    fn render_record(record_json: String) -> Result<RenderOutput, PluginError> {
+        let map: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&record_json).map_err(|e| PluginError {
+                code: 1, message: e.to_string(),
+            })?;
+
+        // Build a row of colored/plain cells
+        let children: Vec<serde_json::Value> = map.iter().map(|(k, v)| {
+            let text = v.as_str().unwrap_or("").to_string();
+            let is_error = text.contains("ERROR");
+            if is_error {
+                serde_json::json!({
+                    "type": "colored",
+                    "color": "#ff6b6b",
+                    "child": { "type": "text", "value": text }
+                })
+            } else {
+                serde_json::json!({ "type": "text", "value": text })
+            }
+        }).collect();
+
+        let node_json = serde_json::json!({
+            "type": "row",
+            "children": children
+        }).to_string();
+
+        Ok(RenderOutput { node_json, height_hint: 0 })
+    }
+}
+```
+
+### Update `plugin.toml`
+
+```toml
+capabilities = ["file-loader", "file-viewer"]
+```
+
+### Build
+
+```bash
+cargo component build --release
+```
+
+Copy the rebuilt `.wasm` to your plugin directory and restart Thoth.
 
 ---
 
 ## Implementing a Data Source Plugin
 
-A data source plugin connects Thoth to an external system (REST API, database, etc.) instead of loading a local file. The user triggers it from the toolbar via **"Connect to source"**.
+A data source plugin connects Thoth to an external system (REST API, database, etc.). The user triggers it from the toolbar via **"Connect to source"**.
 
-The flow mirrors the file-loader pattern but uses `connect` → `query` → `close` instead of `open` → `get`.
+The flow is `connect` → `query` → `close` instead of `open` → `get`.
 
 ```rust
-impl exports::thoth::plugin::data_source::Guest for MyPlugin {
-    fn required_config() -> Vec<exports::thoth::plugin::data_source::ConfigEntry> {
-        // Tell the host which fields to show in the "Connect to source" form
+impl FileViewerGuest for MyPlugin {
+    fn required_config() -> Vec<ConfigEntry> {
         vec![
             ConfigEntry { key: "url".into(),   value: "https://api.example.com".into() },
             ConfigEntry { key: "token".into(), value: "".into() },
@@ -599,34 +685,72 @@ impl exports::thoth::plugin::data_source::Guest for MyPlugin {
     }
 
     fn connect(config: Vec<ConfigEntry>) -> Result<String, PluginError> {
-        let url = config.iter().find(|e| e.key == "url").map(|e| &e.value)
+        let url = config.iter().find(|e| e.key == "url")
             .ok_or(PluginError { code: 1, message: "missing url".into() })?;
-        // ... store connection state keyed by handle UUID
+        // store connection state, return an opaque handle
         Ok("handle-uuid-1234".to_string())
     }
 
     fn schema(handle: String) -> Result<Vec<SourceSchema>, PluginError> {
-        // Return available endpoints/tables for the source explorer sidebar
-        Ok(vec![
-            SourceSchema {
-                name: "users".into(),
-                fields: vec![
-                    FieldSchema { name: "id".into(),   type_hint: "number".into(), nullable: false },
-                    FieldSchema { name: "name".into(), type_hint: "string".into(), nullable: false },
-                ],
-            },
-        ])
+        Ok(vec![SourceSchema {
+            name: "users".into(),
+            fields: vec![
+                FieldSchema { name: "id".into(),   type_hint: "number".into(), nullable: false },
+                FieldSchema { name: "name".into(), type_hint: "string".into(), nullable: false },
+            ],
+        }])
     }
 
     fn query(handle: String, q: String) -> Result<String, PluginError> {
-        // Execute query, return JSON array string
-        // e.g. "[{\"id\":1,\"name\":\"Alice\"}, ...]"
+        // Execute and return a JSON array string
         Ok("[]".to_string())
     }
 
-    fn close(handle: String) {
-        // Clean up connection state
+    fn close(handle: String) {}
+}
+```
+
+---
+
+## RenderNode Schema Reference
+
+When `preferred-display` is `custom`, `render-record` must return a JSON string following this schema. The host deserialises it into a `RenderNode` enum and draws it with egui.
+
+WIT does not support recursive types, so the entire tree is encoded as a single JSON string in `render-output.node-json`.
+
+| Node type | JSON fields | Notes |
+|---|---|---|
+| `text` | `value: string` | Plain label |
+| `bold` | `child: RenderNode` | Renders child text in bold |
+| `italic` | `child: RenderNode` | Renders child text in italics |
+| `colored` | `color: "#rrggbb"`, `child: RenderNode` | Applies hex color to child |
+| `badge` | `label: string`, `color: "#rrggbb"` | Filled pill badge |
+| `link` | `label: string`, `url: string` | Clickable hyperlink |
+| `row` | `children: RenderNode[]` | Horizontal layout |
+| `column` | `children: RenderNode[]` | Vertical layout |
+| `key-value` | `key: string`, `value: RenderNode` | `key: value` pair |
+| `collapsible` | `label: string`, `children: RenderNode[]` | Collapsing section |
+| `table` | `headers: string[]`, `rows: RenderNode[][]` | Inline table with header row |
+| `json-tree` | `value: any` | Renders an arbitrary JSON value as an interactive tree |
+
+### Example
+
+```json
+{
+  "type": "row",
+  "children": [
+    { "type": "text", "value": "Status:" },
+    {
+      "type": "colored",
+      "color": "#ff6b6b",
+      "child": { "type": "text", "value": "ERROR" }
+    },
+    {
+      "type": "badge",
+      "label": "WARN",
+      "color": "#fbca04"
     }
+  ]
 }
 ```
 
@@ -639,13 +763,10 @@ Each plugin runs in a fully isolated Wasmtime instance:
 | Protection | Mechanism |
 |---|---|
 | Memory isolation | Each plugin has its own WASM linear memory; cannot read host or other plugin memory |
-| No filesystem access | WASI filesystem capability is not granted by default |
+| Filesystem access | WASI preopened-dir grants read access to the **file's parent directory only** (set at open time) |
 | No network access | WASI socket capability is not granted by default |
-| CPU budget | Wasmtime fuel limit prevents infinite loops from stalling the UI |
-| Memory cap | Wasmtime `max_wasm_stack` + memory limit prevents runaway allocation |
-| Permission prompts | Plugins requesting WASI capabilities (e.g. network for a data-source plugin) trigger a one-time approval dialog on first load |
-
-Permissions a plugin has been granted are stored in `~/.config/thoth/plugin-permissions.toml`.
+| CPU budget | Fuel is replenished to `u64::MAX / 2` before every WIT call — infinite loops cannot stall the UI indefinitely |
+| Bundled vs user | Bundled plugins (shipped with Thoth) set `plugin.bundled = true` at scan time; the UI prevents uninstalling them |
 
 ---
 
@@ -655,141 +776,47 @@ The bridge between plugins and core lives in `src/plugin/`:
 
 ```
 src/plugin/
-├── mod.rs           ← public re-exports
-├── manager.rs       ← PluginManager: discovery, loading, registry
-├── registry.rs      ← in-memory map of capability → Vec<PluginHandle>
-├── wasm_loader.rs   ← WasmFileLoader: implements FileLoader trait
-├── wasm_source.rs   ← WasmDataSource: implements DataSource trait
-└── permissions.rs   ← WASI capability approval and persistence
+├── mod.rs                    ← Plugin, FileLoaderMeta, Capability types; pub mod re-exports
+├── manager.rs                ← PluginManager: discovery, loading, scan_directory
+├── plugin_registry.rs        ← PluginRegistry: capability_index + plugin_key maps
+├── wasm_loader.rs            ← WasmFileLoader  (file-loader-plugin world)
+├── wasm_file_viewer_loader.rs← WasmFileViewerLoader (file-viewer-plugin world)
+└── render_node.rs            ← RenderNode enum + render_node() egui walker
 ```
 
-`LazyJsonFile` (in `src/file/loaders/mod.rs`) gains a new variant:
+`FileType` in `src/file/loaders/mod.rs` has a variant for each loader kind:
 
 ```rust
-pub enum LazyJsonFile {
+pub enum FileType {
     Ndjson(NdjsonFile),
     JsonArray(JsonArrayFile),
     Single(SingleValueFile),
-    Plugin(WasmFileLoader),   // ← new
+    Plugin(WasmFileLoader),           // file-loader only
+    PluginWithViewer(WasmFileViewerLoader), // file-loader + file-viewer
 }
 ```
 
-`load_file_auto` checks the extension against the plugin registry before falling back to the built-in detection logic:
+`FileViewer::open()` in `src/components/file_viewer/mod.rs` checks capability at open time:
 
 ```rust
-pub fn load_file_auto(path: &Path) -> Result<(DetectedFileType, LazyJsonFile)> {
-    // 1. Check plugin registry first
-    if let Some(loader) = PLUGIN_MANAGER.get().and_then(|pm| pm.find_loader(path)) {
-        return Ok((DetectedFileType::Plugin, LazyJsonFile::Plugin(loader)));
-    }
-    // 2. Fall back to built-in sniffing
-    let detected = sniff_file_type(path)?;
-    // ...
-}
+let has_viewer = pm.plugin_has_capability(ext_str, &Capability::FileViewer);
+
+let (loader, kind) = if has_viewer {
+    let wfl = pm.open_file_with_viewer(ext_str, path)?;
+    (FileType::PluginWithViewer(wfl), FileKind::PluginTable)
+} else {
+    let wfl = pm.open_file(ext_str, path)?;
+    (FileType::Plugin(wfl), FileKind::Plugin)
+};
 ```
 
----
-
-## Step-by-Step: Adding the Plugin Runtime to Thoth
-
-This section is for core contributors wiring the system into Thoth itself.
-
-### Step 1 — Add dependencies
-
-`wasmtime` is already present in `Cargo.toml`. Add the component-model feature and the WASI layer:
-
-```toml
-# Cargo.toml
-[dependencies]
-wasmtime      = { version = "34", features = ["component-model"] }
-wasmtime-wasi = "34"
-wit-bindgen   = "0.41"
-# toml and dirs are already present
-```
-
-### Step 2 — WIT interfaces (already done)
-
-`wit/thoth-plugin.wit` already exists at the repository root. See the [WIT Interface Definitions](#wit-interface-definitions) section for the full reference.
-
-### Step 3 — Implement `PluginManager`
-
-Create `src/plugin/manager.rs`:
+The viewer-type selection mirrors this in `src/components/file_viewer/viewer_type.rs`:
 
 ```rust
-use std::path::PathBuf;
-use wasmtime::{Engine, Store};
-use wasmtime_wasi::WasiCtxBuilder;
-
-pub struct PluginManager {
-    engine: Engine,
-    registry: PluginRegistry,
-}
-
-impl PluginManager {
-    pub fn init() -> Self {
-        let engine = Engine::default();
-        let mut manager = Self { engine, registry: PluginRegistry::default() };
-        manager.scan_all_directories();
-        manager
-    }
-
-    fn scan_all_directories(&mut self) {
-        for dir in self.plugin_directories() {
-            if dir.exists() {
-                self.scan_directory(&dir);
-            }
-        }
-    }
-
-    fn plugin_directories(&self) -> Vec<PathBuf> {
-        vec![
-            bundled_plugins_dir(),
-            user_plugins_dir(),
-            project_plugins_dir(),
-        ]
-    }
-
-    fn scan_directory(&mut self, dir: &Path) {
-        // Walk dir, find plugin.toml + plugin.wasm pairs
-        // Call self.load_plugin() for each
-    }
-
-    fn load_plugin(&mut self, wasm_path: &Path, meta: PluginMeta) -> Result<()> {
-        let wasi = WasiCtxBuilder::new().build();
-        let mut store = Store::new(&self.engine, wasi);
-        store.set_fuel(1_000_000)?; // CPU budget per call (refilled each call)
-
-        let module = wasmtime::Module::from_file(&self.engine, wasm_path)?;
-        // Link, instantiate, validate exports, register
-        self.registry.register(meta, instance);
-        Ok(())
-    }
+pub enum ViewerType {
+    Json(JsonTreeViewer),
+    PluginTable(PluginTableViewer),
 }
 ```
 
-### Step 4 — Store `PluginManager` as a global
-
-```rust
-// src/plugin/mod.rs
-use std::sync::OnceLock;
-
-pub static PLUGIN_MANAGER: OnceLock<PluginManager> = OnceLock::new();
-
-pub fn init() {
-    PLUGIN_MANAGER.set(PluginManager::init()).ok();
-}
-```
-
-Call `plugin::init()` early in `main.rs`, before the eframe window is created.
-
-### Step 5 — Bridge into `FileLoader`
-
-Create `src/plugin/wasm_loader.rs` implementing `FileLoader` for `WasmFileLoader`. Wire it into `LazyJsonFile` and `load_file_auto` as shown in [Integration with Core](#integration-with-core).
-
-### Step 6 — Settings UI
-
-Add a **Plugins** tab to `src/components/settings_panel.rs` that lists all loaded plugins, their version, capabilities, and an enable/disable toggle. Disabled plugins are skipped during the scan on next startup.
-
-### Step 7 — Ship a bundled example
-
-Add the CSV loader plugin source under `plugins/csv-loader/` and build it as part of the release CI pipeline. Bundle the resulting `.wasm` alongside the Thoth binary.
+`PluginTableViewer` (`src/components/file_viewer/plugin_table_viewer.rs`) uses virtual scrolling via `egui_extras::TableBuilder` — only visible rows trigger WASM calls. Rendered rows are cached in a `HashMap<usize, String>` (node JSON) so each row is only sent to the plugin once.
