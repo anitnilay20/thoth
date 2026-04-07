@@ -54,6 +54,16 @@ impl FileFormatViewer for PluginTableViewer {
             self.display_mode = loader.preferred_display();
             if let Some(h) = loader.column_headers() {
                 self.headers = h;
+            } else if total_len > 0 {
+                // Plugin didn't provide headers — derive them from the keys of
+                // the first record so the table has something to render.
+                if let Ok(first) = loader.get(0) {
+                    if let Some(obj) = first.as_object() {
+                        let mut keys: Vec<String> = obj.keys().cloned().collect();
+                        keys.sort(); // deterministic column order
+                        self.headers = keys;
+                    }
+                }
             }
         }
 

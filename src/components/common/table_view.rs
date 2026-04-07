@@ -6,20 +6,12 @@ use crate::theme::{Theme, ThemeColors};
 
 type BoxedCellRenderer<'a> = Box<dyn Fn(&mut egui::Ui) + 'a>;
 
+#[derive(Default)]
 pub struct TableCell<'a> {
     /// Plain text content. Ignored if `custom` is set.
     pub text: Option<&'a str>,
     /// Custom renderer for the cell — overrides `text` when provided.
     pub custom: Option<BoxedCellRenderer<'a>>,
-}
-
-impl<'a> Default for TableCell<'a> {
-    fn default() -> Self {
-        Self {
-            text: None,
-            custom: None,
-        }
-    }
 }
 
 impl<'a> TableCell<'a> {
