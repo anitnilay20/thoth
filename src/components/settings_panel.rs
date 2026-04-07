@@ -1,5 +1,5 @@
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
-use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 use crate::error::ErrorHandler;
 use crate::helpers::{format_date, format_date_static};
 use crate::update::{ReleaseInfo, UpdateState, UpdateStatus};
@@ -118,7 +118,7 @@ impl SettingsPanel {
                         hover_text: None,
                         size: Some(14.0),
                         width: Some(ui.available_width()),
-                        height: Some(0.0),
+                        height: None,
                     },
                 );
 
@@ -150,7 +150,7 @@ impl SettingsPanel {
                         hover_text: None,
                         size: Some(14.0),
                         width: Some(ui.available_width()),
-                        height: Some(0.0),
+                        height: None,
                     },
                 );
 
@@ -201,7 +201,7 @@ impl SettingsPanel {
                         hover_text: None,
                         size: Some(14.0),
                         width: Some(ui.available_width()),
-                        height: Some(0.0),
+                        height: None,
                     },
                 );
 
@@ -233,7 +233,7 @@ impl SettingsPanel {
                         hover_text: None,
                         size: Some(14.0),
                         width: Some(ui.available_width()),
-                        height: Some(0.0),
+                        height: None,
                     },
                 );
 

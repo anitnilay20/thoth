@@ -54,7 +54,7 @@ impl ContextComponent for MockContextComponent {
     type Props<'a> = MockContextProps<'a>;
     type Output = MockContextOutput;
 
-    fn render(&mut self, _ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+    fn render(&mut self, _ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         self.render_count += 1;
         self.last_title = props.title.to_string();
         MockContextOutput {
@@ -103,10 +103,10 @@ mod tests {
 
     #[test]
     fn test_mock_context_component() {
-        run_context_test(|ctx| {
+        run_context_test(|ui| {
             let mut component = MockContextComponent::default();
 
-            let output = component.render(ctx, MockContextProps { title: "Test" });
+            let output = component.render(ui, MockContextProps { title: "Test" });
 
             assert!(output.rendered);
             assert_eq!(output.title, "Test");
@@ -117,16 +117,16 @@ mod tests {
 
     #[test]
     fn test_mock_context_component_multiple_renders() {
-        run_context_test(|ctx| {
+        run_context_test(|ui| {
             let mut component = MockContextComponent::default();
 
             // First render
-            component.render(ctx, MockContextProps { title: "First" });
+            component.render(ui, MockContextProps { title: "First" });
             assert_eq!(component.render_count, 1);
             assert_eq!(component.last_title, "First");
 
             // Second render
-            component.render(ctx, MockContextProps { title: "Second" });
+            component.render(ui, MockContextProps { title: "Second" });
             assert_eq!(component.render_count, 2);
             assert_eq!(component.last_title, "Second");
         });

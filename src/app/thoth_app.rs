@@ -1,7 +1,11 @@
 use eframe::{App, Frame, egui};
 use std::path::PathBuf;
 
-use crate::{app::{file_picker, pick_file}, components::{self, traits::ContextComponent}, settings, state};
+use crate::{
+    app::{file_picker, pick_file},
+    components::{self, traits::ContextComponent},
+    settings, state,
+};
 
 use super::{
     ShortcutAction, persistent_state::PersistentState, search_handler::SearchHandler,
@@ -299,12 +303,10 @@ impl App for ThothApp {
 impl ThothApp {
     /// Handle keyboard shortcut actions
     fn handle_shortcut_actions(&mut self, ctx: &egui::Context, actions: Vec<ShortcutAction>) {
-
         for action in actions {
             match action {
                 ShortcutAction::OpenFile => {
-                    if let Some(path) = file_picker::pick_file()
-                    {
+                    if let Some(path) = file_picker::pick_file(self.settings.plugins.enabled) {
                         // Add to recent files
                         if let Some(path_str) = path.to_str() {
                             self.persistent_state.add_recent_file(
@@ -506,9 +508,12 @@ impl ThothApp {
                 dark_mode: self.settings.dark_mode,
                 shortcuts: &self.settings.shortcuts,
                 file_path: self.window_state.file_path.as_deref(),
-                is_fullscreen: ui.ctx().input(|i: &egui::InputState| i.viewport().fullscreen.unwrap_or(false)),
+                is_fullscreen: ui
+                    .ctx()
+                    .input(|i: &egui::InputState| i.viewport().fullscreen.unwrap_or(false)),
                 can_go_back,
                 can_go_forward,
+                plugins_enabled: self.settings.plugins.enabled,
             },
         );
 
@@ -775,8 +780,7 @@ impl ThothApp {
                 }
                 components::sidebar::SidebarEvent::OpenFilePicker => {
                     // Open file picker dialog
-                    if let Some(path) = pick_file()
-                    {
+                    if let Some(path) = pick_file(self.settings.plugins.enabled) {
                         // Add to recent files
                         if let Some(path_str) = path.to_str() {
                             self.persistent_state.add_recent_file(

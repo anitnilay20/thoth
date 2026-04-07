@@ -1,5 +1,5 @@
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::traits::StatelessComponent;
-use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 use crate::settings::DeveloperSettings;
 use crate::theme::ThemeColors;
 use eframe::egui;

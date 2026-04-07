@@ -587,14 +587,15 @@ fn test_settings_dialog_events() {
 #[test]
 fn test_settings_tab_enum() {
     let tabs = SettingsTab::all();
-    assert_eq!(tabs.len(), 7);
+    assert_eq!(tabs.len(), 8);
     assert_eq!(tabs[0], SettingsTab::General);
     assert_eq!(tabs[1], SettingsTab::Appearance);
     assert_eq!(tabs[2], SettingsTab::Performance);
     assert_eq!(tabs[3], SettingsTab::Viewer);
     assert_eq!(tabs[4], SettingsTab::Shortcuts);
-    assert_eq!(tabs[5], SettingsTab::Updates);
-    assert_eq!(tabs[6], SettingsTab::Advanced);
+    assert_eq!(tabs[5], SettingsTab::Plugins);
+    assert_eq!(tabs[6], SettingsTab::Updates);
+    assert_eq!(tabs[7], SettingsTab::Advanced);
 }
 
 #[test]

@@ -2,7 +2,7 @@ use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, 
 use std::fs::File;
 use std::io::Write;
 use tempfile::TempDir;
-use thoth::file::loaders::FileType;
+use thoth::file::loaders::FileKind;
 use thoth::search::{QueryMode, Search};
 
 /// Generate a temporary NDJSON file with the specified number of records
@@ -22,7 +22,7 @@ fn create_ndjson_file(temp_dir: &TempDir, num_records: usize) -> std::path::Path
     file_path
 }
 
-/// Create a file with some matches at different densities
+/// Create a file with some matches at  different densities
 fn create_file_with_match_density(
     temp_dir: &TempDir,
     num_records: usize,
@@ -70,7 +70,7 @@ fn bench_text_search_scaling(c: &mut Criterion) {
                     query_mode: QueryMode::Text,
                     ..Search::default()
                 };
-                search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+                search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
                 black_box(search.results.hits().len())
             });
         });
@@ -97,7 +97,7 @@ fn bench_case_sensitivity(c: &mut Criterion) {
                 query_mode: QueryMode::Text,
                 ..Search::default()
             };
-            search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+            search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
             black_box(search.results.hits().len())
         });
     });
@@ -110,7 +110,7 @@ fn bench_case_sensitivity(c: &mut Criterion) {
                 query_mode: QueryMode::Text,
                 ..Search::default()
             };
-            search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+            search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
             black_box(search.results.hits().len())
         });
     });
@@ -140,7 +140,7 @@ fn bench_match_density(c: &mut Criterion) {
                         query_mode: QueryMode::Text,
                         ..Search::default()
                     };
-                    search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+                    search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
                     black_box(search.results.hits().len())
                 });
             },
@@ -168,7 +168,7 @@ fn bench_jsonpath_vs_text(c: &mut Criterion) {
                 query_mode: QueryMode::Text,
                 ..Search::default()
             };
-            search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+            search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
             black_box(search.results.hits().len())
         });
     });
@@ -181,7 +181,7 @@ fn bench_jsonpath_vs_text(c: &mut Criterion) {
                 query_mode: QueryMode::JsonPath,
                 ..Search::default()
             };
-            search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+            search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
             black_box(search.results.hits().len())
         });
     });
@@ -194,7 +194,7 @@ fn bench_jsonpath_vs_text(c: &mut Criterion) {
                 query_mode: QueryMode::JsonPath,
                 ..Search::default()
             };
-            search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+            search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
             black_box(search.results.hits().len())
         });
     });
@@ -228,7 +228,7 @@ fn bench_query_length(c: &mut Criterion) {
                     query_mode: QueryMode::Text,
                     ..Search::default()
                 };
-                search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+                search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
                 black_box(search.results.hits().len())
             });
         });
@@ -256,7 +256,7 @@ fn bench_field_matching(c: &mut Criterion) {
                 query_mode: QueryMode::Text,
                 ..Search::default()
             };
-            search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+            search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
             black_box(search.results.hits().len())
         });
     });
@@ -270,7 +270,7 @@ fn bench_field_matching(c: &mut Criterion) {
                 query_mode: QueryMode::Text,
                 ..Search::default()
             };
-            search.start_scanning_internal(&Some(file_path.clone()), &FileType::Ndjson);
+            search.start_scanning_internal(&Some(file_path.clone()), &FileKind::Ndjson);
             black_box(search.results.hits().len())
         });
     });

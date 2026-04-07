@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::icon_button::{IconButton, IconButtonProps};
-use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
 use crate::search::results::MatchPreview;
 use crate::search::{QueryMode, Search as SearchState, SearchMessage, decode_history_entry};

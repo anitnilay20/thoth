@@ -421,9 +421,21 @@ pub fn get_contrast_text_color(bg_color: Color32) -> Color32 {
     let g = bg_color.g() as f32 / 255.0;
     let b = bg_color.b() as f32 / 255.0;
 
-    let r = if r <= 0.03928 { r / 12.92 } else { ((r + 0.055) / 1.055).powf(2.4) };
-    let g = if g <= 0.03928 { g / 12.92 } else { ((g + 0.055) / 1.055).powf(2.4) };
-    let b = if b <= 0.03928 { b / 12.92 } else { ((b + 0.055) / 1.055).powf(2.4) };
+    let r = if r <= 0.03928 {
+        r / 12.92
+    } else {
+        ((r + 0.055) / 1.055).powf(2.4)
+    };
+    let g = if g <= 0.03928 {
+        g / 12.92
+    } else {
+        ((g + 0.055) / 1.055).powf(2.4)
+    };
+    let b = if b <= 0.03928 {
+        b / 12.92
+    } else {
+        ((b + 0.055) / 1.055).powf(2.4)
+    };
 
     let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 

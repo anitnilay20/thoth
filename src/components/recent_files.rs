@@ -1,5 +1,5 @@
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
-use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 use eframe::egui;
 
 /// Props passed to the RecentFiles component

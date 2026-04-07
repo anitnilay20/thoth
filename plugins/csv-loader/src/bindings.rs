@@ -1226,9 +1226,7 @@ macro_rules! __export_file_viewer_plugin_impl {
 #[doc(inline)]
 pub(crate) use __export_file_viewer_plugin_impl as export;
 #[cfg(target_arch = "wasm32")]
-#[unsafe(
-    link_section = "component-type:wit-bindgen:0.41.0:thoth:plugin@0.1.0:file-viewer-plugin:encoded world"
-)]
+#[unsafe(link_section = "component-type:wit-bindgen:0.41.0:thoth:plugin@0.1.0:file-viewer-plugin:encoded world")]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
 pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1041] = *b"\

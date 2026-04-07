@@ -1,7 +1,7 @@
 use crate::components::traits::StatelessComponent;
 use crate::theme::ThemeColors;
 use eframe::egui;
-use egui::Color32;
+use egui::{Color32, Sense};
 
 // Default button and icon sizes
 const DEFAULT_BUTTON_SIZE: f32 = 20.0;
@@ -50,38 +50,57 @@ impl StatelessComponent for IconButton {
             ui.style().visuals.text_color()
         };
 
-        // Create button with custom styling
         let size = props
             .size
             .unwrap_or(egui::vec2(DEFAULT_BUTTON_SIZE, DEFAULT_BUTTON_SIZE));
-        // Scale icon size proportionally to button size
         let icon_size = (size.y / DEFAULT_BUTTON_SIZE) * DEFAULT_ICON_SIZE;
 
-        let text = egui::RichText::new(props.icon)
-            .size(icon_size)
-            .color(base_color);
+        // Allocate the button rect FIRST so we can paint the hover background
+        // before placing the icon widget (correct z-order: bg behind glyph).
+        let sense = if props.disabled {
+            Sense::hover()
+        } else {
+            Sense::click()
+        };
+        let (rect, response) = ui.allocate_exact_size(size, sense);
 
-        let button = egui::Button::new(text)
-            .fill(if props.frame {
-                colors.surface1
-            } else {
-                egui::Color32::TRANSPARENT
-            })
-            .stroke(egui::Stroke::NONE)
-            .frame(props.frame)
-            .min_size(size);
+        if ui.is_rect_visible(rect) {
+            // Paint frame background if requested
+            if props.frame {
+                ui.painter().rect_filled(rect, 4.0, colors.surface1);
+            }
 
-        let response = ui.add_enabled(!props.disabled, button);
+            // Paint hover background before the icon so it sits behind the glyph
+            if response.hovered() && !props.disabled {
+                let hover_bg = Color32::from_rgba_premultiplied(
+                    colors.surface1.r(),
+                    colors.surface1.g(),
+                    colors.surface1.b(),
+                    40, // Low alpha for subtle effect
+                );
+                ui.painter().rect_filled(rect, 4.0, hover_bg);
+            }
 
-        // Apply hover background effect (similar to text button)
-        if response.hovered() && !props.disabled && ui.is_rect_visible(response.rect) {
-            let hover_bg = Color32::from_rgba_premultiplied(
-                colors.surface1.r(),
-                colors.surface1.g(),
-                colors.surface1.b(),
-                40, // Low alpha for subtle effect
+            // Paint the icon glyph on top of the background
+            // Paint the icon glyph centred in the allocated rect.
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                props.icon,
+                egui::FontId::proportional(icon_size),
+                base_color,
             );
-            ui.painter().rect_filled(response.rect, 4.0, hover_bg);
+
+            // Draw badge if provided (on top of everything)
+            if let Some(badge_color) = props.badge_color {
+                let badge_center = egui::pos2(rect.right() - 6.0, rect.top() + 6.0);
+                ui.painter().circle_filled(badge_center, 2.0, badge_color);
+                ui.painter().circle_stroke(
+                    badge_center,
+                    2.0,
+                    egui::Stroke::new(1.5, egui::Color32::WHITE),
+                );
+            }
         }
 
         // Change cursor based on state
@@ -105,24 +124,8 @@ impl StatelessComponent for IconButton {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
         });
 
-        // Draw badge if provided
-        if let Some(badge_color) = props.badge_color {
-            let button_rect = response.rect;
-            let badge_center = egui::pos2(button_rect.right() - 6.0, button_rect.top() + 6.0);
-            let badge_radius = 2.0;
+        let clicked = response.clicked() && !props.disabled;
 
-            ui.painter()
-                .circle_filled(badge_center, badge_radius, badge_color);
-            ui.painter().circle_stroke(
-                badge_center,
-                badge_radius,
-                egui::Stroke::new(1.5, egui::Color32::WHITE),
-            );
-        }
-
-        IconButtonOutput {
-            clicked: response.clicked(),
-            response,
-        }
+        IconButtonOutput { clicked, response }
     }
 }

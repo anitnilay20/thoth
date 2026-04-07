@@ -34,9 +34,9 @@ impl StatelessComponent for ToggleSwitch {
         let mut response = Self::toggle_switch(ui, props.enabled, colors.success, colors.surface2);
         let mut output = ToggleSwitchOutput { events: Vec::new() };
 
+        response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
         if let Some(hover_text) = props.hover_text {
             response = response.on_hover_text(hover_text);
-            response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
         }
 
         if response.clicked() {

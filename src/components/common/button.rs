@@ -1,6 +1,9 @@
 use eframe::egui::{self, Color32};
 
-use crate::{components::traits::StatelessComponent, theme::{Theme, ThemeColors, get_contrast_text_color}};
+use crate::{
+    components::traits::StatelessComponent,
+    theme::{Theme, ThemeColors, get_contrast_text_color},
+};
 
 pub struct Button;
 
@@ -57,11 +60,23 @@ impl StatelessComponent for Button {
         let mut response = match props.button_type {
             ButtonType::Elevated => {
                 let text_color = get_contrast_text_color(bg_color);
-                Self::elevated_button(ui, text.color(text_color), bg_color, props.width, props.height)
+                Self::elevated_button(
+                    ui,
+                    text.color(text_color),
+                    bg_color,
+                    props.width,
+                    props.height,
+                )
             }
             ButtonType::Text => {
                 // Text buttons use the color as the text color, not the background.
-                Self::text_button(ui, text.color(bg_color), colors.surface1, props.width, props.height)
+                Self::text_button(
+                    ui,
+                    text.color(bg_color),
+                    colors.surface1,
+                    props.width,
+                    props.height,
+                )
             }
         };
 
@@ -112,6 +127,10 @@ impl Button {
             .fill(Color32::TRANSPARENT)
             .stroke(egui::Stroke::NONE);
 
+        // Reserve a paint slot before the button so any hover bg is drawn
+        // behind the label text, not on top of it.
+        let bg_idx = ui.painter().add(egui::Shape::Noop);
+
         let response = if let (Some(w), Some(h)) = (width, height) {
             ui.add_sized(egui::vec2(w, h), button)
         } else if let Some(w) = width {
@@ -122,16 +141,17 @@ impl Button {
             ui.add(button)
         };
 
-        // Apply hover background effect
         if response.hovered() && ui.is_rect_visible(response.rect) {
-            // Draw a subtle background on hover with reduced opacity
             let hover_color = Color32::from_rgba_premultiplied(
                 hover_bg_color.r(),
                 hover_bg_color.g(),
                 hover_bg_color.b(),
-                40, // Low alpha for subtle effect
+                40,
             );
-            ui.painter().rect_filled(response.rect, 4.0, hover_color);
+            ui.painter().set(
+                bg_idx,
+                egui::Shape::rect_filled(response.rect, 4.0, hover_color),
+            );
         }
 
         response

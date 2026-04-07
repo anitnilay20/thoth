@@ -13,17 +13,28 @@ fn main() {
         return; // no plugins directory yet — skip silently
     };
 
+    // Check cargo-component availability once before iterating plugins.
+    let cargo_component_available = Command::new("cargo-component")
+        .arg("--version")
+        .output()
+        .is_ok();
+
     for entry in entries.flatten() {
         let plugin_dir = entry.path();
         if !plugin_dir.is_dir() {
             continue;
         }
 
-        let plugin_name = plugin_dir.file_name().unwrap().to_string_lossy().to_string();
+        let plugin_name = plugin_dir
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
 
-        // Skip silently if cargo-component is not installed
-        if Command::new("cargo-component").arg("--version").output().is_err() {
-            println!("cargo:warning=cargo-component not found — skipping plugin '{plugin_name}'. Install with: cargo install cargo-component");
+        if !cargo_component_available {
+            println!(
+                "cargo:warning=cargo-component not found — skipping plugin '{plugin_name}'. Install with: cargo install cargo-component"
+            );
             continue;
         }
 
@@ -60,7 +71,12 @@ fn main() {
         );
 
         let dst_dir = format!("{plugins_dst}/{plugin_name}");
-        fs::create_dir_all(&dst_dir).unwrap();
+        if let Err(e) = fs::create_dir_all(&dst_dir) {
+            println!(
+                "cargo:warning=Could not create output directory for '{plugin_name}' ({dst_dir}): {e}"
+            );
+            continue;
+        }
 
         // Copy .wasm
         if let Err(e) = fs::copy(&wasm_src, format!("{dst_dir}/plugin.wasm")) {

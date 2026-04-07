@@ -89,12 +89,12 @@ impl Display for Capability {
             f,
             "{}",
             match self {
-                Capability::FileLoader => "File Loader".to_string(),
-                Capability::FileViewer => "File Viewer".to_string(),
-                Capability::DataSource => "Data Source".to_string(),
-                Capability::Exporter => "Exporter".to_string(),
-                Capability::SearchProvider => "Search Provider".to_string(),
-                Capability::NewUIComponent => "New UI Component".to_string(),
+                Capability::FileLoader => "File Loader",
+                Capability::FileViewer => "File Viewer",
+                Capability::DataSource => "Data Source",
+                Capability::Exporter => "Exporter",
+                Capability::SearchProvider => "Search Provider",
+                Capability::NewUIComponent => "New UI Component",
             }
         )
     }

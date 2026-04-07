@@ -13,10 +13,10 @@ use std::sync::Arc;
 
 use self::types::ViewerState;
 use self::viewer_type::ViewerType;
-use crate::file::loaders::{FileKind, FileType, load_file_auto};
-use crate::plugin::Capability;
 use crate::PLUGIN_MANAGER;
+use crate::file::loaders::{FileKind, FileType, load_file_auto};
 use crate::helpers::LruCache;
+use crate::plugin::Capability;
 use crate::search::results::{MatchFragment, SearchResults};
 
 /// Generic file viewer that manages common viewing concerns (loading, caching, selection)
@@ -83,9 +83,7 @@ impl FileViewer {
         // Built-in extensions handled without plugins.
         const JSON_EXTENSIONS: &[&str] = &["json", "ndjson", "jsonl", "geojson"];
 
-        let ext = path
-            .extension()
-            .map(|e| e.to_string_lossy().to_lowercase());
+        let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
         let ext_str = ext.as_deref().unwrap_or("");
 
         // Check if a plugin is registered for this extension.
@@ -121,7 +119,12 @@ impl FileViewer {
                 return Err(crate::error::ThothError::InvalidFileType {
                     path: path.to_path_buf(),
                     expected: format!(
-                        "a supported format (.json, .ndjson) or an installed plugin for .{ext_str} files"
+                        "a supported format ({}) or an installed plugin for .{ext_str} files",
+                        JSON_EXTENSIONS
+                            .iter()
+                            .map(|e| format!(".{e}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ),
                 });
             }

@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 
 use crate::{
+    app::pick_file,
     components::{
         icon_button::{IconButton, IconButtonProps},
         traits::{ContextComponent, StatelessComponent},
     },
     file::lazy_loader::FileKind,
     shortcuts::KeyboardShortcuts,
-    app::pick_file,
 };
 
 #[derive(Default)]
@@ -26,6 +26,7 @@ pub struct ToolbarProps<'a> {
     pub is_fullscreen: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
+    pub plugins_enabled: bool,
 }
 
 /// Events emitted by the toolbar (bottom-to-top communication)
@@ -199,8 +200,7 @@ impl Toolbar {
                     )
                     .clicked
                     {
-                        if let Some(path) = pick_file()
-                        {
+                        if let Some(path) = pick_file(props.plugins_enabled) {
                             let file_type = infer_file_type(&path).unwrap_or(*props.file_type);
                             events.push(ToolbarEvent::FileOpen { path, file_type });
                             self.previous_file_type = file_type;

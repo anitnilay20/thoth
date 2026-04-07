@@ -127,7 +127,7 @@ impl ErrorHandler {
             // PATH registry errors - recoverable
             ThothError::PathRegistryError { .. } => true,
 
-            //Plugins
+            // Plugins
             ThothError::PluginDirectoryInvalid { .. } => true,
             ThothError::PluginFileInvalid { .. } => true,
             ThothError::PluginLoadError { .. } => true,

@@ -1,5 +1,5 @@
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
-use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 use crate::error::{ErrorHandler, ErrorRecovery, RecoveryAction, ThothError};
 use eframe::egui;
 
@@ -122,8 +122,10 @@ impl StatefulComponent for ErrorModal {
                                     button_type: ButtonType::Elevated,
                                     color: ButtonColor::Danger,
                                     hover_text: None,
-                                    size: None,                                    width: None,
-                                    height: None,                                },
+                                    size: None,
+                                    width: None,
+                                    height: None,
+                                },
                             );
                             if retry_btn.clicked {
                                 events.push(ErrorModalEvent::Retry);

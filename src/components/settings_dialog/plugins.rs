@@ -84,6 +84,9 @@ impl StatelessComponent for PluginsTab {
                         ui.add_space(20.0);
 
                         // ── Plugin list ───────────────────────────────────────
+                        // PLUGIN_MANAGER is OnceLock<Option<PluginManager>>: the outer
+                        // Option is None before the lock is set; the inner Option is None
+                        // when PluginManager::init() failed at startup.
                         let Some(Some(pm)) = PLUGIN_MANAGER.get() else {
                             ui.label(
                                 egui::RichText::new("Plugin manager not available.")

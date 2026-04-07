@@ -11,6 +11,7 @@ crate-type = ["cdylib"]   # required for WASM component output
 # cargo-component uses internally — check with: head -3 src/bindings.rs)
 wit-bindgen-rt = "0.41"
 serde_json     = "1"
+csv            = "1"
 
 [package.metadata.component]
 package = "thoth:csv-loader"

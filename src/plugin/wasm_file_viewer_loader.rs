@@ -51,7 +51,12 @@ impl WasmFileViewerLoader {
         let parent_str = parent_dir.to_string_lossy();
         let wasi = WasiCtxBuilder::new()
             .inherit_stdio()
-            .preopened_dir(parent_dir, parent_str.as_ref(), DirPerms::READ, FilePerms::READ)
+            .preopened_dir(
+                parent_dir,
+                parent_str.as_ref(),
+                DirPerms::READ,
+                FilePerms::READ,
+            )
             .map_err(|e| ThothError::PluginLoadError {
                 path: wasm_path.to_path_buf(),
                 reason: e.to_string(),
@@ -139,7 +144,7 @@ impl WasmFileViewerLoader {
     }
 
     pub fn raw_bytes(&self, idx: usize) -> Result<Vec<u8>> {
-        let mut guard = self.inner.lock().unwrap();
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmViewerInner { store, bindings } = &mut *guard;
         store
             .set_fuel(u64::MAX / 2)

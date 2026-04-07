@@ -30,8 +30,8 @@ pub use shortcuts::ShortcutsTab;
 pub use updates::UpdatesTab;
 pub use viewer::ViewerTab;
 
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::settings_dialog::plugins::{PluginsTab, PluginsTabProps};
-use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 use crate::components::traits::{ContextComponent, StatelessComponent};
 use crate::settings::Settings;
 use crate::theme::{self, ThemeColors};
@@ -284,9 +284,12 @@ impl SettingsDialog {
                 // No events to handle yet - shortcuts are read-only
             }
             SettingsTab::Plugins => {
-                let output = PluginsTab::render(ui, PluginsTabProps {
-                    plugin_settings: settings.plugins.clone(),
-                });
+                let output = PluginsTab::render(
+                    ui,
+                    PluginsTabProps {
+                        plugin_settings: settings.plugins.clone(),
+                    },
+                );
 
                 for event in output.events {
                     use plugins::PluginsTabEvent;
@@ -307,10 +310,8 @@ impl SettingsDialog {
                                 // requires mutation so we operate on a fresh manager.
                                 // For now: delete from disk, remove from disabled list.
                                 // The registry update takes effect on next app restart.
-                                let wasm_path = pm
-                                    .registry
-                                    .get_by_id(&id)
-                                    .and_then(|p| p.location.clone());
+                                let wasm_path =
+                                    pm.registry.get_by_id(&id).and_then(|p| p.location.clone());
 
                                 if let Some(location) = wasm_path {
                                     let path = std::path::Path::new(&location);
@@ -479,7 +480,8 @@ impl ContextComponent for SettingsDialog {
                     mem.data
                         .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
                         .unwrap_or_else(|| {
-                            theme::Theme::for_dark_mode(ctx.global_style().visuals.dark_mode).colors()
+                            theme::Theme::for_dark_mode(ctx.global_style().visuals.dark_mode)
+                                .colors()
                         })
                 });
 

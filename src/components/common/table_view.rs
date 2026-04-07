@@ -74,10 +74,22 @@ impl StatelessComponent for TableView {
         let mut clicked_row: Option<usize> = None;
         let mut build_row = props.build_row;
 
+        let ctx = ui.ctx().clone();
+        // Per-table key so multiple tables on screen don't share scroll state.
+        let scroll_state_id = ui.id().with("table_v_scrolled");
+        // Read last frame's scroll state (one frame of lag is imperceptible).
+        let is_scrolled: bool = ctx.data(|d| d.get_temp(scroll_state_id)).unwrap_or(false);
+
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.set_min_width(min_col_width * num_cols as f32);
+
+                // Capture geometry before the table borrows `ui`, so we can
+                // paint a single full-width shadow below the header afterward.
+                let header_shadow_top = ui.next_widget_position().y + header_height;
+                let header_shadow_left = ui.next_widget_position().x;
+                let header_shadow_width = ui.available_width();
 
                 TableBuilder::new(ui)
                     .striped(true)
@@ -92,23 +104,21 @@ impl StatelessComponent for TableView {
                             header_row.col(|ui| {
                                 ui.add_space(header_padding);
                                 let r = ui.heading(h);
-                                let shadow_rect = egui::Rect::from_min_size(
-                                    egui::pos2(r.rect.left(), r.rect.bottom()),
-                                    egui::vec2(ui.available_width() + min_col_width, 3.0),
-                                );
-                                ui.painter().rect_filled(
-                                    shadow_rect,
-                                    0.0,
-                                    colors.crust.linear_multiply(0.6),
-                                );
                                 ui.add_space(header_padding);
+                                if r.hovered() {
+                                    r.show_tooltip_text(h);
+                                }
                             });
                         }
                     })
                     .body(|body| {
                         // `body.rows` only calls the closure for visible rows —
                         // this is where virtual scrolling actually happens.
+                        let mut first_visible_row: Option<usize> = None;
                         body.rows(row_height, props.row_count, |mut row| {
+                            if first_visible_row.is_none() {
+                                first_visible_row = Some(row.index());
+                            }
                             let cells = build_row(row.index());
                             let mut row_clicked = false;
                             for cell in &cells {
@@ -129,7 +139,21 @@ impl StatelessComponent for TableView {
                                 clicked_row = Some(row.index());
                             }
                         });
+                        // Store whether we're scrolled past the first row for
+                        // the next frame to decide whether to show the shadow.
+                        let scrolled = first_visible_row.map(|i| i > 0).unwrap_or(false);
+                        ctx.data_mut(|d| d.insert_temp(scroll_state_id, scrolled));
                     });
+
+                // Shadow below the header — only shown when scrolled down.
+                if is_scrolled {
+                    let shadow_rect = egui::Rect::from_min_size(
+                        egui::pos2(header_shadow_left, header_shadow_top),
+                        egui::vec2(header_shadow_width, 3.0),
+                    );
+                    ui.painter()
+                        .rect_filled(shadow_rect, 0.0, colors.crust.linear_multiply(0.6));
+                }
             });
 
         TableViewOutput { clicked_row }

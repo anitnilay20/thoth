@@ -13,13 +13,12 @@ use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
 use crate::plugin::wasm_loader::WasmFileLoader;
 use crate::{error::ThothError, plugin::Plugin};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PluginManager {
     engine: Engine,
     pub registry: PluginRegistry,
 }
 
-// #[allow(dead_code)]
 impl PluginManager {
     pub fn init() -> Result<Self> {
         let notification_id = NotificationManager::notify(
@@ -128,8 +127,10 @@ impl PluginManager {
             if let Ok(dir) = dir
                 && dir.exists()
             {
-                println!("Checking {}", dir.display());
-                self.scan_directory(dir)?;
+                eprintln!("Checking {}", dir.display());
+                if let Err(e) = self.scan_directory(dir) {
+                    eprintln!("Failed to scan plugin directory: {e:?}");
+                }
             }
         }
 
@@ -167,7 +168,8 @@ impl PluginManager {
         #[cfg(not(target_os = "macos"))]
         let base = exe_dir.to_path_buf();
 
-        Ok(base.join("assets/plugins"))
+        // Return the base assets dir — scan_directory will append "plugins".
+        Ok(base.join("assets"))
     }
 
     fn user_plugin_dir(&self) -> Result<PathBuf> {
@@ -177,8 +179,6 @@ impl PluginManager {
 
         Ok(config_dir.join("thoth"))
     }
-
-    // fn load_plugin_exe(path: PathBuf)
 
     pub fn scan_directory(&mut self, dir: PathBuf) -> Result<()> {
         let plugin_dir = dir.join("plugins");
@@ -192,25 +192,49 @@ impl PluginManager {
             let entry = entry?;
             let path = entry.path();
 
-            if path.is_dir() {
-                let toml_path = path.join("plugin.toml");
-                let plugin_path = path.join("plugin.wasm");
-                let contents = std::fs::read_to_string(toml_path.clone())?;
-                let mut plugin: Plugin =
-                    toml::from_str(&contents).map_err(|e| ThothError::PluginLoadError {
-                        path: toml_path,
-                        reason: e.to_string(),
-                    })?;
-                plugin.location = Some("BUNDLE".to_string());
-                plugin.bundled = true;
-                let icon = path.join("icon.png");
-                if icon.exists() {
-                    plugin.icon_path = Some(icon);
+            if !path.is_dir() {
+                continue;
+            }
+
+            let toml_path = path.join("plugin.toml");
+            let plugin_path = path.join("plugin.wasm");
+
+            let contents = match std::fs::read_to_string(&toml_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!(
+                        "cargo:warning=Skipping plugin at {}: failed to read plugin.toml: {e}",
+                        path.display()
+                    );
+                    continue;
                 }
-                // self.registry.add_plugin(plugin);
-                self.load_plugin(plugin_path, plugin)?;
-            } else {
-                // Ignore
+            };
+
+            let mut plugin: Plugin = match toml::from_str(&contents) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!(
+                        "cargo:warning=Skipping plugin at {}: invalid plugin.toml: {e}",
+                        toml_path.display()
+                    );
+                    continue;
+                }
+            };
+
+            // bundled flag is set here before load_plugin() so it survives
+            // the location overwrite inside load_plugin().
+            plugin.bundled = true;
+
+            let icon = path.join("icon.png");
+            if icon.exists() {
+                plugin.icon_path = Some(icon);
+            }
+
+            if let Err(e) = self.load_plugin(plugin_path.clone(), plugin) {
+                eprintln!(
+                    "cargo:warning=Skipping plugin at {}: {e}",
+                    plugin_path.display()
+                );
             }
         }
 

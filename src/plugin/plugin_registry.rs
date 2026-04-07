@@ -16,9 +16,24 @@ impl PluginRegistry {
     }
 
     pub fn add_plugin(&mut self, plugin: Plugin) {
+        // If a plugin with this id already exists, remove its stale capability
+        // entries before inserting the new version so no ghost memberships remain.
+        if let Some(old) = self.plugin_key.remove(&plugin.id) {
+            for cap in &old.capabilities {
+                if let Some(set) = self.capability_index.get_mut(cap) {
+                    set.remove(&old.id);
+                    if set.is_empty() {
+                        self.capability_index.remove(cap);
+                    }
+                }
+            }
+        }
+
         plugin.capabilities.iter().for_each(|c| {
-            let capability = self.capability_index.entry(c.clone()).or_default();
-            capability.insert(plugin.id.clone());
+            self.capability_index
+                .entry(c.clone())
+                .or_default()
+                .insert(plugin.id.clone());
         });
 
         self.plugin_key.insert(plugin.id.clone(), plugin);
@@ -41,6 +56,9 @@ impl PluginRegistry {
             for cap in &plugin.capabilities {
                 if let Some(set) = self.capability_index.get_mut(cap) {
                     set.remove(id);
+                    if set.is_empty() {
+                        self.capability_index.remove(cap);
+                    }
                 }
             }
         }
@@ -48,11 +66,17 @@ impl PluginRegistry {
 
     /// Find a FileLoader plugin that declares support for the given extension.
     /// `ext` should be lowercase without the leading dot (e.g. `"csv"`).
+    /// Results are stable: IDs are sorted before iteration so the first
+    /// matching plugin is always the same regardless of HashMap ordering.
     pub fn find_loader_for_extension(&self, ext: &str) -> Option<&Plugin> {
         let ext_lower = ext.to_lowercase();
-        self.capability_index
+        let mut ids: Vec<&String> = self
+            .capability_index
             .get(&crate::plugin::Capability::FileLoader)?
             .iter()
+            .collect();
+        ids.sort();
+        ids.into_iter()
             .flat_map(|id| self.plugin_key.get(id))
             .find(|p| {
                 p.file_loader

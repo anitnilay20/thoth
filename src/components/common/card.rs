@@ -2,8 +2,8 @@ use std::path::Path;
 
 use eframe::egui::{self, Color32, CornerRadius, Frame, Layout, Sense, TextureHandle, Vec2};
 
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::toggle_switch::{ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps};
-use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
 use crate::components::traits::StatelessComponent;
 use crate::theme::{Theme, ThemeColors};
 
@@ -118,8 +118,8 @@ impl StatelessComponent for Card {
                                             ),
                                         },
                                     );
-                                    for events in toggle_switch.events {
-                                        match events {
+                                    for event in toggle_switch.events {
+                                        match event {
                                             ToggleSwitchEvent::Toggled(toggled) => {
                                                 output.events.push(CardEvent::Toggled(toggled))
                                             }
@@ -220,16 +220,28 @@ fn load_icon_texture(ctx: &egui::Context, path: &Path) -> TextureHandle {
 }
 
 fn decode_png_to_texture(ctx: &egui::Context, path: &Path) -> TextureHandle {
-    // Attempt to decode; on failure fall back to a 1×1 transparent pixel.
-    let color_image = std::fs::read(path)
-        .ok()
-        .and_then(|bytes| image::load_from_memory(&bytes).ok())
-        .map(|img| {
-            let rgba = img.to_rgba8();
-            let (w, h) = rgba.dimensions();
-            egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba)
-        })
-        .unwrap_or_else(|| egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]));
+    // Attempt to decode; on failure log a warning and fall back to a 1×1 transparent pixel.
+    let color_image = match std::fs::read(path) {
+        Err(e) => {
+            eprintln!("warn: failed to read icon at {}: {e}", path.display());
+            None
+        }
+        Ok(bytes) => match image::load_from_memory(&bytes) {
+            Err(e) => {
+                eprintln!("warn: failed to decode icon at {}: {e}", path.display());
+                None
+            }
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                Some(egui::ColorImage::from_rgba_unmultiplied(
+                    [w as usize, h as usize],
+                    &rgba,
+                ))
+            }
+        },
+    }
+    .unwrap_or_else(|| egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]));
 
     ctx.load_texture(
         path.to_string_lossy(),

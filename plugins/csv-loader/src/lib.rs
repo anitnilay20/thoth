@@ -7,7 +7,6 @@
 mod bindings;
 
 use std::cell::RefCell;
-use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 use bindings::exports::thoth::plugin::{
@@ -17,6 +16,7 @@ use bindings::exports::thoth::plugin::{
     plugin_meta::Guest as MetaGuest,
 };
 use bindings::thoth::plugin::types::{Capability, PluginError};
+use csv::ReaderBuilder;
 use serde_json::{Map, Value};
 
 struct CsvPlugin;
@@ -26,6 +26,8 @@ struct CsvPlugin;
 struct State {
     headers: Vec<String>,
     file: PathBuf,
+    /// Delimiter byte: b',' for CSV, b'\t' for TSV.
+    delimiter: u8,
 }
 
 thread_local! {
@@ -66,55 +68,95 @@ impl FileLoaderGuest for CsvPlugin {
     }
 
     fn open(path: String) -> Result<u64, PluginError> {
-        let file = std::fs::File::open(&path).map_err(|e| plugin_err(1, e.to_string()))?;
-        let mut reader = BufReader::new(file);
-        let mut buf = String::new();
-        reader
-            .read_line(&mut buf)
-            .map_err(|err| plugin_err(1, err.to_string()))?;
-        let headers: Vec<String> = buf.trim_end().split(',').map(String::from).collect();
+        let delimiter = if path.ends_with(".tsv") { b'\t' } else { b',' };
+
+        let mut rdr = ReaderBuilder::new()
+            .delimiter(delimiter)
+            .has_headers(true)
+            .from_path(&path)
+            .map_err(|e| plugin_err(1, e.to_string()))?;
+
+        let headers: Vec<String> = rdr
+            .headers()
+            .map_err(|e| plugin_err(1, e.to_string()))?
+            .iter()
+            .map(str::to_owned)
+            .collect();
+
+        // Count records without loading them all into memory.
+        let count = rdr.records().count() as u64;
 
         STATE.with(|s| {
             *s.borrow_mut() = Some(State {
                 headers,
                 file: PathBuf::from(path),
+                delimiter,
             })
         });
-        Ok(reader.lines().count() as u64)
+
+        Ok(count)
     }
 
     fn get(idx: u64) -> Result<String, PluginError> {
         STATE.with(|s| {
             let guard = s.borrow();
-            let state = guard.as_ref().ok_or(plugin_err(2, "file not opened"))?;
+            let state = guard
+                .as_ref()
+                .ok_or_else(|| plugin_err(2, "file not opened"))?;
 
-            let file =
-                std::fs::File::open(&state.file).map_err(|e| plugin_err(1, e.to_string()))?;
-            let reader = BufReader::new(file);
+            let mut rdr = ReaderBuilder::new()
+                .delimiter(state.delimiter)
+                .has_headers(true)
+                .from_path(&state.file)
+                .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            // skip(1) drops the header row; enumerate then gives 0-based data-row indices.
-            for (index, line_result) in reader.lines().skip(1).enumerate() {
-                if index == idx as usize {
-                    let line = line_result.map_err(|e| plugin_err(1, e.to_string()))?;
-                    let values: Vec<String> =
-                        line.trim_end().split(',').map(String::from).collect();
-                    let obj: Map<String, Value> = state
-                        .headers
-                        .iter()
-                        .zip(values.iter())
-                        .map(|(k, v): (&String, &String)| (k.clone(), Value::String(v.clone())))
-                        .collect();
-                    return serde_json::to_string(&Value::Object(obj))
-                        .map_err(|e| plugin_err(3, e.to_string()));
-                }
-            }
+            let record = rdr
+                .records()
+                .nth(idx as usize)
+                .ok_or_else(|| plugin_err(2, "index out of range"))?
+                .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            Err(plugin_err(2, "record index out of bounds"))
+            let obj: Map<String, Value> = state
+                .headers
+                .iter()
+                .zip(record.iter())
+                .map(|(k, v)| (k.clone(), Value::String(v.to_owned())))
+                .collect();
+
+            serde_json::to_string(&Value::Object(obj)).map_err(|e| plugin_err(3, e.to_string()))
         })
     }
 
     fn raw_bytes(idx: u64) -> Result<Vec<u8>, PluginError> {
-        Self::get(idx).map(String::into_bytes)
+        STATE.with(|s| {
+            let guard = s.borrow();
+            let state = guard
+                .as_ref()
+                .ok_or_else(|| plugin_err(2, "file not opened"))?;
+
+            // Return the original (unparsed) CSV/TSV bytes for this record by
+            // reading the ByteRecord at `idx` and reconstructing the delimited line.
+            let mut rdr = ReaderBuilder::new()
+                .delimiter(state.delimiter)
+                .has_headers(true)
+                .from_path(&state.file)
+                .map_err(|e| plugin_err(1, e.to_string()))?;
+
+            let record = rdr
+                .byte_records()
+                .nth(idx as usize)
+                .ok_or_else(|| plugin_err(2, "index out of range"))?
+                .map_err(|e| plugin_err(1, e.to_string()))?;
+
+            let mut out = Vec::new();
+            for (i, field) in record.iter().enumerate() {
+                if i > 0 {
+                    out.push(state.delimiter);
+                }
+                out.extend_from_slice(field);
+            }
+            Ok(out)
+        })
     }
 }
 
@@ -129,7 +171,9 @@ impl FileViewerGuest for CsvPlugin {
         STATE.with(|s| s.borrow().as_ref().map(|state| state.headers.clone()))
     }
 
-    fn render_record(_record_json: String) -> Result<bindings::exports::thoth::plugin::file_viewer::RenderOutput, PluginError> {
+    fn render_record(
+        _record_json: String,
+    ) -> Result<bindings::exports::thoth::plugin::file_viewer::RenderOutput, PluginError> {
         // Not called in table mode — host renders cells directly from file-loader.get()
         Err(plugin_err(0, "not used in table mode"))
     }

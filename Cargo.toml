@@ -1,8 +1,10 @@
 [workspace]
 members = [".", "plugins/*"]
-# plugins/* are wasm32 crates — exclude them from the host build resolver
-# (each plugin is built separately with cargo component build)
-exclude = []
+# Plugins are wasm32 crates built separately with `cargo component build`.
+# default-members restricts `cargo build` / `cargo check` at the workspace
+# root to the host application only, so plugins are not compiled for the
+# host target by default.
+default-members = ["."]
 
 [package]
 name = "thoth"

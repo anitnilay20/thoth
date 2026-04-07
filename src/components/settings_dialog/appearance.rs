@@ -1,6 +1,6 @@
-use crate::settings::Settings;
-use crate::components::button::{Button, ButtonProps, ButtonType, ButtonColor};
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::traits::StatelessComponent;
+use crate::settings::Settings;
 use crate::theme::ThemeColors;
 use eframe::egui;
 
@@ -204,7 +204,7 @@ impl AppearanceTab {
                                 |ui| {
                                     let dropdown_width =
                                         (ui.available_width() - 16.0).clamp(200.0, 300.0);
-                                    let btn = Button::render(
+                                    let _btn = Button::render(
                                         ui,
                                         ButtonProps {
                                             label: format!(
@@ -213,13 +213,12 @@ impl AppearanceTab {
                                             ),
                                             button_type: ButtonType::Elevated,
                                             color: ButtonColor::Default,
-                                            hover_text: None,
+                                            hover_text: Some("Coming soon".into()),
                                             size: Some(13.0),
                                             width: Some(dropdown_width),
                                             height: Some(32.0),
                                         },
-                                    );
-                                    let _ = btn; // placeholder for now
+                                    ); // placeholder — font picker not yet implemented
                                 },
                             );
                         });
@@ -243,13 +242,13 @@ impl AppearanceTab {
                                             ),
                                             button_type: ButtonType::Elevated,
                                             color: ButtonColor::Default,
-                                            hover_text: None,
+                                            hover_text: Some("Coming soon".into()),
                                             size: Some(13.0),
                                             width: Some(dropdown_width),
                                             height: Some(32.0),
                                         },
                                     );
-                                    let _ = btn; // placeholder for now
+                                    let _ = btn; // placeholder — icon theme picker not yet implemented
                                 },
                             );
                         });

@@ -201,7 +201,8 @@ impl ContextComponent for StatusBar {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Status indicator
                         ui.add_space(0.0);
-                        self.notification_dropdown.render(ui, NotificationDropdownProps {});
+                        self.notification_dropdown
+                            .render(ui, NotificationDropdownProps {});
                         let (icon, text) = props.status.icon_and_text();
                         let status_color = props.status.color(ui.ctx());
                         ui.colored_label(status_color, format!("{} {}", icon, text));

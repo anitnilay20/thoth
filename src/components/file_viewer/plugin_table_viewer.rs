@@ -111,9 +111,9 @@ impl FileFormatViewer for PluginTableViewer {
                                         .and_then(|v| v.get(h))
                                         .map(|v| v.as_str().unwrap_or(&v.to_string()).to_owned())
                                         .unwrap_or_default();
-                                    // SAFETY: text is leaked for the duration of this frame.
-                                    // egui redraws every frame so this never accumulates.
-                                    TableCell::text(Box::leak(text.into_boxed_str()))
+                                    TableCell::custom(move |ui| {
+                                        ui.label(&text);
+                                    })
                                 })
                                 .collect()
                         }
