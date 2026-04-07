@@ -439,11 +439,13 @@ pub fn get_contrast_text_color(bg_color: Color32) -> Color32 {
 
     let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
 
-    // If luminance > 0.5, background is light, use black text
-    // Otherwise, background is dark, use white text
-    if luminance > 0.5 {
-        Color32::BLACK
-    } else {
+    // Choose the text color with the higher WCAG 2.1 contrast ratio.
+    // contrast = (L_lighter + 0.05) / (L_darker + 0.05)
+    let contrast_with_white = (1.0 + 0.05) / (luminance + 0.05);
+    let contrast_with_black = (luminance + 0.05) / (0.0 + 0.05);
+    if contrast_with_white >= contrast_with_black {
         Color32::WHITE
+    } else {
+        Color32::BLACK
     }
 }

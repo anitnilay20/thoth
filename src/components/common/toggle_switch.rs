@@ -1,5 +1,10 @@
 use eframe::egui::{self, Color32, CornerRadius, Sense, Vec2};
 
+#[inline]
+fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
+    (a as f32 + (b as f32 - a as f32) * t.clamp(0.0, 1.0)) as u8
+}
+
 use crate::{
     components::traits::StatelessComponent,
     theme::{Theme, ThemeColors},
@@ -63,7 +68,12 @@ impl ToggleSwitch {
             let animation_id = egui::Id::new("toggle_switch_animation").with(response.id);
             let animation_progress = ui.ctx().animate_bool(animation_id, enabled);
 
-            let bg = if enabled { on_color } else { off_color };
+            let bg = egui::Color32::from_rgba_unmultiplied(
+                lerp_u8(off_color.r(), on_color.r(), animation_progress),
+                lerp_u8(off_color.g(), on_color.g(), animation_progress),
+                lerp_u8(off_color.b(), on_color.b(), animation_progress),
+                lerp_u8(off_color.a(), on_color.a(), animation_progress),
+            );
             ui.painter().rect_filled(rect, CornerRadius::same(10), bg);
 
             // Smoothly interpolate knob position

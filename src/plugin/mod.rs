@@ -62,7 +62,7 @@ pub struct Plugin {
     pub author: String,
     pub homepage: Option<String>,
     // ── Capability-specific metadata (from plugin.toml sections) ──────────────
-    #[serde(rename = "file-loader")]
+    #[serde(rename = "file-loader", default)]
     pub file_loader: Vec<FileLoaderMeta>,
     #[serde(rename = "data-source")]
     pub data_source: Option<DataSourceMeta>,
@@ -79,8 +79,8 @@ pub struct Plugin {
 }
 
 pub trait PluginLifeCycle {
-    fn on_load();
-    fn on_close();
+    fn on_load(&mut self);
+    fn on_close(&mut self);
 }
 
 impl Display for Capability {

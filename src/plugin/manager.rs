@@ -123,12 +123,12 @@ impl PluginManager {
     }
 
     fn scan_all_directories(&mut self) -> Result<()> {
-        for dir in self.plugin_directories() {
+        for (dir, is_bundled) in self.plugin_directories() {
             if let Ok(dir) = dir
                 && dir.exists()
             {
                 eprintln!("Checking {}", dir.display());
-                if let Err(e) = self.scan_directory(dir) {
+                if let Err(e) = self.scan_directory(dir, is_bundled) {
                     eprintln!("Failed to scan plugin directory: {e:?}");
                 }
             }
@@ -137,15 +137,20 @@ impl PluginManager {
         Ok(())
     }
 
-    fn plugin_directories(&self) -> Vec<Result<PathBuf>> {
-        let mut dirs = vec![self.bundled_plugins_dir(), self.user_plugin_dir()];
+    /// Returns `(directory, is_bundled)` pairs. Bundled-dir plugins ship with
+    /// the app and cannot be uninstalled; user-dir plugins can.
+    fn plugin_directories(&self) -> Vec<(Result<PathBuf>, bool)> {
+        let mut dirs = vec![
+            (self.bundled_plugins_dir(), true),
+            (self.user_plugin_dir(), false),
+        ];
 
         // In debug builds, also check the workspace source tree so `cargo run`
         // finds plugins without a full install. option_env! is resolved at
         // compile time, so CARGO_MANIFEST_DIR is always available here.
         #[cfg(debug_assertions)]
         if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
-            dirs.push(Ok(PathBuf::from(manifest_dir).join("assets")));
+            dirs.push((Ok(PathBuf::from(manifest_dir).join("assets")), true));
         }
 
         dirs
@@ -180,7 +185,7 @@ impl PluginManager {
         Ok(config_dir.join("thoth"))
     }
 
-    pub fn scan_directory(&mut self, dir: PathBuf) -> Result<()> {
+    pub fn scan_directory(&mut self, dir: PathBuf, is_bundled: bool) -> Result<()> {
         let plugin_dir = dir.join("plugins");
 
         if !plugin_dir.exists() {
@@ -203,7 +208,7 @@ impl PluginManager {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!(
-                        "cargo:warning=Skipping plugin at {}: failed to read plugin.toml: {e}",
+                        "Skipping plugin at {}: failed to read plugin.toml: {e}",
                         path.display()
                     );
                     continue;
@@ -214,16 +219,17 @@ impl PluginManager {
                 Ok(p) => p,
                 Err(e) => {
                     eprintln!(
-                        "cargo:warning=Skipping plugin at {}: invalid plugin.toml: {e}",
+                        "Skipping plugin at {}: invalid plugin.toml: {e}",
                         toml_path.display()
                     );
                     continue;
                 }
             };
 
-            // bundled flag is set here before load_plugin() so it survives
-            // the location overwrite inside load_plugin().
-            plugin.bundled = true;
+            // Set bundled flag before load_plugin() so it survives the
+            // location overwrite inside load_plugin(). Only plugins from the
+            // bundled directory are immutable; user-installed ones are not.
+            plugin.bundled = is_bundled;
 
             let icon = path.join("icon.png");
             if icon.exists() {
@@ -231,10 +237,7 @@ impl PluginManager {
             }
 
             if let Err(e) = self.load_plugin(plugin_path.clone(), plugin) {
-                eprintln!(
-                    "cargo:warning=Skipping plugin at {}: {e}",
-                    plugin_path.display()
-                );
+                eprintln!("Skipping plugin at {}: {e}", plugin_path.display());
             }
         }
 

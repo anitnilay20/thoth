@@ -2,8 +2,9 @@ use std::process::Command;
 use std::{env, fs};
 
 fn main() {
-    // Re-run if any plugin source changes
+    // Re-run if any plugin source or WIT contract changes
     println!("cargo:rerun-if-changed=plugins/");
+    println!("cargo:rerun-if-changed=wit/");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let plugins_src = format!("{manifest_dir}/plugins");
@@ -78,21 +79,33 @@ fn main() {
             continue;
         }
 
-        // Copy .wasm
+        // Copy .wasm — fatal: without it the plugin is unusable.
         if let Err(e) = fs::copy(&wasm_src, format!("{dst_dir}/plugin.wasm")) {
-            println!("cargo:warning=Could not copy {plugin_name}.wasm: {e}");
+            println!("cargo:warning=Could not copy {plugin_name}.wasm: {e} — cleaning up");
+            let _ = fs::remove_dir_all(&dst_dir);
+            continue;
         }
 
-        // Copy plugin.toml
+        // Copy plugin.toml — fatal: the host reads it to populate the registry.
         let toml_src = plugin_dir.join("plugin.toml");
-        if toml_src.exists() {
-            fs::copy(toml_src, format!("{dst_dir}/plugin.toml")).ok();
+        if let Err(e) = fs::copy(&toml_src, format!("{dst_dir}/plugin.toml")) {
+            println!(
+                "cargo:warning=Could not copy plugin.toml for '{plugin_name}': {e} — cleaning up"
+            );
+            let _ = fs::remove_dir_all(&dst_dir);
+            continue;
         }
 
-        // Copy icon.png if present
+        // Copy icon.png if present — optional, clean up on failure.
         let icon_src = plugin_dir.join("icon.png");
         if icon_src.exists() {
-            fs::copy(icon_src, format!("{dst_dir}/icon.png")).ok();
+            if let Err(e) = fs::copy(&icon_src, format!("{dst_dir}/icon.png")) {
+                println!(
+                    "cargo:warning=Could not copy icon.png for '{plugin_name}': {e} — cleaning up"
+                );
+                let _ = fs::remove_dir_all(&dst_dir);
+                continue;
+            }
         }
     }
 }

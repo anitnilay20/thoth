@@ -317,7 +317,12 @@ impl SettingsDialog {
                                     let path = std::path::Path::new(&location);
                                     if let Some(dir) = path.parent() {
                                         if dir.exists() {
-                                            let _ = std::fs::remove_dir_all(dir);
+                                            if let Err(e) = std::fs::remove_dir_all(dir) {
+                                                eprintln!(
+                                                    "Failed to remove plugin directory {}: {e}",
+                                                    dir.display()
+                                                );
+                                            }
                                         }
                                     }
                                 }

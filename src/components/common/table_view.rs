@@ -13,6 +13,15 @@ pub struct TableCell<'a> {
     pub custom: Option<BoxedCellRenderer<'a>>,
 }
 
+impl<'a> Default for TableCell<'a> {
+    fn default() -> Self {
+        Self {
+            text: None,
+            custom: None,
+        }
+    }
+}
+
 impl<'a> TableCell<'a> {
     pub fn text(text: &'a str) -> Self {
         Self {
@@ -119,7 +128,20 @@ impl StatelessComponent for TableView {
                             if first_visible_row.is_none() {
                                 first_visible_row = Some(row.index());
                             }
-                            let cells = build_row(row.index());
+                            let mut cells = build_row(row.index());
+                            debug_assert_eq!(
+                                cells.len(),
+                                num_cols,
+                                "build_row returned {} cells but expected {} (headers.len())",
+                                cells.len(),
+                                num_cols
+                            );
+                            // Truncate extra cells or pad missing ones so
+                            // columns never mis-align in release builds.
+                            cells.truncate(num_cols);
+                            while cells.len() < num_cols {
+                                cells.push(TableCell::default());
+                            }
                             let mut row_clicked = false;
                             for cell in &cells {
                                 let (_, response) = row.col(|ui| {

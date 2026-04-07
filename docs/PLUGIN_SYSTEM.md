@@ -36,7 +36,7 @@ Features like API/network support, database connectivity, and additional file fo
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────┐
 │                  ThothApp                        │
 │                                                  │
@@ -131,7 +131,7 @@ Plugins installed via the Settings → Plugins UI land in the user directory. Bu
 
 A plugin is a **directory** containing:
 
-```
+```text
 ~/.config/thoth/plugins/
 └── csv-loader/
     ├── plugin.toml   ← required metadata
@@ -332,7 +332,7 @@ world exporter-plugin {
 
 ### Startup sequence
 
-```
+```text
 ThothApp::new()
     └── PluginManager::init()
             ├── scan bundled_plugins_dir
@@ -350,7 +350,7 @@ ThothApp::new()
 
 ### Per-call flow (file-loader example)
 
-```
+```text
 FileViewer::open(path)
     └── PluginManager::plugin_has_capability("csv", FileViewer) → true
     └── PluginManager::open_file_with_viewer("csv", path)
@@ -484,22 +484,24 @@ impl FileLoaderGuest for CsvPlugin {
     }
 
     fn open(path: String) -> Result<u64, PluginError> {
-        let err = |msg: &str| PluginError { code: 1, message: msg.to_string() };
-        let content = std::fs::read_to_string(&path).map_err(|e| PluginError {
-            code: 1, message: e.to_string(),
-        })?;
-        let mut lines = content.lines();
-        let headers: Vec<String> = lines
-            .next()
-            .ok_or(err("empty file"))?
-            .split(',')
+        let delimiter = if path.ends_with(".tsv") { b'\t' } else { b',' };
+        let mut rdr = csv::ReaderBuilder::new()
+            .delimiter(delimiter)
+            .has_headers(true)
+            .from_path(&path)
+            .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
+
+        let headers: Vec<String> = rdr
+            .headers()
+            .map_err(|e| PluginError { code: 1, message: e.to_string() })?
+            .iter()
             .map(str::to_owned)
             .collect();
-        let records: Vec<Vec<String>> = lines
-            .map(|l| l.split(',').map(str::to_owned).collect())
-            .collect();
-        let count = records.len() as u64;
-        STATE.with(|s| *s.borrow_mut() = Some(State { headers, records }));
+
+        // Count records without loading them all into memory.
+        let count = rdr.records().count() as u64;
+
+        STATE.with(|s| *s.borrow_mut() = Some(State { headers, file: path.into(), delimiter }));
         Ok(count)
     }
 
@@ -508,11 +510,18 @@ impl FileLoaderGuest for CsvPlugin {
             let guard = s.borrow();
             let state = guard.as_ref()
                 .ok_or(PluginError { code: 2, message: "file not opened".into() })?;
-            let row = state.records.get(idx as usize)
-                .ok_or(PluginError { code: 2, message: "index out of range".into() })?;
+            let mut rdr = csv::ReaderBuilder::new()
+                .delimiter(state.delimiter)
+                .has_headers(true)
+                .from_path(&state.file)
+                .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
+            let record = rdr.records()
+                .nth(idx as usize)
+                .ok_or(PluginError { code: 2, message: "index out of range".into() })?
+                .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
             let obj: Map<String, Value> = state.headers.iter()
-                .zip(row.iter())
-                .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                .zip(record.iter())
+                .map(|(k, v)| (k.clone(), Value::String(v.to_owned())))
                 .collect();
             serde_json::to_string(&Value::Object(obj))
                 .map_err(|e| PluginError { code: 3, message: e.to_string() })
@@ -520,7 +529,26 @@ impl FileLoaderGuest for CsvPlugin {
     }
 
     fn raw_bytes(idx: u64) -> Result<Vec<u8>, PluginError> {
-        Self::get(idx).map(String::into_bytes)
+        STATE.with(|s| {
+            let guard = s.borrow();
+            let state = guard.as_ref()
+                .ok_or(PluginError { code: 2, message: "file not opened".into() })?;
+            let mut rdr = csv::ReaderBuilder::new()
+                .delimiter(state.delimiter)
+                .has_headers(true)
+                .from_path(&state.file)
+                .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
+            let record = rdr.byte_records()
+                .nth(idx as usize)
+                .ok_or(PluginError { code: 2, message: "index out of range".into() })?
+                .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
+            let mut out = Vec::new();
+            for (i, field) in record.iter().enumerate() {
+                if i > 0 { out.push(state.delimiter); }
+                out.extend_from_slice(field);
+            }
+            Ok(out)
+        })
     }
 }
 
@@ -676,7 +704,11 @@ A data source plugin connects Thoth to an external system (REST API, database, e
 The flow is `connect` → `query` → `close` instead of `open` → `get`.
 
 ```rust
-impl FileViewerGuest for MyPlugin {
+use bindings::exports::thoth::plugin::data_source::{
+    ConfigEntry, FieldSchema, Guest, PluginError, SourceSchema,
+};
+
+impl Guest for MyPlugin {
     fn required_config() -> Vec<ConfigEntry> {
         vec![
             ConfigEntry { key: "url".into(),   value: "https://api.example.com".into() },
@@ -685,13 +717,14 @@ impl FileViewerGuest for MyPlugin {
     }
 
     fn connect(config: Vec<ConfigEntry>) -> Result<String, PluginError> {
-        let url = config.iter().find(|e| e.key == "url")
+        let _url = config.iter().find(|e| e.key == "url")
             .ok_or(PluginError { code: 1, message: "missing url".into() })?;
         // store connection state, return an opaque handle
         Ok("handle-uuid-1234".to_string())
     }
 
     fn schema(handle: String) -> Result<Vec<SourceSchema>, PluginError> {
+        let _ = handle;
         Ok(vec![SourceSchema {
             name: "users".into(),
             fields: vec![
@@ -702,11 +735,12 @@ impl FileViewerGuest for MyPlugin {
     }
 
     fn query(handle: String, q: String) -> Result<String, PluginError> {
+        let (_, _) = (handle, q);
         // Execute and return a JSON array string
         Ok("[]".to_string())
     }
 
-    fn close(handle: String) {}
+    fn close(handle: String) { let _ = handle; }
 }
 ```
 

@@ -219,8 +219,40 @@ fn load_icon_texture(ctx: &egui::Context, path: &Path) -> TextureHandle {
         })
 }
 
+/// Maximum icon file size we're willing to read. Protects against accidentally
+/// pointing at a large asset and allocating huge amounts of memory.
+const MAX_ICON_SIZE_BYTES: u64 = 5_000_000;
+
 fn decode_png_to_texture(ctx: &egui::Context, path: &Path) -> TextureHandle {
     // Attempt to decode; on failure log a warning and fall back to a 1×1 transparent pixel.
+
+    // Guard against unexpectedly large files before reading into memory.
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.len() > MAX_ICON_SIZE_BYTES => {
+            eprintln!(
+                "warn: icon at {} is too large ({} bytes > {MAX_ICON_SIZE_BYTES}), skipping",
+                path.display(),
+                meta.len()
+            );
+            let fallback = egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]);
+            return ctx.load_texture(
+                path.to_string_lossy(),
+                fallback,
+                egui::TextureOptions::LINEAR,
+            );
+        }
+        Err(e) => {
+            eprintln!("warn: failed to stat icon at {}: {e}", path.display());
+            let fallback = egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]);
+            return ctx.load_texture(
+                path.to_string_lossy(),
+                fallback,
+                egui::TextureOptions::LINEAR,
+            );
+        }
+        _ => {}
+    }
+
     let color_image = match std::fs::read(path) {
         Err(e) => {
             eprintln!("warn: failed to read icon at {}: {e}", path.display());

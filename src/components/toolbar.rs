@@ -201,9 +201,10 @@ impl Toolbar {
                     .clicked
                     {
                         if let Some(path) = pick_file(props.plugins_enabled) {
-                            let file_type = infer_file_type(&path).unwrap_or(*props.file_type);
-                            events.push(ToolbarEvent::FileOpen { path, file_type });
-                            self.previous_file_type = file_type;
+                            if let Some(file_type) = infer_file_type(&path) {
+                                self.previous_file_type = file_type;
+                                events.push(ToolbarEvent::FileOpen { path, file_type });
+                            }
                         }
                     }
 
@@ -297,9 +298,25 @@ impl Toolbar {
 }
 
 fn infer_file_type(path: &Path) -> Option<FileKind> {
-    match path.extension()?.to_str()?.to_lowercase().as_str() {
+    let ext = path.extension()?.to_str()?.to_lowercase();
+    match ext.as_str() {
         "ndjson" => Some(FileKind::Ndjson),
         "json" => Some(FileKind::Json),
-        _ => None,
+        _ => {
+            // Ask the plugin registry whether any plugin handles this extension
+            // so we don't fall back to a stale file-type from the previous file.
+            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() {
+                if pm.find_loader_for_extension(&ext).is_some() {
+                    return Some(
+                        if pm.plugin_has_capability(&ext, &crate::plugin::Capability::FileViewer) {
+                            FileKind::PluginTable
+                        } else {
+                            FileKind::Plugin
+                        },
+                    );
+                }
+            }
+            None
+        }
     }
 }

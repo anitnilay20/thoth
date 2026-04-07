@@ -22,7 +22,7 @@ fn create_ndjson_file(temp_dir: &TempDir, num_records: usize) -> std::path::Path
     file_path
 }
 
-/// Create a file with some matches at  different densities
+/// Create a file with some matches at different densities
 fn create_file_with_match_density(
     temp_dir: &TempDir,
     num_records: usize,
