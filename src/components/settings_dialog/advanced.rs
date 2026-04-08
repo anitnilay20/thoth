@@ -1,3 +1,4 @@
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::traits::StatelessComponent;
 use crate::settings::DeveloperSettings;
 use crate::theme::ThemeColors;
@@ -130,15 +131,35 @@ impl StatelessComponent for AdvancedTab {
 
                         ui.horizontal(|ui| {
                             if props.is_in_path {
-                                let button = egui::Button::new("Remove from PATH")
-                                    .fill(props.theme_colors.surface0);
-                                if ui.add(button).clicked() {
+                                let button = Button::render(
+                                    ui,
+                                    ButtonProps {
+                                        label: "Remove from PATH".to_string(),
+                                        button_type: ButtonType::Elevated,
+                                        color: ButtonColor::Danger,
+                                        hover_text: None,
+                                        size: None,
+                                        width: None,
+                                        height: None,
+                                    },
+                                );
+                                if button.clicked {
                                     events.push(AdvancedTabEvent::UnregisterFromPath);
                                 }
                             } else {
-                                let button = egui::Button::new("Add to PATH")
-                                    .fill(props.theme_colors.overlay1);
-                                if ui.add(button).clicked() {
+                                let button = Button::render(
+                                    ui,
+                                    ButtonProps {
+                                        label: "Add to PATH".to_string(),
+                                        button_type: ButtonType::Elevated,
+                                        color: ButtonColor::Success,
+                                        hover_text: None,
+                                        size: None,
+                                        width: None,
+                                        height: None,
+                                    },
+                                );
+                                if button.clicked {
                                     events.push(AdvancedTabEvent::RegisterInPath);
                                 }
                             }

@@ -35,8 +35,10 @@ pub trait StatefulComponent {
 
 /// Trait for context-level components (panels)
 ///
-/// Context components need access to the full egui::Context to create
-/// top-level panels (TopBottomPanel, SidePanel, CentralPanel, etc.)
+/// Context components receive a root [`egui::Ui`] from which they create
+/// top-level panels (TopBottomPanel, SidePanel, CentralPanel, etc.) via
+/// `show_inside`. The underlying [`egui::Context`] is accessible as
+/// `ui.ctx()` when needed.
 ///
 /// Follows one-way data binding pattern:
 /// - Props flow down from parent to child (immutable)
@@ -47,6 +49,6 @@ pub trait ContextComponent {
     type Props<'a>;
     type Output;
 
-    /// Render the component with access to the full egui Context and props
-    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output;
+    /// Render the component into the provided root UI and return output events.
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output;
 }

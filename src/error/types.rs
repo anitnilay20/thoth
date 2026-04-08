@@ -34,6 +34,11 @@ pub enum ThothError {
 
     // Generic/unknown errors
     Unknown { message: String },
+
+    // Plugin errors
+    PluginDirectoryInvalid { dir: String },
+    PluginFileInvalid { path: PathBuf },
+    PluginLoadError { path: PathBuf, reason: String },
 }
 
 impl std::fmt::Display for ThothError {
@@ -110,6 +115,19 @@ impl std::fmt::Display for ThothError {
             // Generic
             ThothError::Unknown { message } => {
                 write!(f, "An error occurred: {}", message)
+            }
+
+            // Plugin
+            ThothError::PluginDirectoryInvalid { dir } => {
+                write!(f, "Unable to load from plugin directory: {}", dir)
+            }
+
+            ThothError::PluginFileInvalid { path } => {
+                write!(f, "Invalid plugin file: {}", path.display())
+            }
+
+            ThothError::PluginLoadError { path, reason } => {
+                write!(f, "Failed to load plugin '{}': {}", path.display(), reason)
             }
         }
     }

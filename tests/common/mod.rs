@@ -16,22 +16,12 @@ pub fn create_test_context() -> egui::Context {
 ///
 /// # Example
 /// ```ignore
-/// use thoth::components::data_row::{DataRow, DataRowProps};
-/// use thoth::components::traits::StatelessComponent;
-///
 /// run_ui_test(|ui| {
-///     let output = DataRow::render(ui, DataRowProps {
-///         display_text: "test",
-///         indent: 0,
-///         is_expandable: false,
-///         is_expanded: false,
-///         text_tokens: (TextToken::Key, None),
-///         background: egui::Color32::TRANSPARENT,
-///         row_id: "test-id",
-///     });
+///     let output = MyComponent::render(ui, props);
 ///     assert!(!output.clicked);
 /// });
 /// ```
+#[allow(deprecated)]
 pub fn run_ui_test<F>(mut f: F)
 where
     F: FnMut(&mut egui::Ui),
@@ -42,25 +32,22 @@ where
     });
 }
 
-/// Run a context component test
+/// Run a context component test with a `&mut egui::Ui`.
+///
+/// `ContextComponent::render` takes `&mut Ui` (not `&Context`) so that
+/// components can create top-level panels via `show_inside`. This helper
+/// wraps `run_ui_test` so test closures receive the same `&mut Ui`.
 ///
 /// # Example
 /// ```ignore
-/// use thoth::components::toolbar::{Toolbar, ToolbarProps};
-/// use thoth::components::traits::ContextComponent;
-///
-/// run_context_test(|ctx| {
+/// run_context_test(|ui| {
 ///     let mut toolbar = Toolbar::new();
-///     let output = toolbar.render(ctx, ToolbarProps { ... });
-///     assert_eq!(output.file_opened, false);
+///     let output = toolbar.render(ui, ToolbarProps { ... });
 /// });
 /// ```
-pub fn run_context_test<F>(mut f: F)
+pub fn run_context_test<F>(f: F)
 where
-    F: FnMut(&egui::Context),
+    F: FnMut(&mut egui::Ui),
 {
-    let ctx = create_test_context();
-    let _ = ctx.run(egui::RawInput::default(), |ctx| {
-        f(ctx);
-    });
+    run_ui_test(f)
 }

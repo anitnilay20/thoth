@@ -1,3 +1,5 @@
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
+use crate::components::traits::StatelessComponent;
 use crate::settings::Settings;
 use crate::theme::ThemeColors;
 use eframe::egui;
@@ -202,20 +204,21 @@ impl AppearanceTab {
                                 |ui| {
                                     let dropdown_width =
                                         (ui.available_width() - 16.0).clamp(200.0, 300.0);
-                                    let btn = ui.add_sized(
-                                        [dropdown_width, 32.0],
-                                        egui::Button::new(
-                                            egui::RichText::new(format!(
+                                    let _btn = Button::render(
+                                        ui,
+                                        ButtonProps {
+                                            label: format!(
                                                 "Fira Code  {}",
                                                 egui_phosphor::regular::CARET_DOWN
-                                            ))
-                                            .size(13.0),
-                                        )
-                                        .frame(true),
-                                    );
-                                    if btn.hovered() {
-                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                                    }
+                                            ),
+                                            button_type: ButtonType::Elevated,
+                                            color: ButtonColor::Default,
+                                            hover_text: Some("Coming soon".into()),
+                                            size: Some(13.0),
+                                            width: Some(dropdown_width),
+                                            height: Some(32.0),
+                                        },
+                                    ); // placeholder — font picker not yet implemented
                                 },
                             );
                         });
@@ -230,20 +233,22 @@ impl AppearanceTab {
                                 |ui| {
                                     let dropdown_width =
                                         (ui.available_width() - 16.0).clamp(200.0, 300.0);
-                                    let btn = ui.add_sized(
-                                        [dropdown_width, 32.0],
-                                        egui::Button::new(
-                                            egui::RichText::new(format!(
+                                    let btn = Button::render(
+                                        ui,
+                                        ButtonProps {
+                                            label: format!(
                                                 "Material Icons  {}",
                                                 egui_phosphor::regular::CARET_DOWN
-                                            ))
-                                            .size(13.0),
-                                        )
-                                        .frame(true),
+                                            ),
+                                            button_type: ButtonType::Elevated,
+                                            color: ButtonColor::Default,
+                                            hover_text: Some("Coming soon".into()),
+                                            size: Some(13.0),
+                                            width: Some(dropdown_width),
+                                            height: Some(32.0),
+                                        },
                                     );
-                                    if btn.hovered() {
-                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                                    }
+                                    let _ = btn; // placeholder — icon theme picker not yet implemented
                                 },
                             );
                         });

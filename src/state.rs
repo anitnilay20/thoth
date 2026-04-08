@@ -14,7 +14,7 @@ mod tests;
 pub struct WindowState {
     // File state
     pub file_path: Option<PathBuf>,
-    pub file_type: file::lazy_loader::FileType,
+    pub file_type: file::lazy_loader::FileKind,
     pub error: Option<ThothError>,
     pub total_items: usize,
 
@@ -46,7 +46,7 @@ impl Default for WindowState {
     fn default() -> Self {
         Self {
             file_path: None,
-            file_type: file::lazy_loader::FileType::default(),
+            file_type: file::lazy_loader::FileKind::default(),
             error: None,
             total_items: 0,
             search_engine_state: SearchEngineState::default(),
@@ -59,7 +59,7 @@ impl Default for WindowState {
             sidebar: components::sidebar::Sidebar::default(),
             toolbar: components::toolbar::Toolbar::default(),
             central_panel: components::central_panel::CentralPanel::default(),
-            status_bar: components::status_bar::StatusBar,
+            status_bar: components::status_bar::StatusBar::default(),
             error_modal: components::error_modal::ErrorModal,
         }
     }

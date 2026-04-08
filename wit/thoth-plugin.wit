@@ -1,0 +1,317 @@
+// Thoth Plugin Interface — v0.1.0
+//
+// This file is the official plugin SDK. Plugin authors in any language
+// (Rust, Go, TypeScript, Python, C, ...) generate their bindings from this
+// file using the appropriate WIT toolchain for their language.
+//
+// Toolchains:
+//   Rust       → cargo-component (https://github.com/bytecodealliance/cargo-component)
+//   TypeScript → jco             (https://github.com/bytecodealliance/jco)
+//   Go         → wit-bindgen-go  (https://github.com/bytecodealliance/wit-bindgen)
+//   Python     → componentize-py (https://github.com/bytecodealliance/componentize-py)
+
+package thoth:plugin@0.1.0;
+
+
+// ---------------------------------------------------------------------------
+// Shared types — imported by every interface below
+// ---------------------------------------------------------------------------
+
+interface types {
+
+    /// Maps from src/wit/mod.rs `Capabilities` enum.
+    /// Declare which of these your plugin implements in `plugin-info`.
+    enum capability {
+        file-loader,
+        file-viewer,
+        data-source,
+        exporter,
+        search-provider,
+        new-ui-component,
+    }
+
+    /// Maps from src/wit/mod.rs `Plugin` struct.
+    /// `location` is intentionally absent here — it is set by the host at
+    /// discovery time (the path where the .wasm file lives) and is not
+    /// something the plugin itself knows or declares.
+    record plugin-info {
+        id:           string,       // reverse-domain unique id, e.g. "com.example.csv-loader"
+        name:         string,       // human-readable, e.g. "CSV Loader"
+        version:      string,       // semver string, e.g. "0.2.1"
+        description:  string,
+        capabilities: list<capability>,
+        author:       option<string>,
+        homepage:     option<string>,
+    }
+
+    /// Unified error type used across all interfaces.
+    record plugin-error {
+        code:    u32,
+        message: string,
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// plugin-meta — required by every plugin
+//
+// Maps from src/wit/mod.rs `Plugin` struct (as the return type of get-info).
+// ---------------------------------------------------------------------------
+
+interface plugin-meta {
+    use types.{plugin-info};
+
+    /// Return static metadata about this plugin.
+    /// Called once by the host immediately after instantiation.
+    get-info: func() -> plugin-info;
+}
+
+
+// ---------------------------------------------------------------------------
+// plugin-lifecycle — required by every plugin
+//
+// Maps directly from src/wit/mod.rs `PluginLifeCycle` trait.
+// Note: WIT uses kebab-case, Rust uses snake_case — toolchains handle the
+// conversion automatically.
+// ---------------------------------------------------------------------------
+
+interface plugin-lifecycle {
+
+    /// Called by the host after the plugin is fully loaded and registered.
+    /// Use this to initialise any internal state.
+    on-load: func();
+
+    /// Called by the host before the plugin is unloaded (app shutdown or
+    /// the user disabling the plugin via Settings → Plugins).
+    /// Release any held resources (open file handles, connections, etc.).
+    on-close: func();
+}
+
+
+// ---------------------------------------------------------------------------
+// file-loader — implement when capability = file-loader
+//
+// Teaches Thoth to open a new file format. The host calls open() once,
+// then calls get() lazily as the user scrolls. Maps to the core
+// `FileLoader` trait in src/file/loaders/mod.rs.
+// ---------------------------------------------------------------------------
+
+interface file-loader {
+    use types.{plugin-error};
+
+    /// File extensions this plugin handles, without the leading dot.
+    /// e.g. ["csv", "tsv"]
+    supported-extensions: func() -> list<string>;
+
+    /// Open the file at `path` and index it. Do NOT load all records into
+    /// memory — just prepare for lazy access.
+    /// Returns the total number of records (rows, objects, etc.) in the file.
+    open: func(path: string) -> result<u64, plugin-error>;
+
+    /// Return the record at `idx` serialised as a JSON string.
+    /// Called lazily as the user scrolls — must be fast and stateless.
+    get: func(idx: u64) -> result<string, plugin-error>;
+
+    /// Return the raw bytes of the record at `idx` without JSON parsing.
+    /// Used by the copy-to-clipboard and export paths.
+    raw-bytes: func(idx: u64) -> result<list<u8>, plugin-error>;
+}
+
+
+// ---------------------------------------------------------------------------
+// file-viewer — implement when capability = file-viewer
+//
+// Lets a plugin control how its records are *rendered* inside the viewer
+// panel. Without this capability the host falls back to the default JSON
+// tree renderer.
+//
+// Because WASM cannot call egui directly, the plugin returns a lightweight
+// render-node tree (think virtual DOM). The host walks the tree and draws
+// it with egui.
+// ---------------------------------------------------------------------------
+
+interface file-viewer {
+    use types.{plugin-error};
+
+    /// How the plugin wants its data displayed.
+    ///
+    /// table  — host renders a styled table using column-headers() and the raw
+    ///          JSON values from file-loader.get(). render-record() is never
+    ///          called. This is the simplest option: the plugin only needs to
+    ///          declare headers and the host takes care of the rest.
+    ///
+    /// custom — host calls render-record() for every visible row and draws
+    ///          the returned RenderNode tree. Use this when you need badges,
+    ///          colours, links, nested tables, or any non-trivial cell content.
+    enum display-mode {
+        table,
+        custom,
+    }
+
+    /// Declare how this plugin's data should be displayed.
+    /// Called once after open(). Defaults to `table` if not implemented.
+    preferred-display: func() -> display-mode;
+
+    /// A node in the render tree.
+    /// Recursive types are not allowed in WIT, so children are encoded as
+    /// a JSON string following the RenderNode schema below.
+    /// Schema (recursive):
+    ///   { "type": "text",       "value": "hello" }
+    ///   { "type": "bold",       "child": <RenderNode> }
+    ///   { "type": "italic",     "child": <RenderNode> }
+    ///   { "type": "colored",    "color": "#ff6b6b", "child": <RenderNode> }
+    ///   { "type": "badge",      "label": "WARN", "color": "#fbca04" }
+    ///   { "type": "link",       "label": "docs", "url": "https://..." }
+    ///   { "type": "row",        "children": [<RenderNode>, ...] }
+    ///   { "type": "column",     "children": [<RenderNode>, ...] }
+    ///   { "type": "key-value",  "key": "id",  "value": <RenderNode> }
+    ///   { "type": "collapsible","label": "...", "children": [<RenderNode>, ...] }
+    ///   { "type": "table",      "headers": ["col1", ...], "rows": [[<RenderNode>, ...], ...] }
+    ///   { "type": "json-tree",  "value": <any JSON value> }
+    record render-output {
+        /// JSON-encoded RenderNode tree (see schema above)
+        node-json: string,
+        /// Optional: height hint in logical pixels. 0 = auto.
+        height-hint: u32,
+    }
+
+    /// Given a single record as a JSON string (as returned by file-loader's
+    /// get()), return a render tree for the host to draw.
+    render-record: func(record-json: string) -> result<render-output, plugin-error>;
+
+    /// Optional custom column headers for the table view.
+    /// Return `none` to use the keys from the first record as headers.
+    column-headers: func() -> option<list<string>>;
+}
+
+
+// ---------------------------------------------------------------------------
+// data-source — implement when capability = data-source
+//
+// Connects Thoth to an external system: REST API, database, message queue,
+// etc. The user triggers this from "Connect to source" in the toolbar.
+// The host holds the returned handle string and passes it back on each call.
+// ---------------------------------------------------------------------------
+
+interface data-source {
+    use types.{plugin-error};
+
+    /// A key/value configuration entry supplied by the user (e.g. url, token).
+    record config-entry {
+        key:   string,
+        value: string,
+    }
+
+    /// Describes a single field in a schema.
+    record field-schema {
+        name:     string,
+        type-hint: string,    // e.g. "string", "number", "boolean", "object"
+        nullable: bool,
+    }
+
+    /// Describes a top-level entity (table, endpoint, collection, etc.).
+    record source-schema {
+        name:   string,
+        fields: list<field-schema>,
+    }
+
+    /// The configuration keys this plugin requires.
+    /// The host uses this to generate a "Connect to source" form dynamically.
+    required-config: func() -> list<config-entry>;
+
+    /// Establish a connection using the provided config.
+    /// Returns an opaque handle string the host passes back on every call.
+    connect: func(config: list<config-entry>) -> result<string, plugin-error>;
+
+    /// Return available schemas (tables, endpoints, collections).
+    /// Called after connect() to populate the source explorer sidebar.
+    schema: func(handle: string) -> result<list<source-schema>, plugin-error>;
+
+    /// Execute a query against the source.
+    /// `q` is a free-form query string (SQL, JSONPath, filter DSL — up to the plugin).
+    /// Returns a JSON-encoded array of record objects.
+    query: func(handle: string, q: string) -> result<string, plugin-error>;
+
+    /// Release the connection and free any held resources.
+    close: func(handle: string);
+}
+
+
+// ---------------------------------------------------------------------------
+// exporter — implement when capability = exporter
+//
+// Adds a new export format or destination to the File → Export menu.
+// ---------------------------------------------------------------------------
+
+interface exporter {
+    use types.{plugin-error};
+
+    /// A user-configurable option shown in the export dialog.
+    record export-option {
+        key:           string,   // internal key
+        label:         string,   // shown in the UI
+        default-value: string,
+        /// "text" | "bool" | "select" — drives the input widget type
+        input-type:    string,
+        /// Non-empty only when input-type = "select"
+        choices:       list<string>,
+    }
+
+    /// Human-readable name for this format, e.g. "CSV Export"
+    name: func() -> string;
+
+    /// File extension for the output without the dot, e.g. "csv"
+    output-extension: func() -> string;
+
+    /// Options the host should display in the export dialog.
+    available-options: func() -> list<export-option>;
+
+    /// Perform the export.
+    /// `records-json` is a JSON array string of all records to export.
+    /// `options` is a flat key/value list of the user's chosen option values.
+    /// Returns raw file bytes the host writes to disk.
+    run: func(
+        records-json: string,
+        options: list<tuple<string, string>>,
+    ) -> result<list<u8>, plugin-error>;
+}
+
+
+// ---------------------------------------------------------------------------
+// Worlds — plugin authors implement one of these
+//
+// A world declares exactly which interfaces a plugin exports. Pick the
+// world that matches your plugin's capabilities. If you implement multiple
+// capabilities, implement the combined world or compose component binaries.
+// ---------------------------------------------------------------------------
+
+/// Every plugin must satisfy this base world.
+world base-plugin {
+    export plugin-meta;
+    export plugin-lifecycle;
+}
+
+/// A plugin that teaches Thoth to open a new file format.
+world file-loader-plugin {
+    include base-plugin;
+    export file-loader;
+}
+
+/// A plugin that opens a new file format AND controls how it is rendered.
+world file-viewer-plugin {
+    include base-plugin;
+    export file-loader;
+    export file-viewer;
+}
+
+/// A plugin that connects Thoth to an external data source.
+world data-source-plugin {
+    include base-plugin;
+    export data-source;
+}
+
+/// A plugin that adds a new export format or destination.
+world exporter-plugin {
+    include base-plugin;
+    export exporter;
+}

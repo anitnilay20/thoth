@@ -267,14 +267,14 @@ impl ContextComponent for Sidebar {
     type Props<'a> = SidebarProps<'a>;
     type Output = SidebarOutput;
 
-    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let mut events = Vec::new();
 
         // Get theme colors
-        let theme_colors = ctx.memory(|mem| {
+        let theme_colors = ui.ctx().memory(|mem| {
             mem.data
                 .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
         });
@@ -307,22 +307,22 @@ impl ContextComponent for Sidebar {
 
         // Build sidebar panel - always resizable when expanded
         let is_resizable = props.expanded;
-        let mut sidebar_panel = egui::SidePanel::left("sidebar").resizable(is_resizable);
+        let mut sidebar_panel = egui::Panel::left("sidebar").resizable(is_resizable);
 
         // Set width constraints
         if props.expanded {
             // When expanded, use stored width with min/max constraints
             let min_width = MIN_SIDEBAR_WIDTH;
-            let window_width = ctx.screen_rect().width();
+            let window_width = ui.ctx().content_rect().width();
             let max_width = window_width * MAX_SIDEBAR_WIDTH_RATIO;
 
             sidebar_panel = sidebar_panel
                 .resizable(true)
-                .width_range(min_width..=max_width)
-                .default_width(props.sidebar_width.clamp(min_width, max_width));
+                .size_range(min_width..=max_width)
+                .default_size(props.sidebar_width.clamp(min_width, max_width));
         } else {
             // When collapsed, use icon strip width
-            sidebar_panel = sidebar_panel.exact_width(sidebar_width);
+            sidebar_panel = sidebar_panel.exact_size(sidebar_width);
         }
 
         let sidebar_response = sidebar_panel
@@ -331,7 +331,7 @@ impl ContextComponent for Sidebar {
             } else {
                 icon_strip_bg
             }))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 
                 if props.expanded {

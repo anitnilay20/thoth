@@ -51,6 +51,11 @@ impl ErrorRecovery {
 
             // Unknown errors
             ThothError::Unknown { .. } => RecoveryAction::ShowError,
+
+            // Plugins
+            ThothError::PluginDirectoryInvalid { .. } => RecoveryAction::ShowError,
+            ThothError::PluginFileInvalid { .. } => RecoveryAction::ShowError,
+            ThothError::PluginLoadError { .. } => RecoveryAction::ShowError,
         }
     }
 

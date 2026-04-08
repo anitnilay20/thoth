@@ -1,4 +1,5 @@
-use crate::components::traits::StatefulComponent;
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
+use crate::components::traits::{StatefulComponent, StatelessComponent};
 use crate::error::ErrorHandler;
 use crate::helpers::{format_date, format_date_static};
 use crate::update::{ReleaseInfo, UpdateState, UpdateStatus};
@@ -105,27 +106,23 @@ impl SettingsPanel {
                     None => ui.label("💤 No update check performed yet."),
                 };
                 ui.add_space(8.0);
-                let check_button = ui.add_sized(
-                    egui::vec2(ui.available_width(), 0.0),
-                    egui::Button::new(
-                        egui::RichText::new(format!(
+                let check_button = Button::render(
+                    ui,
+                    ButtonProps {
+                        label: format!(
                             "{} Check for Updates",
                             egui_phosphor::regular::MAGNIFYING_GLASS
-                        ))
-                        .size(BUTTON_FONT_SIZE),
-                    ),
+                        ),
+                        button_type: ButtonType::Elevated,
+                        color: ButtonColor::Default,
+                        hover_text: None,
+                        size: Some(14.0),
+                        width: Some(ui.available_width()),
+                        height: None,
+                    },
                 );
 
-                // Add accessibility info
-                check_button.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button,
-                        ui.is_enabled(),
-                        "Check for Updates",
-                    )
-                });
-
-                if check_button.clicked() {
+                if check_button.clicked {
                     events.push(SettingsPanelEvent::CheckForUpdates);
                 }
             }
@@ -144,22 +141,20 @@ impl SettingsPanel {
                 );
                 ui.add_space(16.0);
 
-                let download_button = ui.add_sized(
-                    egui::vec2(ui.available_width(), 0.0),
-                    egui::Button::new(
-                        egui::RichText::new("⬇ Download Update").size(BUTTON_FONT_SIZE),
-                    ),
+                let download_button = Button::render(
+                    ui,
+                    ButtonProps {
+                        label: "⬇ Download Update".to_string(),
+                        button_type: ButtonType::Elevated,
+                        color: ButtonColor::Success,
+                        hover_text: None,
+                        size: Some(14.0),
+                        width: Some(ui.available_width()),
+                        height: None,
+                    },
                 );
 
-                download_button.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button,
-                        ui.is_enabled(),
-                        "Download Update",
-                    )
-                });
-
-                if download_button.clicked() {
+                if download_button.clicked {
                     events.push(SettingsPanelEvent::DownloadUpdate);
                 }
                 ui.add_space(16.0);
@@ -197,20 +192,20 @@ impl SettingsPanel {
                 ui.label("⚠ The application will restart after installation.");
                 ui.add_space(8.0);
 
-                let install_button = ui.add_sized(
-                    egui::vec2(ui.available_width(), 0.0),
-                    egui::Button::new(egui::RichText::new("🚀 Install Now").size(BUTTON_FONT_SIZE)),
+                let install_button = Button::render(
+                    ui,
+                    ButtonProps {
+                        label: "🚀 Install Now".to_string(),
+                        button_type: ButtonType::Elevated,
+                        color: ButtonColor::Success,
+                        hover_text: None,
+                        size: Some(14.0),
+                        width: Some(ui.available_width()),
+                        height: None,
+                    },
                 );
 
-                install_button.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button,
-                        ui.is_enabled(),
-                        "Install Now",
-                    )
-                });
-
-                if install_button.clicked() {
+                if install_button.clicked {
                     events.push(SettingsPanelEvent::InstallUpdate);
                 }
             }
@@ -229,20 +224,20 @@ impl SettingsPanel {
                 ui.label(ErrorHandler::get_user_message(error));
                 ui.add_space(16.0);
 
-                let retry_button = ui.add_sized(
-                    egui::vec2(ui.available_width(), 0.0),
-                    egui::Button::new(egui::RichText::new("🔄 Try Again").size(BUTTON_FONT_SIZE)),
+                let retry_button = Button::render(
+                    ui,
+                    ButtonProps {
+                        label: "🔄 Try Again".to_string(),
+                        button_type: ButtonType::Elevated,
+                        color: ButtonColor::Default,
+                        hover_text: None,
+                        size: Some(14.0),
+                        width: Some(ui.available_width()),
+                        height: None,
+                    },
                 );
 
-                retry_button.widget_info(|| {
-                    egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button,
-                        ui.is_enabled(),
-                        "Try Again",
-                    )
-                });
-
-                if retry_button.clicked() {
+                if retry_button.clicked {
                     events.push(SettingsPanelEvent::RetryUpdate);
                 }
             }
@@ -289,13 +284,20 @@ impl SettingsPanel {
 
             ui.add_space(8.0);
 
-            if ui
-                .add_sized(
-                    egui::vec2(ui.available_width(), 0.0),
-                    egui::Button::new(egui::RichText::new("🔗 View on GitHub").size(12.0)),
-                )
-                .clicked()
-            {
+            let github_btn = Button::render(
+                ui,
+                ButtonProps {
+                    label: "🔗 View on GitHub".to_string(),
+                    button_type: ButtonType::Text,
+                    color: ButtonColor::Default,
+                    hover_text: None,
+                    size: Some(12.0),
+                    width: Some(ui.available_width()),
+                    height: None,
+                },
+            );
+
+            if github_btn.clicked {
                 let _ = open::that(&release.html_url);
             }
         });

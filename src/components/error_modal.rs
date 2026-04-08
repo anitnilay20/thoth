@@ -1,4 +1,5 @@
-use crate::components::traits::StatefulComponent;
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
+use crate::components::traits::{StatefulComponent, StatelessComponent};
 use crate::error::{ErrorHandler, ErrorRecovery, RecoveryAction, ThothError};
 use eframe::egui;
 
@@ -95,22 +96,61 @@ impl StatefulComponent for ErrorModal {
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Close button (always available)
-                        if ui.button("Close").clicked() {
+                        let close_btn = Button::render(
+                            ui,
+                            ButtonProps {
+                                label: "Close".to_string(),
+                                button_type: ButtonType::Elevated,
+                                color: ButtonColor::Default,
+                                hover_text: None,
+                                size: None,
+                                width: None,
+                                height: None,
+                            },
+                        );
+                        if close_btn.clicked {
                             events.push(ErrorModalEvent::Close);
                             recovery_action = Some(RecoveryAction::ClearError);
                         }
 
                         // Only show Retry button if error is recoverable
-                        if ErrorHandler::is_recoverable(props.error) && ui.button("Retry").clicked()
-                        {
-                            events.push(ErrorModalEvent::Retry);
-                            recovery_action = Some(RecoveryAction::Retry);
+                        if ErrorHandler::is_recoverable(props.error) {
+                            let retry_btn = Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: "Retry".to_string(),
+                                    button_type: ButtonType::Elevated,
+                                    color: ButtonColor::Danger,
+                                    hover_text: None,
+                                    size: None,
+                                    width: None,
+                                    height: None,
+                                },
+                            );
+                            if retry_btn.clicked {
+                                events.push(ErrorModalEvent::Retry);
+                                recovery_action = Some(RecoveryAction::Retry);
+                            }
                         }
 
                         // Show Reset button for specific recovery actions
-                        if matches!(action, RecoveryAction::Reset) && ui.button("Reset").clicked() {
-                            events.push(ErrorModalEvent::Reset);
-                            recovery_action = Some(RecoveryAction::Reset);
+                        if matches!(action, RecoveryAction::Reset) {
+                            let reset_btn = Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: "Reset".to_string(),
+                                    button_type: ButtonType::Elevated,
+                                    color: ButtonColor::Danger,
+                                    hover_text: None,
+                                    size: None,
+                                    width: None,
+                                    height: None,
+                                },
+                            );
+                            if reset_btn.clicked {
+                                events.push(ErrorModalEvent::Reset);
+                                recovery_action = Some(RecoveryAction::Reset);
+                            }
                         }
                     });
                 });

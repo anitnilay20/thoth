@@ -1,5 +1,6 @@
 pub mod context_menu;
 pub mod json_tree_viewer;
+pub mod plugin_table_viewer;
 pub mod types;
 pub mod viewer_trait;
 pub mod viewer_type;
@@ -12,8 +13,10 @@ use std::sync::Arc;
 
 use self::types::ViewerState;
 use self::viewer_type::ViewerType;
-use crate::file::loaders::{FileType, LazyJsonFile, load_file_auto};
+use crate::PLUGIN_MANAGER;
+use crate::file::loaders::{FileKind, FileType, load_file_auto};
 use crate::helpers::LruCache;
+use crate::plugin::Capability;
 use crate::search::results::{MatchFragment, SearchResults};
 
 /// Generic file viewer that manages common viewing concerns (loading, caching, selection)
@@ -26,7 +29,7 @@ use crate::search::results::{MatchFragment, SearchResults};
 /// 4. That's it! FileViewer will automatically work with the new viewer
 pub struct FileViewer {
     /// File loader for lazy parsing
-    loader: Option<LazyJsonFile>,
+    loader: Option<FileType>,
 
     /// LRU cache for parsed values
     cache: LruCache<usize, Value>,
@@ -76,12 +79,58 @@ impl FileViewer {
     }
 
     /// Open a file for viewing (compatible with old JsonViewer API)
-    pub fn open(&mut self, path: &Path, file_type: &mut FileType) -> crate::error::Result<()> {
-        // Load file and detect type
-        let (detected_type, loader) = load_file_auto(path)?;
-        *file_type = detected_type.into();
+    pub fn open(&mut self, path: &Path, file_type: &mut FileKind) -> crate::error::Result<()> {
+        // Built-in extensions handled without plugins.
+        const JSON_EXTENSIONS: &[&str] = &["json", "ndjson", "jsonl", "geojson"];
 
-        // Store state
+        let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
+        let ext_str = ext.as_deref().unwrap_or("");
+
+        // Check if a plugin is registered for this extension.
+        // If one is registered, its result (success or error) is used — we do NOT
+        // silently fall through to JSON parsing when a plugin claims the format.
+        let plugin_result = PLUGIN_MANAGER
+            .get()
+            .and_then(|opt| opt.as_ref())
+            .and_then(|pm| {
+                if pm.find_loader_for_extension(ext_str).is_some() {
+                    let result: crate::error::Result<(FileType, FileKind)> =
+                        if pm.plugin_has_capability(ext_str, &Capability::FileViewer) {
+                            pm.open_file_with_viewer(ext_str, path)
+                                .map(|wfl| (FileType::PluginWithViewer(wfl), FileKind::PluginTable))
+                        } else {
+                            pm.open_file(ext_str, path)
+                                .map(|wfl| (FileType::Plugin(wfl), FileKind::Plugin))
+                        };
+                    Some(result)
+                } else {
+                    None
+                }
+            });
+
+        let (loader, kind) = match plugin_result {
+            Some(Ok((file_type, file_kind))) => (file_type, file_kind),
+            Some(Err(e)) => return Err(e),
+            None if JSON_EXTENSIONS.contains(&ext_str) => {
+                let (detected, ft) = load_file_auto(path)?;
+                (ft, detected.into())
+            }
+            None => {
+                return Err(crate::error::ThothError::InvalidFileType {
+                    path: path.to_path_buf(),
+                    expected: format!(
+                        "a supported format ({}) or an installed plugin for .{ext_str} files",
+                        JSON_EXTENSIONS
+                            .iter()
+                            .map(|e| format!(".{e}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                });
+            }
+        };
+
+        *file_type = kind;
         self.loader = Some(loader);
         self.file_path = Some(path.to_path_buf());
 
