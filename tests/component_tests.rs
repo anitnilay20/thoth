@@ -167,10 +167,10 @@ fn test_mock_context_component() {
     use common::mocks::{MockContextComponent, MockContextProps};
     use thoth::components::traits::ContextComponent;
 
-    run_context_test(|ctx| {
+    run_context_test(|ui| {
         let mut component = MockContextComponent::default();
 
-        let output = component.render(ctx, MockContextProps { title: "Test" });
+        let output = component.render(ui, MockContextProps { title: "Test" });
 
         assert!(output.rendered);
         assert_eq!(output.title, "Test");
@@ -184,16 +184,16 @@ fn test_mock_context_component_multiple_renders() {
     use common::mocks::{MockContextComponent, MockContextProps};
     use thoth::components::traits::ContextComponent;
 
-    run_context_test(|ctx| {
+    run_context_test(|ui| {
         let mut component = MockContextComponent::default();
 
         // First render
-        component.render(ctx, MockContextProps { title: "First" });
+        component.render(ui, MockContextProps { title: "First" });
         assert_eq!(component.render_count, 1);
         assert_eq!(component.last_title, "First");
 
         // Second render
-        component.render(ctx, MockContextProps { title: "Second" });
+        component.render(ui, MockContextProps { title: "Second" });
         assert_eq!(component.render_count, 2);
         assert_eq!(component.last_title, "Second");
     });

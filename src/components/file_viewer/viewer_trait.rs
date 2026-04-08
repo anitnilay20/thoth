@@ -1,7 +1,7 @@
 use eframe::egui::Ui;
 use serde_json::Value;
 
-use crate::file::loaders::LazyJsonFile;
+use crate::file::loaders::FileType;
 use crate::helpers::LruCache;
 
 /// Trait that all file format viewers must implement
@@ -32,7 +32,7 @@ pub trait FileFormatViewer {
         &mut self,
         visible_roots: &Option<Vec<usize>>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
         total_len: usize,
     );
 
@@ -55,7 +55,7 @@ pub trait FileFormatViewer {
         ui: &mut Ui,
         selected: &mut Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
         syntax_highlighting: bool,
@@ -130,7 +130,7 @@ pub trait FileFormatViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
     ) -> Option<String> {
         let _ = (selected, cache, loader);
         None // Default: no-op
@@ -142,7 +142,7 @@ pub trait FileFormatViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
     ) -> Option<String> {
         let _ = (selected, cache, loader);
         None // Default: no-op

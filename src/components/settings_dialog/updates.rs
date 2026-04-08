@@ -1,3 +1,4 @@
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::traits::StatelessComponent;
 use crate::settings::UpdateSettings;
 use crate::theme::ThemeColors;
@@ -179,7 +180,19 @@ impl UpdatesTab {
                 ui.label("No update check performed yet");
                 ui.add_space(8.0);
 
-                if ui.button("Check for Updates").clicked() {
+                let check_btn = Button::render(
+                    ui,
+                    ButtonProps {
+                        label: "Check for Updates".to_string(),
+                        button_type: ButtonType::Elevated,
+                        color: ButtonColor::Default,
+                        hover_text: None,
+                        size: None,
+                        width: None,
+                        height: None,
+                    },
+                );
+                if check_btn.clicked {
                     events.push(UpdatesTabEvent::CheckForUpdates);
                 }
             }
@@ -223,7 +236,19 @@ impl UpdatesTab {
                         ui.add_space(8.0);
                     }
 
-                    if ui.button("Download Update").clicked() {
+                    let download_btn = Button::render(
+                        ui,
+                        ButtonProps {
+                            label: "Download Update".to_string(),
+                            button_type: ButtonType::Elevated,
+                            color: ButtonColor::Success,
+                            hover_text: None,
+                            size: None,
+                            width: None,
+                            height: None,
+                        },
+                    );
+                    if download_btn.clicked {
                         events.push(UpdatesTabEvent::DownloadUpdate);
                     }
                 }
@@ -243,7 +268,19 @@ impl UpdatesTab {
                 );
                 ui.add_space(8.0);
 
-                if ui.button("Install and Restart").clicked() {
+                let install_btn = Button::render(
+                    ui,
+                    ButtonProps {
+                        label: "Install and Restart".to_string(),
+                        button_type: ButtonType::Elevated,
+                        color: ButtonColor::Success,
+                        hover_text: None,
+                        size: None,
+                        width: None,
+                        height: None,
+                    },
+                );
+                if install_btn.clicked {
                     events.push(UpdatesTabEvent::InstallUpdate);
                 }
             }
@@ -259,7 +296,19 @@ impl UpdatesTab {
                 );
                 ui.add_space(8.0);
 
-                if ui.button("Retry").clicked() {
+                let retry_btn = Button::render(
+                    ui,
+                    ButtonProps {
+                        label: "Retry".to_string(),
+                        button_type: ButtonType::Elevated,
+                        color: ButtonColor::Default,
+                        hover_text: None,
+                        size: None,
+                        width: None,
+                        height: None,
+                    },
+                );
+                if retry_btn.clicked {
                     events.push(UpdatesTabEvent::CheckForUpdates);
                 }
             }

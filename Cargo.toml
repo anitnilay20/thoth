@@ -1,3 +1,11 @@
+[workspace]
+members = [".", "plugins/*"]
+# Plugins are wasm32 crates built separately with `cargo component build`.
+# default-members restricts `cargo build` / `cargo check` at the workspace
+# root to the host application only, so plugins are not compiled for the
+# host target by default.
+default-members = ["."]
+
 [package]
 name = "thoth"
 version = "0.3.1"
@@ -49,7 +57,11 @@ homepage = "https://github.com/anitnilay20/thoth"
 license_file = "LICENSE"
 
 # Icon configuration for different platforms
-icons = ["assets/thoth_icon_256.png", "assets/Thoth.icns", "assets/thoth_icon_256.ico"]
+icons = [
+  "assets/thoth_icon_256.png",
+  "assets/Thoth.icns",
+  "assets/thoth_icon_256.ico",
+]
 
 # Resources to include in the bundle
 resources = ["assets"]
@@ -58,18 +70,32 @@ resources = ["assets"]
 [package.metadata.packager.macos]
 # File associations for macOS "Open With" and default app
 files = [
-  { ext = ["json"], name = "JSON File", role = "Editor", mime = "application/json" },
-  { ext = ["ndjson", "jsonl"], name = "NDJSON File", role = "Editor", mime = "application/x-ndjson" },
-  { ext = ["geojson"], name = "GeoJSON File", role = "Editor", mime = "application/geo+json" },
+  { ext = [
+    "json",
+  ], name = "JSON File", role = "Editor", mime = "application/json" },
+  { ext = [
+    "ndjson",
+    "jsonl",
+  ], name = "NDJSON File", role = "Editor", mime = "application/x-ndjson" },
+  { ext = [
+    "geojson",
+  ], name = "GeoJSON File", role = "Editor", mime = "application/geo+json" },
 ]
 
 # Windows installer configuration
 [package.metadata.packager.windows]
 # File associations for Windows "Open With" and default app
 file_associations = [
-  { ext = ["json"], name = "JSON File", description = "JSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/json" },
-  { ext = ["ndjson", "jsonl"], name = "NDJSON File", description = "Newline Delimited JSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/x-ndjson" },
-  { ext = ["geojson"], name = "GeoJSON File", description = "GeoJSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/geo+json" },
+  { ext = [
+    "json",
+  ], name = "JSON File", description = "JSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/json" },
+  { ext = [
+    "ndjson",
+    "jsonl",
+  ], name = "NDJSON File", description = "Newline Delimited JSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/x-ndjson" },
+  { ext = [
+    "geojson",
+  ], name = "GeoJSON File", description = "GeoJSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/geo+json" },
 ]
 
 # Debian/Linux package configuration
@@ -79,8 +105,8 @@ desktop_template = "assets/thoth.desktop"
 
 
 [dependencies]
-eframe = "0.32.0"
-egui-phosphor = "0.10"
+eframe = "0.34"
+egui-phosphor = "0.12"
 image = { version = "0.25", default-features = false, features = [
   "png",
   "ico",
@@ -93,7 +119,11 @@ rfd = "0.15.4"
 anyhow = "1.0"
 rayon = "1.11.0"
 memchr = "2.7"
-self_update = { version = "0.41", features = ["archive-tar", "archive-zip", "compression-flate2"] }
+self_update = { version = "0.41", features = [
+  "archive-tar",
+  "archive-zip",
+  "compression-flate2",
+] }
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 tokio = { version = "1.42", features = ["rt", "sync"] }
 chrono = "0.4"
@@ -102,12 +132,13 @@ tar = "0.4"
 zip = "0.6"
 open = "5.0"
 which = "7.0"
+wasmtime = { version = "43.0.0", features = ["component-model"] }
+wasmtime-wasi = "43.0.0"
+wit-bindgen = "0.54.0"
+egui-notify = "0.22.0"
+egui_extras = "0.34.1"
 
 [dependencies.puffin]
-git = "https://github.com/EmbarkStudios/puffin"
-optional = true
-
-[dependencies.puffin_egui]
 git = "https://github.com/EmbarkStudios/puffin"
 optional = true
 
@@ -122,7 +153,7 @@ tempfile = "3.15"
 
 [features]
 default = []
-profiling = ["puffin", "puffin_egui", "dhat"]
+profiling = ["puffin", "dhat"]
 
 [[bench]]
 name = "file_loading"

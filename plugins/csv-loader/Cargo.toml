@@ -1,0 +1,21 @@
+[package]
+name = "csv-loader"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]   # required for WASM component output
+
+[dependencies]
+# Runtime support for cargo-component generated bindings (must match the version
+# cargo-component uses internally — check with: head -3 src/bindings.rs)
+wit-bindgen-rt = "0.41"
+serde_json     = "1"
+csv            = "1"
+
+[package.metadata.component]
+package = "thoth:csv-loader"
+
+[package.metadata.component.target]
+path  = "../../wit"
+world = "file-viewer-plugin"

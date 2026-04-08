@@ -240,7 +240,7 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
     ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(system_theme));
 
     // Apply style settings (spacing, fonts, etc.)
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
 
     // Spacing: VS Code design system uses 4px grid
     style.spacing.item_spacing = egui::vec2(SPACING_MEDIUM, SPACING_SMALL);
@@ -274,7 +274,7 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
         style.animation_time = 0.0;
     }
 
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 /// Create egui visuals from theme colors
@@ -362,7 +362,7 @@ impl TextPalette {
                 .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
                 .unwrap_or_else(|| {
                     // Fallback: create default theme based on dark mode from visuals
-                    let dark_mode = ctx.style().visuals.dark_mode;
+                    let dark_mode = ctx.global_style().visuals.dark_mode;
                     Theme::for_dark_mode(dark_mode).colors()
                 });
 
@@ -410,4 +410,42 @@ pub fn selected_row_bg(ui: &egui::Ui) -> Color32 {
 pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
     // Use widget hovered state color which we set from theme.surface1
     ui.visuals().widgets.hovered.bg_fill
+}
+
+/// Determine if white or black text provides better contrast against a background color
+/// Returns Color32::WHITE if background is dark, Color32::BLACK if background is light
+pub fn get_contrast_text_color(bg_color: Color32) -> Color32 {
+    // Calculate luminance using relative luminance formula from WCAG 2.0
+    // https://www.w3.org/TR/WCAG20/#relativeluminancedef
+    let r = bg_color.r() as f32 / 255.0;
+    let g = bg_color.g() as f32 / 255.0;
+    let b = bg_color.b() as f32 / 255.0;
+
+    let r = if r <= 0.03928 {
+        r / 12.92
+    } else {
+        ((r + 0.055) / 1.055).powf(2.4)
+    };
+    let g = if g <= 0.03928 {
+        g / 12.92
+    } else {
+        ((g + 0.055) / 1.055).powf(2.4)
+    };
+    let b = if b <= 0.03928 {
+        b / 12.92
+    } else {
+        ((b + 0.055) / 1.055).powf(2.4)
+    };
+
+    let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    // Choose the text color with the higher WCAG 2.1 contrast ratio.
+    // contrast = (L_lighter + 0.05) / (L_darker + 0.05)
+    let contrast_with_white = (1.0 + 0.05) / (luminance + 0.05);
+    let contrast_with_black = (luminance + 0.05) / (0.0 + 0.05);
+    if contrast_with_white >= contrast_with_black {
+        Color32::WHITE
+    } else {
+        Color32::BLACK
+    }
 }

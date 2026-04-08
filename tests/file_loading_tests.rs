@@ -1,6 +1,9 @@
 use std::path::Path;
 use thoth::file::detect_file_type::{DetectedFileType, sniff_file_type};
-use thoth::file::loaders::{FileLoader, LazyJsonFile};
+use thoth::file::loaders::{FileLoader, FileType};
+
+// Convenience alias matching the old name used throughout these tests.
+type LazyJsonFile = FileType;
 
 #[test]
 fn test_load_ndjson_simple_fixture() {
@@ -34,7 +37,7 @@ fn test_load_ndjson_nested_fixture() {
 #[test]
 fn test_load_ndjson_empty_fixture() {
     let path = Path::new("tests/fixtures/ndjson/empty.ndjson");
-    // Empty files cannot be automatically detected, so this should fail
+    // Empty files cannot be detected as a known JSON type, so open() fails.
     let result = LazyJsonFile::open(path);
     assert!(result.is_err());
 }

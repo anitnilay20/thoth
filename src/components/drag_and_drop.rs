@@ -1,6 +1,6 @@
 use crate::{
     app,
-    file::{detect_file_type::sniff_file_type, lazy_loader::FileType},
+    file::{detect_file_type::sniff_file_type, lazy_loader::FileKind},
 };
 use eframe::egui::{self};
 
@@ -35,13 +35,13 @@ impl app::ThothApp {
                 egui::Order::Foreground,
                 egui::Id::new("file_drop_overlay"),
             ));
-            let screen_rect = ctx.screen_rect();
+            let screen_rect = ctx.content_rect();
             painter.rect_filled(screen_rect, 0.0, egui::Color32::from_black_alpha(180));
             painter.text(
                 screen_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 text,
-                egui::TextStyle::Heading.resolve(&ctx.style()),
+                egui::TextStyle::Heading.resolve(&ctx.global_style()),
                 egui::Color32::WHITE,
             );
         }
@@ -53,7 +53,7 @@ impl app::ThothApp {
                 if let Some(path) = file.path {
                     match sniff_file_type(&path) {
                         Ok(detected) => {
-                            let ft: FileType = detected.into();
+                            let ft: FileKind = detected.into();
                             self.window_state.file_type = ft;
                             self.window_state.file_path = Some(path);
                             self.window_state.error = None;

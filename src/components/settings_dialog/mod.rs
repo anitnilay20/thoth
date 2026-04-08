@@ -14,6 +14,7 @@ mod advanced;
 mod appearance;
 mod general;
 mod performance;
+mod plugins;
 mod shortcuts;
 mod updates;
 mod viewer;
@@ -29,7 +30,9 @@ pub use shortcuts::ShortcutsTab;
 pub use updates::UpdatesTab;
 pub use viewer::ViewerTab;
 
-use crate::components::traits::ContextComponent;
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
+use crate::components::settings_dialog::plugins::{PluginsTab, PluginsTabProps};
+use crate::components::traits::{ContextComponent, StatelessComponent};
 use crate::settings::Settings;
 use crate::theme::{self, ThemeColors};
 use eframe::egui;
@@ -69,6 +72,7 @@ pub enum SettingsTab {
     Performance,
     Viewer,
     Shortcuts,
+    Plugins,
     Updates,
     Advanced,
 }
@@ -81,6 +85,7 @@ impl SettingsTab {
             SettingsTab::Performance => "Performance",
             SettingsTab::Viewer => "Viewer",
             SettingsTab::Shortcuts => "Shortcuts",
+            SettingsTab::Plugins => "Plugins",
             SettingsTab::Updates => "Updates",
             SettingsTab::Advanced => "Advanced",
         }
@@ -93,6 +98,7 @@ impl SettingsTab {
             SettingsTab::Performance => egui_phosphor::regular::GAUGE,
             SettingsTab::Viewer => egui_phosphor::regular::EYE,
             SettingsTab::Shortcuts => egui_phosphor::regular::KEYBOARD,
+            SettingsTab::Plugins => egui_phosphor::regular::PLUGS,
             SettingsTab::Updates => egui_phosphor::regular::ARROWS_CLOCKWISE,
             SettingsTab::Advanced => egui_phosphor::regular::WRENCH,
         }
@@ -105,6 +111,7 @@ impl SettingsTab {
             SettingsTab::Performance,
             SettingsTab::Viewer,
             SettingsTab::Shortcuts,
+            SettingsTab::Plugins,
             SettingsTab::Updates,
             SettingsTab::Advanced,
         ]
@@ -276,6 +283,56 @@ impl SettingsDialog {
                 );
                 // No events to handle yet - shortcuts are read-only
             }
+            SettingsTab::Plugins => {
+                let output = PluginsTab::render(
+                    ui,
+                    PluginsTabProps {
+                        plugin_settings: settings.plugins.clone(),
+                    },
+                );
+
+                for event in output.events {
+                    use plugins::PluginsTabEvent;
+                    match event {
+                        PluginsTabEvent::EnablePlugins(enabled) => {
+                            settings.plugins.enabled = enabled;
+                        }
+                        PluginsTabEvent::TogglePlugin { id, enabled } => {
+                            if enabled {
+                                settings.plugins.disabled_plugin_ids.retain(|x| x != &id);
+                            } else if !settings.plugins.disabled_plugin_ids.contains(&id) {
+                                settings.plugins.disabled_plugin_ids.push(id);
+                            }
+                        }
+                        PluginsTabEvent::UninstallPlugin(id) => {
+                            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() {
+                                // PLUGIN_MANAGER holds an immutable ref — uninstall
+                                // requires mutation so we operate on a fresh manager.
+                                // For now: delete from disk, remove from disabled list.
+                                // The registry update takes effect on next app restart.
+                                let wasm_path =
+                                    pm.registry.get_by_id(&id).and_then(|p| p.location.clone());
+
+                                if let Some(location) = wasm_path {
+                                    let path = std::path::Path::new(&location);
+                                    if let Some(dir) = path.parent() {
+                                        if dir.exists() {
+                                            if let Err(e) = std::fs::remove_dir_all(dir) {
+                                                eprintln!(
+                                                    "Failed to remove plugin directory {}: {e}",
+                                                    dir.display()
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+
+                                settings.plugins.disabled_plugin_ids.retain(|x| x != &id);
+                            }
+                        }
+                    }
+                }
+            }
             SettingsTab::Updates => {
                 let output = UpdatesTab::render(
                     ui,
@@ -376,7 +433,7 @@ impl ContextComponent for SettingsDialog {
     type Props<'a> = SettingsDialogProps<'a>;
     type Output = SettingsDialogOutput;
 
-    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         // If not open, return early
         if !self.open {
             return SettingsDialogOutput {
@@ -399,13 +456,15 @@ impl ContextComponent for SettingsDialog {
         let update_state_clone = props.update_state.cloned();
         let current_version = props.current_version.to_string();
 
-        ctx.show_viewport_deferred(
+        ui.ctx().show_viewport_deferred(
             viewport_id,
             egui::ViewportBuilder::default()
                 .with_title("Thoth - Settings")
                 .with_inner_size([900.0, 600.0])
                 .with_min_inner_size([800.0, 500.0]),
-            move |ctx, class| {
+            move |ui, class| {
+                let ctx = ui.ctx().clone();
+
                 // Check if viewport is being closed (X button clicked)
                 if class == egui::ViewportClass::Deferred
                     && ctx.input(|i| i.viewport().close_requested())
@@ -418,7 +477,7 @@ impl ContextComponent for SettingsDialog {
 
                 // Apply theme from draft settings so changes preview in real-time
                 if let Ok(settings) = draft_settings.lock() {
-                    theme::apply_theme(ctx, &settings);
+                    theme::apply_theme(&ctx, &settings);
                 }
 
                 // Get theme colors
@@ -426,33 +485,39 @@ impl ContextComponent for SettingsDialog {
                     mem.data
                         .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
                         .unwrap_or_else(|| {
-                            theme::Theme::for_dark_mode(ctx.style().visuals.dark_mode).colors()
+                            theme::Theme::for_dark_mode(ctx.global_style().visuals.dark_mode)
+                                .colors()
                         })
                 });
 
                 let mut new_settings = None;
 
                 // Top panel with title and buttons
-                egui::TopBottomPanel::top("settings_top")
+                egui::Panel::top("settings_top")
                     .frame(
                         egui::Frame::default()
                             .fill(theme_colors.crust)
                             .inner_margin(egui::Margin::symmetric(16, 12)),
                     )
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     // Edit settings.toml button
-                                    let btn = ui.button(
-                                        egui::RichText::new("Edit settings in settings.toml")
-                                            .size(13.0),
+                                    let btn = Button::render(
+                                        ui,
+                                        ButtonProps {
+                                            label: "Edit settings in settings.toml".to_string(),
+                                            button_type: ButtonType::Text,
+                                            color: ButtonColor::Default,
+                                            hover_text: None,
+                                            size: Some(13.0),
+                                            width: None,
+                                            height: None,
+                                        },
                                     );
-                                    if btn.hovered() {
-                                        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-                                    }
-                                    if btn.clicked() {
+                                    if btn.clicked {
                                         if let Ok(path) = Settings::settings_file_path() {
                                             let _ = open::that(path);
                                         }
@@ -463,19 +528,27 @@ impl ContextComponent for SettingsDialog {
                     });
 
                 // Bottom panel with Cancel/Apply buttons
-                egui::TopBottomPanel::bottom("settings_bottom")
+                egui::Panel::bottom("settings_bottom")
                     .frame(
                         egui::Frame::default()
                             .fill(theme_colors.crust)
                             .inner_margin(egui::Margin::symmetric(16, 12)),
                     )
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let apply_btn = ui.button(egui::RichText::new("Apply").size(14.0));
-                            if apply_btn.hovered() {
-                                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-                            }
-                            if apply_btn.clicked() {
+                            let apply_btn = Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: "Apply".to_string(),
+                                    button_type: ButtonType::Elevated,
+                                    color: ButtonColor::Success,
+                                    hover_text: None,
+                                    size: Some(14.0),
+                                    width: None,
+                                    height: None,
+                                },
+                            );
+                            if apply_btn.clicked {
                                 if let Ok(settings) = draft_settings.lock() {
                                     new_settings = Some(settings.clone());
                                 }
@@ -483,11 +556,19 @@ impl ContextComponent for SettingsDialog {
 
                             ui.add_space(8.0);
 
-                            let cancel_btn = ui.button(egui::RichText::new("Cancel").size(14.0));
-                            if cancel_btn.hovered() {
-                                ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-                            }
-                            if cancel_btn.clicked() {
+                            let cancel_btn = Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: "Cancel".to_string(),
+                                    button_type: ButtonType::Elevated,
+                                    color: ButtonColor::Default,
+                                    hover_text: None,
+                                    size: Some(14.0),
+                                    width: None,
+                                    height: None,
+                                },
+                            );
+                            if cancel_btn.clicked {
                                 if let Ok(mut closed) = viewport_closed.lock() {
                                     *closed = true;
                                 }
@@ -497,90 +578,94 @@ impl ContextComponent for SettingsDialog {
                     });
 
                 // Left sidebar with icons
-                egui::SidePanel::left("settings_sidebar")
+                egui::Panel::left("settings_sidebar")
                     .resizable(false)
-                    .exact_width(200.0)
+                    .exact_size(200.0)
                     .frame(
                         egui::Frame::default()
                             .fill(theme_colors.mantle)
                             .inner_margin(12.0),
                     )
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         ui.add_space(16.0);
 
-                        // Render navigation tabs with icons
-                        for tab in SettingsTab::all() {
-                            let is_selected = if let Ok(current_tab) = selected_tab.lock() {
-                                *current_tab == *tab
-                            } else {
-                                false
-                            };
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                // Render navigation tabs with icons
+                                for tab in SettingsTab::all() {
+                                    let is_selected = if let Ok(current_tab) = selected_tab.lock() {
+                                        *current_tab == *tab
+                                    } else {
+                                        false
+                                    };
 
-                            let bg_color = if is_selected {
-                                theme_colors.surface1
-                            } else {
-                                egui::Color32::TRANSPARENT
-                            };
+                                    let bg_color = if is_selected {
+                                        theme_colors.surface1
+                                    } else {
+                                        egui::Color32::TRANSPARENT
+                                    };
 
-                            let hover_color = if !is_selected {
-                                theme_colors.surface0
-                            } else {
-                                theme_colors.surface1
-                            };
+                                    let hover_color = if !is_selected {
+                                        theme_colors.surface0
+                                    } else {
+                                        theme_colors.surface1
+                                    };
 
-                            ui.vertical(|ui| {
-                                let (rect, response) = ui.allocate_exact_size(
-                                    egui::vec2(ui.available_width(), 56.0),
-                                    egui::Sense::click(),
-                                );
+                                    ui.vertical(|ui| {
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            egui::vec2(ui.available_width(), 56.0),
+                                            egui::Sense::click(),
+                                        );
 
-                                // Draw background
-                                let bg = if response.hovered() {
-                                    hover_color
-                                } else {
-                                    bg_color
-                                };
+                                        // Draw background
+                                        let bg = if response.hovered() {
+                                            hover_color
+                                        } else {
+                                            bg_color
+                                        };
 
-                                ui.painter().rect_filled(rect, 4.0, bg);
+                                        ui.painter().rect_filled(rect, 4.0, bg);
 
-                                // Draw icon and label
-                                let icon_pos = rect.center_top() + egui::vec2(0.0, 12.0);
-                                ui.painter().text(
-                                    icon_pos,
-                                    egui::Align2::CENTER_TOP,
-                                    tab.icon(),
-                                    egui::FontId::proportional(20.0),
-                                    theme_colors.text,
-                                );
+                                        // Draw icon and label
+                                        let icon_pos = rect.center_top() + egui::vec2(0.0, 12.0);
+                                        ui.painter().text(
+                                            icon_pos,
+                                            egui::Align2::CENTER_TOP,
+                                            tab.icon(),
+                                            egui::FontId::proportional(20.0),
+                                            theme_colors.text,
+                                        );
 
-                                let label_pos = icon_pos + egui::vec2(0.0, 24.0);
-                                ui.painter().text(
-                                    label_pos,
-                                    egui::Align2::CENTER_TOP,
-                                    tab.label(),
-                                    egui::FontId::proportional(13.0),
-                                    theme_colors.text,
-                                );
+                                        let label_pos = icon_pos + egui::vec2(0.0, 24.0);
+                                        ui.painter().text(
+                                            label_pos,
+                                            egui::Align2::CENTER_TOP,
+                                            tab.label(),
+                                            egui::FontId::proportional(13.0),
+                                            theme_colors.text,
+                                        );
 
-                                if response.hovered() {
-                                    ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                                        if response.hovered() {
+                                            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                                        }
+
+                                        if response.clicked() {
+                                            if let Ok(mut current_tab) = selected_tab.lock() {
+                                                *current_tab = *tab;
+                                            }
+                                        }
+                                    });
+
+                                    ui.add_space(8.0);
                                 }
-
-                                if response.clicked() {
-                                    if let Ok(mut current_tab) = selected_tab.lock() {
-                                        *current_tab = *tab;
-                                    }
-                                }
-                            });
-
-                            ui.add_space(8.0);
-                        }
+                            })
                     });
 
                 // Central content area
                 egui::CentralPanel::default()
                     .frame(egui::Frame::default().fill(theme_colors.base))
-                    .show(ctx, |ui| {
+                    .show_inside(ui, |ui| {
                         if let (Ok(current_tab), Ok(mut settings), Ok(mut events)) = (
                             selected_tab.lock(),
                             draft_settings.lock(),

@@ -1,36 +1,37 @@
 use std::path::{Path, PathBuf};
 
 use eframe::egui;
-use rfd::FileDialog;
 
 use crate::{
+    app::pick_file,
     components::{
         icon_button::{IconButton, IconButtonProps},
         traits::{ContextComponent, StatelessComponent},
     },
-    file::lazy_loader::FileType,
+    file::lazy_loader::FileKind,
     shortcuts::KeyboardShortcuts,
 };
 
 #[derive(Default)]
 pub struct Toolbar {
-    pub previous_file_type: FileType,
+    pub previous_file_type: FileKind,
 }
 
 /// Props passed down to the Toolbar (immutable, one-way binding)
 pub struct ToolbarProps<'a> {
-    pub file_type: &'a FileType,
+    pub file_type: &'a FileKind,
     pub dark_mode: bool,
     pub shortcuts: &'a KeyboardShortcuts,
     pub file_path: Option<&'a Path>,
     pub is_fullscreen: bool,
     pub can_go_back: bool,
     pub can_go_forward: bool,
+    pub plugins_enabled: bool,
 }
 
 /// Events emitted by the toolbar (bottom-to-top communication)
 pub enum ToolbarEvent {
-    FileOpen { path: PathBuf, file_type: FileType },
+    FileOpen { path: PathBuf, file_type: FileKind },
     FileClear,
     NewWindow,
     ToggleTheme,
@@ -47,9 +48,9 @@ impl ContextComponent for Toolbar {
     type Props<'a> = ToolbarProps<'a>;
     type Output = ToolbarOutput;
 
-    fn render(&mut self, ctx: &egui::Context, props: Self::Props<'_>) -> Self::Output {
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         let mut events = Vec::new();
-        self.render_ui(ctx, props, &mut events);
+        self.render_ui(ui, props, &mut events);
 
         ToolbarOutput { events }
     }
@@ -58,25 +59,25 @@ impl ContextComponent for Toolbar {
 impl Toolbar {
     fn render_ui(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         props: ToolbarProps<'_>,
         events: &mut Vec<ToolbarEvent>,
     ) {
         // Use theme colors from context
-        let bg_color = ctx.style().visuals.extreme_bg_color; // Catppuccin Mantle
+        let bg_color = ui.ctx().global_style().visuals.extreme_bg_color; // Catppuccin Mantle
 
         // Row 1: Title bar (32px height - integrated with window controls, with title)
         // Hide completely in fullscreen mode
         if !props.is_fullscreen {
-            egui::TopBottomPanel::top("title_bar_row")
-                .exact_height(32.0)
+            egui::Panel::top("title_bar_row")
+                .exact_size(32.0)
                 .frame(egui::Frame::NONE.fill(bg_color).inner_margin(egui::Margin {
                     left: 8,
                     right: 8,
                     top: 0,
                     bottom: 0,
                 }))
-                .show(ctx, |ui| {
+                .show_inside(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.horizontal_centered(|ui| {
                             // Space for macOS traffic light buttons
@@ -100,7 +101,7 @@ impl Toolbar {
 
                             // Calculate centering: total width - traffic light space, then center within that
                             let available_width = ui.available_width();
-                            let text_width = ui.fonts(|f| {
+                            let text_width = ui.fonts_mut(|f| {
                                 f.layout_no_wrap(
                                     title.clone(),
                                     egui::FontId::proportional(13.0),
@@ -124,15 +125,15 @@ impl Toolbar {
         }
 
         // Row 2: Button toolbar (32px height)
-        egui::TopBottomPanel::top("button_toolbar")
-            .exact_height(32.0)
+        egui::Panel::top("button_toolbar")
+            .exact_size(32.0)
             .frame(egui::Frame::NONE.fill(bg_color).inner_margin(egui::Margin {
                 left: 8,
                 right: 8,
                 top: 0,
                 bottom: 0,
             }))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
 
@@ -199,13 +200,11 @@ impl Toolbar {
                     )
                     .clicked
                     {
-                        if let Some(path) = FileDialog::new()
-                            .add_filter("JSON", &["json", "ndjson"])
-                            .pick_file()
-                        {
-                            let file_type = infer_file_type(&path).unwrap_or(*props.file_type);
-                            events.push(ToolbarEvent::FileOpen { path, file_type });
-                            self.previous_file_type = file_type;
+                        if let Some(path) = pick_file(props.plugins_enabled) {
+                            if let Some(file_type) = infer_file_type(&path) {
+                                self.previous_file_type = file_type;
+                                events.push(ToolbarEvent::FileOpen { path, file_type });
+                            }
                         }
                     }
 
@@ -298,10 +297,26 @@ impl Toolbar {
     }
 }
 
-fn infer_file_type(path: &Path) -> Option<FileType> {
-    match path.extension()?.to_str()?.to_lowercase().as_str() {
-        "ndjson" => Some(FileType::Ndjson),
-        "json" => Some(FileType::Json),
-        _ => None,
+fn infer_file_type(path: &Path) -> Option<FileKind> {
+    let ext = path.extension()?.to_str()?.to_lowercase();
+    match ext.as_str() {
+        "ndjson" => Some(FileKind::Ndjson),
+        "json" => Some(FileKind::Json),
+        _ => {
+            // Ask the plugin registry whether any plugin handles this extension
+            // so we don't fall back to a stale file-type from the previous file.
+            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() {
+                if pm.find_loader_for_extension(&ext).is_some() {
+                    return Some(
+                        if pm.plugin_has_capability(&ext, &crate::plugin::Capability::FileViewer) {
+                            FileKind::PluginTable
+                        } else {
+                            FileKind::Plugin
+                        },
+                    );
+                }
+            }
+            None
+        }
     }
 }

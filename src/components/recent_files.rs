@@ -1,4 +1,5 @@
-use crate::components::traits::StatefulComponent;
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
+use crate::components::traits::{StatefulComponent, StatelessComponent};
 use eframe::egui;
 
 /// Props passed to the RecentFiles component
@@ -90,18 +91,20 @@ impl StatefulComponent for RecentFiles {
                 ui.add_space(8.0);
 
                 // "Open File..." button
-                let button_response = ui.add_sized(
-                    egui::vec2(ui.available_width() - 16.0, 28.0),
-                    egui::Button::new(
-                        egui::RichText::new(format!(
-                            "{} Open File...",
-                            egui_phosphor::regular::FILE_PLUS
-                        ))
-                        .size(13.0),
-                    ),
+                let button_response = Button::render(
+                    ui,
+                    ButtonProps {
+                        label: format!("{} Open File...", egui_phosphor::regular::FILE_PLUS),
+                        button_type: ButtonType::Elevated,
+                        color: ButtonColor::Default,
+                        hover_text: None,
+                        size: Some(13.0),
+                        width: Some(ui.available_width() - 16.0),
+                        height: Some(28.0),
+                    },
                 );
 
-                if button_response.clicked() {
+                if button_response.clicked {
                     events.push(RecentFilesEvent::OpenFilePicker);
                 }
             });
@@ -152,7 +155,7 @@ impl RecentFiles {
             egui::vec2(text_width, full_height),
         );
 
-        let galley = ui.fonts(|f| {
+        let galley = ui.fonts_mut(|f| {
             f.layout_no_wrap(
                 filename.to_string(),
                 egui::FontId::proportional(13.0),

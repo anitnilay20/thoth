@@ -11,7 +11,7 @@ impl SearchHandler {
         incoming_msg: Option<search::SearchMessage>,
         search_state: &mut state::SearchEngineState,
         file_path: &Option<std::path::PathBuf>,
-        file_type: &crate::file::lazy_loader::FileType,
+        file_type: &crate::file::lazy_loader::FileKind,
         ctx: &egui::Context,
     ) -> (Option<search::SearchMessage>, Option<ThothError>) {
         let mut msg_to_central: Option<search::SearchMessage> = None;
@@ -55,7 +55,7 @@ impl SearchHandler {
         search: search::Search,
         search_state: &mut state::SearchEngineState,
         file_path: &Option<std::path::PathBuf>,
-        file_type: &crate::file::lazy_loader::FileType,
+        file_type: &crate::file::lazy_loader::FileKind,
         ctx: &egui::Context,
     ) {
         // Update search state

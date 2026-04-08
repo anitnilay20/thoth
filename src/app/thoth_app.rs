@@ -1,7 +1,11 @@
 use eframe::{App, Frame, egui};
 use std::path::PathBuf;
 
-use crate::{components, components::traits::ContextComponent, settings, state};
+use crate::{
+    app::{file_picker, pick_file},
+    components::{self, traits::ContextComponent},
+    settings, state,
+};
 
 use super::{
     ShortcutAction, persistent_state::PersistentState, search_handler::SearchHandler,
@@ -127,19 +131,26 @@ impl App for ThothApp {
 
         // Update window title
         self.update_window_title(ctx);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_function!();
+
+        let ctx = ui.ctx().clone();
 
         // Get user's action from Toolbar (if enabled)
         if self.settings.ui.show_toolbar {
-            self.render_toolbar(ctx);
+            self.render_toolbar(ui);
         }
 
         // Render status bar (before sidebar so it spans full width) (if enabled)
         if self.settings.ui.show_status_bar {
-            self.render_status_bar(ctx);
+            self.render_status_bar(ui);
         }
 
         // Render sidebar and handle events (may return search message)
-        let sidebar_msg = self.render_sidebar(ctx);
+        let sidebar_msg = self.render_sidebar(ui);
 
         // Handle search messages from sidebar
         let (msg_to_central, search_error) = SearchHandler::handle_search_messages(
@@ -147,7 +158,7 @@ impl App for ThothApp {
             &mut self.window_state.search_engine_state,
             &self.window_state.file_path,
             &self.window_state.file_type,
-            ctx,
+            &ctx,
         );
 
         // Handle search errors
@@ -160,7 +171,7 @@ impl App for ThothApp {
         use crate::components::traits::ContextComponent;
 
         let settings_output = self.settings_dialog.render(
-            ctx,
+            ui,
             SettingsDialogProps {
                 update_state: Some(&self.update_state.update_status.state),
                 current_version: crate::update::UpdateManager::get_current_version(),
@@ -169,7 +180,7 @@ impl App for ThothApp {
 
         // Apply theme (draft settings are applied inside render() when viewport is open)
         if !self.settings_dialog.open {
-            crate::theme::apply_theme(ctx, &self.settings);
+            crate::theme::apply_theme(&ctx, &self.settings);
         }
 
         // Handle settings changes
@@ -216,7 +227,6 @@ impl App for ThothApp {
                 SettingsDialogEvent::RegisterInPath => {
                     match crate::platform::path_registry::register_in_path() {
                         Ok(()) => {
-                            // Success - no need to show message, the UI will update automatically
                             ctx.request_repaint();
                         }
                         Err(e) => {
@@ -227,7 +237,6 @@ impl App for ThothApp {
                 SettingsDialogEvent::UnregisterFromPath => {
                     match crate::platform::path_registry::unregister_from_path() {
                         Ok(()) => {
-                            // Success - no need to show message, the UI will update automatically
                             ctx.request_repaint();
                         }
                         Err(e) => {
@@ -242,10 +251,10 @@ impl App for ThothApp {
         self.save_settings_if_changed();
 
         // Render the central panel and handle events
-        self.render_central_panel(ctx, msg_to_central);
+        self.render_central_panel(ui, msg_to_central);
 
         // Render error modal if there's an error
-        self.render_error_modal(ctx);
+        self.render_error_modal(&ctx);
 
         // Show profiler if enabled (only when profiling feature is enabled)
         #[cfg(feature = "profiling")]
@@ -258,7 +267,7 @@ impl App for ThothApp {
                 egui_phosphor::regular::MAGNIFYING_GLASS
             ))
             .default_open(true)
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 // Memory profiling info
                 ui.collapsing("Memory Profiling (dhat)", |ui| {
                     ui.label("📊 Memory allocations are being tracked.");
@@ -272,11 +281,6 @@ impl App for ThothApp {
                     ui.label("The viewer shows which components allocate the most memory,");
                     ui.label("with full call stacks for each allocation.");
                 });
-
-                ui.separator();
-
-                // Show puffin profiler UI with per-component breakdown
-                puffin_egui::profiler_ui(ui);
 
                 ui.separator();
 
@@ -299,15 +303,10 @@ impl App for ThothApp {
 impl ThothApp {
     /// Handle keyboard shortcut actions
     fn handle_shortcut_actions(&mut self, ctx: &egui::Context, actions: Vec<ShortcutAction>) {
-        use rfd::FileDialog;
-
         for action in actions {
             match action {
                 ShortcutAction::OpenFile => {
-                    if let Some(path) = FileDialog::new()
-                        .add_filter("JSON", &["json", "ndjson"])
-                        .pick_file()
-                    {
+                    if let Some(path) = file_picker::pick_file(self.settings.plugins.enabled) {
                         // Add to recent files
                         if let Some(path_str) = path.to_str() {
                             self.persistent_state.add_recent_file(
@@ -494,7 +493,7 @@ impl ThothApp {
     }
 
     /// Render toolbar
-    fn render_toolbar(&mut self, ctx: &egui::Context) {
+    fn render_toolbar(&mut self, ui: &mut egui::Ui) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -503,15 +502,18 @@ impl ThothApp {
         let can_go_forward = self.window_state.navigation_history.can_go_forward();
 
         let output = self.window_state.toolbar.render(
-            ctx,
+            ui,
             components::toolbar::ToolbarProps {
                 file_type: &self.window_state.file_type,
                 dark_mode: self.settings.dark_mode,
                 shortcuts: &self.settings.shortcuts,
                 file_path: self.window_state.file_path.as_deref(),
-                is_fullscreen: ctx.input(|i| i.viewport().fullscreen.unwrap_or(false)),
+                is_fullscreen: ui
+                    .ctx()
+                    .input(|i: &egui::InputState| i.viewport().fullscreen.unwrap_or(false)),
                 can_go_back,
                 can_go_forward,
+                plugins_enabled: self.settings.plugins.enabled,
             },
         );
 
@@ -545,7 +547,7 @@ impl ThothApp {
                 }
                 components::toolbar::ToolbarEvent::OpenSettings => {
                     // Open settings in a new window
-                    self.open_settings_window(ctx);
+                    self.open_settings_window(ui.ctx());
                 }
                 components::toolbar::ToolbarEvent::NavigateBack => {
                     // Navigate back in history
@@ -574,7 +576,7 @@ impl ThothApp {
     }
 
     /// Render status bar
-    fn render_status_bar(&mut self, ctx: &egui::Context) {
+    fn render_status_bar(&mut self, ui: &mut egui::Ui) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -602,7 +604,7 @@ impl ThothApp {
         let selected_path = self.window_state.central_panel.get_selected_path();
 
         let status_bar_output = self.window_state.status_bar.render(
-            ctx,
+            ui,
             components::status_bar::StatusBarProps {
                 file_path: self.window_state.file_path.as_deref(),
                 file_type: &self.window_state.file_type,
@@ -628,7 +630,7 @@ impl ThothApp {
     /// Render central panel and handle events
     fn render_central_panel(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         search_message: Option<crate::search::SearchMessage>,
     ) {
         #[cfg(feature = "profiling")]
@@ -639,7 +641,7 @@ impl ThothApp {
 
         // Render central panel using ContextComponent trait with one-way binding
         let output = self.window_state.central_panel.render(
-            ctx,
+            ui,
             CentralPanelProps {
                 file_path: &self.window_state.file_path,
                 file_type: self.window_state.file_type,
@@ -704,7 +706,7 @@ impl ThothApp {
     }
 
     /// Render sidebar and handle its events
-    fn render_sidebar(&mut self, ctx: &egui::Context) -> Option<crate::search::SearchMessage> {
+    fn render_sidebar(&mut self, ui: &mut egui::Ui) -> Option<crate::search::SearchMessage> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -728,7 +730,7 @@ impl ThothApp {
 
         // Render sidebar
         let output = self.window_state.sidebar.render(
-            ctx,
+            ui,
             components::sidebar::SidebarProps {
                 recent_files: self.persistent_state.get_recent_files(),
                 bookmarks: self.persistent_state.get_bookmarks(),
@@ -778,11 +780,7 @@ impl ThothApp {
                 }
                 components::sidebar::SidebarEvent::OpenFilePicker => {
                     // Open file picker dialog
-                    use rfd::FileDialog;
-                    if let Some(path) = FileDialog::new()
-                        .add_filter("JSON", &["json", "ndjson"])
-                        .pick_file()
-                    {
+                    if let Some(path) = pick_file(self.settings.plugins.enabled) {
                         // Add to recent files
                         if let Some(path_str) = path.to_str() {
                             self.persistent_state.add_recent_file(

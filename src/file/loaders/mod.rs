@@ -8,155 +8,152 @@ pub use single::SingleValueFile;
 
 use crate::error::Result;
 use crate::file::detect_file_type::DetectedFileType;
+use crate::plugin::wasm_file_viewer_loader::{DisplayMode, WasmFileViewerLoader};
+use crate::plugin::wasm_loader::WasmFileLoader;
 use serde_json::Value;
 use std::path::Path;
 
-/// Common trait for all lazy file loaders
-///
-/// This trait defines the interface that all file loaders must implement,
-/// regardless of format (JSON, CSV, TOML, YAML, etc.). It ensures consistent
-/// behavior across different file formats.
+/// Common trait for all lazy file loaders.
 ///
 /// # Design Philosophy
-/// - Loaders should perform minimal work during `open()` - just enough to index the file
+/// - Loaders should perform minimal work during `open()` — just enough to index the file
 /// - Actual parsing happens lazily on `get()` calls
 /// - All read operations should be position-independent (safe for parallel access)
-/// - Raw bytes can be accessed without parsing
-///
-/// # Example: Implementing a new loader
-/// ```rust,ignore
-/// // Future CSV loader example
-/// pub struct CsvFile {
-///     file: File,
-///     row_spans: Vec<(u64, u64)>,
-/// }
-///
-/// impl FileLoader for CsvFile {
-///     type Item = csv::StringRecord; // Or custom type
-///
-///     fn open(path: &Path) -> Result<Self> {
-///         // Index CSV rows during open
-///     }
-///
-///     fn len(&self) -> usize {
-///         self.row_spans.len()
-///     }
-///
-///     fn get(&mut self, idx: usize) -> Result<Self::Item> {
-///         // Parse CSV row at index
-///     }
-///
-///     fn raw_bytes(&self, idx: usize) -> Result<Vec<u8>> {
-///         // Return raw row bytes
-///     }
-/// }
-/// ```
 #[allow(dead_code)]
 pub trait FileLoader {
-    /// The parsed data type this loader produces (e.g., serde_json::Value, csv::Row, etc.)
     type Item;
 
-    /// Open a file and prepare it for lazy loading
-    ///
-    /// This should perform any necessary indexing or preparation work,
-    /// but should not load or parse the entire file into memory.
     fn open(path: &Path) -> Result<Self>
     where
         Self: Sized;
 
-    /// Returns the number of top-level elements/records in the file
     fn len(&self) -> usize;
 
-    /// Returns true if the file contains no elements
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Get a parsed item at the specified index
-    ///
-    /// This method should perform position-independent reads and be safe
-    /// for parallel access (where the underlying format allows it).
     fn get(&mut self, idx: usize) -> Result<Self::Item>;
 
-    /// Get raw bytes for an element at the specified index
-    ///
-    /// This method should perform position-independent reads and be safe
-    /// for parallel access. Returns the raw bytes without parsing.
     fn raw_bytes(&self, idx: usize) -> Result<Vec<u8>>;
 }
 
-/// File type enumeration for JSON files
+// ── Lightweight discriminant (Copy, stored in state/events) ───────────────────
+
+/// A lightweight, `Copy` tag describing what kind of file is loaded.
+/// Used in window state, toolbar events, and status bar display.
+/// Does not hold any file handles.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum FileType {
+pub enum FileKind {
     #[default]
     Ndjson,
-    Json, // expects top-level array [ ... ] or single object
+    Json,
+    Plugin,
+    PluginTable,
 }
 
-impl From<DetectedFileType> for FileType {
+impl From<DetectedFileType> for FileKind {
     fn from(val: DetectedFileType) -> Self {
         match val {
-            DetectedFileType::Ndjson => FileType::Ndjson,
-            DetectedFileType::JsonArray | DetectedFileType::JsonObject => FileType::Json,
+            DetectedFileType::Ndjson => FileKind::Ndjson,
+            DetectedFileType::JsonArray | DetectedFileType::JsonObject => FileKind::Json,
         }
     }
 }
 
-impl From<LazyJsonFile> for FileType {
-    fn from(val: LazyJsonFile) -> Self {
-        match val {
-            LazyJsonFile::Ndjson(_) => FileType::Ndjson,
-            LazyJsonFile::JsonArray(_) | LazyJsonFile::Single(_) => FileType::Json,
-        }
-    }
-}
+// ── Fat loader enum (owns file handles) ───────────────────────────────────────
 
-/// Unified interface for lazy JSON file loading
-///
-/// This enum dispatches to specific file loader implementations based on
-/// the detected file type (NDJSON, JSON array, or single JSON object).
-pub enum LazyJsonFile {
+/// Unified file loader — dispatches to the right implementation and owns all
+/// file handles. Add new formats here; callers only deal with this one type.
+pub enum FileType {
     Ndjson(NdjsonFile),
     JsonArray(JsonArrayFile),
     Single(SingleValueFile),
+    /// Loaded via a WASM plugin (file-loader only).
+    Plugin(WasmFileLoader),
+    /// Loaded via a WASM plugin that also controls rendering (file-loader + file-viewer).
+    PluginWithViewer(WasmFileViewerLoader),
 }
 
-impl LazyJsonFile {
-    /// Returns the number of top-level elements in the file
+impl FileType {
+    /// Returns the lightweight discriminant for this loader, suitable for
+    /// storing in state or passing through events.
+    pub fn kind(&self) -> FileKind {
+        match self {
+            FileType::Ndjson(_) => FileKind::Ndjson,
+            FileType::JsonArray(_) | FileType::Single(_) => FileKind::Json,
+            FileType::Plugin(_) => FileKind::Plugin,
+            FileType::PluginWithViewer(_) => FileKind::PluginTable,
+        }
+    }
+
+    /// Returns the number of top-level elements in the file.
     #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         match self {
-            LazyJsonFile::Ndjson(f) => f.len(),
-            LazyJsonFile::JsonArray(f) => f.len(),
-            LazyJsonFile::Single(_) => 1,
+            FileType::Ndjson(f) => f.len(),
+            FileType::JsonArray(f) => f.len(),
+            FileType::Single(_) => 1,
+            FileType::Plugin(f) => f.len(),
+            FileType::PluginWithViewer(f) => f.len(),
         }
     }
 
-    /// Get a parsed JSON value at the specified index
+    /// Get a parsed JSON value at the specified index.
     pub fn get(&mut self, idx: usize) -> Result<Value> {
         match self {
-            LazyJsonFile::Ndjson(f) => f.get(idx),
-            LazyJsonFile::JsonArray(f) => f.get(idx),
-            LazyJsonFile::Single(f) => f.get(idx),
+            FileType::Ndjson(f) => f.get(idx),
+            FileType::JsonArray(f) => f.get(idx),
+            FileType::Single(f) => f.get(idx),
+            FileType::Plugin(f) => f.get(idx),
+            FileType::PluginWithViewer(f) => f.get(idx),
         }
     }
 
-    /// Get the raw bytes for an element at the specified index
+    /// Get the raw bytes for an element at the specified index.
     pub fn raw_slice(&self, idx: usize) -> Result<Vec<u8>> {
         match self {
-            LazyJsonFile::Ndjson(f) => f.raw_line(idx),
-            LazyJsonFile::JsonArray(f) => f.raw_element(idx),
-            LazyJsonFile::Single(f) => f.raw_all(),
+            FileType::Ndjson(f) => f.raw_line(idx),
+            FileType::JsonArray(f) => f.raw_element(idx),
+            FileType::Single(f) => f.raw_all(),
+            FileType::Plugin(f) => f.raw_bytes(idx),
+            FileType::PluginWithViewer(f) => f.raw_bytes(idx),
+        }
+    }
+
+    /// Ask the plugin how it wants its data displayed.
+    /// Only available for PluginWithViewer loaders; defaults to Table.
+    pub fn preferred_display(&mut self) -> DisplayMode {
+        match self {
+            FileType::PluginWithViewer(f) => f.preferred_display(),
+            _ => DisplayMode::Table,
+        }
+    }
+
+    /// Ask the plugin to render the given JSON record; returns the node_json string.
+    /// Only available for PluginWithViewer loaders.
+    pub fn render_record(&mut self, record_json: &str) -> Option<String> {
+        match self {
+            FileType::PluginWithViewer(f) => f.render_record(record_json).ok(),
+            _ => None,
+        }
+    }
+
+    /// Return plugin-supplied column headers. Only available for PluginWithViewer loaders.
+    pub fn column_headers(&mut self) -> Option<Vec<String>> {
+        match self {
+            FileType::PluginWithViewer(f) => f.column_headers(),
+            _ => None,
         }
     }
 }
 
-impl FileLoader for LazyJsonFile {
+impl FileLoader for FileType {
     type Item = Value;
 
     fn open(path: &Path) -> Result<Self> {
-        let (_detected, lazy) = load_file_auto(path)?;
-        Ok(lazy)
+        let (_detected, file_type) = load_file_auto(path)?;
+        Ok(file_type)
     }
 
     fn len(&self) -> usize {
@@ -172,18 +169,15 @@ impl FileLoader for LazyJsonFile {
     }
 }
 
-/// Load a JSON file with automatic format detection
-///
-/// This function detects the file type (NDJSON, JSON array, or single JSON object)
-/// and returns the appropriate lazy loader.
-pub fn load_file_auto(path: &Path) -> Result<(DetectedFileType, LazyJsonFile)> {
+/// Load a file with automatic format detection.
+pub fn load_file_auto(path: &Path) -> Result<(DetectedFileType, FileType)> {
     use crate::file::detect_file_type::sniff_file_type;
 
     let detected = sniff_file_type(path)?;
-    let lazy = match detected {
-        DetectedFileType::Ndjson => LazyJsonFile::Ndjson(NdjsonFile::open(path)?),
-        DetectedFileType::JsonArray => LazyJsonFile::JsonArray(JsonArrayFile::open(path)?),
-        DetectedFileType::JsonObject => LazyJsonFile::Single(SingleValueFile::open(path)?),
+    let file_type = match detected {
+        DetectedFileType::Ndjson => FileType::Ndjson(NdjsonFile::open(path)?),
+        DetectedFileType::JsonArray => FileType::JsonArray(JsonArrayFile::open(path)?),
+        DetectedFileType::JsonObject => FileType::Single(SingleValueFile::open(path)?),
     };
-    Ok((detected, lazy))
+    Ok((detected, file_type))
 }

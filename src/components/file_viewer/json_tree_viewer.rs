@@ -1,7 +1,7 @@
 use crate::components::data_row::{DataRow, DataRowProps, RowHighlights};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
-use crate::file::loaders::LazyJsonFile;
+use crate::file::loaders::FileType;
 use crate::helpers::{
     LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_search_target,
     scroll_to_selection, split_root_rel,
@@ -210,7 +210,7 @@ impl JsonTreeViewer {
         &mut self,
         visible_roots: &Option<Vec<usize>>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
         total_len: usize,
     ) {
         #[cfg(feature = "profiling")]
@@ -406,7 +406,7 @@ impl JsonTreeViewer {
         ui: &mut Ui,
         selected: &mut Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
         syntax_highlighting: bool,
@@ -654,7 +654,7 @@ impl ContextMenuHandler for JsonTreeViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
     ) -> Option<String> {
         if let Some(path) = selected {
             // Find the row to get display text
@@ -674,7 +674,7 @@ impl ContextMenuHandler for JsonTreeViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
     ) -> Option<String> {
         if let Some(path) = selected {
             if let Ok((root_idx, rel)) = split_root_rel(path) {
@@ -714,7 +714,7 @@ impl FileFormatViewer for JsonTreeViewer {
         &mut self,
         visible_roots: &Option<Vec<usize>>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
         total_len: usize,
     ) {
         self.rebuild_rows(visible_roots, cache, loader, total_len);
@@ -725,7 +725,7 @@ impl FileFormatViewer for JsonTreeViewer {
         ui: &mut Ui,
         selected: &mut Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
         syntax_highlighting: bool,
@@ -855,7 +855,7 @@ impl FileFormatViewer for JsonTreeViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
     ) -> Option<String> {
         ContextMenuHandler::copy_selected_value(self, selected, cache, loader)
     }
@@ -864,7 +864,7 @@ impl FileFormatViewer for JsonTreeViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut LazyJsonFile,
+        loader: &mut FileType,
     ) -> Option<String> {
         ContextMenuHandler::copy_selected_object(self, selected, cache, loader)
     }
