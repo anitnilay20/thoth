@@ -23,7 +23,7 @@ pub struct CardAction<'a> {
 
 pub enum CardActionVariant {
     /// Normal button — uses theme text color
-    Primary,
+    Default,
     /// Destructive button — uses theme error color
     Danger,
 }
@@ -173,7 +173,7 @@ impl StatelessComponent for Card {
                                 // appear in the order the caller declared them.
                                 for (i, action) in props.actions.iter().enumerate().rev() {
                                     let button_color = match action.variant {
-                                        CardActionVariant::Primary => ButtonColor::Default,
+                                        CardActionVariant::Default => ButtonColor::Default,
                                         CardActionVariant::Danger => ButtonColor::Danger,
                                     };
                                     let btn = Button::render(
@@ -186,6 +186,7 @@ impl StatelessComponent for Card {
                                             size: None,
                                             width: None,
                                             height: None,
+                                            ..Default::default()
                                         },
                                     );
                                     if btn.clicked {

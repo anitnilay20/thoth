@@ -1,7 +1,9 @@
 use crate::error::{Result, ThothError};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
+use crate::helpers::default_rate_limit;
 use crate::shortcuts::KeyboardShortcuts;
 use crate::theme::Theme;
 
@@ -123,6 +125,25 @@ pub struct UiSettings {
     pub enable_animations: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PluginNetworkPolicy {
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+    #[serde(default)]
+    pub blocked_domains: Vec<String>,
+    #[serde(default)]
+    pub require_https: bool,
+    #[serde(default = "default_rate_limit")]
+    pub rate_limit_rpm: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PluginSettingData {
+    pub key: String,
+    pub value: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PluginSettings {
@@ -136,6 +157,15 @@ pub struct PluginSettings {
     /// Plugin IDs that the user has explicitly disabled.
     #[serde(default)]
     pub disabled_plugin_ids: Vec<String>,
+
+    #[serde(default)]
+    pub network_policies: HashMap<String, PluginNetworkPolicy>,
+
+    /// Per-plugin key/value configuration, keyed by plugin ID.
+    /// Populated when the user saves settings in the plugin settings panel.
+    /// Passed back to the plugin via `apply-settings` on load.
+    #[serde(default)]
+    pub plugin_settings: HashMap<String, Vec<PluginSettingData>>,
 }
 
 impl Default for Settings {
@@ -212,6 +242,8 @@ impl Default for PluginSettings {
             enabled: true,
             enabled_plugins: Vec::new(),
             disabled_plugin_ids: Vec::new(),
+            network_policies: Default::default(),
+            plugin_settings: Default::default(),
         }
     }
 }

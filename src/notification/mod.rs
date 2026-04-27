@@ -4,6 +4,7 @@ use eframe::egui::{self};
 use egui_notify::Toasts;
 use std::{
     collections::HashMap,
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
@@ -16,6 +17,7 @@ pub enum NotificationStatus {
     Created,
     Viewed,
     Error,
+    ConsentRequired,
 }
 
 #[derive(Clone)]
@@ -23,7 +25,7 @@ pub struct Notification {
     id: String,
     pub title: String,
     pub message: String,
-    // pub actions: Vec<(String, Box<dyn NewTrait>)>,
+    pub actions: Vec<(String, Arc<dyn Fn() + Send + Sync + 'static>)>,
     pub expire_after: Option<Duration>,
     pub show_toast: bool,
     pub show_in_status_bar: bool,
@@ -57,6 +59,35 @@ impl NotificationManager {
         id
     }
 
+    pub fn notify_error(notification: Notification) -> String {
+        Self::notify(
+            notification
+                .with_status(NotificationStatus::Error)
+                .with_toast(true),
+        )
+    }
+
+    pub fn show_http_consent_notification(
+        domain: &str,
+        actions: Vec<(String, Arc<dyn Fn() + Send + Sync + 'static>)>,
+    ) -> String {
+        let mut notification = Notification::new(
+            "Network Request Consent",
+            &format!(
+                "A plugin is trying to access '{}'. Do you allow this?",
+                domain
+            ),
+        )
+        .with_status(NotificationStatus::ConsentRequired)
+        .with_toast(false);
+
+        for (label, action) in actions {
+            notification = notification.with_action(&label, action);
+        }
+
+        Self::notify(notification)
+    }
+
     pub fn mark_notification_as_complete(id: &str) {
         if let Some(mutex) = NOTIFICATION_MANAGER.get() {
             if let Ok(mut nm) = mutex.lock() {
@@ -81,6 +112,20 @@ impl NotificationManager {
             .unwrap_or_default()
     }
 
+    pub fn all_consent_notifications() -> Vec<Notification> {
+        let notifications: Vec<Notification> = NOTIFICATION_MANAGER
+            .get()
+            .and_then(|mutex| mutex.lock().ok())
+            .map(|nm| nm.tasks.values().cloned().collect())
+            .unwrap_or_default();
+
+        notifications
+            .iter()
+            .filter(|n| n.status == NotificationStatus::ConsentRequired)
+            .cloned()
+            .collect()
+    }
+
     pub fn is_notification_empty() -> bool {
         NOTIFICATION_MANAGER
             .get()
@@ -90,7 +135,10 @@ impl NotificationManager {
     }
 
     pub fn add_notification(&mut self, notification: Notification) {
-        if notification.status == NotificationStatus::Running {
+        if notification.status == NotificationStatus::Running
+            || notification.show_in_status_bar
+            || notification.status == NotificationStatus::ConsentRequired
+        {
             self.tasks
                 .insert(notification.id.clone(), notification.clone());
         } else {
@@ -139,7 +187,7 @@ impl Notification {
                 .to_string(),
             title: title.to_string(),
             message: message.to_string(),
-            // actions: Vec::new(),
+            actions: Vec::new(),
             expire_after: None,
             show_toast: true,
             show_in_status_bar: false,
@@ -147,10 +195,14 @@ impl Notification {
         }
     }
 
-    // pub fn with_action(mut self, label: &str, action: impl Fn() + Send + Sync + 'static) -> Self {
-    //     self.actions.push((label.to_string(), Box::new(action)));
-    //     self
-    // }
+    pub fn with_action(
+        mut self,
+        label: &str,
+        action: Arc<dyn Fn() + Send + Sync + 'static>,
+    ) -> Self {
+        self.actions.push((label.to_string(), action));
+        self
+    }
 
     pub fn with_expiration(mut self, duration: Duration) -> Self {
         self.expire_after = Some(duration);

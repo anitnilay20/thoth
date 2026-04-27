@@ -1,4 +1,5 @@
 use eframe::egui::{self, Color32};
+use egui_code_editor::ColorTheme;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -39,6 +40,8 @@ pub struct Theme {
     pub warning: String, // Loading/warning states
     pub error: String,   // Error states
     pub info: String,    // Info/searching states
+    pub primary: String,
+    pub secondary: String,
 
     // Sidebar-specific colors
     pub sidebar_hover: String,  // Sidebar icon hover background
@@ -82,6 +85,8 @@ impl Default for Theme {
             indent_guide: "#45475a".to_string(), // Surface1
             // Selection (Catppuccin lavender accent)
             selection_stroke: "#89b4fa".to_string(),
+            primary: "#cba6f7".to_string(),
+            secondary: "#b4befe".to_string(),
         }
     }
 }
@@ -116,7 +121,7 @@ impl Theme {
             bracket: "#7c7f93".to_string(), // Overlay2
             // Status indicators
             success: "#40a02b".to_string(), // Green
-            warning: "#df8e1d".to_string(), // Yellow
+            warning: "#4e4d4b".to_string(), // Yellow
             error: "#d20f39".to_string(),   // Red
             info: "#209fb5".to_string(),    // Sapphire
             // Sidebar
@@ -125,6 +130,8 @@ impl Theme {
             // Tree viewer
             indent_guide: "#bcc0cc".to_string(), // Surface1
             selection_stroke: "#1e66f5".to_string(),
+            primary: "#8839ef".to_string(),
+            secondary: "#7287fd".to_string(),
         }
     }
 
@@ -185,6 +192,8 @@ impl Theme {
             sidebar_header: Self::parse_color(&self.sidebar_header),
             indent_guide: Self::parse_color(&self.indent_guide),
             selection_stroke: Self::parse_color(&self.selection_stroke),
+            primary: Self::parse_color(&self.primary),
+            secondary: Self::parse_color(&self.secondary),
         }
     }
 }
@@ -213,6 +222,39 @@ pub struct ThemeColors {
     pub sidebar_header: Color32,
     pub indent_guide: Color32,
     pub selection_stroke: Color32,
+
+    pub primary: Color32,
+    pub secondary: Color32,
+}
+
+impl ThemeColors {
+    /// Build an `egui_code_editor` `ColorTheme` from the current palette.
+    ///
+    /// `ColorTheme` requires `&'static str` for every colour field. We satisfy
+    /// this by leaking a tiny allocation per colour — acceptable because this
+    /// is only called on theme initialisation / change, never per-frame.
+    pub fn code_editor_theme(&self) -> ColorTheme {
+        fn hex(c: Color32) -> &'static str {
+            Box::leak(format!("{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()).into_boxed_str())
+        }
+        let is_dark = get_contrast_text_color(self.base) == Color32::WHITE;
+        ColorTheme {
+            name: if is_dark { "Thoth Dark" } else { "Thoth Light" },
+            dark: is_dark,
+            bg: hex(self.mantle),
+            cursor: hex(self.text),
+            selection: hex(self.surface1),
+            comments: hex(self.overlay1),
+            functions: hex(self.key),
+            keywords: hex(self.primary),
+            literals: hex(self.string),
+            numerics: hex(self.number),
+            punctuation: hex(self.text),
+            strs: hex(self.string),
+            types: hex(self.info),
+            special: hex(self.error),
+        }
+    }
 }
 
 /// Apply theme settings including visuals and fonts
@@ -447,5 +489,34 @@ pub fn get_contrast_text_color(bg_color: Color32) -> Color32 {
         Color32::WHITE
     } else {
         Color32::BLACK
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum BgColorOptions {
+    #[default]
+    None,
+    Base,
+    Mantle,
+    Crust,
+    Surface0,
+    Surface1,
+    Surface2,
+    Overlay1,
+}
+
+impl BgColorOptions {
+    pub fn into_color(self, colors: &ThemeColors) -> Option<Color32> {
+        match self {
+            BgColorOptions::None => Option::None,
+            BgColorOptions::Base => Some(colors.base),
+            BgColorOptions::Mantle => Some(colors.mantle),
+            BgColorOptions::Overlay1 => Some(colors.overlay1),
+            BgColorOptions::Crust => Some(colors.crust),
+            BgColorOptions::Surface0 => Some(colors.surface0),
+            BgColorOptions::Surface1 => Some(colors.surface1),
+            BgColorOptions::Surface2 => Some(colors.surface2),
+        }
     }
 }

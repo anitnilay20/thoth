@@ -17,9 +17,12 @@ This document describes Thoth's plugin architecture — how it works, how plugin
 - [Implementing a File Loader Plugin](#implementing-a-file-loader-plugin)
 - [Implementing a File Viewer Plugin](#implementing-a-file-viewer-plugin)
 - [Implementing a Data Source Plugin](#implementing-a-data-source-plugin)
+- [Async HTTP — Submitting Requests Without Blocking](#async-http--submitting-requests-without-blocking)
+- [UiNode DSL Reference](#uinode-dsl-reference)
 - [RenderNode Schema Reference](#rendernode-schema-reference)
 - [Security Model](#security-model)
 - [Integration with Core](#integration-with-core)
+- [Roadmap: Database Plugins via WASI Sockets](#roadmap-database-plugins-via-wasi-sockets)
 
 ---
 
@@ -96,11 +99,11 @@ WASM wins on portability, safety, and distribution simplicity. A plugin author c
 | **File Loader** | `file-loader` | Teaches Thoth to open a new file format (CSV, YAML, Parquet, etc.) |
 | **File Viewer** | `file-viewer` | Controls how records are *rendered* — table mode or custom RenderNode tree |
 | **Data Source** | `data-source` | Connects to an external source — REST API, database, message queue |
+| **UI Component** | `new-ui-component` | Renders a fully interactive panel — owns its own state machine |
 | **Exporter** | `exporter` | Adds new export formats or destinations |
 | **Search Provider** | `search-provider` | Extends the search experience with custom indexing or remote results |
-| **New UI Component** | `new-ui-component` | Registers additional UI panels or toolbar widgets |
 
-A single plugin can declare multiple capabilities. `file-viewer` always pairs with `file-loader` — use the `file-viewer-plugin` world for this combination.
+A single plugin can declare multiple capabilities. `file-viewer` always pairs with `file-loader` — use the `file-viewer-plugin` world for this combination. `data-source` always pairs with `ui-component` — use the `data-source-plugin` world.
 
 ---
 
@@ -188,11 +191,17 @@ interface types {
         capabilities: list<capability>,
         author:       option<string>,
         homepage:     option<string>,
+        icon:         option<string>,   // Phosphor icon Unicode glyph
     }
 
     record plugin-error {
         code:    u32,
         message: string,
+    }
+
+    record setting-data {
+        key:   string,
+        value: string,
     }
 }
 ```
@@ -211,8 +220,78 @@ interface plugin-meta {
 
 ```wit
 interface plugin-lifecycle {
-    on-load:  func();   // called after plugin is registered
-    on-close: func();   // called before unload — release held resources
+    /// Called after the plugin is fully loaded and registered.
+    /// `setting` is a JSON array of {key, value} objects with the plugin's
+    /// persisted settings, e.g. [{"key":"url","value":"https://..."}].
+    /// Parse it to restore saved state.
+    on-load: func(setting: string);
+
+    /// Called before the plugin is unloaded. Release held resources.
+    on-close: func();
+
+    /// Called when the user saves settings in Settings → Plugins.
+    /// `setting` is the same JSON array format as on-load.
+    on-setting-change: func(setting: string);
+}
+```
+
+### `plugin-settings` — required by every plugin
+
+```wit
+interface plugin-settings {
+    use types.{plugin-error};
+
+    record settings-output {
+        node-json:   string,   // JSON-encoded UiNode tree
+        height-hint: u32,
+    }
+
+    /// Render the settings UI. Called when the user opens Settings → Plugins
+    /// for this plugin. Return a UiNode tree using the same DSL as ui-component.
+    /// Return a plain text node if the plugin has no configurable settings.
+    render-settings: func() -> result<settings-output, plugin-error>;
+}
+```
+
+### `http-client` — host-provided import for data-source plugins
+
+Data-source plugins get outbound HTTP access via this host-provided import. All requests pass through the host's network-policy layer (domain allowlist, SSRF guard) before being forwarded.
+
+```wit
+interface http-client {
+    use types.{plugin-error};
+
+    record http-request {
+        url:     string,
+        method:  string,                        // "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+        headers: list<tuple<string, string>>,
+        body:    option<list<u8>>,
+    }
+
+    record http-response {
+        status:  u16,
+        headers: list<tuple<string, string>>,
+        body:    list<u8>,
+    }
+
+    /// Synchronous fetch. Blocks until the response arrives.
+    /// Use for programmatic paths (schema discovery, initial data load) where
+    /// showing a spinner is not required.
+    fetch: func(req: http-request) -> result<http-response, plugin-error>;
+
+    /// Asynchronous submit. Returns a request-id string immediately without
+    /// blocking. The host dispatches the request on a background thread and
+    /// delivers the result by calling handle-event with:
+    ///   widget-id = <request-id>
+    ///   kind      = "http-response"
+    ///   value     = JSON: {"ok":{"status":200,"headers":[...],"body":"..."}}
+    ///            or JSON: {"err":{"code":1,"message":"..."}}
+    ///
+    /// Use submit() when you want to show a spinner while waiting. Store the
+    /// request-id, set a loading flag in your state, and return a UI tree with
+    /// a {"type":"spinner"} node. When handle-event fires for that request-id,
+    /// clear the loading flag and render the result.
+    submit: func(req: http-request) -> string;
 }
 ```
 
@@ -237,14 +316,9 @@ interface file-loader {
 interface file-viewer {
     use types.{plugin-error};
 
-    // How the plugin wants its data displayed.
-    // table  — host renders a native table using column-headers() and the raw
-    //          JSON values from file-loader.get(). render-record() is never called.
-    // custom — host calls render-record() for every visible row and draws the
-    //          returned RenderNode tree (see RenderNode Schema Reference below).
     enum display-mode {
-        table,
-        custom,
+        table,    // host renders a native table; render-record() never called
+        custom,   // host calls render-record() for every visible row
     }
 
     preferred-display:  func() -> display-mode;
@@ -253,7 +327,7 @@ interface file-viewer {
 
     record render-output {
         node-json:   string,   // JSON-encoded RenderNode tree
-        height-hint: u32,      // logical pixels; 0 = auto
+        height-hint: u32,
     }
 }
 ```
@@ -264,35 +338,39 @@ interface file-viewer {
 interface data-source {
     use types.{plugin-error};
 
-    record config-entry   { key: string, value: string }
+    record config-entry   { name: string, description: string, required: bool, value: string }
     record field-schema   { name: string, type-hint: string, nullable: bool }
     record source-schema  { name: string, fields: list<field-schema> }
+    record pane-output    { node-json: string, height-hint: u32 }
 
     required-config: func() -> list<config-entry>;
-    connect:         func(config: list<config-entry>)    -> result<string, plugin-error>;
-    schema:          func(handle: string)                -> result<list<source-schema>, plugin-error>;
-    query:           func(handle: string, q: string)     -> result<string, plugin-error>;
+    connect:         func(config: list<config-entry>) -> result<string, plugin-error>;
+    schema:          func(handle: string)             -> result<list<source-schema>, plugin-error>;
+    query:           func(handle: string, q: string)  -> result<string, plugin-error>;
     close:           func(handle: string);
+    render-pane:     func(handle: string)             -> result<pane-output, plugin-error>;
 }
 ```
 
-### `exporter` — capability: `exporter`
+### `ui-component` — capability: `new-ui-component`
 
 ```wit
-interface exporter {
+interface ui-component {
     use types.{plugin-error};
 
-    record export-option {
-        key: string, label: string, default-value: string,
-        input-type: string,    // "text" | "bool" | "select"
-        choices: list<string>,
+    record ui-event {
+        widget-id: string,
+        kind:      string,   // "click" | "change" | "http-response"
+        value:     string,   // JSON-encoded new value; empty for "click"
     }
 
-    name:              func() -> string;
-    output-extension:  func() -> string;
-    available-options: func() -> list<export-option>;
-    run:               func(records-json: string, options: list<tuple<string, string>>)
-                           -> result<list<u8>, plugin-error>;
+    record ui-output {
+        node-json:   string,
+        height-hint: u32,
+    }
+
+    render-ui:    func()              -> result<ui-output, plugin-error>;
+    handle-event: func(event: ui-event) -> result<ui-output, plugin-error>;
 }
 ```
 
@@ -302,6 +380,7 @@ interface exporter {
 world base-plugin {           // every plugin satisfies this
     export plugin-meta;
     export plugin-lifecycle;
+    export plugin-settings;
 }
 
 world file-loader-plugin {    // file format support only
@@ -315,9 +394,16 @@ world file-viewer-plugin {    // file format + custom rendering
     export file-viewer;
 }
 
-world data-source-plugin {
+world ui-component-plugin {   // standalone interactive panel
     include base-plugin;
+    export ui-component;
+}
+
+world data-source-plugin {    // external data source + interactive UI
+    include base-plugin;
+    import http-client;        // host provides outbound HTTP
     export data-source;
+    export ui-component;
 }
 
 world exporter-plugin {
@@ -361,11 +447,30 @@ FileViewer::open(path)
 
 Per frame (virtual scrolling — only visible rows):
     PluginTableViewer::render()
-        ├── loader.column_headers()   → ["Name", "Age", ...]  [called once, cached]
-        ├── loader.preferred_display() → Table                 [called once, cached]
+        ├── loader.column_headers()    → ["Name", "Age", ...]  [called once, cached]
+        ├── loader.preferred_display() → Table                  [called once, cached]
         └── for each visible row idx:
-                loader.get(idx)       → serde_json::Value      [cached in LRU]
-                (Table mode: host renders cells natively — render_record not called)
+                loader.get(idx)        → serde_json::Value      [cached in LRU]
+                (Table mode: host renders cells natively)
+```
+
+### Data-source plugin open flow
+
+```text
+PluginManager::open_data_source(plugin_id)
+    └── WasmDataSourceLoader::open(engine, wasm_path, policy, plugin_id, settings)
+            ├── instantiate component
+            ├── if settings non-empty: call on-load(settings_json)
+            │       └── plugin parses JSON, initialises internal state
+            └── return WasmDataSourceLoader
+
+ThothApp::ui() — called every frame:
+    └── poll_plugin_http_results(ctx)
+            ├── drain_http_results() from background threads
+            ├── for each (request_id, outcome):
+            │       build UiEvent { widget_id: request_id, kind: "http-response", value: json }
+            │       loader.handle_event(event) → new UiOutput
+            └── if has_pending_http(): ctx.request_repaint()
 ```
 
 ### Fuel replenishment
@@ -401,11 +506,9 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]   # required for WASM component output
+crate-type = ["cdylib"]
 
 [dependencies]
-# Must match the version cargo-component uses internally.
-# Check the generated src/bindings.rs header for the exact version.
 wit-bindgen-rt = "0.41"
 serde_json     = "1"
 
@@ -413,28 +516,13 @@ serde_json     = "1"
 package = "com.example:csv-loader"
 
 [package.metadata.component.target]
-path  = "../../wit"          # path to thoth-plugin.wit
+path  = "../../wit"
 world = "file-loader-plugin"
 ```
 
-### 4. Copy the WIT file
-
-```bash
-cp -r /path/to/thoth/wit ./wit
-```
-
-### 5. Generate bindings
-
-```bash
-cargo component build
-# cargo-component generates src/bindings.rs automatically.
-# Do NOT call wit_bindgen::generate! manually — cargo-component does it.
-```
-
-### 6. Implement the plugin (`src/lib.rs`)
+### 4. Implement the plugin (`src/lib.rs`)
 
 ```rust
-// cargo-component generates src/bindings.rs — import it here.
 mod bindings;
 
 use std::cell::RefCell;
@@ -442,9 +530,9 @@ use bindings::exports::thoth::plugin::{
     file_loader::Guest as FileLoaderGuest,
     plugin_lifecycle::Guest as LifecycleGuest,
     plugin_meta::Guest as MetaGuest,
+    plugin_settings::{Guest as SettingsGuest, SettingsOutput},
 };
 use bindings::thoth::plugin::types::{Capability, PluginError};
-use serde_json::{Map, Value};
 
 struct CsvPlugin;
 
@@ -467,14 +555,25 @@ impl MetaGuest for CsvPlugin {
             capabilities: vec![Capability::FileLoader],
             author:       Some("Your Name <you@example.com>".to_string()),
             homepage:     None,
+            icon:         None,
         }
     }
 }
 
 impl LifecycleGuest for CsvPlugin {
-    fn on_load() {}
+    fn on_load(_setting: String) {}   // no saved settings for this plugin
     fn on_close() {
         STATE.with(|s| *s.borrow_mut() = None);
+    }
+    fn on_setting_change(_setting: String) {}
+}
+
+impl SettingsGuest for CsvPlugin {
+    fn render_settings() -> Result<SettingsOutput, PluginError> {
+        Ok(SettingsOutput {
+            node_json: r#"{"type":"text","value":"No configurable settings.","muted":true}"#.into(),
+            height_hint: 0,
+        })
     }
 }
 
@@ -484,103 +583,29 @@ impl FileLoaderGuest for CsvPlugin {
     }
 
     fn open(path: String) -> Result<u64, PluginError> {
-        let delimiter = if path.ends_with(".tsv") { b'\t' } else { b',' };
-        let mut rdr = csv::ReaderBuilder::new()
-            .delimiter(delimiter)
-            .has_headers(true)
-            .from_path(&path)
-            .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
-
-        let headers: Vec<String> = rdr
-            .headers()
-            .map_err(|e| PluginError { code: 1, message: e.to_string() })?
-            .iter()
-            .map(str::to_owned)
-            .collect();
-
-        // Count records without loading them all into memory.
-        let count = rdr.records().count() as u64;
-
-        STATE.with(|s| *s.borrow_mut() = Some(State { headers, file: path.into(), delimiter }));
-        Ok(count)
+        // ... parse and index the file
+        Ok(record_count)
     }
 
     fn get(idx: u64) -> Result<String, PluginError> {
-        STATE.with(|s| {
-            let guard = s.borrow();
-            let state = guard.as_ref()
-                .ok_or(PluginError { code: 2, message: "file not opened".into() })?;
-            let mut rdr = csv::ReaderBuilder::new()
-                .delimiter(state.delimiter)
-                .has_headers(true)
-                .from_path(&state.file)
-                .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
-            let record = rdr.records()
-                .nth(idx as usize)
-                .ok_or(PluginError { code: 2, message: "index out of range".into() })?
-                .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
-            let obj: Map<String, Value> = state.headers.iter()
-                .zip(record.iter())
-                .map(|(k, v)| (k.clone(), Value::String(v.to_owned())))
-                .collect();
-            serde_json::to_string(&Value::Object(obj))
-                .map_err(|e| PluginError { code: 3, message: e.to_string() })
-        })
+        // ... return record at idx as JSON object string
     }
 
     fn raw_bytes(idx: u64) -> Result<Vec<u8>, PluginError> {
-        STATE.with(|s| {
-            let guard = s.borrow();
-            let state = guard.as_ref()
-                .ok_or(PluginError { code: 2, message: "file not opened".into() })?;
-            let mut rdr = csv::ReaderBuilder::new()
-                .delimiter(state.delimiter)
-                .has_headers(true)
-                .from_path(&state.file)
-                .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
-            let record = rdr.byte_records()
-                .nth(idx as usize)
-                .ok_or(PluginError { code: 2, message: "index out of range".into() })?
-                .map_err(|e| PluginError { code: 1, message: e.to_string() })?;
-            let mut out = Vec::new();
-            for (i, field) in record.iter().enumerate() {
-                if i > 0 { out.push(state.delimiter); }
-                out.extend_from_slice(field);
-            }
-            Ok(out)
-        })
+        // ... return raw bytes for clipboard/export
     }
 }
 
-// Register all exports with the WASM component runtime
 bindings::export!(CsvPlugin with_types_in bindings);
 ```
 
-### 7. Write `plugin.toml`
-
-```toml
-id          = "com.example.csv-loader"
-name        = "CSV Loader"
-version     = "0.1.0"
-description = "Load CSV files as JSON records"
-author      = "Your Name <you@example.com>"
-capabilities = ["file-loader"]
-
-[[file-loader]]
-file-type            = "text/csv"
-supported-extensions = ["csv", "tsv"]
-```
-
-### 8. Build and install
+### 5. Build and install
 
 ```bash
 cargo component build --release
-# Output: target/wasm32-wasip1/release/csv_loader.wasm
-
 mkdir -p ~/.config/thoth/plugins/csv-loader
 cp target/wasm32-wasip1/release/csv_loader.wasm ~/.config/thoth/plugins/csv-loader/plugin.wasm
 cp plugin.toml ~/.config/thoth/plugins/csv-loader/plugin.toml
-# optionally: cp icon.png ~/.config/thoth/plugins/csv-loader/icon.png
 ```
 
 Restart Thoth — opening a `.csv` file will now use your plugin.
@@ -591,14 +616,7 @@ Restart Thoth — opening a `.csv` file will now use your plugin.
 
 A file viewer plugin controls *how* records are displayed in the viewer panel. It always pairs with `file-loader` — use the `file-viewer-plugin` world.
 
-The plugin declares its preferred rendering mode in `preferred-display()`:
-
-- **`table`** — The host renders a native, horizontally-scrollable table. The plugin only needs to return column headers; the host reads cell values directly from `file-loader.get()`. `render-record()` is never called.
-- **`custom`** — The host calls `render-record()` for each visible row and draws the returned `RenderNode` JSON tree. Use this for badges, colours, links, nested tables, or any cell content that goes beyond plain text.
-
-### `Cargo.toml` changes
-
-Change the world to `file-viewer-plugin`:
+Change the world in `Cargo.toml`:
 
 ```toml
 [package.metadata.component.target]
@@ -606,33 +624,17 @@ path  = "../../wit"
 world = "file-viewer-plugin"
 ```
 
-### Additional imports
-
-```rust
-use bindings::exports::thoth::plugin::{
-    file_viewer::{DisplayMode, Guest as FileViewerGuest, RenderOutput},
-    // ... rest of imports
-};
-```
-
-### Implement `FileViewerGuest`
-
 **Table mode** (simplest — host renders the table natively):
 
 ```rust
 impl FileViewerGuest for MyPlugin {
-    fn preferred_display() -> DisplayMode {
-        DisplayMode::Table
-    }
+    fn preferred_display() -> DisplayMode { DisplayMode::Table }
 
     fn column_headers() -> Option<Vec<String>> {
-        // Return None to use the JSON keys from the first record as headers.
-        // Return Some(...) to use custom header labels.
         STATE.with(|s| s.borrow().as_ref().map(|st| st.headers.clone()))
     }
 
     fn render_record(_record_json: String) -> Result<RenderOutput, PluginError> {
-        // Not called in table mode.
         Err(PluginError { code: 0, message: "not used in table mode".into() })
     }
 }
@@ -642,13 +644,9 @@ impl FileViewerGuest for MyPlugin {
 
 ```rust
 impl FileViewerGuest for MyPlugin {
-    fn preferred_display() -> DisplayMode {
-        DisplayMode::Custom
-    }
+    fn preferred_display() -> DisplayMode { DisplayMode::Custom }
 
-    fn column_headers() -> Option<Vec<String>> {
-        None  // not used in custom mode
-    }
+    fn column_headers() -> Option<Vec<String>> { None }
 
     fn render_record(record_json: String) -> Result<RenderOutput, PluginError> {
         let map: serde_json::Map<String, serde_json::Value> =
@@ -656,134 +654,257 @@ impl FileViewerGuest for MyPlugin {
                 code: 1, message: e.to_string(),
             })?;
 
-        // Build a row of colored/plain cells
-        let children: Vec<serde_json::Value> = map.iter().map(|(k, v)| {
+        let children: Vec<serde_json::Value> = map.iter().map(|(_k, v)| {
             let text = v.as_str().unwrap_or("").to_string();
-            let is_error = text.contains("ERROR");
-            if is_error {
-                serde_json::json!({
-                    "type": "colored",
-                    "color": "#ff6b6b",
-                    "child": { "type": "text", "value": text }
-                })
+            if text.contains("ERROR") {
+                serde_json::json!({"type":"colored","color":"#ff6b6b",
+                                   "child":{"type":"text","value":text}})
             } else {
-                serde_json::json!({ "type": "text", "value": text })
+                serde_json::json!({"type":"text","value":text})
             }
         }).collect();
 
-        let node_json = serde_json::json!({
-            "type": "row",
-            "children": children
-        }).to_string();
-
+        let node_json = serde_json::json!({"type":"row","children":children}).to_string();
         Ok(RenderOutput { node_json, height_hint: 0 })
     }
 }
 ```
 
-### Update `plugin.toml`
+Update `plugin.toml`:
 
 ```toml
 capabilities = ["file-loader", "file-viewer"]
 ```
 
-### Build
-
-```bash
-cargo component build --release
-```
-
-Copy the rebuilt `.wasm` to your plugin directory and restart Thoth.
-
 ---
 
 ## Implementing a Data Source Plugin
 
-A data source plugin connects Thoth to an external system (REST API, database, etc.). The user triggers it from the toolbar via **"Connect to source"**.
+A data source plugin uses the `data-source-plugin` world which combines `data-source` + `ui-component` + the `http-client` host import.
 
-The flow is `connect` → `query` → `close` instead of `open` → `get`.
+The plugin renders its own connection/query UI via `render-ui` / `handle-event`, and exposes data via `connect` / `query` / `close`.
+
+### Settings initialisation via `on-load`
+
+The host calls `on-load(setting)` after instantiation, passing the plugin's persisted settings as a JSON array. Parse it to restore saved state:
 
 ```rust
-use bindings::exports::thoth::plugin::data_source::{
-    ConfigEntry, FieldSchema, Guest, PluginError, SourceSchema,
-};
+fn on_load(setting: String) {
+    if setting.is_empty() { return; }
+    if let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(&setting) {
+        STATE.with(|s| {
+            let mut st = s.borrow().clone();
+            for entry in entries {
+                let key   = entry["key"].as_str().unwrap_or("");
+                let value = entry["value"].as_str().unwrap_or("").to_string();
+                match key {
+                    "url"    => st.url    = value,
+                    "method" => st.method = value,
+                    _        => {}
+                }
+            }
+            *s.borrow_mut() = st;
+        });
+    }
+}
+```
 
-impl Guest for MyPlugin {
+### Minimal data-source skeleton
+
+```rust
+impl DataSourceGuest for MyPlugin {
     fn required_config() -> Vec<ConfigEntry> {
-        vec![
-            ConfigEntry { key: "url".into(),   value: "https://api.example.com".into() },
-            ConfigEntry { key: "token".into(), value: "".into() },
-        ]
+        vec![ConfigEntry {
+            name: "url".into(), description: "Base URL".into(),
+            required: true,     value: "".into(),
+        }]
     }
 
     fn connect(config: Vec<ConfigEntry>) -> Result<String, PluginError> {
-        let _url = config.iter().find(|e| e.key == "url")
+        let url = config.iter().find(|e| e.name == "url")
             .ok_or(PluginError { code: 1, message: "missing url".into() })?;
-        // store connection state, return an opaque handle
-        Ok("handle-uuid-1234".to_string())
+        STATE.with(|s| s.borrow_mut().base_url = url.value.clone());
+        Ok("handle-1".to_string())
     }
 
-    fn schema(handle: String) -> Result<Vec<SourceSchema>, PluginError> {
-        let _ = handle;
-        Ok(vec![SourceSchema {
-            name: "users".into(),
-            fields: vec![
-                FieldSchema { name: "id".into(),   type_hint: "number".into(), nullable: false },
-                FieldSchema { name: "name".into(), type_hint: "string".into(), nullable: false },
-            ],
-        }])
+    fn schema(_handle: String) -> Result<Vec<SourceSchema>, PluginError> {
+        Ok(vec![]) // return table/endpoint list
     }
 
-    fn query(handle: String, q: String) -> Result<String, PluginError> {
-        let (_, _) = (handle, q);
-        // Execute and return a JSON array string
+    fn query(_handle: String, _q: String) -> Result<String, PluginError> {
         Ok("[]".to_string())
     }
 
-    fn close(handle: String) { let _ = handle; }
+    fn close(_handle: String) {}
+
+    fn render_pane(_handle: String) -> Result<PaneOutput, PluginError> {
+        // return a RenderNode tree for the main pane
+        Ok(PaneOutput { node_json: r#"{"type":"text","value":"No data"}"#.into(), height_hint: 0 })
+    }
 }
 ```
 
 ---
 
+## Async HTTP — Submitting Requests Without Blocking
+
+`http_client::fetch()` is synchronous and blocks the render loop — the UI freezes while waiting for the response. For requests where you want to show a spinner, use `http_client::submit()` instead.
+
+### How it works
+
+1. Plugin calls `submit(req)` → gets a `request_id` string back immediately
+2. Host spawns a background thread to execute the request
+3. Plugin stores `request_id`, sets `loading = true`, returns a UI tree with a `{"type":"spinner"}` node
+4. Host polls each frame; when the response arrives it calls `handle_event` with `kind = "http-response"` and `widget_id = request_id`
+5. Plugin matches the request_id, clears `loading`, stores the response, returns updated UI
+
+### Plugin-side pattern
+
+```rust
+// In handle_event, "click" on the send button:
+"send" => {
+    let req = build_request(&st);
+    let request_id = http_client::submit(&req);
+    st.pending_request_id = Some(request_id);
+    st.loading = true;
+    st.response = None;
+}
+
+// Route http-response events before normal widget dispatch:
+fn handle_event(event: UiEvent) -> Result<UiOutput, PluginError> {
+    if event.kind == "http-response" {
+        handle_http_response(&mut st, &event);
+        return Ok(ui_out(build_ui(&st)));
+    }
+    // ... normal event dispatch
+}
+
+// Build UI with spinner while loading:
+fn build_ui(st: &State) -> Value {
+    if st.loading {
+        return json!({
+            "type": "column", "gap": 12,
+            "children": [
+                {"type": "spinner"},
+                {"type": "text", "value": "Sending request…", "muted": true}
+            ]
+        });
+    }
+    // ... normal UI
+}
+
+// Handle the response event:
+fn handle_http_response(st: &mut State, event: &UiEvent) {
+    if st.pending_request_id.as_deref() != Some(&event.widget_id) { return; }
+    st.loading = false;
+    st.pending_request_id = None;
+
+    let parsed: serde_json::Value = serde_json::from_str(&event.value).unwrap_or_default();
+    if let Some(ok) = parsed.get("ok") {
+        let body = ok["body"].as_str().unwrap_or("").to_string();
+        st.response = Some(Ok(body));
+    } else if let Some(err) = parsed.get("err") {
+        let msg = err["message"].as_str().unwrap_or("unknown error").to_string();
+        st.response = Some(Err(msg));
+    }
+}
+```
+
+The host automatically calls `ctx.request_repaint()` while any `submit()` request is in flight, so the spinner animates without any extra work.
+
+---
+
+## UiNode DSL Reference
+
+Used by `ui-component` (via `render-ui` / `handle-event`) and `plugin-settings` (via `render-settings`). Every node is a JSON object with a mandatory `"type"` field.
+
+### Layout
+
+| Node | Fields | Notes |
+|---|---|---|
+| `row` | `children`, `gap?: number`, `align?: "start\|center\|end\|fill"` | Horizontal |
+| `column` | `children`, `gap?: number` | Vertical |
+| `group` | `label: string`, `children` | Labelled section box |
+| `scroll` | `child`, `height?: number` | Scrollable area |
+| `spacer` | `height?: number` | Empty vertical space |
+| `separator` | — | Horizontal rule |
+
+### Display (no interaction)
+
+| Node | Fields |
+|---|---|
+| `text` | `value: string`, `size?: "sm\|md\|lg"`, `muted?: bool` |
+| `heading` | `value: string`, `level?: 1–4` |
+| `badge` | `label: string`, `color?: "#rrggbb"` |
+| `code` | `value: string`, `language?: string` |
+| `markdown` | `value: string` |
+| `progress` | `value: number` (0.0–1.0) |
+| `spinner` | — | Animated loading indicator |
+
+### Inputs (all fire `"change"` event with JSON-encoded new value)
+
+All inputs take `id: string`, `label: string`, `disabled?: bool`.
+
+| Node | Extra fields | Event value |
+|---|---|---|
+| `text-input` | `value`, `placeholder`, `required` | JSON string |
+| `number-input` | `value`, `min`, `max` | JSON number |
+| `password-input` | `value` | JSON string |
+| `textarea` | `value`, `rows` | JSON string |
+| `select` | `value`, `options: [{value,label}]` | JSON string |
+| `multi-select` | `value: string[]`, `options` | JSON array |
+| `checkbox` | `checked: bool` | JSON bool |
+| `toggle` | `checked: bool` | JSON bool |
+| `radio` | `value`, `options` | JSON string |
+| `slider` | `value`, `min`, `max` | JSON number |
+| `key-value-list` | `entries: [{key,value}]`, `add-label` | JSON array of `{key,value}` |
+
+### Actions (fire `"click"` event with empty value)
+
+| Node | Fields |
+|---|---|
+| `button` | `id`, `label`, `variant?: "primary\|secondary\|danger"`, `enabled?: bool` |
+| `icon-button` | `id`, `icon: string`, `tooltip`, `enabled?: bool` |
+
+---
+
 ## RenderNode Schema Reference
 
-When `preferred-display` is `custom`, `render-record` must return a JSON string following this schema. The host deserialises it into a `RenderNode` enum and draws it with egui.
-
-WIT does not support recursive types, so the entire tree is encoded as a single JSON string in `render-output.node-json`.
+Used by `file-viewer` (`render-record`) and `data-source` (`render-pane`). WIT does not support recursive types, so the entire tree is a JSON string.
 
 | Node type | JSON fields | Notes |
 |---|---|---|
 | `text` | `value: string` | Plain label |
-| `bold` | `child: RenderNode` | Renders child text in bold |
-| `italic` | `child: RenderNode` | Renders child text in italics |
-| `colored` | `color: "#rrggbb"`, `child: RenderNode` | Applies hex color to child |
+| `bold` | `child: RenderNode` | Bold child |
+| `italic` | `child: RenderNode` | Italic child |
+| `colored` | `color: "#rrggbb"`, `child: RenderNode` | Hex-colored child |
 | `badge` | `label: string`, `color: "#rrggbb"` | Filled pill badge |
 | `link` | `label: string`, `url: string` | Clickable hyperlink |
 | `row` | `children: RenderNode[]` | Horizontal layout |
-| `column` | `children: RenderNode[]` | Vertical layout |
+| `column` | `children: RenderNode[]`, `gap?: number` | Vertical layout |
 | `key-value` | `key: string`, `value: RenderNode` | `key: value` pair |
 | `collapsible` | `label: string`, `children: RenderNode[]` | Collapsing section |
 | `table` | `headers: string[]`, `rows: RenderNode[][]` | Inline table with header row |
-| `json-tree` | `value: any` | Renders an arbitrary JSON value as an interactive tree |
+| `json-tree` | `value: any` | Interactive JSON tree |
+| `spinner` | — | Animated loading indicator |
+| `spacer` | `height?: number` | Empty vertical space |
+| `heading` | `value: string`, `level?: 1–4` | Section heading |
 
 ### Example
 
 ```json
 {
-  "type": "row",
+  "type": "column",
   "children": [
-    { "type": "text", "value": "Status:" },
+    { "type": "heading", "value": "Response", "level": 3 },
     {
-      "type": "colored",
-      "color": "#ff6b6b",
-      "child": { "type": "text", "value": "ERROR" }
+      "type": "row",
+      "children": [
+        { "type": "text", "value": "Status:" },
+        { "type": "badge", "label": "200 OK", "color": "#10b981" }
+      ]
     },
-    {
-      "type": "badge",
-      "label": "WARN",
-      "color": "#fbca04"
-    }
+    { "type": "json-tree", "value": { "id": 1, "name": "Alice" } }
   ]
 }
 ```
@@ -798,7 +919,9 @@ Each plugin runs in a fully isolated Wasmtime instance:
 |---|---|
 | Memory isolation | Each plugin has its own WASM linear memory; cannot read host or other plugin memory |
 | Filesystem access | WASI preopened-dir grants read access to the **file's parent directory only** (set at open time) |
-| No network access | WASI socket capability is not granted by default |
+| No direct network access | Plugins cannot open sockets directly; all HTTP goes through the host's `http-client` import |
+| Network policy | Each `http-client` call is validated against a per-plugin allowlist and SSRF guard before forwarding |
+| User consent | First request to a new domain triggers a consent prompt; the plugin receives an error until the user approves |
 | CPU budget | Fuel is replenished to `u64::MAX / 2` before every WIT call — infinite loops cannot stall the UI indefinitely |
 | Bundled vs user | Bundled plugins (shipped with Thoth) set `plugin.bundled = true` at scan time; the UI prevents uninstalling them |
 
@@ -810,12 +933,16 @@ The bridge between plugins and core lives in `src/plugin/`:
 
 ```
 src/plugin/
-├── mod.rs                    ← Plugin, FileLoaderMeta, Capability types; pub mod re-exports
-├── manager.rs                ← PluginManager: discovery, loading, scan_directory
-├── plugin_registry.rs        ← PluginRegistry: capability_index + plugin_key maps
-├── wasm_loader.rs            ← WasmFileLoader  (file-loader-plugin world)
-├── wasm_file_viewer_loader.rs← WasmFileViewerLoader (file-viewer-plugin world)
-└── render_node.rs            ← RenderNode enum + render_node() egui walker
+├── mod.rs                      ← Plugin, FileLoaderMeta, Capability types; pub mod re-exports
+├── manager.rs                  ← PluginManager: discovery, loading, scan_directory
+├── plugin_registry.rs          ← PluginRegistry: capability_index + plugin_key maps
+├── wasm_loader.rs              ← WasmFileLoader        (file-loader-plugin world)
+├── wasm_file_viewer_loader.rs  ← WasmFileViewerLoader  (file-viewer-plugin world)
+├── wasm_data_source.rs         ← WasmDataSourceLoader  (data-source-plugin world)
+│                                    async HTTP: background thread + mpsc channel polling
+├── network_policy.rs           ← Per-plugin domain allowlist + SSRF guard
+├── wasm_plugin_settings.rs     ← Settings rendering + persistence bridge
+└── render_node.rs              ← RenderNode enum + render_node() egui walker
 ```
 
 `FileType` in `src/file/loaders/mod.rs` has a variant for each loader kind:
@@ -825,32 +952,46 @@ pub enum FileType {
     Ndjson(NdjsonFile),
     JsonArray(JsonArrayFile),
     Single(SingleValueFile),
-    Plugin(WasmFileLoader),           // file-loader only
-    PluginWithViewer(WasmFileViewerLoader), // file-loader + file-viewer
+    Plugin(WasmFileLoader),
+    PluginWithViewer(WasmFileViewerLoader),
 }
 ```
 
-`FileViewer::open()` in `src/components/file_viewer/mod.rs` checks capability at open time:
+`WasmDataSourceLoader` in `src/plugin/wasm_data_source.rs` holds the complete state for an active data-source pane:
 
 ```rust
-let has_viewer = pm.plugin_has_capability(ext_str, &Capability::FileViewer);
-
-let (loader, kind) = if has_viewer {
-    let wfl = pm.open_file_with_viewer(ext_str, path)?;
-    (FileType::PluginWithViewer(wfl), FileKind::PluginTable)
-} else {
-    let wfl = pm.open_file(ext_str, path)?;
-    (FileType::Plugin(wfl), FileKind::Plugin)
-};
-```
-
-The viewer-type selection mirrors this in `src/components/file_viewer/viewer_type.rs`:
-
-```rust
-pub enum ViewerType {
-    Json(JsonTreeViewer),
-    PluginTable(PluginTableViewer),
+pub struct WasmDataSourceLoader {
+    inner: Mutex<WasmDataSourceInner>,         // store + bindings
+    consent_rx: Receiver<ConsentRequest>,       // domain consent requests
+    http_rx: Receiver<(String, HttpCallResult)>,// async HTTP results
+    pending_count: Arc<AtomicUsize>,            // in-flight request counter
+    plugin_id: String,
 }
 ```
 
-`PluginTableViewer` (`src/components/file_viewer/plugin_table_viewer.rs`) uses virtual scrolling via `egui_extras::TableBuilder` — only visible rows trigger WASM calls. Rendered rows are cached in a `HashMap<usize, String>` (node JSON) so each row is only sent to the plugin once.
+`ThothApp::poll_plugin_http_results()` is called at the top of every frame to drain completed HTTP results and feed them back into the plugin as `handle_event` calls.
+
+---
+
+## Roadmap: Database Plugins via WASI Sockets
+
+The current `http-client` WIT import covers REST/HTTP data sources. For native database protocols (PostgreSQL wire protocol, MySQL, Redis RESP, etc.) the plan is to expose WASI socket access to `data-source-plugin` components.
+
+Wasmtime supports `wasi:sockets/tcp` in WASI Preview 2. When Thoth migrates to `wasm32-wasip2`, database plugins will be able to open their own TCP connections and implement the full wire protocol in pure Rust compiled to WASM — no host changes needed for new databases.
+
+### Target database strategy
+
+| Database | Approach | Status |
+|---|---|---|
+| PostgreSQL | `postgres` crate (sync, pure Rust) over WASI TCP | Feasible today |
+| MySQL / MariaDB | `mysql` crate (sync, pure Rust) over WASI TCP | Feasible today |
+| Redis | RESP protocol is trivial sync over WASI TCP | Feasible today |
+| Elasticsearch | REST API → existing `http-client` WIT | Works today |
+| ClickHouse | HTTP interface → existing `http-client` WIT | Works today |
+| MongoDB | Sync OP_MSG + BSON over WASI TCP, or Atlas Data API via HTTP | Feasible |
+| Cassandra | `cdrs` (sync) over WASI TCP | Feasible |
+| Kafka | Kafka binary protocol over WASI TCP | Significant work |
+| SQLite | Pure-Rust SQLite engine (`limbo`) compiled to WASM | Tracking `limbo` maturity |
+| Oracle | OCI is a proprietary C library — no pure-Rust driver exists | Native dylib exception |
+
+The key principle: **drivers live in the plugin, not the host**. Adding support for a new database requires writing a new plugin, never changing Thoth core. Users download only the plugins they need.

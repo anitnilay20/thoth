@@ -1,18 +1,31 @@
+use std::collections::HashMap;
+
 use crate::app::persistent_state::Bookmark;
 use crate::components::bookmarks::{Bookmarks, BookmarksEvent, BookmarksProps};
+use crate::components::data_source_panel::{
+    DataSourcePanel, DataSourcePanelEvent, DataSourcePanelProps,
+};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 use crate::components::search::{Search, SearchEvent, SearchProps};
 use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
+use crate::plugin::{Plugin, render_node::render_ui_node, wasm_data_source::ConsentRequest};
 use crate::search::SearchMessage;
 use eframe::egui;
 
 /// Which sidebar section is currently selected
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarSection {
     RecentFiles,
     Search,
     Bookmarks,
+    DataSource {
+        plugin_id: String,
+    },
+    /// A ui-component plugin that returned `Some` from `render-sidebar`.
+    PluginSidebar {
+        plugin_id: String,
+    },
 }
 
 /// Props passed to the Sidebar (immutable, one-way binding)
@@ -29,6 +42,19 @@ pub struct SidebarProps<'a> {
     pub search_state: &'a crate::search::Search,
     /// Search history for the current file
     pub search_history: Option<&'a Vec<String>>,
+    /// All registered data-source plugins — one icon button is shown per plugin.
+    pub data_source_plugins: &'a [&'a Plugin],
+    /// The plugin_id of the currently active data-source pane (for icon highlight).
+    pub active_datasource_plugin_id: Option<&'a str>,
+    /// If the active ui-component plugin rendered a sidebar, its (plugin, output) pair.
+    pub plugin_sidebar: Option<PluginSidebarInfo<'a>>,
+}
+
+pub struct PluginSidebarInfo<'a> {
+    pub plugin_id: &'a str,
+    pub plugin_name: &'a str,
+    pub icon: Option<&'a str>,
+    pub output: &'a crate::plugin::render_node::UiOutput,
 }
 
 /// Events emitted by the Sidebar
@@ -41,12 +67,28 @@ pub enum SidebarEvent {
     WidthChanged(f32),
     // Search events
     Search(SearchMessage),
-    NavigateToSearchResult { record_index: usize },
+    NavigateToSearchResult {
+        record_index: usize,
+    },
     ClearSearchHistory,
     // Bookmark events
-    NavigateToBookmark { file_path: String, path: String },
+    NavigateToBookmark {
+        file_path: String,
+        path: String,
+    },
     RemoveBookmark(usize),
     JumpToPath(String),
+
+    // Datasource Plugin Events
+    DataSourceQueryResult {
+        json: String,
+        display_url: String,
+    },
+    DataSourceConsentNeeded(ConsentRequest),
+    DataSourceError(String),
+    DataSourceLoading(bool),
+    /// A widget interaction from the plugin's sidebar panel.
+    PluginSidebarEvent(crate::plugin::render_node::UiEvent),
 }
 
 pub struct SidebarOutput {
@@ -64,6 +106,8 @@ pub struct Sidebar {
     recent_files: RecentFiles,
     search: Search,
     bookmarks: Bookmarks,
+
+    data_soure_panel: HashMap<String, DataSourcePanel>,
 }
 
 impl Default for Sidebar {
@@ -72,11 +116,25 @@ impl Default for Sidebar {
             recent_files: RecentFiles,
             search: Search::default(),
             bookmarks: Bookmarks::default(),
+            data_soure_panel: HashMap::new(),
         }
     }
 }
 
 impl Sidebar {
+    /// Lazily initialise a panel for `plugin_id` with the given loader.
+    /// No-op if the panel already exists and has a loader (avoids resetting an active session).
+    pub fn init_data_source_panel(
+        &mut self,
+        plugin_id: String,
+        loader: crate::plugin::wasm_data_source::WasmDataSourceLoader,
+    ) {
+        let panel = self.data_soure_panel.entry(plugin_id).or_default();
+        if !panel.has_loader() {
+            panel.set_loader(loader);
+        }
+    }
+
     /// Render the content area (when expanded)
     fn render_content(
         &mut self,
@@ -85,7 +143,7 @@ impl Sidebar {
         events: &mut Vec<SidebarEvent>,
     ) {
         // Render content based on selected section
-        match props.selected_section {
+        match &props.selected_section {
             Some(SidebarSection::RecentFiles) => {
                 let output = self.recent_files.render(
                     ui,
@@ -132,6 +190,48 @@ impl Sidebar {
                         }
                         BookmarksEvent::JumpToPath(path) => {
                             events.push(SidebarEvent::JumpToPath(path));
+                        }
+                    }
+                }
+            }
+            Some(SidebarSection::DataSource { plugin_id }) => {
+                if let Some(panel) = self.data_soure_panel.get_mut(plugin_id.as_str()) {
+                    for ev in panel.render(ui, DataSourcePanelProps {}) {
+                        match ev {
+                            DataSourcePanelEvent::QueryResult { json, display_url } => {
+                                events.push(SidebarEvent::DataSourceQueryResult {
+                                    json,
+                                    display_url,
+                                });
+                            }
+                            DataSourcePanelEvent::ConsentNeeded(cr) => {
+                                events.push(SidebarEvent::DataSourceConsentNeeded(cr));
+                            }
+                            DataSourcePanelEvent::Error(e) => {
+                                events.push(SidebarEvent::DataSourceError(e));
+                            }
+                        }
+                    }
+                } else {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(format!("Unable to load ui for {}", plugin_id));
+                    });
+                }
+            }
+            Some(SidebarSection::PluginSidebar { .. }) => {
+                if let Some(info) = &props.plugin_sidebar {
+                    match serde_json::from_str::<crate::plugin::render_node::UiNode>(
+                        &info.output.node_json,
+                    ) {
+                        Ok(node) => {
+                            let mut ui_events = Vec::new();
+                            render_ui_node(ui, &node, &mut ui_events);
+                            for evt in ui_events {
+                                events.push(SidebarEvent::PluginSidebarEvent(evt));
+                            }
+                        }
+                        Err(e) => {
+                            ui.label(format!("Sidebar render error: {e}"));
                         }
                     }
                 }
@@ -191,8 +291,53 @@ impl Sidebar {
             (button_size, icon_size),
             (hover_bg, selection_bg, text_color),
         ) {
-            // Emit toggle event - parent will decide whether to collapse or expand
             events.push(SidebarEvent::SectionToggled(SidebarSection::Bookmarks));
+        }
+
+        // Icon button for the active ui-component plugin's sidebar (if any).
+        if let Some(info) = &props.plugin_sidebar {
+            let section = SidebarSection::PluginSidebar {
+                plugin_id: info.plugin_id.to_string(),
+            };
+            let selected = props.selected_section == Some(section.clone());
+            let icon = info.icon.unwrap_or(egui_phosphor::regular::SIDEBAR_SIMPLE);
+            if self.render_icon_button(
+                ui,
+                icon,
+                info.plugin_name,
+                selected,
+                (button_size, icon_size),
+                (hover_bg, selection_bg, text_color),
+            ) {
+                events.push(SidebarEvent::SectionToggled(section));
+            }
+        }
+
+        // One icon button per registered data-source plugin.
+        // Skip any plugin that is already represented by the plugin_sidebar button above.
+        let plugin_sidebar_id = props.plugin_sidebar.as_ref().map(|i| i.plugin_id);
+        for plugin in props.data_source_plugins {
+            if plugin_sidebar_id == Some(plugin.id.as_str()) {
+                continue;
+            }
+            let section = SidebarSection::DataSource {
+                plugin_id: plugin.id.clone(),
+            };
+            let selected = props.active_datasource_plugin_id == Some(plugin.id.as_str());
+            let icon = plugin
+                .icon
+                .as_deref()
+                .unwrap_or(egui_phosphor::regular::DATABASE);
+            if self.render_icon_button(
+                ui,
+                icon,
+                &plugin.name,
+                selected,
+                (button_size, icon_size),
+                (hover_bg, selection_bg, text_color),
+            ) {
+                events.push(SidebarEvent::SectionToggled(section));
+            }
         }
     }
 
@@ -379,7 +524,8 @@ impl ContextComponent for Sidebar {
                     egui::Frame::NONE.inner_margin(egui::Margin::same(8)).show(
                         &mut content_ui,
                         |ui| {
-                            self.render_content(ui, &props, &mut events);
+                            egui::ScrollArea::both()
+                                .show(ui, |ui| self.render_content(ui, &props, &mut events));
                         },
                     );
 

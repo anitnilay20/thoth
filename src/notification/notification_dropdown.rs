@@ -161,10 +161,11 @@ impl ContextComponent for NotificationDropdown {
                                 },
                                 icon: Some(icon),
                                 icon_color: Some(color),
-                                action: Some(ListItemAction {
+                                badge: None,
+                                action: vec![ListItemAction {
                                     icon: egui_phosphor::regular::X,
                                     tooltip: "Dismiss",
-                                }),
+                                }],
                             }
                         })
                         .collect();
@@ -178,7 +179,7 @@ impl ContextComponent for NotificationDropdown {
                         },
                     );
 
-                    if let Some(idx) = list_out.action_clicked {
+                    if let (Some(idx), Some(_)) = list_out.action_clicked {
                         if let Some((id, _, _, _)) = notifications.get(idx) {
                             NotificationManager::remove_notification(id);
                         }
@@ -192,6 +193,79 @@ impl ContextComponent for NotificationDropdown {
         for task in running_tasks {
             ui.add(egui::Spinner::new().size(16.0).color(colors.warning));
             ui.label(&task.title);
+        }
+
+        let open_consent_notifications: Vec<Notification> =
+            NotificationManager::all_consent_notifications();
+
+        if !open_consent_notifications.is_empty() {
+            egui::Window::new("Notifications")
+                .frame(egui::Frame::window(&ui.ctx().global_style()).inner_margin(0))
+                .title_bar(false)
+                .anchor(Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -28.0))
+                .resizable(false)
+                .collapsible(false)
+                .movable(false)
+                .min_height(25.0)
+                .scroll([false, true])
+                .show(ui.ctx(), |ui| {
+                    ui.set_min_width(300.0);
+                    ui.heading("Action Required");
+
+                    let list_items = open_consent_notifications
+                        .iter()
+                        .map(|n| ListItem {
+                            title: &n.title,
+                            description: Some(&n.message),
+                            icon: Some(egui_phosphor::regular::WARNING),
+                            icon_color: Some(colors.warning),
+                            badge: None,
+                            action: vec![
+                                ListItemAction {
+                                    icon: egui_phosphor::regular::CHECK,
+                                    tooltip: "Approve",
+                                },
+                                ListItemAction {
+                                    icon: egui_phosphor::regular::X,
+                                    tooltip: "Deny",
+                                },
+                            ],
+                        })
+                        .collect::<Vec<ListItem>>();
+
+                    let output = List::render(
+                        ui,
+                        ListProps {
+                            items: &list_items,
+                            empty_label: None,
+                        },
+                    );
+
+                    if let (Some(item_idx), Some(action_idx)) = output.action_clicked {
+                        let notification = &open_consent_notifications[item_idx];
+                        match action_idx {
+                            0 => {
+                                // Approve
+                                if let Some(action) = notification.actions.first() {
+                                    action.1();
+                                }
+                                NotificationManager::mark_notification_as_complete(
+                                    &notification.id,
+                                );
+                            }
+                            1 => {
+                                // Deny
+                                if let Some(action) = notification.actions.get(1) {
+                                    action.1();
+                                }
+                                NotificationManager::mark_notification_as_complete(
+                                    &notification.id,
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                });
         }
     }
 }

@@ -190,6 +190,7 @@ impl UpdatesTab {
                         size: None,
                         width: None,
                         height: None,
+                        ..Default::default()
                     },
                 );
                 if check_btn.clicked {
@@ -246,6 +247,7 @@ impl UpdatesTab {
                             size: None,
                             width: None,
                             height: None,
+                            ..Default::default()
                         },
                     );
                     if download_btn.clicked {
@@ -278,6 +280,7 @@ impl UpdatesTab {
                         size: None,
                         width: None,
                         height: None,
+                        ..Default::default()
                     },
                 );
                 if install_btn.clicked {
@@ -306,6 +309,7 @@ impl UpdatesTab {
                         size: None,
                         width: None,
                         height: None,
+                        ..Default::default()
                     },
                 );
                 if retry_btn.clicked {

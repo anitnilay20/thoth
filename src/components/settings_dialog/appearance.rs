@@ -217,6 +217,7 @@ impl AppearanceTab {
                                             size: Some(13.0),
                                             width: Some(dropdown_width),
                                             height: Some(32.0),
+                                            ..Default::default()
                                         },
                                     ); // placeholder — font picker not yet implemented
                                 },
@@ -246,6 +247,7 @@ impl AppearanceTab {
                                             size: Some(13.0),
                                             width: Some(dropdown_width),
                                             height: Some(32.0),
+                                            ..Default::default()
                                         },
                                     );
                                     let _ = btn; // placeholder — icon theme picker not yet implemented

@@ -1,0 +1,695 @@
+mod bindings;
+mod helper;
+mod http;
+mod ui;
+
+use std::cell::RefCell;
+
+use serde_json::{json, Value};
+
+use bindings::exports::thoth::plugin::{
+    data_source::{
+        ConfigEntry, FieldSchema, Guest as DataSourceGuest, PaneOutput, PluginError, SourceSchema,
+    },
+    plugin_lifecycle::Guest as LifecycleGuest,
+    plugin_meta::Guest as MetaGuest,
+    plugin_settings::{Guest as SettingsGuest, SettingsOutput},
+    ui_component::{Guest as UiComponentGuest, UiEvent, UiOutput},
+};
+use bindings::thoth::plugin::types::Capability;
+
+use crate::{
+    helper::{ce, normalise_array, plugin_err, type_hint, ui_out},
+    http::http_fetch,
+};
+
+struct UrlSourcePlugin;
+
+#[derive(Clone, Default, Debug)]
+struct State {
+    // ── Saved requests ────────────────────────────────────────────────────
+    request_name: String, // name input in the sidebar
+    saved_requests: Vec<SavedRequest>,
+
+    // ── Request ───────────────────────────────────────────────────────────
+    url: String,
+    method: String,
+    params: Vec<KvPair>,      // query params
+    req_headers: Vec<KvPair>, // custom request headers
+    body: String,
+
+    // ── Auth ──────────────────────────────────────────────────────────────
+    auth_type: String, // "none" | "bearer" | "basic" | "api-key"
+    auth_token: String,
+    auth_username: String,
+    auth_password: String,
+    auth_key_name: String,
+    auth_key_value: String,
+    auth_key_in: String, // "header" | "query"
+
+    // ── UI navigation ─────────────────────────────────────────────────────
+    resp_tab: String, // "pretty" | "raw" | "headers"
+
+    // ── cURL export / import modals ──────────────────────────────────────
+    show_export_modal: bool,
+    show_import_modal: bool,
+    curl_import_input: String,
+
+    // ── Async fetch state ─────────────────────────────────────────────────
+    /// True while a submit() request is in flight.
+    loading: bool,
+    /// The request_id returned by submit(); matched against the http-response event.
+    pending_request_id: Option<String>,
+
+    // ── Response cache ────────────────────────────────────────────────────
+    response: Option<ResponseState>,
+}
+
+impl State {
+    fn fresh() -> Self {
+        Self {
+            method: "GET".to_string(),
+            auth_type: "none".to_string(),
+            auth_key_in: "header".to_string(),
+            resp_tab: "pretty".to_string(),
+            curl_import_input: String::new(),
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Clone, Default, Debug)]
+struct ResponseState {
+    status: u16,
+    headers: Vec<KvPair>,
+    body: String, // pretty-printed if JSON, raw otherwise
+    error: Option<String>,
+    /// Round-trip time in milliseconds, if provided by the host.
+    duration_ms: Option<u64>,
+    /// Response body size in bytes.
+    size_bytes: usize,
+}
+
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize, Debug)]
+struct KvPair {
+    key: String,
+    value: String,
+}
+
+/// A single saved request entry.
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
+struct SavedRequest {
+    name: String,
+    method: String,
+    url: String,
+    params: Vec<KvPair>,
+    req_headers: Vec<KvPair>,
+    body: String,
+    auth_type: String,
+    auth_token: String,
+    auth_username: String,
+    auth_password: String,
+    auth_key_name: String,
+    auth_key_value: String,
+    auth_key_in: String,
+}
+
+/// On-disk format — wraps the list of saved requests.
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct StoredData {
+    requests: Vec<SavedRequest>,
+}
+
+thread_local! {
+    static STATE: RefCell<State> = RefCell::new(State::fresh());
+}
+
+impl MetaGuest for UrlSourcePlugin {
+    fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
+        bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
+            id: "com.thoth.url-source".to_string(),
+            name: "URL Source".to_string(),
+            version: "0.1.0".to_string(),
+            description: "Fetch JSON data from any HTTP endpoint".to_string(),
+            capabilities: vec![Capability::DataSource, Capability::NewUiComponent],
+            author: Some("Thoth contributors".to_string()),
+            homepage: None,
+            icon: Some("\u{E28C}".to_string()),
+        }
+    }
+}
+
+impl LifecycleGuest for UrlSourcePlugin {
+    fn on_load(_setting: String) {
+        let raw = bindings::thoth::plugin::plugin_storage::read();
+        if raw.is_empty() {
+            return;
+        }
+        if let Ok(data) = serde_json::from_str::<StoredData>(&raw) {
+            STATE.with(|s| {
+                s.borrow_mut().saved_requests = data.requests;
+            });
+        }
+    }
+    fn on_close() {
+        STATE.with(|s| *s.borrow_mut() = State::fresh());
+    }
+    fn on_setting_change(_setting: String) {}
+}
+
+impl DataSourceGuest for UrlSourcePlugin {
+    fn required_config() -> Vec<ConfigEntry> {
+        vec![
+            ce("url", "Request URL", true, ""),
+            ce("method", "HTTP method", false, "GET"),
+            ce("headers", "Extra headers as JSON object", false, "{}"),
+            ce("body", "Request body (POST/PUT/PATCH only)", false, ""),
+            ce(
+                "auth_type",
+                "none | bearer | basic | api-key",
+                false,
+                "none",
+            ),
+            ce("auth_token", "Bearer token", false, ""),
+            ce("auth_username", "Basic auth username", false, ""),
+            ce("auth_password", "Basic auth password", false, ""),
+            ce(
+                "auth_key_name",
+                "Header name or query param for API key",
+                false,
+                "",
+            ),
+            ce("auth_key_value", "API key value", false, ""),
+            ce("auth_key_in", "header | query", false, "header"),
+        ]
+    }
+
+    fn connect(config: Vec<ConfigEntry>) -> Result<String, PluginError> {
+        STATE.with(|s| {
+            let mut st = s.borrow().clone();
+
+            for entry in &config {
+                match entry.name.as_str() {
+                    "url" => st.url = entry.value.clone(),
+                    "method" => st.method = entry.value.clone(),
+                    "headers" => {
+                        if let Ok(obj) = serde_json::from_str::<Value>(&entry.value) {
+                            if let Some(map) = obj.as_object() {
+                                st.req_headers = map
+                                    .iter()
+                                    .map(|(k, v)| KvPair {
+                                        key: k.clone(),
+                                        value: v.as_str().unwrap_or("").to_string(),
+                                    })
+                                    .collect();
+                            }
+                        }
+                    }
+                    "body" => st.body = entry.value.clone(),
+                    "auth_type" => st.auth_type = entry.value.clone(),
+                    "auth_token" => st.auth_token = entry.value.clone(),
+                    "auth_username" => st.auth_username = entry.value.clone(),
+                    "auth_password" => st.auth_password = entry.value.clone(),
+                    "auth_key_name" => st.auth_key_name = entry.value.clone(),
+                    "auth_key_value" => st.auth_key_value = entry.value.clone(),
+                    "auth_key_in" => st.auth_key_in = entry.value.clone(),
+                    _ => {}
+                }
+            }
+
+            if st.url.is_empty() {
+                return Err(plugin_err(1, "url is required"));
+            }
+            *s.borrow_mut() = st;
+            Ok("connected".to_string())
+        })
+    }
+
+    fn schema(_handle: String) -> Result<Vec<SourceSchema>, PluginError> {
+        STATE.with(|s| {
+            let st = s.borrow().clone();
+
+            // Use cached response if available, otherwise make a request
+            let body_str = if let Some(resp) = &st.response {
+                if resp.error.is_none() {
+                    resp.body.clone()
+                } else {
+                    return Err(plugin_err(1, resp.error.clone().unwrap()));
+                }
+            } else {
+                let raw = http_fetch(&st)?;
+                String::from_utf8_lossy(&raw).to_string()
+            };
+
+            let value: Value = serde_json::from_str(&body_str)
+                .map_err(|e| plugin_err(3, format!("Invalid JSON: {e}")))?;
+
+            let first = match &value {
+                Value::Array(arr) => arr.first().cloned().unwrap_or_default(),
+                v => v.clone(),
+            };
+
+            let fields = first
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .map(|(k, v)| FieldSchema {
+                            name: k.clone(),
+                            type_hint: type_hint(v),
+                            nullable: v.is_null(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            Ok(vec![SourceSchema {
+                name: "response".to_string(),
+                fields,
+            }])
+        })
+    }
+
+    fn query(_handle: String, _q: String) -> Result<String, PluginError> {
+        STATE.with(|s| {
+            let st = s.borrow().clone();
+
+            // Return cached result from last UI "Send" if available
+            if let Some(resp) = &st.response {
+                if resp.error.is_none() {
+                    let val: Value = serde_json::from_str(&resp.body)
+                        .map_err(|e| plugin_err(3, format!("Invalid cached JSON: {e}")))?;
+                    let arr = normalise_array(val);
+                    return serde_json::to_string(&arr).map_err(|e| plugin_err(3, e.to_string()));
+                }
+            }
+
+            // No cache — fresh request
+            let raw = http_fetch(&st)?;
+            let body_str = String::from_utf8_lossy(&raw).to_string();
+            let val: Value = serde_json::from_str(&body_str)
+                .map_err(|e| plugin_err(3, format!("Invalid JSON: {e}")))?;
+            let arr = normalise_array(val);
+            serde_json::to_string(&arr).map_err(|e| plugin_err(3, e.to_string()))
+        })
+    }
+
+    fn close(_handle: String) {
+        STATE.with(|s| *s.borrow_mut() = State::fresh());
+    }
+
+    fn render_pane(_handle: String) -> Result<PaneOutput, PluginError> {
+        STATE.with(|s| {
+            let st = s.borrow();
+            Ok(PaneOutput {
+                node_json: build_pane_node(&st).to_string(),
+                height_hint: 0,
+            })
+        })
+    }
+}
+
+/// Build a RenderNode tree (JSON) for the main pane.
+fn build_pane_node(_st: &State) -> Value {
+    json!({})
+}
+
+/// Persist the current list of saved requests to plugin storage.
+fn persist_requests(saved_requests: &[SavedRequest]) {
+    let data = StoredData {
+        requests: saved_requests.to_vec(),
+    };
+    if let Ok(json) = serde_json::to_string(&data) {
+        let _ = bindings::thoth::plugin::plugin_storage::write(&json);
+    }
+}
+
+/// Save the current request under `st.request_name` (falls back to URL).
+fn save_current_request(st: &mut State) {
+    if st.url.is_empty() {
+        return;
+    }
+    let name = {
+        let trimmed = st.request_name.trim().to_string();
+        if trimmed.is_empty() {
+            st.url.clone()
+        } else {
+            trimmed
+        }
+    };
+    let req = SavedRequest {
+        name: name.clone(),
+        method: st.method.clone(),
+        url: st.url.clone(),
+        params: st.params.clone(),
+        req_headers: st.req_headers.clone(),
+        body: st.body.clone(),
+        auth_type: st.auth_type.clone(),
+        auth_token: st.auth_token.clone(),
+        auth_username: st.auth_username.clone(),
+        auth_password: st.auth_password.clone(),
+        auth_key_name: st.auth_key_name.clone(),
+        auth_key_value: st.auth_key_value.clone(),
+        auth_key_in: st.auth_key_in.clone(),
+    };
+    if let Some(existing) = st.saved_requests.iter_mut().find(|r| r.name == name) {
+        *existing = req;
+    } else {
+        st.saved_requests.push(req);
+    }
+    persist_requests(&st.saved_requests);
+}
+
+/// Load a saved request into the active form.
+fn load_saved_request(st: &mut State, req: SavedRequest) {
+    st.request_name = req.name;
+    st.method = req.method;
+    st.url = req.url;
+    st.params = req.params;
+    st.req_headers = req.req_headers;
+    st.body = req.body;
+    st.auth_type = req.auth_type;
+    st.auth_token = req.auth_token;
+    st.auth_username = req.auth_username;
+    st.auth_password = req.auth_password;
+    st.auth_key_name = req.auth_key_name;
+    st.auth_key_value = req.auth_key_value;
+    st.auth_key_in = req.auth_key_in;
+    st.response = None;
+    st.loading = false;
+    st.pending_request_id = None;
+}
+
+/// Build a cURL command string from the current state.
+fn build_curl_command(st: &State) -> String {
+    use crate::helper::{is_body_method, pct_encode};
+
+    // Build URL with query params
+    let url = {
+        let active: Vec<&KvPair> = st.params.iter().filter(|p| !p.key.is_empty()).collect();
+        if active.is_empty() {
+            st.url.clone()
+        } else {
+            let qs: Vec<String> = active
+                .iter()
+                .map(|p| format!("{}={}", pct_encode(&p.key), pct_encode(&p.value)))
+                .collect();
+            let sep = if st.url.contains('?') { '&' } else { '?' };
+            format!("{}{}{}", st.url, sep, qs.join("&"))
+        }
+    };
+
+    let mut parts = vec![format!("curl -X {}", st.method)];
+
+    // Auth header
+    match st.auth_type.as_str() {
+        "bearer" if !st.auth_token.is_empty() => {
+            parts.push(format!("-H 'Authorization: Bearer {}'", st.auth_token));
+        }
+        "basic" if !st.auth_username.is_empty() => {
+            use base64::Engine as _;
+            let creds = base64::engine::general_purpose::STANDARD
+                .encode(format!("{}:{}", st.auth_username, st.auth_password));
+            parts.push(format!("-H 'Authorization: Basic {}'", creds));
+        }
+        "api-key" if !st.auth_key_name.is_empty() && st.auth_key_in == "header" => {
+            parts.push(format!("-H '{}: {}'", st.auth_key_name, st.auth_key_value));
+        }
+        _ => {}
+    }
+
+    // Custom headers
+    for h in &st.req_headers {
+        if !h.key.is_empty() {
+            parts.push(format!("-H '{}: {}'", h.key, h.value));
+        }
+    }
+
+    // Body
+    if is_body_method(&st.method) && !st.body.is_empty() {
+        let escaped = st.body.replace('\'', r#"'"'"'"#);
+        parts.push("-H 'Content-Type: application/json'".to_string());
+        parts.push(format!("-d '{}'", escaped));
+    }
+
+    parts.push(format!("'{}'", url));
+    parts.join(" \\\n  ")
+}
+
+/// Tokenise a shell-like cURL command string.
+///
+/// Handles:
+/// - `\` + newline line-continuation (strips both characters)
+/// - Single-quoted strings (`'...'`) — no escape sequences inside
+/// - Double-quoted strings (`"..."`) — recognises `\"` and `\\`
+/// - Unquoted tokens separated by whitespace
+///
+/// Returns owned `String` tokens with surrounding quotes already stripped.
+fn tokenize_curl(curl: &str) -> Vec<String> {
+    // 1. Remove `\` + newline continuations.
+    let curl = curl.replace("\\\n", " ");
+    let chars: Vec<char> = curl.chars().collect();
+    let mut tokens: Vec<String> = Vec::new();
+    let mut i = 0;
+
+    while i < chars.len() {
+        // Skip whitespace between tokens.
+        while i < chars.len() && chars[i].is_whitespace() {
+            i += 1;
+        }
+        if i >= chars.len() {
+            break;
+        }
+
+        let mut token = String::new();
+        // Parse until unquoted whitespace.
+        while i < chars.len() && !chars[i].is_whitespace() {
+            match chars[i] {
+                '\'' => {
+                    // Single-quoted: collect until closing `'`, no escapes.
+                    i += 1;
+                    while i < chars.len() && chars[i] != '\'' {
+                        token.push(chars[i]);
+                        i += 1;
+                    }
+                    if i < chars.len() {
+                        i += 1; // consume closing `'`
+                    }
+                }
+                '"' => {
+                    // Double-quoted: recognise `\\` and `\"`.
+                    i += 1;
+                    while i < chars.len() && chars[i] != '"' {
+                        if chars[i] == '\\' && i + 1 < chars.len() {
+                            match chars[i + 1] {
+                                '"' | '\\' => {
+                                    token.push(chars[i + 1]);
+                                    i += 2;
+                                }
+                                _ => {
+                                    token.push(chars[i]);
+                                    i += 1;
+                                }
+                            }
+                        } else {
+                            token.push(chars[i]);
+                            i += 1;
+                        }
+                    }
+                    if i < chars.len() {
+                        i += 1; // consume closing `"`
+                    }
+                }
+                c => {
+                    token.push(c);
+                    i += 1;
+                }
+            }
+        }
+        if !token.is_empty() {
+            tokens.push(token);
+        }
+    }
+    tokens
+}
+
+/// Parse a cURL command string into the state fields we care about.
+fn apply_curl_import(st: &mut State, curl: &str) {
+    use crate::helper::percent_decode;
+
+    let tokens = tokenize_curl(curl);
+    // Reset fields that we are about to re-populate.
+    st.req_headers.clear();
+    st.params.clear();
+    st.body.clear();
+    st.auth_type = "none".to_string();
+    st.auth_token.clear();
+
+    let mut i = 0;
+    while i < tokens.len() {
+        match tokens[i].as_str() {
+            "curl" => {
+                i += 1;
+            }
+            "-X" | "--request" => {
+                if let Some(m) = tokens.get(i + 1) {
+                    st.method = m.to_uppercase();
+                    i += 2;
+                    continue;
+                }
+            }
+            "-H" | "--header" => {
+                if let Some(h) = tokens.get(i + 1) {
+                    if let Some((k, v)) = h.split_once(':') {
+                        let k = k.trim().to_string();
+                        let v = v.trim().to_string();
+                        if k.eq_ignore_ascii_case("authorization") {
+                            if let Some(token) = v.strip_prefix("Bearer ") {
+                                st.auth_type = "bearer".to_string();
+                                st.auth_token = token.to_string();
+                            } else if let Some(encoded) = v.strip_prefix("Basic ") {
+                                use base64::Engine as _;
+                                if let Ok(decoded) =
+                                    base64::engine::general_purpose::STANDARD.decode(encoded)
+                                {
+                                    if let Ok(creds) = String::from_utf8(decoded) {
+                                        if let Some((user, pass)) = creds.split_once(':') {
+                                            st.auth_type = "basic".to_string();
+                                            st.auth_username = user.to_string();
+                                            st.auth_password = pass.to_string();
+                                        }
+                                    }
+                                }
+                            }
+                        } else if !k.eq_ignore_ascii_case("content-type") {
+                            st.req_headers.push(crate::KvPair { key: k, value: v });
+                        }
+                    }
+                    i += 2;
+                    continue;
+                }
+            }
+            "-d" | "--data" | "--data-raw" => {
+                if let Some(body) = tokens.get(i + 1) {
+                    st.body = body.clone();
+                    if st.method == "GET" {
+                        st.method = "POST".to_string();
+                    }
+                    i += 2;
+                    continue;
+                }
+            }
+            t if !t.starts_with('-') && (t.starts_with("http://") || t.starts_with("https://")) => {
+                if let Some((base, query)) = t.split_once('?') {
+                    st.url = base.to_string();
+                    st.params = query
+                        .split('&')
+                        .filter_map(|kv| {
+                            let (k, v) = kv.split_once('=')?;
+                            Some(crate::KvPair {
+                                key: percent_decode(k),
+                                value: percent_decode(v),
+                            })
+                        })
+                        .collect();
+                } else {
+                    st.url = t.to_string();
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+}
+
+impl UiComponentGuest for UrlSourcePlugin {
+    fn render_sidebar() -> Result<Option<UiOutput>, PluginError> {
+        STATE.with(|s| {
+            let st = s.borrow().clone();
+            Ok(Some(ui_out(ui::build_sidebar(&st))))
+        })
+    }
+
+    fn render_ui() -> Result<UiOutput, PluginError> {
+        STATE.with(|s| {
+            let st = s.borrow().clone();
+            Ok(ui_out(ui::build_ui(&st)))
+        })
+    }
+
+    fn handle_event(event: UiEvent) -> Result<UiOutput, PluginError> {
+        STATE.with(|s| {
+            let mut st = s.borrow().clone();
+
+            if event.widget_id == "clear" {
+                let saved = st.saved_requests.clone();
+                st = State::fresh();
+                st.saved_requests = saved;
+            } else if event.widget_id == "save" {
+                save_current_request(&mut st);
+            } else if event.widget_id == "saved-requests" {
+                match event.kind.as_str() {
+                    "click" => {
+                        if let Ok(idx) = event.value.parse::<usize>() {
+                            if let Some(req) = st.saved_requests.get(idx).cloned() {
+                                load_saved_request(&mut st, req);
+                            }
+                        }
+                    }
+                    "action" => {
+                        // value = {"item": i, "action": 0}  (action 0 = delete)
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&event.value) {
+                            let item_idx =
+                                v.get("item").and_then(|x| x.as_u64()).map(|x| x as usize);
+                            let action_idx =
+                                v.get("action").and_then(|x| x.as_u64()).map(|x| x as usize);
+                            if let (Some(item_idx), Some(0)) = (item_idx, action_idx) {
+                                if item_idx < st.saved_requests.len() {
+                                    st.saved_requests.remove(item_idx);
+                                    persist_requests(&st.saved_requests);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            } else if event.widget_id == "export-curl" {
+                st.show_export_modal = true;
+            } else if event.widget_id == "import-curl" {
+                st.show_import_modal = true;
+                st.curl_import_input = String::new();
+            } else if event.widget_id == "close-export" {
+                st.show_export_modal = false;
+            } else if event.widget_id == "close-import" {
+                st.show_import_modal = false;
+                st.curl_import_input = String::new();
+            } else if event.widget_id == "curl-import-input" {
+                st.curl_import_input = crate::helper::parse_str(&event.value);
+            } else if event.widget_id == "curl-import-submit" {
+                let curl = st.curl_import_input.clone();
+                apply_curl_import(&mut st, &curl);
+                st.show_import_modal = false;
+                st.curl_import_input = String::new();
+            } else {
+                ui::apply_event(&mut st, &event);
+            }
+
+            *s.borrow_mut() = st.clone();
+            Ok(ui_out(ui::build_ui(&st)))
+        })
+    }
+}
+
+impl SettingsGuest for UrlSourcePlugin {
+    fn render_settings() -> Result<SettingsOutput, PluginError> {
+        Ok(SettingsOutput {
+            node_json: json!({
+                "type": "text",
+                "value": "",
+            })
+            .to_string(),
+            height_hint: 0,
+        })
+    }
+}
+
+bindings::export!(UrlSourcePlugin with_types_in bindings);

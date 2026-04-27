@@ -14,10 +14,11 @@ use bindings::exports::thoth::plugin::{
     file_viewer::{DisplayMode, Guest as FileViewerGuest},
     plugin_lifecycle::Guest as LifecycleGuest,
     plugin_meta::Guest as MetaGuest,
+    plugin_settings::{Guest as SettingsGuest, SettingsOutput},
 };
 use bindings::thoth::plugin::types::{Capability, PluginError};
 use csv::ReaderBuilder;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 
 struct CsvPlugin;
 
@@ -46,6 +47,7 @@ impl MetaGuest for CsvPlugin {
             capabilities: vec![Capability::FileLoader, Capability::FileViewer],
             author: Some("Thoth contributors".to_string()),
             homepage: None,
+            icon: None,
         }
     }
 }
@@ -53,10 +55,18 @@ impl MetaGuest for CsvPlugin {
 // ── plugin-lifecycle ──────────────────────────────────────────────────────────
 
 impl LifecycleGuest for CsvPlugin {
-    fn on_load() {}
+    fn on_load(_setting: String) {
+        // No initialisation needed since this plugin is entirely stateless and
+        // has no settings, but we'll log the (empty) settings to demonstrate
+        // how to receive them from the host.
+    }
 
     fn on_close() {
         STATE.with(|s| *s.borrow_mut() = None);
+    }
+
+    fn on_setting_change(_setting: String) {
+        // No action needed since this plugin is entirely stateless and has no settings.
     }
 }
 
@@ -176,6 +186,22 @@ impl FileViewerGuest for CsvPlugin {
     ) -> Result<bindings::exports::thoth::plugin::file_viewer::RenderOutput, PluginError> {
         // Not called in table mode — host renders cells directly from file-loader.get()
         Err(plugin_err(0, "not used in table mode"))
+    }
+}
+
+// ── plugin-settings ───────────────────────────────────────────────────────────
+// CSV loader has no user-configurable settings, so all methods are no-ops.
+
+impl SettingsGuest for CsvPlugin {
+    fn render_settings() -> Result<SettingsOutput, bindings::thoth::plugin::types::PluginError> {
+        Ok(SettingsOutput {
+            node_json: json!({
+                "type": "text",
+                "value": "This plugin has no settings.",
+            })
+            .to_string(),
+            height_hint: 0,
+        })
     }
 }
 

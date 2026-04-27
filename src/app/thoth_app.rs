@@ -2,6 +2,7 @@ use eframe::{App, Frame, egui};
 use std::path::PathBuf;
 
 use crate::{
+    NOTIFICATION_MANAGER, PLUGIN_MANAGER,
     app::{file_picker, pick_file},
     components::{self, traits::ContextComponent},
     settings, state,
@@ -103,15 +104,6 @@ impl App for ThothApp {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        // Handle keyboard shortcuts
-        let shortcut_actions = ShortcutHandler::handle_shortcuts(ctx, &self.settings.shortcuts);
-        self.handle_shortcut_actions(ctx, shortcut_actions);
-
-        // Handle clipboard operations
-        if let Some(text) = self.clipboard_text.take() {
-            ctx.copy_text(text);
-        }
-
         // Check for updates based on settings
         if UpdateHandler::should_check_updates(&self.update_state, &self.settings) {
             UpdateHandler::check_for_updates(&mut self.update_state);
@@ -124,6 +116,12 @@ impl App for ThothApp {
         // Auto-open settings on Updates tab if a new update is available
         if should_show_updates && !self.settings_dialog.open {
             self.settings_dialog.open_updates(&self.settings);
+        }
+
+        if let Some(nm) = NOTIFICATION_MANAGER.get() {
+            if let Ok(mut nm) = nm.lock() {
+                nm.show_notifications(ctx);
+            }
         }
 
         // Handle file drops
@@ -139,6 +137,10 @@ impl App for ThothApp {
 
         let ctx = ui.ctx().clone();
 
+        // Poll completed async HTTP requests from the active plugin pane.
+        // Must happen before rendering so the updated ui_output is used this frame.
+        self.poll_plugin_http_results(&ctx);
+
         // Get user's action from Toolbar (if enabled)
         if self.settings.ui.show_toolbar {
             self.render_toolbar(ui);
@@ -147,6 +149,11 @@ impl App for ThothApp {
         // Render status bar (before sidebar so it spans full width) (if enabled)
         if self.settings.ui.show_status_bar {
             self.render_status_bar(ui);
+        }
+
+        // Handle clipboard operations
+        if let Some(text) = self.clipboard_text.take() {
+            ctx.copy_text(text);
         }
 
         // Render sidebar and handle events (may return search message)
@@ -165,6 +172,11 @@ impl App for ThothApp {
         if let Some(error) = search_error {
             self.window_state.error = Some(error);
         }
+
+        // Handle keyboard shortcuts
+        let shortcut_actions =
+            ShortcutHandler::handle_shortcuts(ui.ctx(), &self.settings.shortcuts);
+        self.handle_shortcut_actions(ui.ctx(), shortcut_actions);
 
         // Render settings dialog using ContextComponent trait
         use crate::components::settings_dialog::{SettingsDialogEvent, SettingsDialogProps};
@@ -350,7 +362,7 @@ impl ThothApp {
                     // Toggle search section
                     let section = components::sidebar::SidebarSection::Search;
                     if self.window_state.sidebar_expanded
-                        && self.window_state.sidebar_selected_section == Some(section)
+                        && self.window_state.sidebar_selected_section == Some(section.clone())
                     {
                         self.window_state.sidebar_expanded = false;
                     } else {
@@ -490,6 +502,66 @@ impl ThothApp {
             "Thoth — JSON & NDJSON Viewer".to_owned()
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+    }
+
+    /// Drain completed async HTTP requests from the active plugin pane and
+    /// forward each result to the plugin via `handle_event`.  Must be called
+    /// before any rendering so the updated `ui_output` is used in this frame.
+    fn poll_plugin_http_results(&mut self, ctx: &egui::Context) {
+        use crate::plugin::render_node::UiEvent;
+
+        let Some(pane) = self.window_state.active_plugin_pane.as_mut() else {
+            return;
+        };
+
+        for (request_id, outcome) in pane.loader.drain_http_results() {
+            let value = match outcome {
+                Ok(raw) => {
+                    let body = String::from_utf8_lossy(&raw.body).to_string();
+                    serde_json::json!({
+                        "ok": {
+                            "status": raw.status,
+                            "headers": raw.headers,
+                            "body": body,
+                            "duration_ms": raw.duration_ms
+                        }
+                    })
+                    .to_string()
+                }
+                Err(msg) => serde_json::json!({"err": {"code": 1, "message": msg}}).to_string(),
+            };
+
+            let event = UiEvent {
+                widget_id: request_id,
+                kind: "http-response".to_string(),
+                value,
+            };
+
+            match pane.loader.handle_event(event) {
+                Ok(new_output) => {
+                    pane.ui_output = new_output;
+                    if let Ok(sidebar) = pane.loader.render_sidebar() {
+                        self.window_state.plugin_sidebar_output = sidebar;
+                    }
+                }
+                Err(e) => {
+                    self.window_state.error = Some(crate::error::ThothError::Unknown {
+                        message: e.to_string(),
+                    });
+                }
+            }
+        }
+
+        // Re-dispatch any requests the user approved via consent notifications.
+        for (request_id, req) in pane.loader.drain_retry_requests() {
+            pane.loader.dispatch_approved_request(request_id, req);
+            ctx.request_repaint();
+        }
+
+        // Keep repainting while requests are still in flight so we poll again next frame.
+        if pane.loader.has_pending_http() {
+            ctx.request_repaint();
+        }
     }
 
     /// Render toolbar
@@ -649,6 +721,11 @@ impl ThothApp {
                 search_message,
                 cache_size: self.settings.performance.cache_size,
                 syntax_highlighting: self.settings.viewer.syntax_highlighting,
+                plugin_ui: self
+                    .window_state
+                    .active_plugin_pane
+                    .as_ref()
+                    .map(|p| &p.ui_output),
             },
         );
 
@@ -680,6 +757,9 @@ impl ThothApp {
                     self.window_state.file_path = Some(path);
                     self.window_state.file_type = file_type;
                     self.window_state.total_items = total_items;
+                    // Clear any plugin pane so the file viewer takes over.
+                    self.window_state.active_plugin_pane = None;
+                    self.window_state.plugin_sidebar_output = None;
 
                     // Apply pending navigation if exists
                     if let Some(pending_path) = self.window_state.pending_navigation.take() {
@@ -700,6 +780,23 @@ impl ThothApp {
                 }
                 components::central_panel::CentralPanelEvent::ErrorCleared => {
                     self.window_state.error = None;
+                }
+                components::central_panel::CentralPanelEvent::PluginUiEvent(evt) => {
+                    if let Some(pane) = self.window_state.active_plugin_pane.as_mut() {
+                        match pane.loader.handle_event(evt) {
+                            Ok(new_output) => {
+                                pane.ui_output = new_output;
+                                if let Ok(sidebar) = pane.loader.render_sidebar() {
+                                    self.window_state.plugin_sidebar_output = sidebar;
+                                }
+                            }
+                            Err(e) => {
+                                self.window_state.error = Some(crate::error::ThothError::Unknown {
+                                    message: e.to_string(),
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -728,6 +825,42 @@ impl ThothApp {
 
         let focus_search = section_changed_to_search || sidebar_reopened_with_search;
 
+        // Collect data-source plugins before constructing SidebarProps so the
+        // Vec<&Plugin> lives long enough for the borrow in the struct literal.
+        let ds_plugins: Vec<&crate::plugin::Plugin> = PLUGIN_MANAGER
+            .get()
+            .and_then(|m| m.as_ref())
+            .map(|m| m.get_data_sorce_plugins())
+            .unwrap_or_default();
+
+        // Build plugin sidebar info if there's an active plugin pane with sidebar content.
+        // Capture owned strings so they outlive the borrows in SidebarProps.
+        let plugin_sidebar_strings: Option<(String, String, Option<String>)> = self
+            .window_state
+            .active_plugin_pane
+            .as_ref()
+            .and_then(|pane| {
+                PLUGIN_MANAGER
+                    .get()
+                    .and_then(|m| m.as_ref())
+                    .and_then(|m| m.registry.get_by_id(&pane.plugin_id))
+                    .map(|p| (p.id.clone(), p.name.clone(), p.icon.clone()))
+            });
+        let plugin_sidebar_prop: Option<components::sidebar::PluginSidebarInfo<'_>> = match (
+            &plugin_sidebar_strings,
+            &self.window_state.plugin_sidebar_output,
+        ) {
+            (Some((id, name, icon)), Some(output)) => {
+                Some(components::sidebar::PluginSidebarInfo {
+                    plugin_id: id.as_str(),
+                    plugin_name: name.as_str(),
+                    icon: icon.as_deref(),
+                    output,
+                })
+            }
+            _ => None,
+        };
+
         // Render sidebar
         let output = self.window_state.sidebar.render(
             ui,
@@ -741,7 +874,7 @@ impl ThothApp {
                     .and_then(|path| path.to_str()),
                 expanded: self.window_state.sidebar_expanded,
                 sidebar_width: self.persistent_state.get_sidebar_width(),
-                selected_section: self.window_state.sidebar_selected_section,
+                selected_section: self.window_state.sidebar_selected_section.clone(),
                 focus_search,
                 search_state: &self.window_state.search_engine_state.search,
                 search_history: self
@@ -753,12 +886,20 @@ impl ThothApp {
                         super::persistent_state::PersistentState::load_search_history(path_str).ok()
                     })
                     .as_ref(),
+                data_source_plugins: &ds_plugins,
+                active_datasource_plugin_id: self
+                    .window_state
+                    .active_plugin_pane
+                    .as_ref()
+                    .map(|p| p.plugin_id.as_str()),
+                plugin_sidebar: plugin_sidebar_prop,
             },
         );
 
         // Update previous states after rendering so focus_search is only true for one frame
         if focus_search {
-            self.window_state.previous_sidebar_section = self.window_state.sidebar_selected_section;
+            self.window_state.previous_sidebar_section =
+                self.window_state.sidebar_selected_section.clone();
         }
         self.window_state.previous_sidebar_expanded = self.window_state.sidebar_expanded;
 
@@ -795,18 +936,104 @@ impl ThothApp {
                     }
                 }
                 components::sidebar::SidebarEvent::SectionToggled(section) => {
-                    // Toggle logic: if clicking same section while expanded, collapse; otherwise open to that section
-                    if self.window_state.sidebar_expanded
-                        && self.window_state.sidebar_selected_section == Some(section)
+                    if let components::sidebar::SidebarSection::DataSource { ref plugin_id } =
+                        section
                     {
-                        self.window_state.sidebar_expanded = false;
-                        self.window_state.previous_sidebar_section =
-                            self.window_state.sidebar_selected_section;
+                        if self
+                            .window_state
+                            .active_plugin_pane
+                            .as_ref()
+                            .is_none_or(|p| &p.plugin_id != plugin_id)
+                        {
+                            // Open: create a loader, call render_ui(), store in active_plugin_pane.
+                            if let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) {
+                                if let Some(plugin) = manager.registry.get_by_id(plugin_id) {
+                                    use crate::plugin::network_policy::NetworkPolicy;
+                                    let user_policy = self
+                                        .settings
+                                        .plugins
+                                        .network_policies
+                                        .get(plugin_id)
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    let policy = NetworkPolicy::from_plugin_and_settings(
+                                        &plugin.network.clone().unwrap_or_default(),
+                                        &user_policy,
+                                    );
+                                    match manager.open_data_source(plugin_id, policy) {
+                                        Ok(loader) => {
+                                            match loader.render_ui() {
+                                                Ok(ui_output) => {
+                                                    self.window_state.file_path = None;
+                                                    // Fetch initial sidebar output
+                                                    let sidebar_output =
+                                                        loader.render_sidebar().ok().flatten();
+                                                    let has_sidebar = sidebar_output.is_some();
+                                                    self.window_state.plugin_sidebar_output =
+                                                        sidebar_output;
+                                                    self.window_state.active_plugin_pane =
+                                                        Some(crate::state::ActivePluginPane {
+                                                            plugin_id: plugin_id.clone(),
+                                                            display_url: String::new(),
+                                                            ui_output,
+                                                            loader,
+                                                        });
+                                                    // Open sidebar to plugin section if it has content, otherwise close it
+                                                    if has_sidebar {
+                                                        self.window_state.sidebar_expanded = true;
+                                                        self.window_state.sidebar_selected_section =
+                                                            Some(components::sidebar::SidebarSection::PluginSidebar {
+                                                                plugin_id: plugin_id.clone(),
+                                                            });
+                                                    } else {
+                                                        self.window_state.sidebar_expanded = false;
+                                                        self.window_state
+                                                            .sidebar_selected_section = None;
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    self.window_state.error =
+                                                        Some(crate::error::ThothError::Unknown {
+                                                            message: format!(
+                                                                "Plugin UI error: {e}"
+                                                            ),
+                                                        });
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            self.window_state.error =
+                                                Some(crate::error::ThothError::Unknown {
+                                                    message: format!("Failed to load plugin: {e}"),
+                                                });
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     } else {
-                        self.window_state.previous_sidebar_section =
-                            self.window_state.sidebar_selected_section;
-                        self.window_state.sidebar_expanded = true;
-                        self.window_state.sidebar_selected_section = Some(section);
+                        // Toggle logic: if clicking same section while expanded, collapse; otherwise open to that section
+                        let is_plugin_sidebar = matches!(
+                            section,
+                            components::sidebar::SidebarSection::PluginSidebar { .. }
+                        );
+                        if self.window_state.sidebar_expanded
+                            && self.window_state.sidebar_selected_section == Some(section.clone())
+                        {
+                            self.window_state.sidebar_expanded = false;
+                            self.window_state.previous_sidebar_section =
+                                self.window_state.sidebar_selected_section.clone();
+                        } else {
+                            self.window_state.previous_sidebar_section =
+                                self.window_state.sidebar_selected_section.clone();
+                            self.window_state.sidebar_expanded = true;
+                            self.window_state.sidebar_selected_section = Some(section);
+                            // Don't close the plugin pane when switching to its own sidebar
+                            if !is_plugin_sidebar {
+                                self.window_state.active_plugin_pane = None;
+                                self.window_state.plugin_sidebar_output = None;
+                            }
+                        }
                     }
 
                     // Save sidebar state if remember_sidebar_state is enabled
@@ -893,6 +1120,46 @@ impl ThothApp {
                     // Track in navigation history before navigating
                     self.window_state.navigation_history.push(path.clone());
                     self.window_state.central_panel.navigate_to_path(path);
+                }
+                components::sidebar::SidebarEvent::DataSourceQueryResult { .. } => {
+                    // No-op: data-source plugins now interact entirely through the main pane
+                    // via ActivePluginPane. This event is no longer used in the primary path.
+                }
+                components::sidebar::SidebarEvent::DataSourceConsentNeeded(consent_request) => {
+                    // TODO: Show a consent dialog asking the user to approve/deny the domain
+                    // For now, just log it
+                    eprintln!(
+                        "Data source plugin {} requests consent for domain: {}",
+                        consent_request.plugin_id, consent_request.domain
+                    );
+                }
+                components::sidebar::SidebarEvent::DataSourceError(err) => {
+                    // Display the error in the error modal
+                    self.window_state.error = Some(crate::error::ThothError::Unknown {
+                        message: format!("Data source error: {}", err),
+                    });
+                }
+                components::sidebar::SidebarEvent::DataSourceLoading(is_loading) => {
+                    if is_loading {
+                        ui.spinner();
+                    }
+                }
+                components::sidebar::SidebarEvent::PluginSidebarEvent(evt) => {
+                    if let Some(pane) = self.window_state.active_plugin_pane.as_mut() {
+                        match pane.loader.handle_event(evt) {
+                            Ok(new_output) => {
+                                pane.ui_output = new_output;
+                                if let Ok(sidebar) = pane.loader.render_sidebar() {
+                                    self.window_state.plugin_sidebar_output = sidebar;
+                                }
+                            }
+                            Err(e) => {
+                                self.window_state.error = Some(crate::error::ThothError::Unknown {
+                                    message: e.to_string(),
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }

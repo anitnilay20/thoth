@@ -100,15 +100,6 @@ impl WasmFileLoader {
                 }
             })?;
 
-        // Invoke the plugin lifecycle hook so plugins can initialize state.
-        bindings
-            .thoth_plugin_plugin_lifecycle()
-            .call_on_load(&mut store)
-            .map_err(|e| ThothError::PluginLoadError {
-                path: wasm_path.to_path_buf(),
-                reason: e.to_string(),
-            })?;
-
         // Call open() to index the file and get the total record count
         let path_str = file_path.to_string_lossy().to_string();
         let record_count = bindings
@@ -171,6 +162,33 @@ impl WasmFileLoader {
                 message: e.to_string(),
             })?
             .map_err(|e| ThothError::Unknown { message: e.message })
+    }
+
+    pub fn on_load(&mut self, settings_data: &str) -> Result<()> {
+        let mut guard = self.inner.lock().unwrap();
+        let WasmLoaderInner { store, bindings } = &mut *guard;
+
+        let settings_data: String =
+            serde_json::to_string(&settings_data).map_err(|err| ThothError::Unknown {
+                message: format!("Invalid plugin setting: {}", err),
+            })?;
+
+        store
+            .set_fuel(u64::MAX / 2)
+            .map_err(|e| ThothError::Unknown {
+                message: e.to_string(),
+            })?;
+
+        // Invoke the plugin lifecycle hook so plugins can initialize state.
+        bindings
+            .thoth_plugin_plugin_lifecycle()
+            .call_on_load(store, &settings_data)
+            .map_err(|e| ThothError::PluginLoadError {
+                path: Path::new("<plugin on_load>").to_path_buf(),
+                reason: e.to_string(),
+            })?;
+
+        Ok(())
     }
 }
 

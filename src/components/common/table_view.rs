@@ -81,10 +81,12 @@ impl StatelessComponent for TableView {
         // Read last frame's scroll state (one frame of lag is imperceptible).
         let is_scrolled: bool = ctx.data(|d| d.get_temp(scroll_state_id)).unwrap_or(false);
 
+        ui.set_min_width(ui.available_width());
+
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.set_min_width(min_col_width * num_cols as f32);
+                // ui.set_min_width(min_col_width * num_cols as f32);
 
                 // Capture geometry before the table borrows `ui`, so we can
                 // paint a single full-width shadow below the header afterward.
@@ -94,10 +96,13 @@ impl StatelessComponent for TableView {
 
                 TableBuilder::new(ui)
                     .striped(true)
+                    .sense(egui::Sense::click())
                     .resizable(true)
                     .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                     .columns(
-                        Column::initial(min_col_width).clip(true).resizable(true),
+                        Column::auto_with_initial_suggestion(min_col_width)
+                            .clip(true)
+                            .resizable(true),
                         num_cols,
                     )
                     .header(header_height, |mut header_row| {

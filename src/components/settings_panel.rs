@@ -119,6 +119,7 @@ impl SettingsPanel {
                         size: Some(14.0),
                         width: Some(ui.available_width()),
                         height: None,
+                        ..Default::default()
                     },
                 );
 
@@ -151,6 +152,7 @@ impl SettingsPanel {
                         size: Some(14.0),
                         width: Some(ui.available_width()),
                         height: None,
+                        ..Default::default()
                     },
                 );
 
@@ -202,6 +204,7 @@ impl SettingsPanel {
                         size: Some(14.0),
                         width: Some(ui.available_width()),
                         height: None,
+                        ..Default::default()
                     },
                 );
 
@@ -234,6 +237,7 @@ impl SettingsPanel {
                         size: Some(14.0),
                         width: Some(ui.available_width()),
                         height: None,
+                        ..Default::default()
                     },
                 );
 
@@ -294,6 +298,7 @@ impl SettingsPanel {
                     size: Some(12.0),
                     width: Some(ui.available_width()),
                     height: None,
+                    ..Default::default()
                 },
             );
 

@@ -42,12 +42,20 @@ interface types {
         capabilities: list<capability>,
         author:       option<string>,
         homepage:     option<string>,
+        /// Sidebar icon glyph. Use a phosphor icon Unicode character (e.g. "\u{E28C}").
+        /// Falls back to a generic database icon when absent.
+        icon:         option<string>,
     }
 
     /// Unified error type used across all interfaces.
     record plugin-error {
         code:    u32,
         message: string,
+    }
+
+    record setting-data {
+        key:   string,
+        value: string,
     }
 }
 
@@ -76,15 +84,18 @@ interface plugin-meta {
 // ---------------------------------------------------------------------------
 
 interface plugin-lifecycle {
-
     /// Called by the host after the plugin is fully loaded and registered.
     /// Use this to initialise any internal state.
-    on-load: func();
+    /// Setting is passed in setting-data format, eg: "[{key: "url", value: "https://..."}, ...]"
+    on-load: func(setting: string);
 
     /// Called by the host before the plugin is unloaded (app shutdown or
     /// the user disabling the plugin via Settings → Plugins).
     /// Release any held resources (open file handles, connections, etc.).
     on-close: func();
+
+    /// Called by the host when the user saves settings in the plugin settings
+    on-setting-change: func(setting: string);
 }
 
 
@@ -186,6 +197,68 @@ interface file-viewer {
 
 
 // ---------------------------------------------------------------------------
+// http-client — host-provided import for data-source plugins
+//
+// The host implements this interface using reqwest and exposes it to any
+// plugin that imports it. All requests pass through the host's network-policy
+// layer (domain allowlist, SSRF guard, rate limiter) before being forwarded.
+// Using a host-provided import rather than wasi:http keeps compatibility with
+// wasm32-wasip1 and centralises security enforcement.
+// ---------------------------------------------------------------------------
+
+interface http-client {
+    use types.{plugin-error};
+
+    record http-request {
+        url:     string,
+        method:  string,                        // "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+        headers: list<tuple<string, string>>,   // additional headers
+        body:    option<list<u8>>,              // request body (POST/PUT/PATCH)
+    }
+
+    record http-response {
+        status:  u16,
+        headers: list<tuple<string, string>>,
+        body:    list<u8>,
+    }
+
+    /// Make an outbound HTTP request.
+    /// The host enforces per-plugin network policy before forwarding.
+    fetch: func(req: http-request) -> result<http-response, plugin-error>;
+
+    /// Submit an HTTP request asynchronously. Returns an opaque request-id
+    /// immediately without blocking. The host dispatches the request on a
+    /// background thread and delivers the result by calling handle-event with:
+    ///   widget-id = <request-id>
+    ///   kind      = "http-response"
+    ///   value     = JSON: {"ok":{"status":200,"headers":[["k","v"]],"body":"..."}}
+    ///            or JSON: {"err":{"code":1,"message":"..."}}
+    submit: func(req: http-request) -> string;
+}
+
+
+// ---------------------------------------------------------------------------
+// plugin-storage — host-provided import for persistent per-plugin storage
+//
+// Each plugin gets a dedicated file on disk (managed by the host) where it
+// can store arbitrary text data — typically a JSON snapshot of its state.
+// The host decides the path; the plugin just reads and writes a string.
+// Path: ~/.config/thoth/plugins/<plugin-id>/state.json
+// ---------------------------------------------------------------------------
+
+interface plugin-storage {
+    /// Read the plugin's persisted state file.
+    /// Returns the raw file contents, or an empty string if nothing has been
+    /// saved yet (first run, or storage not available).
+    read: func() -> string;
+
+    /// Overwrite the plugin's persisted state file with `data`.
+    /// Returns an error message string on failure.
+    write: func(data: string) -> result<_, string>;
+}
+
+
+// ---------------------------------------------------------------------------
 // data-source — implement when capability = data-source
 //
 // Connects Thoth to an external system: REST API, database, message queue,
@@ -198,7 +271,9 @@ interface data-source {
 
     /// A key/value configuration entry supplied by the user (e.g. url, token).
     record config-entry {
-        key:   string,
+        name:   string,
+        description: string,
+        required: bool,
         value: string,
     }
 
@@ -234,6 +309,26 @@ interface data-source {
 
     /// Release the connection and free any held resources.
     close: func(handle: string);
+
+    /// Render the current query result as a RenderNode tree for the main pane.
+    /// Uses the same JSON schema as file-viewer's render-record.
+    /// The plugin reads from its internal cache — call after query() succeeds.
+    ///
+    /// Schema (recursive, JSON-encoded):
+    ///   { "type": "text",        "value": "hello" }
+    ///   { "type": "bold",        "child": <RenderNode> }
+    ///   { "type": "colored",     "color": "#ff6b6b", "child": <RenderNode> }
+    ///   { "type": "badge",       "label": "200 OK", "color": "#10b981" }
+    ///   { "type": "row",         "children": [<RenderNode>, ...] }
+    ///   { "type": "column",      "children": [<RenderNode>, ...] }
+    ///   { "type": "key-value",   "key": "id", "value": <RenderNode> }
+    ///   { "type": "collapsible", "label": "Headers", "children": [...] }
+    ///   { "type": "json-tree",   "value": <any JSON value> }
+    record pane-output {
+        node-json:   string,
+        height-hint: u32,
+    }
+    render-pane: func(handle: string) -> result<pane-output, plugin-error>;
 }
 
 
@@ -276,6 +371,113 @@ interface exporter {
     ) -> result<list<u8>, plugin-error>;
 }
 
+// ---------------------------------------------------------------------------
+// ui-component — implement when capability = new-ui-component
+//
+// Lets a plugin render a fully interactive panel. The host calls render-ui()
+// once to get the initial tree, then calls handle-event() every time the user
+// interacts with a widget. The plugin owns all state — it receives the event,
+// mutates its internal state, and returns a fresh tree.
+//
+// Because WASM cannot call egui directly, the plugin returns a lightweight
+// UiNode tree (JSON-encoded). The host walks the tree, renders it with egui,
+// and collects interaction events to feed back into the plugin.
+//
+// UiNode DSL — full schema
+// ─────────────────────────────────────────────────────────────────────────────
+// Every node is a JSON object with a mandatory "type" field (kebab-case).
+// Optional fields use their documented default when absent.
+//
+// LAYOUT
+//   { "type":"row",      "children":[UiNode,...], "gap":8,  "align":"start|center|end|fill" }
+//   { "type":"column",   "children":[UiNode,...], "gap":4  }
+//   { "type":"group",    "label":"Section",       "children":[UiNode,...] }
+//   { "type":"scroll",   "child":UiNode,          "height":300            }
+//   { "type":"spacer",   "height":8               }
+//   { "type":"separator"                          }
+//
+// DISPLAY  (no id, no events)
+//   { "type":"text",     "value":"hello",   "size":"sm|md|lg", "muted":true }
+//   { "type":"heading",  "value":"Title",   "level":1          }
+//   { "type":"badge",    "label":"WARN",    "color":"#f59e0b"  }
+//   { "type":"code",     "value":"...",     "language":"json"  }
+//   { "type":"markdown", "value":"**bold**"                    }
+//   { "type":"progress", "value":0.75                          }
+//
+// INPUTS  (all have "id":string, "label":string, "disabled":false)
+//   Fire a "change" event with the new value JSON-encoded in the `value` field.
+//
+//   { "type":"text-input",     "id":"url",   "label":"URL",
+//                              "value":"",   "placeholder":"https://...", "required":true }
+//   { "type":"number-input",   "id":"port",  "label":"Port",
+//                              "value":8080, "min":1, "max":65535         }
+//   { "type":"password-input", "id":"tok",   "label":"Token",  "value":"" }
+//   { "type":"textarea",       "id":"body",  "label":"Body",
+//                              "value":"",   "rows":5                     }
+//   { "type":"select",         "id":"meth",  "label":"Method", "value":"GET",
+//                              "options":[{"value":"GET","label":"GET"},...]  }
+//   { "type":"multi-select",   "id":"tags",  "label":"Tags",   "value":["a"],
+//                              "options":[{"value":"a","label":"Tag A"},...]  }
+//   { "type":"checkbox",       "id":"ssl",   "label":"Verify SSL", "checked":true  }
+//   { "type":"toggle",         "id":"en",    "label":"Enable",     "checked":false }
+//   { "type":"radio",          "id":"auth",  "label":"Auth type",  "value":"none",
+//                              "options":[{"value":"none","label":"None"},...]      }
+//   { "type":"slider",         "id":"t",     "label":"Timeout",
+//                              "value":30,   "min":1, "max":300            }
+//   { "type":"key-value-list", "id":"hdrs",  "label":"Headers",
+//                              "entries":[{"key":"...","value":"..."}],
+//                              "add-label":"Add header"                    }
+//
+// ACTIONS  (fire a "click" event with an empty value)
+//   { "type":"button",      "id":"send",  "label":"Send",
+//                           "variant":"primary|secondary|danger", "enabled":true }
+//   { "type":"icon-button", "id":"clear", "icon":"x",
+//                           "tooltip":"Clear",                    "enabled":true }
+// ---------------------------------------------------------------------------
+
+interface ui-component {
+    use types.{plugin-error};
+
+    /// An event dispatched to the plugin when the user interacts with a widget.
+    record ui-event {
+        /// Matches the `id` field of the widget that fired the event.
+        widget-id: string,
+        /// "click"  — button / icon-button was pressed (value is empty)
+        /// "change" — any input value changed (value is JSON-encoded new value)
+        kind:      string,
+        /// JSON-encoded new value:
+        ///   text / password / textarea  → JSON string  e.g. "\"hello\""
+        ///   number / slider             → JSON number  e.g. "42"
+        ///   checkbox / toggle           → JSON bool    e.g. "true"
+        ///   select / radio              → JSON string  e.g. "\"GET\""
+        ///   multi-select                → JSON array   e.g. "[\"a\",\"b\"]"
+        ///   key-value-list              → JSON array   e.g. "[{\"key\":\"k\",\"value\":\"v\"}]"
+        ///   click                       → empty string
+        value:     string,
+    }
+
+    /// Returned by both render-ui and handle-event.
+    record ui-output {
+        /// JSON-encoded UiNode tree (see DSL schema above).
+        node-json:   string,
+        /// Height hint in logical pixels. 0 = auto-size to content.
+        height-hint: u32,
+    }
+
+    /// Return the initial UI tree. Called once when the panel is first shown.
+    render-ui: func() -> result<ui-output, plugin-error>;
+
+    /// Called every time the user interacts with a widget.
+    /// The plugin updates its internal state and returns a fresh UI tree.
+    handle-event: func(event: ui-event) -> result<ui-output, plugin-error>;
+
+    /// Optional sidebar panel. Return `ok(some(...))` to claim a slot in the
+    /// application sidebar (an icon button appears and the panel opens on click).
+    /// Return `ok(none)` if this plugin has no sidebar content.
+    /// The host calls this after every handle-event so the sidebar stays in sync.
+    render-sidebar: func() -> result<option<ui-output>, plugin-error>;
+}
+
 
 // ---------------------------------------------------------------------------
 // Worlds — plugin authors implement one of these
@@ -285,10 +487,37 @@ interface exporter {
 // capabilities, implement the combined world or compose component binaries.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// plugin-settings — implement on every plugin (trivial no-op is fine)
+//
+// Lets a plugin own its settings UI. The host calls render-settings() once
+// with the persisted key/value pairs; the plugin returns a UiNode tree.
+// Events from the UI (text-input changes, button clicks, etc.) are forwarded
+// back via handle-setting-event(). On Save the host calls get-settings() to
+// read the current values for persistence, and calls apply-settings() on the
+// next load so the plugin can restore its state.
+// ---------------------------------------------------------------------------
+
+interface plugin-settings {
+    use types.{plugin-error};
+
+    record settings-output {
+        /// JSON-encoded UiNode tree (same DSL as ui-component).
+        node-json:   string,
+        /// Height hint in logical pixels; 0 = auto.
+        height-hint: u32,
+    }
+
+    /// Render the settings UI. Called once when the user opens the settings for this plugin.
+    render-settings: func() -> result<settings-output, plugin-error>;
+}
+
+
 /// Every plugin must satisfy this base world.
 world base-plugin {
     export plugin-meta;
     export plugin-lifecycle;
+    export plugin-settings;
 }
 
 /// A plugin that teaches Thoth to open a new file format.
@@ -304,10 +533,22 @@ world file-viewer-plugin {
     export file-viewer;
 }
 
-/// A plugin that connects Thoth to an external data source.
+/// A plugin that renders a fully interactive panel (no file-loading required).
+world ui-component-plugin {
+    include base-plugin;
+    export ui-component;
+}
+
+/// A plugin that connects Thoth to an external data source and draws its own
+/// connection / query UI panel via the ui-component interface.
+/// The host provides the http-client import so plugins can make HTTP calls
+/// without needing wasi:http or wasm32-wasip2.
 world data-source-plugin {
     include base-plugin;
+    import http-client;
+    import plugin-storage;
     export data-source;
+    export ui-component;
 }
 
 /// A plugin that adds a new export format or destination.

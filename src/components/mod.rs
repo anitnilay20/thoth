@@ -16,6 +16,7 @@ pub use common::traits;
 // ── App-specific panels and feature components ────────────────────────────────
 pub mod bookmarks;
 pub mod central_panel;
+pub mod data_source_panel;
 pub mod drag_and_drop;
 pub mod error_modal;
 pub mod file_viewer;
