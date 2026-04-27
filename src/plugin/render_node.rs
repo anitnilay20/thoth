@@ -988,8 +988,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                             changed = true;
                         }
                         r
-                    })
-                    .inner;
+                    });
                 // Synthesise a dummy Response for the changed check below.
                 // We track `changed` separately since ScrollArea wraps the inner Response.
                 if changed {
