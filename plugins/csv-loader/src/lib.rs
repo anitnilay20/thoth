@@ -4,6 +4,7 @@
 
 // cargo-component generates this file automatically from wit/thoth-plugin.wit.
 // Do not call wit_bindgen::generate! — it is handled for you.
+#[rustfmt::skip]
 mod bindings;
 
 use std::cell::RefCell;

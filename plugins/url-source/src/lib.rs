@@ -1,5 +1,7 @@
-mod bindings;
 mod helper;
+
+#[rustfmt::skip]
+mod bindings;
 mod http;
 mod ui;
 
