@@ -168,11 +168,6 @@ impl WasmFileLoader {
         let mut guard = self.inner.lock().unwrap();
         let WasmLoaderInner { store, bindings } = &mut *guard;
 
-        let settings_data: String =
-            serde_json::to_string(&settings_data).map_err(|err| ThothError::Unknown {
-                message: format!("Invalid plugin setting: {}", err),
-            })?;
-
         store
             .set_fuel(u64::MAX / 2)
             .map_err(|e| ThothError::Unknown {
@@ -182,7 +177,7 @@ impl WasmFileLoader {
         // Invoke the plugin lifecycle hook so plugins can initialize state.
         bindings
             .thoth_plugin_plugin_lifecycle()
-            .call_on_load(store, &settings_data)
+            .call_on_load(store, settings_data)
             .map_err(|e| ThothError::PluginLoadError {
                 path: Path::new("<plugin on_load>").to_path_buf(),
                 reason: e.to_string(),

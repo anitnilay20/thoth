@@ -58,6 +58,8 @@ struct State {
     // ── Async fetch state ─────────────────────────────────────────────────
     /// True while a submit() request is in flight.
     loading: bool,
+    /// True when loading is paused waiting for the user to approve a consent popup.
+    consent_pending: bool,
     /// The request_id returned by submit(); matched against the http-response event.
     pending_request_id: Option<String>,
 
@@ -376,6 +378,7 @@ fn load_saved_request(st: &mut State, req: SavedRequest) {
     st.auth_key_in = req.auth_key_in;
     st.response = None;
     st.loading = false;
+    st.consent_pending = false;
     st.pending_request_id = None;
 }
 
@@ -652,6 +655,10 @@ impl UiComponentGuest for UrlSourcePlugin {
                     }
                     _ => {}
                 }
+            } else if event.widget_id == "consent-approved" {
+                // Host has dispatched the retry request — switch spinner text
+                // from "Waiting for consent approval" back to "Sending request".
+                st.consent_pending = false;
             } else if event.widget_id == "export-curl" {
                 st.show_export_modal = true;
             } else if event.widget_id == "import-curl" {

@@ -185,6 +185,11 @@ fn build_request_column(st: &State) -> Value {
 
 fn build_response_column(st: &State) -> Value {
     if st.loading {
+        let label = if st.consent_pending {
+            "Waiting for consent approval…"
+        } else {
+            "Sending request…"
+        };
         return json!({
             "type":      "row",
             "bg-color":  "mantle",
@@ -193,7 +198,7 @@ fn build_response_column(st: &State) -> Value {
             "gap":       8,
             "children": [
                 {"type": "spinner", "size": 14},
-                {"type": "text", "value": "Sending request…", "muted": true}
+                {"type": "text", "value": label, "muted": true}
             ]
         });
     }
@@ -481,13 +486,11 @@ fn build_response_panel(_st: &State, resp: &ResponseState) -> Value {
 ///   {"ok":{"status":200,"headers":[["k","v"]],"body":"..."}}
 ///   {"err":{"code":1,"message":"..."}}
 fn handle_http_response(st: &mut State, event: &UiEvent) {
-    st.loading = false;
-    st.pending_request_id = None;
-    st.resp_tab = "pretty".to_string();
-
     let val: Value = match serde_json::from_str(&event.value) {
         Ok(v) => v,
         Err(e) => {
+            st.loading = false;
+            st.pending_request_id = None;
             st.response = Some(ResponseState {
                 error: Some(format!("response parse error: {e}")),
                 ..Default::default()
@@ -495,6 +498,25 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             return;
         }
     };
+
+    // Consent-pending sentinel: keep loading state and spinner visible so the
+    // user knows to action the consent popup rather than seeing a bare error.
+    if let Some(msg) = val
+        .get("err")
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+    {
+        if msg.contains("waiting for user consent") {
+            st.consent_pending = true;
+            // loading stays true, pending_request_id stays set
+            return;
+        }
+    }
+
+    st.loading = false;
+    st.consent_pending = false;
+    st.pending_request_id = None;
+    st.resp_tab = "pretty".to_string();
 
     if let Some(ok) = val.get("ok") {
         let status = ok.get("status").and_then(|v| v.as_u64()).unwrap_or(0) as u16;

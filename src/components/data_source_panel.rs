@@ -102,20 +102,12 @@ impl StatefulComponent for DataSourcePanel {
                 Err(e) => panel_events.push(DataSourcePanelEvent::Error(e.to_string())),
             }
 
-            // After "send": plugin has cached the HTTP response — drain consents,
-            // retrieve the data, and pre-render the main pane.
+            // After "send": the HTTP request is in-flight asynchronously; drain any
+            // consent requests and wait for the plugin's http-response event to deliver
+            // the QueryResult — do not call query() here as the response is not yet cached.
             if evt.widget_id == "send" && evt.kind == "click" {
                 for cr in self.loader.as_mut().unwrap().drain_consent_requests() {
                     panel_events.push(DataSourcePanelEvent::ConsentNeeded(cr));
-                }
-                match self.loader.as_mut().unwrap().query("", "") {
-                    Ok(json) => {
-                        panel_events.push(DataSourcePanelEvent::QueryResult {
-                            json,
-                            display_url: self.last_url.clone(),
-                        });
-                    }
-                    Err(e) => panel_events.push(DataSourcePanelEvent::Error(e.to_string())),
                 }
             }
         }

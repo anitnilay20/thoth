@@ -9,6 +9,32 @@
 //   TypeScript → jco             (https://github.com/bytecodealliance/jco)
 //   Go         → wit-bindgen-go  (https://github.com/bytecodealliance/wit-bindgen)
 //   Python     → componentize-py (https://github.com/bytecodealliance/componentize-py)
+//
+// ---------------------------------------------------------------------------
+// CHANGELOG — breaking changes introduced since the initial release
+// ---------------------------------------------------------------------------
+//
+// [BREAKING] plugin-lifecycle.on-load now takes a `setting: string` argument.
+//   Migration: update your on_load implementation to accept the settings
+//   string (JSON array of {key, value} pairs) instead of taking no arguments.
+//
+// [BREAKING] plugin-lifecycle.on-setting-change is now a required export.
+//   Migration: implement on_setting_change (a no-op body is fine) in every
+//   plugin that satisfies plugin-lifecycle.
+//
+// [BREAKING] base-plugin now includes plugin-settings, making render-settings
+//   a required export on all plugin worlds (file-loader-plugin,
+//   file-viewer-plugin, data-source-plugin, etc.).
+//   Migration: implement render_settings() returning an empty UiNode, or
+//   remove plugin-settings from base-plugin if the settings UI is optional
+//   for your plugin type.
+//
+// [BREAKING] data-source.config-entry record now has four fields:
+//   {name, description, required, value} — previously only {name, value}.
+//   Migration: update ConfigEntry construction to supply description (human-
+//   readable label) and required (bool) in addition to name and value.
+//
+// ---------------------------------------------------------------------------
 
 package thoth:plugin@0.1.0;
 

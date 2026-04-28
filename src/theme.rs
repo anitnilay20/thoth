@@ -230,12 +230,24 @@ pub struct ThemeColors {
 impl ThemeColors {
     /// Build an `egui_code_editor` `ColorTheme` from the current palette.
     ///
-    /// `ColorTheme` requires `&'static str` for every colour field. We satisfy
-    /// this by leaking a tiny allocation per colour — acceptable because this
-    /// is only called on theme initialisation / change, never per-frame.
+    /// `ColorTheme` requires `&'static str` for every colour field. This is
+    /// called per-frame from `render_ui_node`, so `hex()` interns each unique
+    /// colour in a static cache and leaks it only once.
     pub fn code_editor_theme(&self) -> ColorTheme {
         fn hex(c: Color32) -> &'static str {
-            Box::leak(format!("{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()).into_boxed_str())
+            use std::collections::HashMap;
+            use std::sync::Mutex;
+            static CACHE: std::sync::OnceLock<Mutex<HashMap<u32, &'static str>>> =
+                std::sync::OnceLock::new();
+            let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+            let key = ((c.r() as u32) << 16) | ((c.g() as u32) << 8) | (c.b() as u32);
+            let mut map = cache.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(&s) = map.get(&key) {
+                return s;
+            }
+            let s = Box::leak(format!("{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()).into_boxed_str());
+            map.insert(key, s);
+            s
         }
         let is_dark = get_contrast_text_color(self.base) == Color32::WHITE;
         ColorTheme {

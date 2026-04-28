@@ -166,13 +166,11 @@ impl CentralPanel {
             if let Some(output) = props.plugin_ui {
                 match serde_json::from_str::<UiNode>(&output.node_json) {
                     Ok(node) => {
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            let mut ui_events = Vec::new();
-                            render_ui_node(ui, &node, &mut ui_events);
-                            for evt in ui_events {
-                                events.push(CentralPanelEvent::PluginUiEvent(evt));
-                            }
-                        });
+                        let mut ui_events = Vec::new();
+                        render_ui_node(ui, &node, &mut ui_events);
+                        for evt in ui_events {
+                            events.push(CentralPanelEvent::PluginUiEvent(evt));
+                        }
                     }
                     Err(e) => {
                         ui.colored_label(egui::Color32::RED, format!("Plugin UI parse error: {e}"));

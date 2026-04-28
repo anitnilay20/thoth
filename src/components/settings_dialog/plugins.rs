@@ -192,7 +192,7 @@ impl PluginsTab {
                         .any(|e| matches!(e, PluginsTabEvent::OpenSettingsForPlugin(None)))
                     {
                         ui.ctx()
-                            .data_mut(|d| d.remove::<serde_json::Value>(cache_id));
+                            .data_mut(|d| d.remove::<crate::plugin::render_node::UiNode>(cache_id));
                     }
 
                     ui.add_space(8.0);

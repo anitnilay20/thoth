@@ -199,7 +199,7 @@ impl ContextComponent for NotificationDropdown {
             NotificationManager::all_consent_notifications();
 
         if !open_consent_notifications.is_empty() {
-            egui::Window::new("Notifications")
+            egui::Window::new("Notifications - Consent")
                 .frame(egui::Frame::window(&ui.ctx().global_style()).inner_margin(0))
                 .title_bar(false)
                 .anchor(Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -28.0))

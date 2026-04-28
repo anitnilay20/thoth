@@ -156,27 +156,27 @@ pub fn parse_url_into_state(st: &mut State, raw: String) {
 
 /// Minimal percent-decode: replace `%XX` sequences and `+` with spaces.
 pub fn percent_decode(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
+    let mut out: Vec<u8> = Vec::with_capacity(s.len());
     let bytes = s.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'+' {
-            out.push(' ');
+            out.push(b' ');
             i += 1;
         } else if bytes[i] == b'%' && i + 2 < bytes.len() {
             if let (Some(h), Some(l)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
-                out.push((h << 4 | l) as char);
+                out.push(h << 4 | l);
                 i += 3;
             } else {
-                out.push('%');
+                out.push(b'%');
                 i += 1;
             }
         } else {
-            out.push(bytes[i] as char);
+            out.push(bytes[i]);
             i += 1;
         }
     }
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn hex_val(b: u8) -> Option<u8> {

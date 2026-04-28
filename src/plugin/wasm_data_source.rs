@@ -11,6 +11,21 @@ use crate::notification::NotificationManager;
 use crate::plugin::network_policy::{CheckOutcome, NetworkPolicy};
 use crate::settings::PluginSettingData;
 
+/// Fuel budget per WASM call.
+/// serde_json serializing a large HTTP response body through nested Value calls
+/// can consume hundreds of millions of WASM instructions, so the budget must be
+/// high enough to handle realistic payloads while still bounding runaway plugins.
+const PLUGIN_FUEL_BUDGET: u64 = 5_000_000_000;
+
+/// Refuel the store to `PLUGIN_FUEL_BUDGET` before each WASM call.
+fn refuel(store: &mut Store<DataSourcePluginState>) -> Result<()> {
+    store
+        .set_fuel(PLUGIN_FUEL_BUDGET)
+        .map_err(|e| ThothError::Unknown {
+            message: format!("failed to set plugin fuel: {e}"),
+        })
+}
+
 wasmtime::component::bindgen!({
     path: "wit/thoth-plugin.wit",
     world: "data-source-plugin",
@@ -163,8 +178,9 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
                     domain: domain.clone(),
                     plugin_id: self.plugin_id.clone(),
                 });
-                // pending_count is NOT incremented here — the retry will increment
-                // it when the user approves and the request is re-dispatched.
+                // pending_count is incremented below before the immediate error send
+                // so drain_http_results' fetch_sub stays balanced. The retry path
+                // also increments separately when the user approves.
 
                 let retry_tx = Arc::clone(&self.retry_tx);
                 let retry_id = request_id.clone();
@@ -182,8 +198,9 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
                 );
 
                 // Deliver an immediate error so the plugin can show "awaiting consent".
-                // When the user approves, the host drains the retry channel and
-                // re-dispatches the request, delivering a new http-response event.
+                // Must increment pending_count before sending so drain_http_results'
+                // unconditional fetch_sub stays balanced.
+                self.pending_count.fetch_add(1, Ordering::Relaxed);
                 let _ = tx.send((
                     id,
                     Err::<HttpResponseRaw, String>(format!(
@@ -328,12 +345,10 @@ impl WasmDataSourceLoader {
         };
 
         let mut store = Store::new(engine, state);
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::PluginLoadError {
-                path: wasm_path.to_path_buf(),
-                reason: e.to_string(),
-            })?;
+        refuel(&mut store).map_err(|e| ThothError::PluginLoadError {
+            path: wasm_path.to_path_buf(),
+            reason: e.to_string(),
+        })?;
 
         let component =
             Component::from_file(engine, wasm_path).map_err(|e| ThothError::PluginLoadError {
@@ -400,11 +415,7 @@ impl WasmDataSourceLoader {
 
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?;
+        refuel(store)?;
         bindings
             .thoth_plugin_plugin_lifecycle()
             .call_on_load(store, &settings_json)
@@ -419,11 +430,7 @@ impl WasmDataSourceLoader {
     pub fn required_config(&self) -> Result<Vec<ConfigEntry>> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?;
+        refuel(store)?;
         bindings
             .thoth_plugin_data_source()
             .call_required_config(store)
@@ -436,11 +443,7 @@ impl WasmDataSourceLoader {
     pub fn connect(&self, config: Vec<ConfigEntry>) -> Result<String> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?;
+        refuel(store)?;
         bindings
             .thoth_plugin_data_source()
             .call_connect(store, &config)
@@ -454,11 +457,7 @@ impl WasmDataSourceLoader {
     pub fn schema(&self, handle: &str) -> Result<Vec<SourceSchema>> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?;
+        refuel(store)?;
         bindings
             .thoth_plugin_data_source()
             .call_schema(store, handle)
@@ -472,11 +471,7 @@ impl WasmDataSourceLoader {
     pub fn query(&self, handle: &str, q: &str) -> Result<String> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?;
+        refuel(store)?;
         bindings
             .thoth_plugin_data_source()
             .call_query(store, handle, q)
@@ -490,7 +485,7 @@ impl WasmDataSourceLoader {
     pub fn close(&self, handle: &str) {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        let _ = store.set_fuel(u64::MAX / 2);
+        let _ = refuel(store);
         let _ = bindings
             .thoth_plugin_data_source()
             .call_close(store, handle);
@@ -500,11 +495,7 @@ impl WasmDataSourceLoader {
     pub fn render_pane(&self, handle: &str) -> crate::error::Result<UiNode> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?;
+        refuel(store)?;
         let wit_out = bindings
             .thoth_plugin_data_source()
             .call_render_pane(store, handle)
@@ -522,11 +513,7 @@ impl WasmDataSourceLoader {
     pub fn render_sidebar(&self) -> Result<Option<UiOutput>> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?;
+        refuel(store)?;
         let result = bindings
             .thoth_plugin_ui_component()
             .call_render_sidebar(store)
@@ -544,11 +531,7 @@ impl WasmDataSourceLoader {
     pub fn render_ui(&self) -> Result<UiOutput> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?;
+        refuel(store)?;
         let wit_out = bindings
             .thoth_plugin_ui_component()
             .call_render_ui(store)
@@ -566,11 +549,7 @@ impl WasmDataSourceLoader {
     pub fn handle_event(&self, event: UiEvent) -> Result<UiOutput> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmDataSourceInner { store, bindings } = &mut *guard;
-        store
-            .set_fuel(u64::MAX / 2)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?;
+        refuel(store)?;
         let wit_event = exports::thoth::plugin::ui_component::UiEvent {
             widget_id: event.widget_id,
             kind: event.kind,

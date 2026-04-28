@@ -555,6 +555,16 @@ impl ThothApp {
         // Re-dispatch any requests the user approved via consent notifications.
         for (request_id, req) in pane.loader.drain_retry_requests() {
             pane.loader.dispatch_approved_request(request_id, req);
+            // Notify the plugin so it can switch its spinner text from
+            // "Waiting for consent" to "Sending request…".
+            let consent_event = UiEvent {
+                widget_id: "consent-approved".to_string(),
+                kind: "notify".to_string(),
+                value: String::new(),
+            };
+            if let Ok(new_output) = pane.loader.handle_event(consent_event) {
+                pane.ui_output = new_output;
+            }
             ctx.request_repaint();
         }
 

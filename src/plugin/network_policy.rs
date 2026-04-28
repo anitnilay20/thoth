@@ -1,5 +1,3 @@
-use std::cmp::max;
-
 use reqwest::Url;
 
 use crate::{plugin::NetworkDeclarations, settings::PluginNetworkPolicy};
@@ -29,15 +27,33 @@ impl NetworkPolicy {
         plugin: &NetworkDeclarations,
         user: &PluginNetworkPolicy,
     ) -> Self {
+        // Intersection of allowed domains: plugin cannot access a domain the user
+        // hasn't explicitly permitted. If either side is empty, no domains are allowed.
+        let allowed_domains: Vec<String> =
+            if user.allowed_domains.is_empty() || plugin.allowed_domains.is_empty() {
+                Vec::new()
+            } else {
+                let mut v: Vec<String> = plugin
+                    .allowed_domains
+                    .iter()
+                    .filter(|d| user.allowed_domains.contains(d))
+                    .cloned()
+                    .collect();
+                v.dedup();
+                v
+            };
+
+        // User's blocked list is authoritative — plugins declare no blocked domains.
+        let mut blocked_domains = user.blocked_domains.clone();
+        blocked_domains.sort_unstable();
+        blocked_domains.dedup();
+
         let config = PluginNetworkPolicy {
-            allowed_domains: [
-                user.allowed_domains.as_slice(),
-                plugin.allowed_domains.as_slice(),
-            ]
-            .concat(),
-            blocked_domains: user.blocked_domains.clone(),
+            allowed_domains,
+            blocked_domains,
             require_https: user.require_https || plugin.require_https,
-            rate_limit_rpm: max(user.rate_limit_rpm, plugin.rate_limit_rpm),
+            // Minimum rate limit — honour whichever side is more restrictive.
+            rate_limit_rpm: user.rate_limit_rpm.min(plugin.rate_limit_rpm),
         };
 
         Self {
@@ -50,7 +66,10 @@ impl NetworkPolicy {
         let parsed_url =
             Url::parse(url).map_err(|err| PolicyViolation::InvalidUrl(err.to_string()))?;
 
-        let host = parsed_url.host().unwrap().to_string();
+        let host = parsed_url
+            .host()
+            .ok_or_else(|| PolicyViolation::InvalidUrl(format!("URL has no host: {url}")))?
+            .to_string();
 
         if self.is_rate_limited() {
             return Err(PolicyViolation::RateLimitExceeded);
