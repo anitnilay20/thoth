@@ -85,7 +85,7 @@ impl NetworkPolicy {
             return Ok(CheckOutcome::Allowed);
         }
         Ok(CheckOutcome::NeedsConsent {
-            domain: url.to_string(),
+            domain: host.to_string(),
         })
     }
 
@@ -110,16 +110,24 @@ impl NetworkPolicy {
             };
         }
 
-        // Try to resolve hostname to see if it resolves to a private IP
-        // Using std::net::ToSocketAddrs (blocking call) - for a production system,
-        // consider using async DNS resolution
-        if let Ok(mut addrs) = format!("{}:80", host)
-            .parse::<std::net::SocketAddr>()
-            .map(|addr| vec![addr].into_iter())
-            .or_else(|_| std::net::ToSocketAddrs::to_socket_addrs(&format!("{}:80", host)))
-        {
-            if let Some(addr) = addrs.next() {
-                return matches!(addr.ip(), std::net::IpAddr::V4(ip) if ip.is_private() || ip.is_loopback() || ip.is_link_local());
+        // Resolve the hostname and check all returned addresses.
+        // A single private answer in any position is enough to block the request.
+        if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&format!("{}:80", host)) {
+            for addr in addrs {
+                let is_private = match addr.ip() {
+                    std::net::IpAddr::V4(ip) => {
+                        ip.is_private() || ip.is_loopback() || ip.is_link_local()
+                    }
+                    std::net::IpAddr::V6(ip) => {
+                        ip.is_loopback()
+                            || ip.is_unicast_link_local()
+                            // Unique-local range fc00::/7
+                            || (ip.segments()[0] & 0xfe00) == 0xfc00
+                    }
+                };
+                if is_private {
+                    return true;
+                }
             }
         }
 

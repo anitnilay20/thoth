@@ -504,39 +504,10 @@ impl ThothApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
-    /// Drain completed async HTTP requests from the active plugin pane and
-    /// forward each result to the plugin via `handle_event`.  Must be called
-    /// before any rendering so the updated `ui_output` is used in this frame.
-    fn poll_plugin_http_results(&mut self, ctx: &egui::Context) {
-        use crate::plugin::render_node::UiEvent;
-
-        let Some(pane) = self.window_state.active_plugin_pane.as_mut() else {
-            return;
-        };
-
-        for (request_id, outcome) in pane.loader.drain_http_results() {
-            let value = match outcome {
-                Ok(raw) => {
-                    let body = String::from_utf8_lossy(&raw.body).to_string();
-                    serde_json::json!({
-                        "ok": {
-                            "status": raw.status,
-                            "headers": raw.headers,
-                            "body": body,
-                            "duration_ms": raw.duration_ms
-                        }
-                    })
-                    .to_string()
-                }
-                Err(msg) => serde_json::json!({"err": {"code": 1, "message": msg}}).to_string(),
-            };
-
-            let event = UiEvent {
-                widget_id: request_id,
-                kind: "http-response".to_string(),
-                value,
-            };
-
+    /// Forward `event` to the active plugin pane, refresh `ui_output`, and
+    /// update the sidebar. Sets `window_state.error` on failure.
+    fn dispatch_plugin_event(&mut self, event: crate::plugin::render_node::UiEvent) {
+        if let Some(pane) = self.window_state.active_plugin_pane.as_mut() {
             match pane.loader.handle_event(event) {
                 Ok(new_output) => {
                     pane.ui_output = new_output;
@@ -551,25 +522,71 @@ impl ThothApp {
                 }
             }
         }
+    }
+
+    /// Drain completed async HTTP requests from the active plugin pane and
+    /// forward each result to the plugin via `handle_event`.  Must be called
+    /// before any rendering so the updated `ui_output` is used in this frame.
+    fn poll_plugin_http_results(&mut self, ctx: &egui::Context) {
+        use crate::plugin::render_node::UiEvent;
+
+        // Collect all pending results first so we can drop the pane borrow
+        // before calling dispatch_plugin_event (which also borrows self).
+        let (http_events, retry_requests, needs_repaint) = {
+            let Some(pane) = self.window_state.active_plugin_pane.as_mut() else {
+                return;
+            };
+            let http_events: Vec<UiEvent> = pane
+                .loader
+                .drain_http_results()
+                .into_iter()
+                .map(|(request_id, outcome)| {
+                    let value = match outcome {
+                        Ok(raw) => {
+                            let body = String::from_utf8_lossy(&raw.body).to_string();
+                            serde_json::json!({
+                                "ok": {
+                                    "status": raw.status,
+                                    "headers": raw.headers,
+                                    "body": body,
+                                    "duration_ms": raw.duration_ms
+                                }
+                            })
+                            .to_string()
+                        }
+                        Err(msg) => {
+                            serde_json::json!({"err": {"code": 1, "message": msg}}).to_string()
+                        }
+                    };
+                    UiEvent { widget_id: request_id, kind: "http-response".to_string(), value }
+                })
+                .collect();
+
+            let retry_requests = pane.loader.drain_retry_requests();
+            let needs_repaint = pane.loader.has_pending_http();
+            (http_events, retry_requests, needs_repaint)
+        };
+
+        for event in http_events {
+            self.dispatch_plugin_event(event);
+        }
 
         // Re-dispatch any requests the user approved via consent notifications.
-        for (request_id, req) in pane.loader.drain_retry_requests() {
-            pane.loader.dispatch_approved_request(request_id, req);
+        for (request_id, req) in retry_requests {
+            if let Some(pane) = self.window_state.active_plugin_pane.as_mut() {
+                pane.loader.dispatch_approved_request(request_id, req);
+            }
             // Notify the plugin so it can switch its spinner text from
             // "Waiting for consent" to "Sending request…".
-            let consent_event = UiEvent {
+            self.dispatch_plugin_event(UiEvent {
                 widget_id: "consent-approved".to_string(),
                 kind: "notify".to_string(),
                 value: String::new(),
-            };
-            if let Ok(new_output) = pane.loader.handle_event(consent_event) {
-                pane.ui_output = new_output;
-            }
+            });
             ctx.request_repaint();
         }
 
-        // Keep repainting while requests are still in flight so we poll again next frame.
-        if pane.loader.has_pending_http() {
+        if needs_repaint {
             ctx.request_repaint();
         }
     }
@@ -792,21 +809,7 @@ impl ThothApp {
                     self.window_state.error = None;
                 }
                 components::central_panel::CentralPanelEvent::PluginUiEvent(evt) => {
-                    if let Some(pane) = self.window_state.active_plugin_pane.as_mut() {
-                        match pane.loader.handle_event(evt) {
-                            Ok(new_output) => {
-                                pane.ui_output = new_output;
-                                if let Ok(sidebar) = pane.loader.render_sidebar() {
-                                    self.window_state.plugin_sidebar_output = sidebar;
-                                }
-                            }
-                            Err(e) => {
-                                self.window_state.error = Some(crate::error::ThothError::Unknown {
-                                    message: e.to_string(),
-                                });
-                            }
-                        }
-                    }
+                    self.dispatch_plugin_event(evt);
                 }
             }
         }
@@ -1155,21 +1158,7 @@ impl ThothApp {
                     }
                 }
                 components::sidebar::SidebarEvent::PluginSidebarEvent(evt) => {
-                    if let Some(pane) = self.window_state.active_plugin_pane.as_mut() {
-                        match pane.loader.handle_event(evt) {
-                            Ok(new_output) => {
-                                pane.ui_output = new_output;
-                                if let Ok(sidebar) = pane.loader.render_sidebar() {
-                                    self.window_state.plugin_sidebar_output = sidebar;
-                                }
-                            }
-                            Err(e) => {
-                                self.window_state.error = Some(crate::error::ThothError::Unknown {
-                                    message: e.to_string(),
-                                });
-                            }
-                        }
-                    }
+                    self.dispatch_plugin_event(evt);
                 }
             }
         }

@@ -133,12 +133,32 @@ impl PluginManager {
     }
 
     pub fn open_file(&self, ext: &str, file_path: &Path) -> Result<WasmFileLoader> {
-        let wasm_path = self
+        let plugin = self
+            .registry
             .find_loader_for_extension(ext)
             .ok_or_else(|| ThothError::Unknown {
                 message: format!("No plugin registered for .{ext}"),
             })?;
-        WasmFileLoader::open(&self.engine, &wasm_path, file_path)
+        let wasm_path = plugin
+            .location
+            .as_deref()
+            .map(std::path::Path::new)
+            .ok_or_else(|| ThothError::Unknown {
+                message: "Plugin has no wasm path".into(),
+            })?;
+        let settings = self
+            .plugin_settings
+            .get(&plugin.id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let settings_json = serde_json::to_string(settings).unwrap_or_default();
+
+        let mut loader = WasmFileLoader::open(&self.engine, wasm_path, file_path)?;
+        loader.on_load(&settings_json).map_err(|e| ThothError::PluginLoadError {
+            path: wasm_path.to_path_buf(),
+            reason: e.to_string(),
+        })?;
+        Ok(loader)
     }
 
     pub fn get_data_sorce_plugins(&self) -> Vec<&Plugin> {

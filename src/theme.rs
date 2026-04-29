@@ -121,7 +121,7 @@ impl Theme {
             bracket: "#7c7f93".to_string(), // Overlay2
             // Status indicators
             success: "#40a02b".to_string(), // Green
-            warning: "#4e4d4b".to_string(), // Yellow
+            warning: "#df8e1d".to_string(), // Yellow
             error: "#d20f39".to_string(),   // Red
             info: "#209fb5".to_string(),    // Sapphire
             // Sidebar

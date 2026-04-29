@@ -486,6 +486,12 @@ fn build_response_panel(_st: &State, resp: &ResponseState) -> Value {
 ///   {"ok":{"status":200,"headers":[["k","v"]],"body":"..."}}
 ///   {"err":{"code":1,"message":"..."}}
 fn handle_http_response(st: &mut State, event: &UiEvent) {
+    // Ignore responses that don't match the current in-flight request so that
+    // a slow earlier request can't overwrite a newer one's result.
+    if st.pending_request_id.as_deref() != Some(event.widget_id.as_str()) {
+        return;
+    }
+
     let val: Value = match serde_json::from_str(&event.value) {
         Ok(v) => v,
         Err(e) => {

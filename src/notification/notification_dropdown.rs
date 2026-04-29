@@ -214,22 +214,28 @@ impl ContextComponent for NotificationDropdown {
 
                     let list_items = open_consent_notifications
                         .iter()
-                        .map(|n| ListItem {
-                            title: &n.title,
-                            description: Some(&n.message),
-                            icon: Some(egui_phosphor::regular::WARNING),
-                            icon_color: Some(colors.warning),
-                            badge: None,
-                            action: vec![
-                                ListItemAction {
-                                    icon: egui_phosphor::regular::CHECK,
-                                    tooltip: "Approve",
-                                },
-                                ListItemAction {
-                                    icon: egui_phosphor::regular::X,
-                                    tooltip: "Deny",
-                                },
-                            ],
+                        .map(|n| {
+                            let action = n
+                                .actions
+                                .iter()
+                                .enumerate()
+                                .map(|(i, (label, _))| ListItemAction {
+                                    icon: if i == 0 {
+                                        egui_phosphor::regular::CHECK
+                                    } else {
+                                        egui_phosphor::regular::X
+                                    },
+                                    tooltip: label.as_str(),
+                                })
+                                .collect();
+                            ListItem {
+                                title: &n.title,
+                                description: Some(&n.message),
+                                icon: Some(egui_phosphor::regular::WARNING),
+                                icon_color: Some(colors.warning),
+                                badge: None,
+                                action,
+                            }
                         })
                         .collect::<Vec<ListItem>>();
 
@@ -243,27 +249,10 @@ impl ContextComponent for NotificationDropdown {
 
                     if let (Some(item_idx), Some(action_idx)) = output.action_clicked {
                         let notification = &open_consent_notifications[item_idx];
-                        match action_idx {
-                            0 => {
-                                // Approve
-                                if let Some(action) = notification.actions.first() {
-                                    action.1();
-                                }
-                                NotificationManager::mark_notification_as_complete(
-                                    &notification.id,
-                                );
-                            }
-                            1 => {
-                                // Deny
-                                if let Some(action) = notification.actions.get(1) {
-                                    action.1();
-                                }
-                                NotificationManager::mark_notification_as_complete(
-                                    &notification.id,
-                                );
-                            }
-                            _ => {}
+                        if let Some(action) = notification.actions.get(action_idx) {
+                            action.1();
                         }
+                        NotificationManager::mark_notification_as_complete(&notification.id);
                     }
                 });
         }
