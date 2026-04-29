@@ -8,7 +8,7 @@ use crate::components::table_view::{TableCell, TableView, TableViewProps};
 use crate::components::traits::StatelessComponent;
 use crate::file::loaders::FileType;
 use crate::helpers::LruCache;
-use crate::plugin::render_node::{RenderNode, render_node};
+use crate::plugin::render_node::{UiNode, render_ui_node};
 use crate::plugin::wasm_file_viewer_loader::DisplayMode;
 
 pub struct PluginTableViewer {
@@ -148,15 +148,19 @@ impl FileFormatViewer for PluginTableViewer {
                             }
 
                             if let Some(node_json) = render_cache.get(&idx) {
-                                match serde_json::from_str::<RenderNode>(node_json) {
-                                    Ok(RenderNode::Row { children }) => children
+                                match serde_json::from_str::<UiNode>(node_json) {
+                                    Ok(UiNode::Row { children, .. }) => children
                                         .into_iter()
                                         .map(|child| {
-                                            TableCell::custom(move |ui| render_node(ui, &child))
+                                            TableCell::custom(move |ui| {
+                                                render_ui_node(ui, &child, &mut Vec::new());
+                                            })
                                         })
                                         .collect(),
                                     Ok(other) => {
-                                        vec![TableCell::custom(move |ui| render_node(ui, &other))]
+                                        vec![TableCell::custom(move |ui| {
+                                            render_ui_node(ui, &other, &mut Vec::new());
+                                        })]
                                     }
                                     Err(_) => vec![TableCell::text("—")],
                                 }

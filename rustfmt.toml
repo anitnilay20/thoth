@@ -1,0 +1,7 @@
+# ignore is a nightly-only rustfmt option; on stable the list below is silently
+# skipped, so each bindings.rs also carries a #[rustfmt::skip] on the one item
+# that stable rustfmt would otherwise reformat on every run.
+ignore = [
+    "plugins/url-source/src/bindings.rs",
+    "plugins/csv-loader/src/bindings.rs",
+]

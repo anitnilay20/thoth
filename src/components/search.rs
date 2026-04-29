@@ -1,11 +1,8 @@
-use std::sync::Arc;
-
-use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
+use crate::components::common::list::{List, ListItem, ListProps};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
-use crate::search::results::MatchPreview;
 use crate::search::{QueryMode, Search as SearchState, SearchMessage, decode_history_entry};
-use eframe::egui::{self, WidgetText, text::LayoutJob};
+use eframe::egui;
 
 /// Detect query mode based on whether the query starts with '$'
 fn detect_query_mode(query: &str) -> QueryMode {
@@ -189,11 +186,16 @@ impl StatefulComponent for Search {
         // Display search history if no active search and history exists
         if props.search_state.query.is_empty() {
             if let Some(history) = props.search_history {
-                if !history.is_empty() {
+                let queries: Vec<String> = history
+                    .iter()
+                    .map(|e| decode_history_entry(e).1)
+                    .filter(|q| !q.trim().is_empty())
+                    .collect();
+
+                if !queries.is_empty() {
                     ui.separator();
                     ui.add_space(8.0);
 
-                    // Header with clear button
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new("RECENT SEARCHES")
@@ -201,9 +203,7 @@ impl StatefulComponent for Search {
                                 .color(header_color)
                                 .strong(),
                         );
-
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            // Clear history button
                             let clear_output = IconButton::render(
                                 ui,
                                 IconButtonProps {
@@ -222,40 +222,36 @@ impl StatefulComponent for Search {
                     });
                     ui.add_space(4.0);
 
-                    for entry in history {
-                        let (_entry_mode, entry_query) = decode_history_entry(entry);
+                    let items: Vec<ListItem<'_>> = queries
+                        .iter()
+                        .map(|q| ListItem {
+                            title: q.as_str(),
+                            description: None,
+                            icon: Some(egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE),
+                            icon_color: None,
+                            badge: None,
+                            action: vec![],
+                        })
+                        .collect();
 
-                        // Skip empty queries
-                        if entry_query.trim().is_empty() {
-                            continue;
-                        }
+                    let output = List::render(
+                        ui,
+                        ListProps {
+                            items: &items,
+                            empty_label: None,
+                        },
+                    );
 
-                        let button = Button::render(
-                            ui,
-                            ButtonProps {
-                                label: entry_query.clone(),
-                                button_type: ButtonType::Text,
-                                color: ButtonColor::Default,
-                                hover_text: None,
-                                size: Some(12.0),
-                                width: Some(ui.available_width()),
-                                height: Some(24.0),
-                            },
-                        );
-
-                        if button.clicked {
-                            self.search_query = entry_query.clone();
-                            let query_mode = detect_query_mode(&entry_query);
-                            if let Some(msg) = SearchMessage::create_search(
-                                entry_query.clone(),
-                                self.match_case,
-                                query_mode,
-                            ) {
+                    if let Some(idx) = output.row_clicked {
+                        if let Some(q) = queries.get(idx) {
+                            self.search_query = q.clone();
+                            let query_mode = detect_query_mode(q);
+                            if let Some(msg) =
+                                SearchMessage::create_search(q.clone(), self.match_case, query_mode)
+                            {
                                 events.push(SearchEvent::Search(msg));
                             }
                         }
-
-                        ui.add_space(2.0);
                     }
                 }
             }
@@ -281,41 +277,54 @@ impl StatefulComponent for Search {
                 );
                 ui.add_space(4.0);
 
-                // Scrollable results list with virtual scrolling for performance
-                let row_height = 54.0;
-                let row_count = result_count;
+                let hits = props.search_state.results.hits();
+                let titles: Vec<String> = hits
+                    .iter()
+                    .map(|hit| format!("Record #{}", hit.record_index))
+                    .collect();
+                let descriptions: Vec<Option<String>> = hits
+                    .iter()
+                    .map(|hit| {
+                        hit.preview.as_ref().map(|p| {
+                            format!(
+                                "{}{}{}",
+                                p.before.trim(),
+                                p.highlight.trim(),
+                                p.after.trim()
+                            )
+                        })
+                    })
+                    .collect();
+                let items: Vec<ListItem<'_>> = titles
+                    .iter()
+                    .zip(descriptions.iter())
+                    .map(|(title, desc): (&String, &Option<String>)| ListItem {
+                        title: title.as_str(),
+                        description: desc.as_deref(),
+                        icon: Some(egui_phosphor::regular::MAGNIFYING_GLASS),
+                        icon_color: None,
+                        badge: None,
+                        action: vec![],
+                    })
+                    .collect();
 
                 egui::ScrollArea::vertical()
                     .id_salt("search_results_scroll")
                     .auto_shrink([false, false])
-                    .show_rows(ui, row_height, row_count, |ui, row_range| {
-                        for idx in row_range {
-                            let Some(hit) = props.search_state.results.get(idx) else {
-                                continue;
-                            };
-                            let record_index = hit.record_index;
-
-                            let button_text =
-                                build_result_preview_text(ui, record_index, hit.preview.as_ref());
-                            let button = Button::render(
-                                ui,
-                                ButtonProps {
-                                    label: button_text.text().to_string(),
-                                    button_type: ButtonType::Text,
-                                    color: ButtonColor::Default,
-                                    hover_text: None,
-                                    size: None,
-                                    width: Some(ui.available_width()),
-                                    height: Some(row_height - 4.0),
-                                },
-                            );
-
-                            if button.clicked {
-                                events.push(SearchEvent::NavigateToResult { record_index });
+                    .show(ui, |ui| {
+                        let output = List::render(
+                            ui,
+                            ListProps {
+                                items: &items,
+                                empty_label: None,
+                            },
+                        );
+                        if let Some(idx) = output.row_clicked {
+                            if let Some(hit) = props.search_state.results.hits().get(idx) {
+                                events.push(SearchEvent::NavigateToResult {
+                                    record_index: hit.record_index,
+                                });
                             }
-
-                            // Add small spacing between buttons to prevent overlap
-                            ui.add_space(2.0);
                         }
                     });
             } else {
@@ -329,84 +338,4 @@ impl StatefulComponent for Search {
 
         SearchOutput { events }
     }
-}
-
-fn build_result_preview_text(
-    ui: &egui::Ui,
-    record_index: usize,
-    preview: Option<&MatchPreview>,
-) -> WidgetText {
-    let mut job = LayoutJob::default();
-    let title_format = egui::TextFormat {
-        font_id: egui::FontId::proportional(13.0),
-        color: ui.visuals().text_color(),
-        ..Default::default()
-    };
-
-    job.append(&format!("Record #{}", record_index), 0.0, title_format);
-
-    job.append("\n", 0.0, egui::TextFormat::default());
-
-    let base_format = egui::TextFormat {
-        font_id: egui::FontId::proportional(11.0),
-        color: ui.visuals().weak_text_color(),
-        ..Default::default()
-    };
-
-    let highlight_format = egui::TextFormat {
-        font_id: egui::FontId::proportional(11.0),
-        color: ui.visuals().strong_text_color(),
-        background: ui.visuals().selection.bg_fill,
-        ..Default::default()
-    };
-
-    match preview {
-        Some(p) => {
-            append_snippet_segment(&mut job, p.before.trim(), &base_format, false, true);
-
-            let highlight = if p.highlight.trim().is_empty() {
-                "…"
-            } else {
-                p.highlight.trim()
-            };
-            append_snippet_segment(&mut job, highlight, &highlight_format, false, true);
-
-            append_snippet_segment(&mut job, p.after.trim(), &base_format, false, false);
-        }
-        None => {
-            job.append(
-                "Match found",
-                0.0,
-                egui::TextFormat {
-                    color: ui.visuals().weak_text_color(),
-                    ..base_format
-                },
-            );
-        }
-    }
-
-    WidgetText::LayoutJob(Arc::new(job))
-}
-
-fn append_snippet_segment(
-    job: &mut LayoutJob,
-    text: &str,
-    format: &egui::TextFormat,
-    prepend_space: bool,
-    append_space: bool,
-) {
-    if text.is_empty() {
-        return;
-    }
-
-    let mut content = String::new();
-    if prepend_space {
-        content.push(' ');
-    }
-    content.push_str(text);
-    if append_space {
-        content.push(' ');
-    }
-
-    job.append(&content, 0.0, format.clone());
 }

@@ -641,6 +641,7 @@ fn test_render_tab_content_general() {
             None,
             "0.2.16",
             &mut dialog_events,
+            &Arc::new(Mutex::new(None)),
         );
 
         assert_eq!(dialog_events.len(), 0);
@@ -662,6 +663,7 @@ fn test_render_tab_content_appearance() {
             None,
             "0.2.16",
             &mut dialog_events,
+            &Arc::new(Mutex::new(None)),
         );
 
         assert_eq!(dialog_events.len(), 0);
@@ -683,6 +685,7 @@ fn test_render_tab_content_performance() {
             None,
             "0.2.16",
             &mut dialog_events,
+            &Arc::new(Mutex::new(None)),
         );
 
         assert_eq!(dialog_events.len(), 0);
@@ -704,6 +707,7 @@ fn test_render_tab_content_viewer() {
             None,
             "0.2.16",
             &mut dialog_events,
+            &Arc::new(Mutex::new(None)),
         );
 
         assert_eq!(dialog_events.len(), 0);
@@ -725,6 +729,7 @@ fn test_render_tab_content_shortcuts() {
             None,
             "0.2.16",
             &mut dialog_events,
+            &Arc::new(Mutex::new(None)),
         );
 
         assert_eq!(dialog_events.len(), 0);
@@ -746,6 +751,7 @@ fn test_render_tab_content_updates() {
             None,
             "0.2.16",
             &mut dialog_events,
+            &Arc::new(Mutex::new(None)),
         );
 
         assert_eq!(dialog_events.len(), 0);
@@ -767,6 +773,7 @@ fn test_render_tab_content_advanced() {
             None,
             "0.2.16",
             &mut dialog_events,
+            &Arc::new(Mutex::new(None)),
         );
 
         assert_eq!(dialog_events.len(), 0);
@@ -879,6 +886,7 @@ fn test_all_tabs_render_without_panic() {
                 None,
                 "0.2.16",
                 &mut dialog_events,
+                &Arc::new(Mutex::new(None)),
             );
         }
     });

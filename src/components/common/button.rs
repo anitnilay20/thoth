@@ -1,4 +1,5 @@
 use eframe::egui::{self, Color32};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     components::traits::StatelessComponent,
@@ -7,33 +8,67 @@ use crate::{
 
 pub struct Button;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub enum ButtonType {
+    #[default]
     Elevated,
     Text,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub enum ButtonColor {
+    #[default]
     Default,
+    Primary,
+    Secondary,
     Danger,
     Success,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ButtonProps {
     pub label: String,
+    #[serde(rename = "button-type", default)]
     pub button_type: ButtonType,
+    #[serde(default)]
     pub color: ButtonColor,
+    #[serde(default)]
     pub hover_text: Option<String>,
+    #[serde(default)]
     pub size: Option<f32>,
-    /// Optional custom width in pixels
+    #[serde(default)]
     pub width: Option<f32>,
-    /// Optional custom height in pixels
+    #[serde(default)]
     pub height: Option<f32>,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub icon: Option<String>,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+impl Default for ButtonProps {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            button_type: ButtonType::Elevated,
+            color: ButtonColor::Default,
+            hover_text: None,
+            size: None,
+            width: None,
+            height: None,
+            enabled: true,
+            icon: None,
+        }
+    }
 }
 
 pub struct ButtonOutput {
     pub clicked: bool,
+    pub response: egui::Response,
 }
 
 impl StatelessComponent for Button {
@@ -48,37 +83,46 @@ impl StatelessComponent for Button {
                 .unwrap_or_else(|| Theme::default().colors())
         });
 
+        let label = if let Some(icon) = props.icon {
+            format!("{} {}", icon, props.label)
+        } else {
+            props.label
+        };
+
         let size = props.size.unwrap_or(14.0);
-        let text = egui::RichText::new(&props.label).size(size);
+        let text = egui::RichText::new(&label).size(size);
 
         let bg_color = match props.color {
-            ButtonColor::Default => colors.surface1,
+            ButtonColor::Default => colors.surface2,
+            ButtonColor::Primary => colors.primary,
             ButtonColor::Danger => colors.error,
             ButtonColor::Success => colors.success,
+            ButtonColor::Secondary => colors.secondary,
         };
 
-        let mut response = match props.button_type {
-            ButtonType::Elevated => {
-                let text_color = get_contrast_text_color(bg_color);
-                Self::elevated_button(
+        let mut response = ui
+            .add_enabled_ui(props.enabled, |ui| match props.button_type {
+                ButtonType::Elevated => {
+                    let text_color = get_contrast_text_color(bg_color);
+                    Self::elevated_button(
+                        ui,
+                        text.color(text_color),
+                        bg_color,
+                        props.width,
+                        props.height,
+                    )
+                }
+                ButtonType::Text => Self::text_button(
                     ui,
-                    text.color(text_color),
+                    &label,
+                    props.size.unwrap_or(14.0),
                     bg_color,
+                    colors.text,
                     props.width,
                     props.height,
-                )
-            }
-            ButtonType::Text => {
-                // Text buttons use the color as the text color, not the background.
-                Self::text_button(
-                    ui,
-                    text.color(bg_color),
-                    colors.surface1,
-                    props.width,
-                    props.height,
-                )
-            }
-        };
+                ),
+            })
+            .inner;
 
         if let Some(hover_text) = props.hover_text {
             response = response.on_hover_text(hover_text);
@@ -88,6 +132,7 @@ impl StatelessComponent for Button {
 
         ButtonOutput {
             clicked: response.clicked(),
+            response,
         }
     }
 }
@@ -101,56 +146,97 @@ impl Button {
         height: Option<f32>,
     ) -> egui::Response {
         let button = egui::Button::new(text)
-            .fill(bg_color)
             .stroke(egui::Stroke::NONE)
             .corner_radius(4);
 
-        if let (Some(w), Some(h)) = (width, height) {
-            ui.add_sized(egui::vec2(w, h), button)
-        } else if let Some(w) = width {
-            ui.add_sized(egui::vec2(w, 0.0), button)
-        } else if let Some(h) = height {
-            ui.add_sized(egui::vec2(0.0, h), button)
-        } else {
-            ui.add(button)
-        }
+        // Zero out expansion so the painted background never overflows the
+        // allocated rect on hover (+1 px default) or shrinks on press (-1 px
+        // default), which would visually shift neighbouring widgets.
+        // Set weak_bg_fill per state so the hover/active darkening is handled
+        // by egui's state machine rather than a static override.
+        ui.scope(|ui| {
+            {
+                let w = &mut ui.visuals_mut().widgets;
+                w.inactive.weak_bg_fill = bg_color;
+                w.inactive.expansion = 0.0;
+                w.inactive.bg_stroke = egui::Stroke::NONE;
+                w.hovered.weak_bg_fill = bg_color.linear_multiply(0.85);
+                w.hovered.expansion = 0.0;
+                w.hovered.bg_stroke = egui::Stroke::NONE;
+                w.active.weak_bg_fill = bg_color.linear_multiply(0.75);
+                w.active.expansion = 0.0;
+                w.active.bg_stroke = egui::Stroke::NONE;
+            }
+            if let (Some(w), Some(h)) = (width, height) {
+                ui.add_sized(egui::vec2(w, h), button)
+            } else if let Some(w) = width {
+                ui.add_sized(egui::vec2(w, 0.0), button)
+            } else if let Some(h) = height {
+                ui.add_sized(egui::vec2(0.0, h), button)
+            } else {
+                ui.add(button)
+            }
+        })
+        .inner
     }
 
     fn text_button(
         ui: &mut egui::Ui,
-        text: egui::RichText,
-        hover_bg_color: Color32,
+        label: &str,
+        size: f32,
+        normal_color: Color32,
+        hover_color: Color32,
         width: Option<f32>,
         height: Option<f32>,
     ) -> egui::Response {
-        let button = egui::Button::new(text)
+        // Render the Button with invisible text so it handles sizing and
+        // interaction rect allocation — then paint the visible text ourselves
+        // using response.hovered() which is current-frame accurate and
+        // per-widget (no shared ID issues).
+        let invisible = egui::RichText::new(label)
+            .size(size)
+            .color(Color32::TRANSPARENT);
+        let button = egui::Button::new(invisible)
             .fill(Color32::TRANSPARENT)
             .stroke(egui::Stroke::NONE);
 
-        // Reserve a paint slot before the button so any hover bg is drawn
-        // behind the label text, not on top of it.
-        let bg_idx = ui.painter().add(egui::Shape::Noop);
+        let response = ui
+            .scope(|ui| {
+                let w = &mut ui.visuals_mut().widgets;
+                w.inactive.weak_bg_fill = Color32::TRANSPARENT;
+                w.inactive.expansion = 0.0;
+                w.inactive.bg_stroke = egui::Stroke::NONE;
+                w.hovered.weak_bg_fill = Color32::TRANSPARENT;
+                w.hovered.expansion = 0.0;
+                w.hovered.bg_stroke = egui::Stroke::NONE;
+                w.active.weak_bg_fill = Color32::TRANSPARENT;
+                w.active.expansion = 0.0;
+                w.active.bg_stroke = egui::Stroke::NONE;
 
-        let response = if let (Some(w), Some(h)) = (width, height) {
-            ui.add_sized(egui::vec2(w, h), button)
-        } else if let Some(w) = width {
-            ui.add_sized(egui::vec2(w, 0.0), button)
-        } else if let Some(h) = height {
-            ui.add_sized(egui::vec2(0.0, h), button)
-        } else {
-            ui.add(button)
-        };
+                if let (Some(w), Some(h)) = (width, height) {
+                    ui.add_sized(egui::vec2(w, h), button)
+                } else if let Some(w) = width {
+                    ui.add_sized(egui::vec2(w, 0.0), button)
+                } else if let Some(h) = height {
+                    ui.add_sized(egui::vec2(0.0, h), button)
+                } else {
+                    ui.add(button)
+                }
+            })
+            .inner;
 
-        if response.hovered() && ui.is_rect_visible(response.rect) {
-            let hover_color = Color32::from_rgba_premultiplied(
-                hover_bg_color.r(),
-                hover_bg_color.g(),
-                hover_bg_color.b(),
-                40,
-            );
-            ui.painter().set(
-                bg_idx,
-                egui::Shape::rect_filled(response.rect, 4.0, hover_color),
+        if ui.is_rect_visible(response.rect) {
+            let color = if response.is_pointer_button_down_on() || response.hovered() {
+                hover_color
+            } else {
+                normal_color
+            };
+            ui.painter().text(
+                response.rect.center(),
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::proportional(size),
+                color,
             );
         }
 

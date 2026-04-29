@@ -86,6 +86,9 @@ pub mod thoth {
                 pub capabilities: _rt::Vec<Capability>,
                 pub author: Option<_rt::String>,
                 pub homepage: Option<_rt::String>,
+                /// Sidebar icon glyph. Use a phosphor icon Unicode character (e.g. "\u{E28C}").
+                /// Falls back to a generic database icon when absent.
+                pub icon: Option<_rt::String>,
             }
             impl ::core::fmt::Debug for PluginInfo {
                 fn fmt(
@@ -100,6 +103,7 @@ pub mod thoth {
                         .field("capabilities", &self.capabilities)
                         .field("author", &self.author)
                         .field("homepage", &self.homepage)
+                        .field("icon", &self.icon)
                         .finish()
                 }
             }
@@ -823,6 +827,7 @@ pub mod exports {
                         capabilities: capabilities2,
                         author: author2,
                         homepage: homepage2,
+                        icon: icon2,
                     } = result0;
                     let vec3 = (id2.into_bytes()).into_boxed_slice();
                     let ptr3 = vec3.as_ptr().cast::<u8>();
@@ -923,6 +928,28 @@ pub mod exports {
                                 .cast::<u8>() = (0i32) as u8;
                         }
                     };
+                    match icon2 {
+                        Some(e) => {
+                            *ptr1
+                                .add(16 * ::core::mem::size_of::<*const u8>())
+                                .cast::<u8>() = (1i32) as u8;
+                            let vec10 = (e.into_bytes()).into_boxed_slice();
+                            let ptr10 = vec10.as_ptr().cast::<u8>();
+                            let len10 = vec10.len();
+                            ::core::mem::forget(vec10);
+                            *ptr1
+                                .add(18 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len10;
+                            *ptr1
+                                .add(17 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr10.cast_mut();
+                        }
+                        None => {
+                            *ptr1
+                                .add(16 * ::core::mem::size_of::<*const u8>())
+                                .cast::<u8>() = (0i32) as u8;
+                        }
+                    };
                     ptr1
                 }
                 #[doc(hidden)]
@@ -993,6 +1020,21 @@ pub mod exports {
                             _rt::cabi_dealloc(l15, l16, 1);
                         }
                     }
+                    let l17 = i32::from(
+                        *arg0.add(16 * ::core::mem::size_of::<*const u8>()).cast::<u8>(),
+                    );
+                    match l17 {
+                        0 => {}
+                        _ => {
+                            let l18 = *arg0
+                                .add(17 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l19 = *arg0
+                                .add(18 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l18, l19, 1);
+                        }
+                    }
                 }
                 pub trait Guest {
                     /// Return static metadata about this plugin.
@@ -1018,10 +1060,10 @@ pub mod exports {
                 struct _RetArea(
                     [::core::mem::MaybeUninit<
                         u8,
-                    >; 16 * ::core::mem::size_of::<*const u8>()],
+                    >; 19 * ::core::mem::size_of::<*const u8>()],
                 );
                 static mut _RET_AREA: _RetArea = _RetArea(
-                    [::core::mem::MaybeUninit::uninit(); 16
+                    [::core::mem::MaybeUninit::uninit(); 19
                         * ::core::mem::size_of::<*const u8>()],
                 );
             }
@@ -1040,9 +1082,14 @@ pub mod exports {
                 use super::super::super::super::_rt;
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
-                pub unsafe fn _export_on_load_cabi<T: Guest>() {
+                pub unsafe fn _export_on_load_cabi<T: Guest>(
+                    arg0: *mut u8,
+                    arg1: usize,
+                ) {
                     #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
-                    T::on_load();
+                    let len0 = arg1;
+                    let bytes0 = _rt::Vec::from_raw_parts(arg0.cast(), len0, len0);
+                    T::on_load(_rt::string_lift(bytes0));
                 }
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
@@ -1050,29 +1097,197 @@ pub mod exports {
                     #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
                     T::on_close();
                 }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_on_setting_change_cabi<T: Guest>(
+                    arg0: *mut u8,
+                    arg1: usize,
+                ) {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let len0 = arg1;
+                    let bytes0 = _rt::Vec::from_raw_parts(arg0.cast(), len0, len0);
+                    T::on_setting_change(_rt::string_lift(bytes0));
+                }
                 pub trait Guest {
                     /// Called by the host after the plugin is fully loaded and registered.
                     /// Use this to initialise any internal state.
-                    fn on_load() -> ();
+                    /// Setting is passed in setting-data format, eg: "[{key: "url", value: "https://..."}, ...]"
+                    fn on_load(setting: _rt::String) -> ();
                     /// Called by the host before the plugin is unloaded (app shutdown or
                     /// the user disabling the plugin via Settings → Plugins).
                     /// Release any held resources (open file handles, connections, etc.).
                     fn on_close() -> ();
+                    /// Called by the host when the user saves settings in the plugin settings
+                    fn on_setting_change(setting: _rt::String) -> ();
                 }
                 #[doc(hidden)]
                 macro_rules! __export_thoth_plugin_plugin_lifecycle_0_1_0_cabi {
                     ($ty:ident with_types_in $($path_to_types:tt)*) => {
                         const _ : () = { #[unsafe (export_name =
                         "thoth:plugin/plugin-lifecycle@0.1.0#on-load")] unsafe extern "C"
-                        fn export_on_load() { unsafe { $($path_to_types)*::
-                        _export_on_load_cabi::<$ty > () } } #[unsafe (export_name =
+                        fn export_on_load(arg0 : * mut u8, arg1 : usize,) { unsafe {
+                        $($path_to_types)*:: _export_on_load_cabi::<$ty > (arg0, arg1) }
+                        } #[unsafe (export_name =
                         "thoth:plugin/plugin-lifecycle@0.1.0#on-close")] unsafe extern
                         "C" fn export_on_close() { unsafe { $($path_to_types)*::
-                        _export_on_close_cabi::<$ty > () } } };
+                        _export_on_close_cabi::<$ty > () } } #[unsafe (export_name =
+                        "thoth:plugin/plugin-lifecycle@0.1.0#on-setting-change")] unsafe
+                        extern "C" fn export_on_setting_change(arg0 : * mut u8, arg1 :
+                        usize,) { unsafe { $($path_to_types)*::
+                        _export_on_setting_change_cabi::<$ty > (arg0, arg1) } } };
                     };
                 }
                 #[doc(hidden)]
                 pub(crate) use __export_thoth_plugin_plugin_lifecycle_0_1_0_cabi;
+            }
+            /// ---------------------------------------------------------------------------
+            /// Worlds — plugin authors implement one of these
+            ///
+            /// A world declares exactly which interfaces a plugin exports. Pick the
+            /// world that matches your plugin's capabilities. If you implement multiple
+            /// capabilities, implement the combined world or compose component binaries.
+            /// ---------------------------------------------------------------------------
+            /// ---------------------------------------------------------------------------
+            /// plugin-settings — implement on every plugin (trivial no-op is fine)
+            ///
+            /// Lets a plugin own its settings UI. The host calls render-settings() once
+            /// with the persisted key/value pairs; the plugin returns a UiNode tree.
+            /// Events from the UI (text-input changes, button clicks, etc.) are forwarded
+            /// back via handle-setting-event(). On Save the host calls get-settings() to
+            /// read the current values for persistence, and calls apply-settings() on the
+            /// next load so the plugin can restore its state.
+            /// ---------------------------------------------------------------------------
+            #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+            pub mod plugin_settings {
+                #[used]
+                #[doc(hidden)]
+                static __FORCE_SECTION_REF: fn() = super::super::super::super::__link_custom_section_describing_imports;
+                use super::super::super::super::_rt;
+                pub type PluginError = super::super::super::super::thoth::plugin::types::PluginError;
+                #[derive(Clone)]
+                pub struct SettingsOutput {
+                    /// JSON-encoded UiNode tree (same DSL as ui-component).
+                    pub node_json: _rt::String,
+                    /// Height hint in logical pixels; 0 = auto.
+                    pub height_hint: u32,
+                }
+                impl ::core::fmt::Debug for SettingsOutput {
+                    fn fmt(
+                        &self,
+                        f: &mut ::core::fmt::Formatter<'_>,
+                    ) -> ::core::fmt::Result {
+                        f.debug_struct("SettingsOutput")
+                            .field("node-json", &self.node_json)
+                            .field("height-hint", &self.height_hint)
+                            .finish()
+                    }
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_render_settings_cabi<T: Guest>() -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let result0 = T::render_settings();
+                    let ptr1 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result0 {
+                        Ok(e) => {
+                            *ptr1.add(0).cast::<u8>() = (0i32) as u8;
+                            let SettingsOutput {
+                                node_json: node_json2,
+                                height_hint: height_hint2,
+                            } = e;
+                            let vec3 = (node_json2.into_bytes()).into_boxed_slice();
+                            let ptr3 = vec3.as_ptr().cast::<u8>();
+                            let len3 = vec3.len();
+                            ::core::mem::forget(vec3);
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len3;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr3.cast_mut();
+                            *ptr1
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(height_hint2);
+                        }
+                        Err(e) => {
+                            *ptr1.add(0).cast::<u8>() = (1i32) as u8;
+                            let super::super::super::super::thoth::plugin::types::PluginError {
+                                code: code4,
+                                message: message4,
+                            } = e;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(code4);
+                            let vec5 = (message4.into_bytes()).into_boxed_slice();
+                            let ptr5 = vec5.as_ptr().cast::<u8>();
+                            let len5 = vec5.len();
+                            ::core::mem::forget(vec5);
+                            *ptr1
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len5;
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr5.cast_mut();
+                        }
+                    };
+                    ptr1
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_render_settings<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = *arg0
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l1, l2, 1);
+                        }
+                        _ => {
+                            let l3 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l4 = *arg0
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l3, l4, 1);
+                        }
+                    }
+                }
+                pub trait Guest {
+                    /// Render the settings UI. Called once when the user opens the settings for this plugin.
+                    fn render_settings() -> Result<SettingsOutput, PluginError>;
+                }
+                #[doc(hidden)]
+                macro_rules! __export_thoth_plugin_plugin_settings_0_1_0_cabi {
+                    ($ty:ident with_types_in $($path_to_types:tt)*) => {
+                        const _ : () = { #[unsafe (export_name =
+                        "thoth:plugin/plugin-settings@0.1.0#render-settings")] unsafe
+                        extern "C" fn export_render_settings() -> * mut u8 { unsafe {
+                        $($path_to_types)*:: _export_render_settings_cabi::<$ty > () } }
+                        #[unsafe (export_name =
+                        "cabi_post_thoth:plugin/plugin-settings@0.1.0#render-settings")]
+                        unsafe extern "C" fn _post_return_render_settings(arg0 : * mut
+                        u8,) { unsafe { $($path_to_types)*::
+                        __post_return_render_settings::<$ty > (arg0) } } };
+                    };
+                }
+                #[doc(hidden)]
+                pub(crate) use __export_thoth_plugin_plugin_settings_0_1_0_cabi;
+                #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                struct _RetArea(
+                    [::core::mem::MaybeUninit<
+                        u8,
+                    >; 4 * ::core::mem::size_of::<*const u8>()],
+                );
+                static mut _RET_AREA: _RetArea = _RetArea(
+                    [::core::mem::MaybeUninit::uninit(); 4
+                        * ::core::mem::size_of::<*const u8>()],
+                );
             }
         }
     }
@@ -1220,39 +1435,47 @@ macro_rules! __export_file_viewer_plugin_impl {
         $($path_to_types_root)*::
         exports::thoth::plugin::plugin_lifecycle::__export_thoth_plugin_plugin_lifecycle_0_1_0_cabi!($ty
         with_types_in $($path_to_types_root)*::
-        exports::thoth::plugin::plugin_lifecycle);
+        exports::thoth::plugin::plugin_lifecycle); $($path_to_types_root)*::
+        exports::thoth::plugin::plugin_settings::__export_thoth_plugin_plugin_settings_0_1_0_cabi!($ty
+        with_types_in $($path_to_types_root)*:: exports::thoth::plugin::plugin_settings);
     };
 }
 #[doc(inline)]
 pub(crate) use __export_file_viewer_plugin_impl as export;
 #[cfg(target_arch = "wasm32")]
-#[unsafe(link_section = "component-type:wit-bindgen:0.41.0:thoth:plugin@0.1.0:file-viewer-plugin:encoded world")]
+#[unsafe(
+    link_section = "component-type:wit-bindgen:0.41.0:thoth:plugin@0.1.0:file-viewer-plugin:encoded world"
+)]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1041] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x88\x07\x01A\x02\x01\
-A\x0c\x01B\x08\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1260] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe3\x08\x01A\x02\x01\
+A\x0e\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x0fsearch-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01\
-ks\x01r\x07\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
-uthor\x03\x08homepage\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04codey\x07me\
-ssages\x04\0\x0cplugin-error\x03\0\x06\x03\0\x18thoth:plugin/types@0.1.0\x05\0\x02\
-\x03\0\0\x0cplugin-error\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\
-\0\x01ps\x01@\0\0\x02\x04\0\x14supported-extensions\x01\x03\x01j\x01w\x01\x01\x01\
-@\x01\x04paths\0\x04\x04\0\x04open\x01\x05\x01j\x01s\x01\x01\x01@\x01\x03idxw\0\x06\
-\x04\0\x03get\x01\x07\x01p}\x01j\x01\x08\x01\x01\x01@\x01\x03idxw\0\x09\x04\0\x09\
-raw-bytes\x01\x0a\x04\0\x1ethoth:plugin/file-loader@0.1.0\x05\x02\x01B\x0f\x02\x03\
-\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01m\x02\x05table\x06custom\x04\0\x0c\
-display-mode\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0drender-ou\
-tput\x03\0\x04\x01@\0\0\x03\x04\0\x11preferred-display\x01\x06\x01j\x01\x05\x01\x01\
-\x01@\x01\x0brecord-jsons\0\x07\x04\0\x0drender-record\x01\x08\x01ps\x01k\x09\x01\
-@\0\0\x0a\x04\0\x0ecolumn-headers\x01\x0b\x04\0\x1ethoth:plugin/file-viewer@0.1.\
-0\x05\x03\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x04\x04\0\x0bplugi\
-n-info\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plug\
-in-meta@0.1.0\x05\x05\x01B\x03\x01@\0\x01\0\x04\0\x07on-load\x01\0\x04\0\x08on-c\
-lose\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x06\x04\0%thoth:plugin/\
-file-viewer-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12file-viewer-plugin\x03\0\0\0G\x09\
-producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rus\
-t\x060.41.0";
+ks\x01r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
+uthor\x03\x08homepage\x03\x04icon\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04\
+codey\x07messages\x04\0\x0cplugin-error\x03\0\x06\x01r\x02\x03keys\x05values\x04\
+\0\x0csetting-data\x03\0\x08\x03\0\x18thoth:plugin/types@0.1.0\x05\0\x02\x03\0\0\
+\x0cplugin-error\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01p\
+s\x01@\0\0\x02\x04\0\x14supported-extensions\x01\x03\x01j\x01w\x01\x01\x01@\x01\x04\
+paths\0\x04\x04\0\x04open\x01\x05\x01j\x01s\x01\x01\x01@\x01\x03idxw\0\x06\x04\0\
+\x03get\x01\x07\x01p}\x01j\x01\x08\x01\x01\x01@\x01\x03idxw\0\x09\x04\0\x09raw-b\
+ytes\x01\x0a\x04\0\x1ethoth:plugin/file-loader@0.1.0\x05\x02\x01B\x0f\x02\x03\x02\
+\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01m\x02\x05table\x06custom\x04\0\x0cdisp\
+lay-mode\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0drender-output\
+\x03\0\x04\x01@\0\0\x03\x04\0\x11preferred-display\x01\x06\x01j\x01\x05\x01\x01\x01\
+@\x01\x0brecord-jsons\0\x07\x04\0\x0drender-record\x01\x08\x01ps\x01k\x09\x01@\0\
+\0\x0a\x04\0\x0ecolumn-headers\x01\x0b\x04\0\x1ethoth:plugin/file-viewer@0.1.0\x05\
+\x03\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x04\x04\0\x0bplugin-inf\
+o\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-me\
+ta@0.1.0\x05\x05\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\
+\0\x01\0\x04\0\x08on-close\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#thoth:\
+plugin/plugin-lifecycle@0.1.0\x05\x06\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplug\
+in-error\x03\0\0\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0fsettings-output\
+\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\0\x0frender-settings\x01\x05\x04\
+\0\"thoth:plugin/plugin-settings@0.1.0\x05\x07\x04\0%thoth:plugin/file-viewer-pl\
+ugin@0.1.0\x04\0\x0b\x18\x01\0\x12file-viewer-plugin\x03\0\0\0G\x09producers\x01\
+\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

@@ -1,0 +1,18 @@
+id           = "com.thoth.url-source"
+name         = "URL Source"
+version      = "0.1.0"
+description  = "Fetch JSON data from any HTTP endpoint"
+author       = "Thoth contributors"
+capabilities = ["data-source"]
+icon         = "\uE28C"    # egui_phosphor::regular::GLOBE_HEMISPHERE_WEST
+
+[data-source]
+display_name = "HTTP / REST"
+
+# Domains this plugin is pre-approved to contact.
+# Glob patterns supported: "*.example.com" matches any subdomain.
+# "*" means general-purpose — the user sets the specific URL at runtime.
+[network]
+allowed_domains = ["*"]
+require_https   = false     # allow HTTP for dev/local endpoints
+rate_limit_rpm  = 60

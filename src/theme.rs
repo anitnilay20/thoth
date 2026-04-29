@@ -1,4 +1,5 @@
 use eframe::egui::{self, Color32};
+use egui_code_editor::ColorTheme;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -39,6 +40,8 @@ pub struct Theme {
     pub warning: String, // Loading/warning states
     pub error: String,   // Error states
     pub info: String,    // Info/searching states
+    pub primary: String,
+    pub secondary: String,
 
     // Sidebar-specific colors
     pub sidebar_hover: String,  // Sidebar icon hover background
@@ -82,6 +85,8 @@ impl Default for Theme {
             indent_guide: "#45475a".to_string(), // Surface1
             // Selection (Catppuccin lavender accent)
             selection_stroke: "#89b4fa".to_string(),
+            primary: "#cba6f7".to_string(),
+            secondary: "#b4befe".to_string(),
         }
     }
 }
@@ -125,6 +130,8 @@ impl Theme {
             // Tree viewer
             indent_guide: "#bcc0cc".to_string(), // Surface1
             selection_stroke: "#1e66f5".to_string(),
+            primary: "#8839ef".to_string(),
+            secondary: "#7287fd".to_string(),
         }
     }
 
@@ -185,6 +192,8 @@ impl Theme {
             sidebar_header: Self::parse_color(&self.sidebar_header),
             indent_guide: Self::parse_color(&self.indent_guide),
             selection_stroke: Self::parse_color(&self.selection_stroke),
+            primary: Self::parse_color(&self.primary),
+            secondary: Self::parse_color(&self.secondary),
         }
     }
 }
@@ -213,6 +222,53 @@ pub struct ThemeColors {
     pub sidebar_header: Color32,
     pub indent_guide: Color32,
     pub selection_stroke: Color32,
+
+    pub primary: Color32,
+    pub secondary: Color32,
+}
+
+impl ThemeColors {
+    /// Build an `egui_code_editor` `ColorTheme` from the current palette.
+    ///
+    /// `ColorTheme` requires `&'static str` for every colour field. This is
+    /// called per-frame from `render_ui_node`, so `hex()` interns each unique
+    /// colour in a static cache and leaks it only once.
+    pub fn code_editor_theme(&self) -> ColorTheme {
+        fn hex(c: Color32) -> &'static str {
+            use std::collections::HashMap;
+            use std::sync::Mutex;
+            static CACHE: std::sync::OnceLock<Mutex<HashMap<u32, &'static str>>> =
+                std::sync::OnceLock::new();
+            let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+            let key = ((c.r() as u32) << 16) | ((c.g() as u32) << 8) | (c.b() as u32);
+            let mut map = cache.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(&s) = map.get(&key) {
+                return s;
+            }
+            let s = Box::leak(format!("{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()).into_boxed_str());
+            map.insert(key, s);
+            s
+        }
+        let is_dark = get_contrast_text_color(self.base) == Color32::WHITE;
+        let text_hex = hex(self.text);
+        let string_hex = hex(self.string);
+        ColorTheme {
+            name: if is_dark { "Thoth Dark" } else { "Thoth Light" },
+            dark: is_dark,
+            bg: hex(self.mantle),
+            cursor: text_hex,
+            selection: hex(self.surface1),
+            comments: hex(self.overlay1),
+            functions: hex(self.key),
+            keywords: hex(self.primary),
+            literals: string_hex,
+            numerics: hex(self.number),
+            punctuation: text_hex,
+            strs: string_hex,
+            types: hex(self.info),
+            special: hex(self.error),
+        }
+    }
 }
 
 /// Apply theme settings including visuals and fonts
@@ -447,5 +503,34 @@ pub fn get_contrast_text_color(bg_color: Color32) -> Color32 {
         Color32::WHITE
     } else {
         Color32::BLACK
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum BgColorOptions {
+    #[default]
+    None,
+    Base,
+    Mantle,
+    Crust,
+    Surface0,
+    Surface1,
+    Surface2,
+    Overlay1,
+}
+
+impl BgColorOptions {
+    pub fn into_color(self, colors: &ThemeColors) -> Option<Color32> {
+        match self {
+            BgColorOptions::None => Option::None,
+            BgColorOptions::Base => Some(colors.base),
+            BgColorOptions::Mantle => Some(colors.mantle),
+            BgColorOptions::Overlay1 => Some(colors.overlay1),
+            BgColorOptions::Crust => Some(colors.crust),
+            BgColorOptions::Surface0 => Some(colors.surface0),
+            BgColorOptions::Surface1 => Some(colors.surface1),
+            BgColorOptions::Surface2 => Some(colors.surface2),
+        }
     }
 }

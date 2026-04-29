@@ -8,6 +8,7 @@ const DEFAULT_BUTTON_SIZE: f32 = 20.0;
 const DEFAULT_ICON_SIZE: f32 = 14.0;
 
 /// Props for the IconButton component
+#[derive(Default)]
 pub struct IconButtonProps<'a> {
     /// The icon to display (e.g., from egui_phosphor)
     pub icon: &'a str,
