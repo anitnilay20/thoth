@@ -1,14 +1,26 @@
 use std::fmt::Display;
 
+use crate::helpers::default_rate_limit;
 use serde::{Deserialize, Serialize};
 
 pub mod manager;
+pub mod network_policy;
 pub mod plugin_registry;
 pub mod render_node;
+pub mod wasm_data_source;
 pub mod wasm_file_viewer_loader;
 pub mod wasm_loader;
+pub mod wasm_plugin_settings;
 
-// ── Capability-specific metadata ──────────────────────────────────────────────
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NetworkDeclarations {
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+    #[serde(default)]
+    pub require_https: bool,
+    #[serde(default = "default_rate_limit")]
+    pub rate_limit_rpm: u32,
+}
 
 /// Metadata required when a plugin declares the `file-loader` capability.
 /// Deserialised from the `[file-loader]` section of `plugin.toml`.
@@ -67,6 +79,15 @@ pub struct Plugin {
     #[serde(rename = "data-source")]
     pub data_source: Option<DataSourceMeta>,
     pub exporter: Option<ExporterMeta>,
+
+    #[serde(default)]
+    pub network: Option<NetworkDeclarations>,
+
+    /// Phosphor glyph character for the sidebar icon button.
+    /// Set this in plugin.toml, e.g. `icon = "\u{E28C}"`.
+    /// Falls back to the generic database icon when absent.
+    #[serde(default)]
+    pub icon: Option<String>,
 
     // ── Runtime-only fields (not in plugin.toml) ───────────────────────────────
     /// Path to icon.png next to plugin.wasm. Set by PluginManager at scan time.

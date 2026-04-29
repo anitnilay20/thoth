@@ -1,9 +1,13 @@
 pub mod breadcrumbs;
 pub mod button;
+pub mod button_group;
 pub mod card;
 pub mod data_row;
 pub mod icon_button;
+pub mod json_tree;
 pub mod list;
+pub mod modal;
 pub mod table_view;
+pub mod tabs;
 pub mod toggle_switch;
 pub mod traits;

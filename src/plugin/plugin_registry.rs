@@ -15,6 +15,12 @@ impl PluginRegistry {
         }
     }
 
+    pub fn get_all_plugins(&self) -> Vec<&Plugin> {
+        let mut plugins: Vec<&Plugin> = self.plugin_key.values().collect();
+        plugins.sort_by(|a, b| a.name.cmp(&b.name));
+        plugins
+    }
+
     pub fn add_plugin(&mut self, plugin: Plugin) {
         // If a plugin with this id already exists, remove its stale capability
         // entries before inserting the new version so no ghost memberships remain.

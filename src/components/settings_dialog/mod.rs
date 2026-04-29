@@ -31,7 +31,7 @@ pub use updates::UpdatesTab;
 pub use viewer::ViewerTab;
 
 use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
-use crate::components::settings_dialog::plugins::{PluginsTab, PluginsTabProps};
+use crate::components::settings_dialog::plugins::{PluginsTab, PluginsTabEvent, PluginsTabProps};
 use crate::components::traits::{ContextComponent, StatelessComponent};
 use crate::settings::Settings;
 use crate::theme::{self, ThemeColors};
@@ -63,6 +63,9 @@ pub struct SettingsDialog {
 
     /// Shared events collected from the dialog
     viewport_events: Arc<Mutex<Vec<SettingsDialogEvent>>>,
+
+    /// Plugin Id for selected plugin settings (shared into viewport closure)
+    open_plugin_settings_id: Arc<Mutex<Option<String>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +132,7 @@ impl Default for SettingsDialog {
             viewport_closed: Arc::new(Mutex::new(false)),
             viewport_selected_tab: Arc::new(Mutex::new(SettingsTab::General)),
             viewport_events: Arc::new(Mutex::new(Vec::new())),
+            open_plugin_settings_id: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -177,6 +181,7 @@ impl SettingsDialog {
 
     /// Helper method to render tab content with proper event handling
     /// This consolidates the duplicate tab rendering logic
+    #[allow(clippy::too_many_arguments)]
     fn render_tab_content(
         ui: &mut egui::Ui,
         tab: SettingsTab,
@@ -185,6 +190,7 @@ impl SettingsDialog {
         update_state: Option<&crate::update::UpdateState>,
         current_version: &str,
         dialog_events: &mut Vec<SettingsDialogEvent>,
+        open_plugin_settings_id: &Arc<Mutex<Option<String>>>,
     ) {
         use crate::components::traits::StatelessComponent;
 
@@ -284,15 +290,20 @@ impl SettingsDialog {
                 // No events to handle yet - shortcuts are read-only
             }
             SettingsTab::Plugins => {
+                // let current_ui = plugin_settings_ui.lock().ok().and_then(|g| g.clone());
+
                 let output = PluginsTab::render(
                     ui,
                     PluginsTabProps {
                         plugin_settings: settings.plugins.clone(),
+                        active_plugin_settings: open_plugin_settings_id
+                            .lock()
+                            .ok()
+                            .and_then(|g| g.clone()),
                     },
                 );
 
                 for event in output.events {
-                    use plugins::PluginsTabEvent;
                     match event {
                         PluginsTabEvent::EnablePlugins(enabled) => {
                             settings.plugins.enabled = enabled;
@@ -306,13 +317,8 @@ impl SettingsDialog {
                         }
                         PluginsTabEvent::UninstallPlugin(id) => {
                             if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() {
-                                // PLUGIN_MANAGER holds an immutable ref — uninstall
-                                // requires mutation so we operate on a fresh manager.
-                                // For now: delete from disk, remove from disabled list.
-                                // The registry update takes effect on next app restart.
                                 let wasm_path =
                                     pm.registry.get_by_id(&id).and_then(|p| p.location.clone());
-
                                 if let Some(location) = wasm_path {
                                     let path = std::path::Path::new(&location);
                                     if let Some(dir) = path.parent() {
@@ -326,9 +332,23 @@ impl SettingsDialog {
                                         }
                                     }
                                 }
-
                                 settings.plugins.disabled_plugin_ids.retain(|x| x != &id);
                             }
+                        }
+                        // TODO: more specific events for different setting types so the UI doesn't have to re-render the entire settings page on every change
+                        // PluginsTabEvent::PluginUpdateSetting(plugin_id, plugin_settings) => {
+                        //     settings
+                        //         .plugins
+                        //         .plugin_settings
+                        //         .insert(plugin_id, plugin_settings);
+                        // }
+                        PluginsTabEvent::OpenSettingsForPlugin(plugin_id) => {
+                            if let Ok(mut id) = open_plugin_settings_id.lock() {
+                                *id = plugin_id;
+                            }
+                        }
+                        PluginsTabEvent::UpdateNetworkPolicy { plugin_id, policy } => {
+                            settings.plugins.network_policies.insert(plugin_id, policy);
                         }
                     }
                 }
@@ -451,6 +471,7 @@ impl ContextComponent for SettingsDialog {
         let draft_settings = Arc::clone(&self.viewport_draft);
         let selected_tab = Arc::clone(&self.viewport_selected_tab);
         let viewport_events = Arc::clone(&self.viewport_events);
+        let open_plugin_settings_id = Arc::clone(&self.open_plugin_settings_id);
 
         // Clone update state and version for the viewport
         let update_state_clone = props.update_state.cloned();
@@ -515,6 +536,7 @@ impl ContextComponent for SettingsDialog {
                                             size: Some(13.0),
                                             width: None,
                                             height: None,
+                                            ..Default::default()
                                         },
                                     );
                                     if btn.clicked {
@@ -541,11 +563,12 @@ impl ContextComponent for SettingsDialog {
                                 ButtonProps {
                                     label: "Apply".to_string(),
                                     button_type: ButtonType::Elevated,
-                                    color: ButtonColor::Success,
+                                    color: ButtonColor::Primary,
                                     hover_text: None,
                                     size: Some(14.0),
                                     width: None,
                                     height: None,
+                                    ..Default::default()
                                 },
                             );
                             if apply_btn.clicked {
@@ -561,11 +584,12 @@ impl ContextComponent for SettingsDialog {
                                 ButtonProps {
                                     label: "Cancel".to_string(),
                                     button_type: ButtonType::Elevated,
-                                    color: ButtonColor::Default,
+                                    color: ButtonColor::Danger,
                                     hover_text: None,
                                     size: Some(14.0),
                                     width: None,
                                     height: None,
+                                    ..Default::default()
                                 },
                             );
                             if cancel_btn.clicked {
@@ -679,6 +703,7 @@ impl ContextComponent for SettingsDialog {
                                 update_state_clone.as_ref(),
                                 &current_version,
                                 &mut events,
+                                &open_plugin_settings_id,
                             );
                         }
                     });

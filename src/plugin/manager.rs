@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -8,19 +9,24 @@ use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 use crate::error::Result;
 use crate::notification::{Notification, NotificationManager, NotificationStatus};
 use crate::plugin::Capability;
+use crate::plugin::network_policy::NetworkPolicy;
 use crate::plugin::plugin_registry::PluginRegistry;
+use crate::plugin::wasm_data_source::WasmDataSourceLoader;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
 use crate::plugin::wasm_loader::WasmFileLoader;
+use crate::plugin::wasm_plugin_settings::WasmPluginSettings;
+use crate::settings::PluginSettingData;
 use crate::{error::ThothError, plugin::Plugin};
 
 #[derive(Debug)]
 pub struct PluginManager {
     engine: Engine,
+    plugin_settings: HashMap<String, Vec<PluginSettingData>>,
     pub registry: PluginRegistry,
 }
 
 impl PluginManager {
-    pub fn init() -> Result<Self> {
+    pub fn init(plugin_settings: &HashMap<String, Vec<PluginSettingData>>) -> Result<Self> {
         let notification_id = NotificationManager::notify(
             Notification::new("Loading Plugins", "Initializing plugin system...")
                 .with_status_bar(true)
@@ -36,6 +42,7 @@ impl PluginManager {
         })?;
         let mut manager = Self {
             engine,
+            plugin_settings: plugin_settings.clone(),
             registry: PluginRegistry::new(),
         };
         manager.scan_all_directories()?;
@@ -43,6 +50,20 @@ impl PluginManager {
         NotificationManager::mark_notification_as_complete(&notification_id);
 
         Ok(manager)
+    }
+
+    /// Expose the shared wasmtime engine so callers can instantiate plugins
+    /// for settings-only use (via `WasmPluginSettings::new`).
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
+    pub fn get_plugin_by_id(&self, id: &str) -> Option<&Plugin> {
+        self.registry.get_by_id(id)
+    }
+
+    pub fn get_all_plugin(&self) -> Vec<&Plugin> {
+        self.registry.get_all_plugins()
     }
 
     pub fn get_all_plugin_by_capability(&self, capability: Capability) -> Vec<&Plugin> {
@@ -111,15 +132,89 @@ impl PluginManager {
         WasmFileViewerLoader::open(&self.engine, &wasm_path, file_path)
     }
 
-    /// Open `file_path` using the WASM plugin that handles its extension.
-    /// Returns an error if no plugin is registered for that extension.
     pub fn open_file(&self, ext: &str, file_path: &Path) -> Result<WasmFileLoader> {
-        let wasm_path = self
+        let plugin = self
+            .registry
             .find_loader_for_extension(ext)
             .ok_or_else(|| ThothError::Unknown {
                 message: format!("No plugin registered for .{ext}"),
             })?;
-        WasmFileLoader::open(&self.engine, &wasm_path, file_path)
+        let wasm_path = plugin
+            .location
+            .as_deref()
+            .map(std::path::Path::new)
+            .ok_or_else(|| ThothError::Unknown {
+                message: "Plugin has no wasm path".into(),
+            })?;
+        let settings = self
+            .plugin_settings
+            .get(&plugin.id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        let settings_json = serde_json::to_string(settings).unwrap_or_default();
+
+        let mut loader = WasmFileLoader::open(&self.engine, wasm_path, file_path)?;
+        loader
+            .on_load(&settings_json)
+            .map_err(|e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            })?;
+        Ok(loader)
+    }
+
+    pub fn get_data_source_plugins(&self) -> Vec<&Plugin> {
+        self.registry.get_by_capability(Capability::DataSource)
+    }
+
+    pub fn open_data_source(
+        &self,
+        plugin_id: &str,
+        policy: NetworkPolicy,
+    ) -> Result<WasmDataSourceLoader> {
+        let plugin = self
+            .registry
+            .get_by_id(plugin_id)
+            .ok_or_else(|| ThothError::Unknown {
+                message: format!("Plugin '{plugin_id}' not found"),
+            })?;
+        let wasm_path = plugin
+            .location
+            .as_deref()
+            .map(std::path::Path::new)
+            .ok_or_else(|| ThothError::Unknown {
+                message: "Plugin has no wasm path".into(),
+            })?;
+        let settings = self
+            .plugin_settings
+            .get(plugin_id)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
+        WasmDataSourceLoader::open(
+            &self.engine,
+            wasm_path,
+            policy,
+            plugin_id.to_string(),
+            settings,
+        )
+    }
+
+    pub fn open_plugin_settings(&self, plugin_id: &str) -> Result<WasmPluginSettings> {
+        let plugin = self
+            .registry
+            .get_by_id(plugin_id)
+            .ok_or_else(|| ThothError::Unknown {
+                message: format!("Plugin '{plugin_id}' not found"),
+            })?;
+        let wasm_path = plugin
+            .location
+            .as_deref()
+            .map(std::path::Path::new)
+            .ok_or_else(|| ThothError::Unknown {
+                message: "Plugin has no wasm path".into(),
+            })?;
+
+        WasmPluginSettings::new(&self.engine, wasm_path)
     }
 
     fn scan_all_directories(&mut self) -> Result<()> {
@@ -303,6 +398,16 @@ impl PluginManager {
                 reason: e.to_string(),
             }
         })?;
+
+        // Stub out any imports not already provided (e.g. http-client for
+        // data-source plugins). The stubs trap if called — they exist only to
+        // satisfy the linker during this metadata-read instantiation.
+        linker
+            .define_unknown_imports_as_traps(&component)
+            .map_err(|e| ThothError::PluginLoadError {
+                path: wasm_path.clone(),
+                reason: e.to_string(),
+            })?;
 
         // Instantiate — this validates that all imports are satisfied
         linker

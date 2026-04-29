@@ -5,7 +5,10 @@
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
-use eframe::{NativeOptions, egui};
+use eframe::{
+    NativeOptions,
+    egui::{self},
+};
 use std::path::PathBuf;
 use thoth::{
     NOTIFICATION_MANAGER, PLUGIN_MANAGER, app, error::Result, helpers::load_icon,
@@ -80,12 +83,14 @@ fn main() -> Result<()> {
         .set(std::sync::Mutex::new(NotificationManager::new()))
         .ok();
 
+    let plugin_settings = settings.plugins.plugin_settings.clone();
+
     // Load Plugins
     if settings.plugins.enabled {
-        std::thread::spawn(|| {
+        std::thread::spawn(move || {
             PLUGIN_MANAGER
                 .set(
-                    PluginManager::init()
+                    PluginManager::init(&plugin_settings)
                         .map_err(|err| {
                             eprintln!("Warning Unable to load plugins: {}", err);
                         })

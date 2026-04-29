@@ -1,6 +1,23 @@
 use std::path::PathBuf;
 
-use crate::{components, error::ThothError, file, search, update};
+use crate::{
+    components,
+    error::ThothError,
+    file,
+    plugin::{render_node::UiOutput, wasm_data_source::WasmDataSourceLoader},
+    search, update,
+};
+
+/// Holds the active plugin pane shown in the main area.
+/// Created when the user activates a data-source plugin section in the sidebar.
+pub struct ActivePluginPane {
+    pub plugin_id: String,
+    pub display_url: String,
+    /// Current interactive UI tree (from `render_ui` / `handle_event`).
+    pub ui_output: UiOutput,
+    /// The loader is kept here so the central panel can forward UI events.
+    pub loader: WasmDataSourceLoader,
+}
 
 #[cfg(test)]
 mod tests;
@@ -34,6 +51,14 @@ pub struct WindowState {
     /// Track previous expanded state to detect sidebar reopening
     pub previous_sidebar_expanded: bool,
 
+    /// Plugin-driven main-pane content. When `Some`, `CentralPanel` renders this
+    /// instead of the file viewer. Cleared when a new file is opened.
+    pub active_plugin_pane: Option<ActivePluginPane>,
+
+    /// Cached sidebar output from the active ui-component plugin's `render-sidebar`.
+    /// `None` means the plugin has no sidebar content.
+    pub plugin_sidebar_output: Option<crate::plugin::render_node::UiOutput>,
+
     // UI components
     pub sidebar: components::sidebar::Sidebar,
     pub toolbar: components::toolbar::Toolbar,
@@ -52,10 +77,12 @@ impl Default for WindowState {
             search_engine_state: SearchEngineState::default(),
             navigation_history: NavigationHistory::default(),
             pending_navigation: None,
+            active_plugin_pane: None,
             sidebar_expanded: true,
             sidebar_selected_section: Some(components::sidebar::SidebarSection::RecentFiles),
             previous_sidebar_section: None,
             previous_sidebar_expanded: false,
+            plugin_sidebar_output: None,
             sidebar: components::sidebar::Sidebar::default(),
             toolbar: components::toolbar::Toolbar::default(),
             central_panel: components::central_panel::CentralPanel::default(),

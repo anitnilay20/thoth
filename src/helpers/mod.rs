@@ -35,3 +35,7 @@ pub fn load_icon(bytes: &[u8]) -> Option<IconData> {
         height: h,
     })
 }
+
+pub const fn default_rate_limit() -> u32 {
+    60
+}

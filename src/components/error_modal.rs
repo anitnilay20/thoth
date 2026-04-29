@@ -106,6 +106,7 @@ impl StatefulComponent for ErrorModal {
                                 size: None,
                                 width: None,
                                 height: None,
+                                ..Default::default()
                             },
                         );
                         if close_btn.clicked {
@@ -125,6 +126,7 @@ impl StatefulComponent for ErrorModal {
                                     size: None,
                                     width: None,
                                     height: None,
+                                    ..Default::default()
                                 },
                             );
                             if retry_btn.clicked {
@@ -145,6 +147,7 @@ impl StatefulComponent for ErrorModal {
                                     size: None,
                                     width: None,
                                     height: None,
+                                    ..Default::default()
                                 },
                             );
                             if reset_btn.clicked {

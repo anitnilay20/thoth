@@ -2,6 +2,7 @@ use crate::components::file_viewer::FileViewer;
 use crate::components::traits::ContextComponent;
 use crate::error::{ErrorHandler, ThothError};
 use crate::file::loaders::FileKind;
+use crate::plugin::render_node::{UiEvent, UiNode, UiOutput, render_ui_node};
 use crate::search;
 use eframe::egui;
 use std::path::PathBuf;
@@ -14,6 +15,8 @@ pub struct CentralPanelProps<'a> {
     pub search_message: Option<search::SearchMessage>,
     pub cache_size: usize,
     pub syntax_highlighting: bool,
+    /// When `Some`, render this interactive `UiNode` tree from the plugin instead of the file viewer.
+    pub plugin_ui: Option<&'a UiOutput>,
 }
 
 /// Events emitted by the central panel (bottom-to-top communication)
@@ -27,6 +30,8 @@ pub enum CentralPanelEvent {
     FileClosed,
     FileTypeChanged(FileKind),
     ErrorCleared,
+    /// A widget interaction from the active plugin pane — forward to the loader.
+    PluginUiEvent(UiEvent),
 }
 
 pub struct CentralPanelOutput {
@@ -154,6 +159,23 @@ impl CentralPanel {
                     ui.label("Searching…");
                 });
                 ui.add_space(6.0);
+                return;
+            }
+
+            // Plugin pane takes priority over the file viewer.
+            if let Some(output) = props.plugin_ui {
+                match serde_json::from_str::<UiNode>(&output.node_json) {
+                    Ok(node) => {
+                        let mut ui_events = Vec::new();
+                        render_ui_node(ui, &node, &mut ui_events);
+                        for evt in ui_events {
+                            events.push(CentralPanelEvent::PluginUiEvent(evt));
+                        }
+                    }
+                    Err(e) => {
+                        ui.colored_label(egui::Color32::RED, format!("Plugin UI parse error: {e}"));
+                    }
+                }
                 return;
             }
 

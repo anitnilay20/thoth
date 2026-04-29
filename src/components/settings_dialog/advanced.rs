@@ -141,6 +141,7 @@ impl StatelessComponent for AdvancedTab {
                                         size: None,
                                         width: None,
                                         height: None,
+                ..Default::default()
                                     },
                                 );
                                 if button.clicked {
@@ -157,6 +158,7 @@ impl StatelessComponent for AdvancedTab {
                                         size: None,
                                         width: None,
                                         height: None,
+                ..Default::default()
                                     },
                                 );
                                 if button.clicked {

@@ -94,6 +94,7 @@ where
                 size: None,
                 width: None,
                 height: None,
+                ..Default::default()
             },
         );
         if copy_key_btn.clicked {
@@ -115,6 +116,7 @@ where
                 size: None,
                 width: None,
                 height: None,
+                ..Default::default()
             },
         );
         if copy_value_btn.clicked {
@@ -136,6 +138,7 @@ where
                 size: None,
                 width: None,
                 height: None,
+                ..Default::default()
             },
         );
         if copy_object_btn.clicked {
@@ -157,6 +160,7 @@ where
                 size: None,
                 width: None,
                 height: None,
+                ..Default::default()
             },
         );
         if copy_path_btn.clicked {
