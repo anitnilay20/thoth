@@ -555,10 +555,21 @@ impl ThothApp {
                             .to_string()
                         }
                         Err(msg) => {
-                            serde_json::json!({"err": {"code": 1, "message": msg}}).to_string()
+                            // Use a structured code for consent so plugins can
+                            // detect it reliably without string-matching the message.
+                            let code = if msg.contains("waiting for user consent") {
+                                "consent_pending"
+                            } else {
+                                "error"
+                            };
+                            serde_json::json!({"err": {"code": code, "message": msg}}).to_string()
                         }
                     };
-                    UiEvent { widget_id: request_id, kind: "http-response".to_string(), value }
+                    UiEvent {
+                        widget_id: request_id,
+                        kind: "http-response".to_string(),
+                        value,
+                    }
                 })
                 .collect();
 
@@ -843,7 +854,7 @@ impl ThothApp {
         let ds_plugins: Vec<&crate::plugin::Plugin> = PLUGIN_MANAGER
             .get()
             .and_then(|m| m.as_ref())
-            .map(|m| m.get_data_sorce_plugins())
+            .map(|m| m.get_data_source_plugins())
             .unwrap_or_default();
 
         // Build plugin sidebar info if there's an active plugin pane with sidebar content.

@@ -154,14 +154,16 @@ impl PluginManager {
         let settings_json = serde_json::to_string(settings).unwrap_or_default();
 
         let mut loader = WasmFileLoader::open(&self.engine, wasm_path, file_path)?;
-        loader.on_load(&settings_json).map_err(|e| ThothError::PluginLoadError {
-            path: wasm_path.to_path_buf(),
-            reason: e.to_string(),
-        })?;
+        loader
+            .on_load(&settings_json)
+            .map_err(|e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            })?;
         Ok(loader)
     }
 
-    pub fn get_data_sorce_plugins(&self) -> Vec<&Plugin> {
+    pub fn get_data_source_plugins(&self) -> Vec<&Plugin> {
         self.registry.get_by_capability(Capability::DataSource)
     }
 

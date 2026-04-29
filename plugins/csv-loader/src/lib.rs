@@ -57,9 +57,8 @@ impl MetaGuest for CsvPlugin {
 
 impl LifecycleGuest for CsvPlugin {
     fn on_load(_setting: String) {
-        // No initialisation needed since this plugin is entirely stateless and
-        // has no settings, but we'll log the (empty) settings to demonstrate
-        // how to receive them from the host.
+        // No user-configurable settings — plugin is stateless from a
+        // configuration perspective; runtime state lives in STATE above.
     }
 
     fn on_close() {

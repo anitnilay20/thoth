@@ -39,6 +39,7 @@ impl NetworkPolicy {
                     .filter(|d| user.allowed_domains.contains(d))
                     .cloned()
                     .collect();
+                v.sort_unstable();
                 v.dedup();
                 v
             };

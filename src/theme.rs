@@ -250,19 +250,21 @@ impl ThemeColors {
             s
         }
         let is_dark = get_contrast_text_color(self.base) == Color32::WHITE;
+        let text_hex = hex(self.text);
+        let string_hex = hex(self.string);
         ColorTheme {
             name: if is_dark { "Thoth Dark" } else { "Thoth Light" },
             dark: is_dark,
             bg: hex(self.mantle),
-            cursor: hex(self.text),
+            cursor: text_hex,
             selection: hex(self.surface1),
             comments: hex(self.overlay1),
             functions: hex(self.key),
             keywords: hex(self.primary),
-            literals: hex(self.string),
+            literals: string_hex,
             numerics: hex(self.number),
-            punctuation: hex(self.text),
-            strs: hex(self.string),
+            punctuation: text_hex,
+            strs: string_hex,
             types: hex(self.info),
             special: hex(self.error),
         }

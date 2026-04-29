@@ -441,10 +441,10 @@ fn build_response_panel(_st: &State, resp: &ResponseState) -> Value {
         });
     }
 
-    // Try to parse body as JSON once so both Pretty and Raw can use it.
-    let pretty_node = match serde_json::from_str::<Value>(&resp.body) {
-        Ok(val) => json!({"type": "json-tree", "value": val}),
-        Err(_) => json!({"type": "code", "value": resp.body, "language": "text"}),
+    // Use the pre-parsed JSON from ResponseState if available; avoids re-parsing on every frame.
+    let pretty_node = match &resp.parsed_body {
+        Some(val) => json!({"type": "json-tree", "value": val}),
+        None => json!({"type": "code", "value": resp.body, "language": "text"}),
     };
 
     let resp_tabs = json!({
@@ -505,18 +505,25 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
         }
     };
 
-    // Consent-pending sentinel: keep loading state and spinner visible so the
-    // user knows to action the consent popup rather than seeing a bare error.
-    if let Some(msg) = val
+    // Consent-pending sentinel: keep loading state and spinner visible.
+    // Check the structured code first; fall back to message substring for
+    // compatibility with older host versions that don't emit the code field.
+    let is_consent_pending = val
         .get("err")
-        .and_then(|e| e.get("message"))
-        .and_then(|m| m.as_str())
-    {
-        if msg.contains("waiting for user consent") {
-            st.consent_pending = true;
-            // loading stays true, pending_request_id stays set
-            return;
-        }
+        .and_then(|e| e.get("code"))
+        .and_then(|c| c.as_str())
+        .map(|c| c == "consent_pending")
+        .unwrap_or_else(|| {
+            val.get("err")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .map(|m| m.contains("waiting for user consent"))
+                .unwrap_or(false)
+        });
+    if is_consent_pending {
+        st.consent_pending = true;
+        // loading stays true, pending_request_id stays set
+        return;
     }
 
     st.loading = false;
@@ -548,14 +555,20 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             .unwrap_or_default();
         let duration_ms = ok.get("duration_ms").and_then(|v| v.as_u64());
         let size_bytes = body_raw.len();
-        // Pretty-print if the body is valid JSON.
-        let body = serde_json::from_str::<Value>(&body_raw)
-            .map(|v| serde_json::to_string_pretty(&v).unwrap_or(body_raw.clone()))
-            .unwrap_or(body_raw);
+        // Parse JSON once; reuse the Value for pretty-printing and store it
+        // so build_response_panel doesn't have to re-parse on every frame.
+        let (body, parsed_body) = match serde_json::from_str::<Value>(&body_raw) {
+            Ok(v) => {
+                let pretty = serde_json::to_string_pretty(&v).unwrap_or(body_raw.clone());
+                (pretty, Some(v))
+            }
+            Err(_) => (body_raw, None),
+        };
         st.response = Some(ResponseState {
             status,
             headers,
             body,
+            parsed_body,
             error: None,
             duration_ms,
             size_bytes,

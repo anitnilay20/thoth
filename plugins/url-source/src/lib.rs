@@ -87,6 +87,9 @@ struct ResponseState {
     status: u16,
     headers: Vec<KvPair>,
     body: String, // pretty-printed if JSON, raw otherwise
+    /// Pre-parsed JSON value, populated when the body is valid JSON so
+    /// build_response_panel doesn't need to re-parse on every render frame.
+    parsed_body: Option<serde_json::Value>,
     error: Option<String>,
     /// Round-trip time in milliseconds, if provided by the host.
     duration_ms: Option<u64>,
@@ -144,7 +147,11 @@ impl MetaGuest for UrlSourcePlugin {
 }
 
 impl LifecycleGuest for UrlSourcePlugin {
-    fn on_load(_setting: String) {
+    fn on_load(setting: String) {
+        // The host passes PluginSettingData (key/value config) in `setting`.
+        // url-source has no host-configurable settings, so we ignore those
+        // entries and restore plugin state from plugin_storage instead.
+        let _ = setting;
         let raw = bindings::thoth::plugin::plugin_storage::read();
         if raw.is_empty() {
             return;
@@ -158,7 +165,12 @@ impl LifecycleGuest for UrlSourcePlugin {
     fn on_close() {
         STATE.with(|s| *s.borrow_mut() = State::fresh());
     }
-    fn on_setting_change(_setting: String) {}
+    fn on_setting_change(_setting: String) {
+        // Persist current saved requests so host-driven reloads see fresh state.
+        STATE.with(|s| {
+            persist_requests(&s.borrow().saved_requests);
+        });
+    }
 }
 
 impl DataSourceGuest for UrlSourcePlugin {
@@ -450,8 +462,12 @@ fn build_curl_command(st: &State) -> String {
 ///
 /// Returns owned `String` tokens with surrounding quotes already stripped.
 fn tokenize_curl(curl: &str) -> Vec<String> {
-    // 1. Remove `\` + newline continuations.
-    let curl = curl.replace("\\\n", " ");
+    // 1. Remove `\` + newline continuations (both CRLF and LF), then strip
+    //    any remaining bare CR characters left by Windows line endings.
+    let curl = curl
+        .replace("\\\r\n", " ")
+        .replace("\\\n", " ")
+        .replace('\r', "");
     let chars: Vec<char> = curl.chars().collect();
     let mut tokens: Vec<String> = Vec::new();
     let mut i = 0;
