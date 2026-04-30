@@ -84,6 +84,28 @@ impl ErrorHandler {
             ThothError::PluginLoadError { path, reason } => {
                 format!("Plugin Load Error: {} - {}", path.display(), reason)
             }
+            ThothError::PluginDownloadError { name, reason, .. } => {
+                format!(
+                    "Could not download plugin '{}':\n{}\n\nPlease check your internet connection.",
+                    name, reason
+                )
+            }
+            ThothError::PluginRemoveError { name, reason } => {
+                format!("Could not remove plugin '{}':\n{}", name, reason)
+            }
+            ThothError::DownloadError { url, reason } => {
+                format!(
+                    "Failed to download from '{}':\n{}\n\nPlease check your internet connection.",
+                    url, reason
+                )
+            }
+            ThothError::FileSaveError { path, reason } => {
+                format!(
+                    "Could not save file '{}':\n{}\n\nPlease check you have write permission to this location.",
+                    path.display(),
+                    reason
+                )
+            }
             ThothError::Unknown { message } => {
                 format!("An unexpected error occurred:\n{}", message)
             }
@@ -131,6 +153,12 @@ impl ErrorHandler {
             ThothError::PluginDirectoryInvalid { .. } => true,
             ThothError::PluginFileInvalid { .. } => true,
             ThothError::PluginLoadError { .. } => true,
+            ThothError::PluginDownloadError { .. } => true,
+            ThothError::PluginRemoveError { .. } => true,
+
+            // Download/save errors
+            ThothError::DownloadError { .. } => true,
+            ThothError::FileSaveError { .. } => false,
 
             // Unknown errors - assume not recoverable
             ThothError::Unknown { .. } => false,

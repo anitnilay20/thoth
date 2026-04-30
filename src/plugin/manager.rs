@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 use wasmtime::component::ResourceTable;
 use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 
+use crate::PLUGIN_MANAGER;
+use crate::app::persistent_state::PersistentState;
 use crate::error::Result;
 use crate::notification::{Notification, NotificationManager, NotificationStatus};
 use crate::plugin::Capability;
@@ -18,11 +21,19 @@ use crate::plugin::wasm_plugin_settings::WasmPluginSettings;
 use crate::settings::PluginSettingData;
 use crate::{error::ThothError, plugin::Plugin};
 
-#[derive(Debug)]
 pub struct PluginManager {
     engine: Engine,
-    plugin_settings: HashMap<String, Vec<PluginSettingData>>,
+    /// Interior-mutable so settings can be updated after init without reinitialising the manager.
+    plugin_settings: RwLock<HashMap<String, Vec<PluginSettingData>>>,
     pub registry: PluginRegistry,
+}
+
+impl std::fmt::Debug for PluginManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginManager")
+            .field("registry", &self.registry)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PluginManager {
@@ -42,7 +53,7 @@ impl PluginManager {
         })?;
         let mut manager = Self {
             engine,
-            plugin_settings: plugin_settings.clone(),
+            plugin_settings: RwLock::new(plugin_settings.clone()),
             registry: PluginRegistry::new(),
         };
         manager.scan_all_directories()?;
@@ -50,6 +61,14 @@ impl PluginManager {
         NotificationManager::mark_notification_as_complete(&notification_id);
 
         Ok(manager)
+    }
+
+    /// Update the persisted plugin settings. Affects all subsequent plugin opens;
+    /// already-running plugin instances should be notified via `on_setting_change`.
+    pub fn update_plugin_settings(&self, settings: HashMap<String, Vec<PluginSettingData>>) {
+        if let Ok(mut guard) = self.plugin_settings.write() {
+            *guard = settings;
+        }
     }
 
     /// Expose the shared wasmtime engine so callers can instantiate plugins
@@ -146,12 +165,14 @@ impl PluginManager {
             .ok_or_else(|| ThothError::Unknown {
                 message: "Plugin has no wasm path".into(),
             })?;
-        let settings = self
-            .plugin_settings
-            .get(&plugin.id)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[]);
-        let settings_json = serde_json::to_string(settings).unwrap_or_default();
+        let settings_json = {
+            let guard = self
+                .plugin_settings
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            let settings = guard.get(&plugin.id).cloned().unwrap_or_default();
+            serde_json::to_string(&settings).unwrap_or_default()
+        };
 
         let mut loader = WasmFileLoader::open(&self.engine, wasm_path, file_path)?;
         loader
@@ -185,17 +206,19 @@ impl PluginManager {
             .ok_or_else(|| ThothError::Unknown {
                 message: "Plugin has no wasm path".into(),
             })?;
-        let settings = self
-            .plugin_settings
-            .get(plugin_id)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[]);
+        let settings = {
+            let guard = self
+                .plugin_settings
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            guard.get(plugin_id).cloned().unwrap_or_default()
+        };
         WasmDataSourceLoader::open(
             &self.engine,
             wasm_path,
             policy,
             plugin_id.to_string(),
-            settings,
+            &settings,
         )
     }
 
@@ -206,6 +229,14 @@ impl PluginManager {
             .ok_or_else(|| ThothError::Unknown {
                 message: format!("Plugin '{plugin_id}' not found"),
             })?;
+
+        if plugin.capabilities.contains(&Capability::Theme) {
+            return Err(ThothError::PluginLoadError {
+                path: PathBuf::from(plugin.location.clone().unwrap_or("".to_string())),
+                reason: "Trying to load wasm for theme plugin".to_string(),
+            });
+        }
+
         let wasm_path = plugin
             .location
             .as_deref()
@@ -215,6 +246,14 @@ impl PluginManager {
             })?;
 
         WasmPluginSettings::new(&self.engine, wasm_path)
+    }
+
+    pub fn get_installed_plugn() -> HashMap<String, Plugin> {
+        if let Some(Some(pm)) = PLUGIN_MANAGER.get() {
+            return pm.registry.get_installed_plugins();
+        }
+
+        HashMap::new()
     }
 
     fn scan_all_directories(&mut self) -> Result<()> {
@@ -229,16 +268,26 @@ impl PluginManager {
             }
         }
 
+        // Marketplace-installed plugins live in marketplace/installs/{id}/.
+        // scan_directory can't be reused here because it appends "plugins" —
+        // call scan_instances_dir directly instead.
+        if let Ok(installs_dir) = PersistentState::plugin_install_dir() {
+            if installs_dir.exists() {
+                eprintln!("Checking marketplace installs {}", installs_dir.display());
+                if let Err(e) = self.scan_instances_dir(&installs_dir, false) {
+                    eprintln!("Failed to scan marketplace installs: {e:?}");
+                }
+            }
+        }
+
         Ok(())
     }
 
-    /// Returns `(directory, is_bundled)` pairs. Bundled-dir plugins ship with
-    /// the app and cannot be uninstalled; user-dir plugins can.
+    /// Returns `(directory, is_bundled)` pairs for directories whose layout is
+    /// `{dir}/plugins/{id}/plugin.toml`. Marketplace plugins are handled
+    /// separately in `scan_all_directories` via `scan_instances_dir`.
     fn plugin_directories(&self) -> Vec<(Result<PathBuf>, bool)> {
-        let mut dirs = vec![
-            (self.bundled_plugins_dir(), true),
-            (self.user_plugin_dir(), false),
-        ];
+        let mut dirs = vec![(self.bundled_plugins_dir(), true)];
 
         // In debug builds, also check the workspace source tree so `cargo run`
         // finds plugins without a full install. option_env! is resolved at
@@ -272,22 +321,20 @@ impl PluginManager {
         Ok(base.join("assets"))
     }
 
-    fn user_plugin_dir(&self) -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::SettingsLoadError {
-            reason: "Failed to get config directory".to_string(),
-        })?;
-
-        Ok(config_dir.join("thoth"))
-    }
-
     pub fn scan_directory(&mut self, dir: PathBuf, is_bundled: bool) -> Result<()> {
         let plugin_dir = dir.join("plugins");
-
         if !plugin_dir.exists() {
             eprintln!("No plugin Directory at {}", plugin_dir.display());
             return Ok(());
         }
+        self.scan_instances_dir(&plugin_dir, is_bundled)
+    }
 
+    /// Scan a directory whose immediate children are plugin instance directories
+    /// (each containing `plugin.toml` + `plugin.wasm` or `theme.json`).
+    /// Unlike `scan_directory`, this takes the instances dir directly without
+    /// appending "plugins".
+    fn scan_instances_dir(&mut self, plugin_dir: &std::path::Path, is_bundled: bool) -> Result<()> {
         for entry in std::fs::read_dir(plugin_dir)? {
             let entry = entry?;
             let path = entry.path();
@@ -298,6 +345,7 @@ impl PluginManager {
 
             let toml_path = path.join("plugin.toml");
             let plugin_path = path.join("plugin.wasm");
+            let theme_path = path.join("theme.json");
 
             let contents = match std::fs::read_to_string(&toml_path) {
                 Ok(c) => c,
@@ -331,7 +379,10 @@ impl PluginManager {
                 plugin.icon_path = Some(icon);
             }
 
-            if let Err(e) = self.load_plugin(plugin_path.clone(), plugin) {
+            if theme_path.exists() {
+                plugin.location = Some(theme_path.display().to_string());
+                self.registry.add_plugin(plugin);
+            } else if let Err(e) = self.load_plugin(plugin_path.clone(), plugin) {
                 eprintln!("Skipping plugin at {}: {e}", plugin_path.display());
             }
         }

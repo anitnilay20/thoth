@@ -70,6 +70,10 @@ impl PluginRegistry {
         }
     }
 
+    pub fn get_installed_plugins(&self) -> HashMap<String, Plugin> {
+        self.plugin_key.clone()
+    }
+
     /// Find a FileLoader plugin that declares support for the given extension.
     /// `ext` should be lowercase without the leading dot (e.g. `"csv"`).
     /// Results are stable: IDs are sorted before iteration so the first

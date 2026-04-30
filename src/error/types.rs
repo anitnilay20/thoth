@@ -4,41 +4,106 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThothError {
     // File-related errors
-    FileNotFound { path: PathBuf },
-    FileReadError { path: PathBuf, reason: String },
-    FileWriteError { path: PathBuf, reason: String },
-    InvalidFileType { path: PathBuf, expected: String },
+    FileNotFound {
+        path: PathBuf,
+    },
+    FileReadError {
+        path: PathBuf,
+        reason: String,
+    },
+    FileWriteError {
+        path: PathBuf,
+        reason: String,
+    },
+    InvalidFileType {
+        path: PathBuf,
+        expected: String,
+    },
 
     // JSON/NDJSON parsing errors
-    JsonParseError { line: Option<usize>, reason: String },
-    InvalidJsonStructure { reason: String },
+    JsonParseError {
+        line: Option<usize>,
+        reason: String,
+    },
+    InvalidJsonStructure {
+        reason: String,
+    },
 
     // Search-related errors
-    SearchError { query: String, reason: String },
+    SearchError {
+        query: String,
+        reason: String,
+    },
 
     // UI-related errors
-    UIRenderError { component: String, reason: String },
-    StateError { reason: String },
+    UIRenderError {
+        component: String,
+        reason: String,
+    },
+    StateError {
+        reason: String,
+    },
 
     // Update-related errors
-    UpdateCheckError { reason: String },
-    UpdateDownloadError { version: String, reason: String },
-    UpdateInstallError { reason: String },
+    UpdateCheckError {
+        reason: String,
+    },
+    UpdateDownloadError {
+        version: String,
+        reason: String,
+    },
+    UpdateInstallError {
+        reason: String,
+    },
 
     // Settings errors
-    SettingsLoadError { reason: String },
-    SettingsSaveError { reason: String },
+    SettingsLoadError {
+        reason: String,
+    },
+    SettingsSaveError {
+        reason: String,
+    },
 
     // PATH registry errors
-    PathRegistryError { reason: String },
+    PathRegistryError {
+        reason: String,
+    },
 
     // Generic/unknown errors
-    Unknown { message: String },
+    Unknown {
+        message: String,
+    },
 
     // Plugin errors
-    PluginDirectoryInvalid { dir: String },
-    PluginFileInvalid { path: PathBuf },
-    PluginLoadError { path: PathBuf, reason: String },
+    PluginDirectoryInvalid {
+        dir: String,
+    },
+    PluginFileInvalid {
+        path: PathBuf,
+    },
+    PluginLoadError {
+        path: PathBuf,
+        reason: String,
+    },
+    PluginDownloadError {
+        name: String,
+        url: String,
+        reason: String,
+    },
+    PluginRemoveError {
+        name: String,
+        reason: String,
+    },
+
+    // Download/save errors
+    DownloadError {
+        url: String,
+        reason: String,
+    },
+    FileSaveError {
+        path: PathBuf,
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for ThothError {
@@ -128,6 +193,22 @@ impl std::fmt::Display for ThothError {
 
             ThothError::PluginLoadError { path, reason } => {
                 write!(f, "Failed to load plugin '{}': {}", path.display(), reason)
+            }
+            ThothError::PluginDownloadError { name, url, reason } => {
+                write!(
+                    f,
+                    "Failed to download plugin '{}' from '{}': {}",
+                    name, url, reason
+                )
+            }
+            ThothError::PluginRemoveError { name, reason } => {
+                write!(f, "Failed to remove plugin '{}': {}", name, reason)
+            }
+            ThothError::DownloadError { url, reason } => {
+                write!(f, "Failed to download '{}': {}", url, reason)
+            }
+            ThothError::FileSaveError { path, reason } => {
+                write!(f, "Failed to save file '{}': {}", path.display(), reason)
             }
         }
     }

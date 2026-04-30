@@ -1,33 +1,32 @@
-use crate::components::traits::StatelessComponent;
-use crate::settings::{UiSettings, WindowSettings};
 use eframe::egui;
 
-/// General settings tab component
-pub struct GeneralTab;
+use crate::components::common::select::{Select, SelectOption, SelectProps};
+use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
+use crate::components::settings_dialog::theme_picker::{ThemePicker, ThemePickerProps};
+use crate::components::traits::StatelessComponent;
+use crate::settings::Settings;
+use crate::theme::ThemeColors;
 
-/// Props for the General tab
-pub struct GeneralTabProps<'a> {
-    pub window_settings: &'a WindowSettings,
-    pub ui_settings: &'a UiSettings,
-}
-
-/// Events emitted by the General tab
 #[derive(Debug, Clone)]
-#[allow(clippy::enum_variant_names)]
 pub enum GeneralTabEvent {
-    WindowWidthChanged(f32),
-    WindowHeightChanged(f32),
-    RememberSidebarStateChanged(bool),
-    ShowToolbarChanged(bool),
-    ShowStatusBarChanged(bool),
-    EnableAnimationsChanged(bool),
-    SidebarWidthChanged(f32),
+    ThemeName(String),
+    FontSize(f32),
+    FontFamily(Option<String>),
+    WindowWidth(f32),
+    WindowHeight(f32),
 }
 
-/// Output from the General tab
 pub struct GeneralTabOutput {
     pub events: Vec<GeneralTabEvent>,
 }
+
+pub struct GeneralTabProps<'a> {
+    pub settings: &'a Settings,
+    pub baseline: &'a Settings,
+    pub theme_colors: &'a ThemeColors,
+}
+
+pub struct GeneralTab;
 
 impl StatelessComponent for GeneralTab {
     type Props<'a> = GeneralTabProps<'a>;
@@ -35,193 +34,213 @@ impl StatelessComponent for GeneralTab {
 
     fn render(ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         let mut events = Vec::new();
+        let s = props.settings;
+        let b = props.baseline;
+        let colors = props.theme_colors;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                // Add padding to the content
-                ui.add_space(24.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(24.0);
-                    ui.vertical(|ui| {
-                        ui.set_max_width(ui.available_width() - 24.0);
+                section_header(
+                    ui,
+                    egui_phosphor::regular::SLIDERS,
+                    "General",
+                    "App-wide preferences saved to settings.toml.",
+                    colors,
+                );
 
-                        ui.heading("General");
-                        ui.add_space(16.0);
-
-                        // Window Settings Section
-                        Self::render_window_settings(ui, props.window_settings, &mut events);
-
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-
-                        // UI Settings Section
-                        Self::render_ui_settings(ui, props.ui_settings, &mut events);
-
-                        ui.add_space(16.0);
-                    });
+                group_rows(ui, "THEME", "general-theme", colors, |ui| {
+                    let picker_out = ThemePicker::render(
+                        ui,
+                        ThemePickerProps {
+                            colors: props.theme_colors,
+                            setting: s,
+                            baseline: b,
+                        },
+                    );
+                    for evt in picker_out.events {
+                        use crate::components::settings_dialog::theme_picker::ThemePickerEvent;
+                        let ThemePickerEvent::ThemeSelected(name) = evt;
+                        events.push(GeneralTabEvent::ThemeName(name));
+                    }
                 });
+
+                // ── Theme ────────────────────────────────────────────────────
+                // group_rows(ui, "THEME", "general-theme", colors, |ui| {
+                //     setting_row(
+                //         ui,
+                //         "Active theme",
+                //         Some("Changes apply immediately."),
+                //         s.theme_id != b.theme_id,
+                //         None,
+                //         colors,
+                //         |ui| {
+                //             let mut id = s.theme_id.clone();
+                //             let catalog = Theme::catalog();
+                //             egui::ComboBox::from_id_salt("theme_id_combo")
+                //                 .width(200.0)
+                //                 .selected_text(
+                //                     catalog
+                //                         .iter()
+                //                         .find(|(tid, _, _, _)| *tid == id.as_str())
+                //                         .map(|(_, name, _, _)| *name)
+                //                         .unwrap_or(&id),
+                //                 )
+                //                 .show_ui(ui, |ui| {
+                //                     let mut last_family = "";
+                //                     for &(tid, name, _dark, family) in catalog {
+                //                         if family != last_family {
+                //                             if !last_family.is_empty() {
+                //                                 ui.separator();
+                //                             }
+                //                             ui.label(
+                //                                 RichText::new(family)
+                //                                     .size(10.0)
+                //                                     .color(colors.fg_muted)
+                //                                     .strong(),
+                //                             );
+                //                             last_family = family;
+                //                         }
+                //                         if ui
+                //                             .selectable_value(&mut id, tid.to_string(), name)
+                //                             .changed()
+                //                         {
+                //                             events
+                //                                 .push(GeneralTabEvent::ThemeId(id.clone()));
+                //                         }
+                //                     }
+                //                 });
+                //         },
+                //     );
+                // });
+
+                // ── Typography ───────────────────────────────────────────────
+                group_rows(ui, "TYPOGRAPHY", "general-typography", colors, |ui| {
+                    setting_row(
+                        ui,
+                        "Font size",
+                        Some("Applies to all UI text. Range: 8–24 px."),
+                        s.font_size != b.font_size,
+                        None,
+                        colors,
+                        |ui| {
+                            let mut val = s.font_size;
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut val, 8.0..=24.0)
+                                        .step_by(0.5)
+                                        .suffix(" px"),
+                                )
+                                .changed()
+                            {
+                                events.push(GeneralTabEvent::FontSize(val));
+                            }
+                        },
+                    );
+
+                    setting_row(
+                        ui,
+                        "Font family",
+                        Some("System default is recommended."),
+                        s.font_family != b.font_family,
+                        None,
+                        colors,
+                        |ui| {
+                            // Enumerate installed fonts once per settings session via egui memory cache.
+                            let cache_id = egui::Id::new("system_font_families");
+                            let families: Vec<String> =
+                                ui.ctx().data(|d| d.get_temp(cache_id)).unwrap_or_else(|| {
+                                    let list = crate::platform::list_system_font_families();
+                                    ui.ctx().data_mut(|d| d.insert_temp(cache_id, list.clone()));
+                                    list
+                                });
+
+                            let current = s.font_family.as_deref().unwrap_or("");
+
+                            let mut font_opts: Vec<SelectOption> =
+                                Vec::with_capacity(families.len() + 1);
+                            font_opts.push(SelectOption {
+                                value: String::new(),
+                                label: "System default".into(),
+                            });
+                            for family in &families {
+                                font_opts.push(SelectOption {
+                                    value: family.clone(),
+                                    label: family.clone(),
+                                });
+                            }
+
+                            let font_out = Select::render(
+                                ui,
+                                SelectProps {
+                                    id_salt: "font_family_combo",
+                                    value: current,
+                                    options: &font_opts,
+                                    prefix_label: None,
+                                    size: Default::default(),
+                                },
+                            );
+                            if let Some(new_val) = font_out.changed {
+                                if new_val.is_empty() {
+                                    events.push(GeneralTabEvent::FontFamily(None));
+                                } else {
+                                    events.push(GeneralTabEvent::FontFamily(Some(new_val)));
+                                }
+                            }
+                        },
+                    );
+                });
+
+                // ── Window ───────────────────────────────────────────────────
+                group_rows(ui, "WINDOW", "general-window", colors, |ui| {
+                    setting_row(
+                        ui,
+                        "Default width",
+                        Some("Initial window width. Range: 400–7680 px."),
+                        s.window.default_width != b.window.default_width,
+                        None,
+                        colors,
+                        |ui| {
+                            let mut val = s.window.default_width as i32;
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut val)
+                                        .range(400..=7680)
+                                        .suffix(" px"),
+                                )
+                                .changed()
+                            {
+                                events.push(GeneralTabEvent::WindowWidth(val as f32));
+                            }
+                        },
+                    );
+
+                    setting_row(
+                        ui,
+                        "Default height",
+                        Some("Initial window height. Range: 300–4320 px."),
+                        s.window.default_height != b.window.default_height,
+                        None,
+                        colors,
+                        |ui| {
+                            let mut val = s.window.default_height as i32;
+                            if ui
+                                .add(
+                                    egui::DragValue::new(&mut val)
+                                        .range(300..=4320)
+                                        .suffix(" px"),
+                                )
+                                .changed()
+                            {
+                                events.push(GeneralTabEvent::WindowHeight(val as f32));
+                            }
+                        },
+                    );
+                });
+
+                ui.add_space(24.0);
             });
 
         GeneralTabOutput { events }
-    }
-}
-
-impl GeneralTab {
-    fn render_window_settings(
-        ui: &mut egui::Ui,
-        window_settings: &WindowSettings,
-        events: &mut Vec<GeneralTabEvent>,
-    ) {
-        ui.label(egui::RichText::new("Window").size(16.0));
-        ui.add_space(8.0);
-
-        // Default window width
-        ui.horizontal(|ui| {
-            ui.label("Default window width:");
-            ui.add_space(8.0);
-
-            let mut width = window_settings.default_width;
-            let slider = egui::Slider::new(&mut width, 800.0..=2560.0)
-                .suffix("px")
-                .min_decimals(0)
-                .max_decimals(0);
-
-            let response = ui.add_sized([ui.available_width().min(300.0), 20.0], slider);
-
-            if response.changed() {
-                events.push(GeneralTabEvent::WindowWidthChanged(width));
-            }
-
-            if response.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-        });
-
-        ui.add_space(8.0);
-
-        // Default window height
-        ui.horizontal(|ui| {
-            ui.label("Default window height:");
-            ui.add_space(8.0);
-
-            let mut height = window_settings.default_height;
-            let slider = egui::Slider::new(&mut height, 600.0..=1440.0)
-                .suffix("px")
-                .min_decimals(0)
-                .max_decimals(0);
-
-            let response = ui.add_sized([ui.available_width().min(300.0), 20.0], slider);
-
-            if response.changed() {
-                events.push(GeneralTabEvent::WindowHeightChanged(height));
-            }
-
-            if response.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-        });
-    }
-
-    fn render_ui_settings(
-        ui: &mut egui::Ui,
-        ui_settings: &UiSettings,
-        events: &mut Vec<GeneralTabEvent>,
-    ) {
-        ui.label(egui::RichText::new("User Interface").size(16.0));
-        ui.add_space(8.0);
-
-        // Remember sidebar state
-        ui.horizontal(|ui| {
-            let mut remember_sidebar = ui_settings.remember_sidebar_state;
-            let checkbox = ui.checkbox(&mut remember_sidebar, "");
-
-            if checkbox.changed() {
-                events.push(GeneralTabEvent::RememberSidebarStateChanged(
-                    remember_sidebar,
-                ));
-            }
-
-            if checkbox.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            ui.label("Remember sidebar state across sessions");
-        });
-
-        ui.add_space(8.0);
-
-        // Show toolbar
-        ui.horizontal(|ui| {
-            let mut show_toolbar = ui_settings.show_toolbar;
-            let checkbox = ui.checkbox(&mut show_toolbar, "");
-
-            if checkbox.changed() {
-                events.push(GeneralTabEvent::ShowToolbarChanged(show_toolbar));
-            }
-
-            if checkbox.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            ui.label("Show toolbar");
-        });
-
-        ui.add_space(8.0);
-
-        // Show status bar
-        ui.horizontal(|ui| {
-            let mut show_status_bar = ui_settings.show_status_bar;
-            let checkbox = ui.checkbox(&mut show_status_bar, "");
-
-            if checkbox.changed() {
-                events.push(GeneralTabEvent::ShowStatusBarChanged(show_status_bar));
-            }
-
-            if checkbox.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            ui.label("Show status bar");
-        });
-
-        ui.add_space(8.0);
-
-        // Enable animations
-        ui.horizontal(|ui| {
-            let mut enable_animations = ui_settings.enable_animations;
-            let checkbox = ui.checkbox(&mut enable_animations, "");
-
-            if checkbox.changed() {
-                events.push(GeneralTabEvent::EnableAnimationsChanged(enable_animations));
-            }
-
-            if checkbox.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            ui.label("Enable animations");
-        });
-
-        ui.add_space(8.0);
-
-        // Default sidebar width
-        ui.horizontal(|ui| {
-            ui.label("Default sidebar width:");
-            ui.add_space(8.0);
-
-            let mut sidebar_width = ui_settings.sidebar_width;
-            let slider = egui::Slider::new(&mut sidebar_width, 200.0..=600.0)
-                .suffix("px")
-                .min_decimals(0)
-                .max_decimals(0);
-
-            let response = ui.add_sized([ui.available_width().min(300.0), 20.0], slider);
-
-            if response.changed() {
-                events.push(GeneralTabEvent::SidebarWidthChanged(sidebar_width));
-            }
-
-            if response.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-        });
     }
 }

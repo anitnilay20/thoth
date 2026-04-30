@@ -2,18 +2,20 @@ use eframe::egui;
 
 use crate::PLUGIN_MANAGER;
 use crate::components::common::card::{Card, CardAction, CardActionVariant, CardEvent, CardIcon};
+use crate::components::common::input::{Input, InputProps};
 use crate::components::common::toggle_switch::{
     ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps,
 };
 use crate::components::common::traits::StatelessComponent;
 use crate::components::icon_button::{IconButton, IconButtonProps};
+use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::error::ErrorHandler;
 use crate::error::ThothError;
 use crate::notification::Notification;
 use crate::notification::NotificationManager;
-use crate::plugin::Plugin;
 use crate::plugin::manager::PluginManager;
 use crate::plugin::render_node::render_ui_node;
+use crate::plugin::{Capability, Plugin};
 use crate::settings::{PluginNetworkPolicy, PluginSettings};
 use crate::theme::{Theme, ThemeColors};
 
@@ -66,7 +68,7 @@ impl StatelessComponent for PluginsTab {
                         ui.add_space(24.0);
                         ui.label(
                             egui::RichText::new("Plugin manager not available.")
-                                .color(colors.overlay1),
+                                .color(colors.fg_muted),
                         );
                     });
                 });
@@ -122,6 +124,8 @@ impl PluginsTab {
                                 badge_color: None,
                                 size: Some(egui::Vec2::new(20.0, 20.0)),
                                 disabled: false,
+                                icon_size: None,
+                                selected: false,
                             },
                         );
                         ui.heading("Settings for plugin: ".to_string() + &plugin.name);
@@ -213,87 +217,99 @@ impl PluginsTab {
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                ui.add_space(24.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(24.0);
-                    ui.vertical(|ui| {
-                        ui.set_max_width(ui.available_width() - 24.0);
+                section_header(
+                    ui,
+                    egui_phosphor::regular::PLUGS,
+                    "Plugins",
+                    "Installed plugins and network policies.",
+                    colors,
+                );
 
-                        // ── Header ────────────────────────────────────────────
-                        ui.horizontal(|ui| {
-                            ui.heading("Plugins");
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.add_space(8.0);
-                                    let toggle = ToggleSwitch::render(
-                                        ui,
-                                        ToggleSwitchProps {
-                                            enabled: props.plugin_settings.enabled,
-                                            hover_text: Some(
-                                                "Enable or disable all plugins".into(),
-                                            ),
-                                        },
-                                    );
-                                    for event in toggle.events {
-                                        let ToggleSwitchEvent::Toggled(v) = event;
-                                        events.push(PluginsTabEvent::EnablePlugins(v));
-                                    }
-                                    ui.add_space(8.0);
-                                    ui.label(
-                                        egui::RichText::new("Enable plugins")
-                                            .color(colors.overlay1),
-                                    );
+                // ── Master toggle ────────────────────────────────���────────────
+                group_rows(ui, "SYSTEM", "plugins-system", colors, |ui| {
+                    setting_row(
+                        ui,
+                        "Enable plugins",
+                        Some("Plugins extend Thoth with new file formats, data sources, and export targets."),
+                        false,
+                        None,
+                        colors,
+                        |ui| {
+                            let toggle = ToggleSwitch::render(
+                                ui,
+                                ToggleSwitchProps {
+                                    enabled: props.plugin_settings.enabled,
+                                    hover_text: None,
                                 },
                             );
-                        });
+                            for event in toggle.events {
+                                let ToggleSwitchEvent::Toggled(v) = event;
+                                events.push(PluginsTabEvent::EnablePlugins(v));
+                            }
+                        },
+                    );
+                });
 
-                        ui.add_space(4.0);
+                // ── Installed section label ─────────────────────────────────���─
+                ui.add_space(20.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(24.0);
+                    ui.label(
+                        egui::RichText::new("INSTALLED")
+                            .size(11.0)
+                            .strong()
+                            .color(colors.fg_muted),
+                    );
+                });
+                ui.add_space(6.0);
+
+                if all_plugins.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(24.0);
                         ui.label(
-                            egui::RichText::new(
-                                "Plugins extend Thoth with new file formats, data sources, and export targets.",
-                            )
-                            .color(colors.overlay1)
-                            .size(12.0),
+                            egui::RichText::new("No plugins installed.")
+                                .color(colors.fg_muted),
                         );
-                        ui.add_space(20.0);
-                        ui.separator();
-                        ui.add_space(20.0);
+                    });
+                }
 
-                        if all_plugins.is_empty() {
-                            ui.label(
-                                egui::RichText::new("No plugins installed.")
-                                    .color(colors.overlay1),
-                            );
-                            return;
-                        }
+                // Dim cards when plugins are disabled
+                let opacity = if props.plugin_settings.enabled { 1.0 } else { 0.4 };
+                ui.set_opacity(opacity);
 
+                // ── Plugin cards ──────────────────────────────────────────────
+                egui::Frame::new()
+                    .outer_margin(egui::Margin::symmetric(24, 0))
+                    .show(ui, |ui| {
                         for plugin in all_plugins {
                             let is_enabled = !props
                                 .plugin_settings
                                 .disabled_plugin_ids
                                 .contains(&plugin.id);
 
-                            let meta =
-                                format!("v{}  •  by {}", plugin.version, plugin.author);
+                            let meta = format!("v{}  •  by {}", plugin.version, plugin.author);
 
-                            let cap_tag_strings: Vec<String> = plugin
-                                .capabilities
-                                .iter()
-                                .map(|c| c.to_string())
-                                .collect();
+                            let cap_tag_strings: Vec<String> =
+                                plugin.capabilities.iter().map(|c| c.to_string()).collect();
                             let cap_tags: Vec<&str> =
                                 cap_tag_strings.iter().map(String::as_str).collect();
 
                             let icon = match &plugin.icon_path {
                                 Some(p) => CardIcon::Path(p.as_path()),
-                                None => CardIcon::Color(colors.overlay1),
+                                None => CardIcon::Color(colors.fg_muted),
                             };
 
-                            let mut actions: Vec<CardAction> = vec![CardAction {
-                                label: "Settings",
-                                variant: CardActionVariant::Default,
-                            }];
+                            let mut actions: Vec<CardAction> = vec![];
+
+                            if !plugin.capabilities.contains(&Capability::Theme) {
+                                actions.push(
+                                    CardAction {
+                                        label: "Settings",
+                                        variant: CardActionVariant::Default,
+                                    }
+                                );
+                            }
+
                             if !plugin.bundled {
                                 actions.push(CardAction {
                                     label: "Uninstall",
@@ -339,8 +355,8 @@ impl PluginsTab {
                             ui.add_space(8.0);
                         }
                     });
-                });
             });
+
         events
     }
 
@@ -353,7 +369,7 @@ impl PluginsTab {
         let mut events = Vec::new();
 
         egui::Frame::new()
-            .fill(colors.surface0)
+            .fill(colors.surface)
             .inner_margin(16.0)
             .show(ui, |ui| {
                 ui.set_min_width(ui.available_width());
@@ -397,7 +413,22 @@ impl PluginsTab {
 
         for (i, domain) in domains.iter_mut().enumerate() {
             ui.horizontal(|ui| {
-                if ui.text_edit_singleline(domain).changed() {
+                if Input::render(
+                    ui,
+                    InputProps {
+                        value: domain,
+                        placeholder: "",
+                        icon: None,
+                        password: false,
+                        disabled: false,
+                        multiline: false,
+                        rows: 1,
+                        desired_width: None,
+                        id_salt: None,
+                    },
+                )
+                .changed
+                {
                     changed = true;
                 }
                 if IconButton::render(
@@ -409,6 +440,8 @@ impl PluginsTab {
                         badge_color: None,
                         size: None,
                         disabled: false,
+                        icon_size: None,
+                        selected: false,
                     },
                 )
                 .clicked
@@ -432,6 +465,8 @@ impl PluginsTab {
                 badge_color: None,
                 size: None,
                 disabled: false,
+                icon_size: None,
+                selected: false,
             },
         )
         .clicked
@@ -456,7 +491,7 @@ impl PluginsTab {
             // Show default network declarations from plugin.toml
             if let Some(network) = &plugin.network {
                 ui.colored_label(
-                    colors.text,
+                    colors.fg,
                     format!(
                         "📋 Plugin declares: {} domains | HTTPS required: {} | Rate limit: {} req/min",
                         network.allowed_domains.join(", "),
@@ -471,13 +506,13 @@ impl PluginsTab {
             ui.label(
                 egui::RichText::new("Allowed Domains")
                     .strong()
-                    .color(colors.text),
+                    .color(colors.fg),
             );
             ui.label(
                 egui::RichText::new(
                     "Domains this plugin can access (e.g., api.example.com, *.github.com)",
                 )
-                .color(colors.overlay1)
+                .color(colors.fg_muted)
                 .size(11.0),
             );
 
@@ -493,11 +528,11 @@ impl PluginsTab {
             ui.label(
                 egui::RichText::new("Blocked Domains")
                     .strong()
-                    .color(colors.text),
+                    .color(colors.fg),
             );
             ui.label(
                 egui::RichText::new("Domains to block even if they appear in the allowed list")
-                    .color(colors.overlay1)
+                    .color(colors.fg_muted)
                     .size(11.0),
             );
 
@@ -519,7 +554,7 @@ impl PluginsTab {
                 }
                 ui.label(
                     egui::RichText::new("Block HTTP requests (only allow HTTPS)")
-                        .color(colors.overlay1)
+                        .color(colors.fg_muted)
                         .size(11.0),
                 );
             });
@@ -529,18 +564,33 @@ impl PluginsTab {
             ui.label(
                 egui::RichText::new("Rate Limit (requests per minute)")
                     .strong()
-                    .color(colors.text),
+                    .color(colors.fg),
             );
             ui.label(
                 egui::RichText::new(
                     "Maximum number of HTTP requests per minute (0 = unlimited)",
                 )
-                .color(colors.overlay1)
+                .color(colors.fg_muted)
                 .size(11.0),
             );
 
             let mut rate_limit_text = policy.rate_limit_rpm.to_string();
-            if ui.text_edit_singleline(&mut rate_limit_text).changed() {
+            if Input::render(
+                ui,
+                InputProps {
+                    value: &mut rate_limit_text,
+                    placeholder: "",
+                    icon: None,
+                    password: false,
+                    disabled: false,
+                    multiline: false,
+                    rows: 1,
+                    desired_width: None,
+                    id_salt: None,
+                },
+            )
+            .changed
+            {
                 if let Ok(value) = rate_limit_text.parse::<u32>() {
                     policy.rate_limit_rpm = value;
                     events.push(PluginsTabEvent::UpdateNetworkPolicy {
@@ -553,7 +603,7 @@ impl PluginsTab {
 
             ui.group(|ui| {
                 ui.colored_label(
-                    colors.overlay1,
+                    colors.fg_muted,
                     "These settings override the plugin's default network policy declared in plugin.toml",
                 );
             });

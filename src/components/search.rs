@@ -1,4 +1,6 @@
+use crate::components::common::input::{Input, InputProps};
 use crate::components::common::list::{List, ListItem, ListProps};
+use crate::components::common::typography::Typography;
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
 use crate::search::{QueryMode, Search as SearchState, SearchMessage, decode_history_entry};
@@ -52,31 +54,10 @@ impl StatefulComponent for Search {
     fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         let mut events = Vec::new();
 
-        // Get theme colors for header
-        let theme_colors = ui.ctx().memory(|mem| {
-            mem.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
-        });
-
-        let (header_color, _, input_bg) = if let Some(colors) = theme_colors {
-            (colors.sidebar_header, colors.text, colors.surface0)
-        } else {
-            (
-                egui::Color32::from_rgb(153, 153, 153),
-                egui::Color32::from_rgb(204, 204, 204),
-                egui::Color32::from_rgb(49, 50, 68),
-            )
-        };
-
         // Header with buttons
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("SEARCH")
-                    .size(11.0)
-                    .color(header_color)
-                    .strong(),
-            );
+            Typography::panel_header(ui, "SEARCH");
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Clear button
@@ -89,6 +70,8 @@ impl StatefulComponent for Search {
                         badge_color: None,
                         size: None,
                         disabled: false,
+                        icon_size: None,
+                        selected: false,
                     },
                 );
                 if clear_output.clicked {
@@ -111,6 +94,8 @@ impl StatefulComponent for Search {
                         badge_color: None,
                         size: None,
                         disabled: false,
+                        icon_size: None,
+                        selected: false,
                     },
                 );
                 if search_output.clicked && !self.search_query.is_empty() {
@@ -130,21 +115,26 @@ impl StatefulComponent for Search {
         ui.separator();
         ui.add_space(8.0);
 
-        // Search input field with custom background
-        let placeholder = "Search... (use $ prefix for JSONPath, e.g. $.user.name = \"alice\")";
-        let text_edit = egui::TextEdit::singleline(&mut self.search_query)
-            .desired_width(f32::INFINITY)
-            .hint_text(placeholder);
+        let search_out = Input::render(
+            ui,
+            InputProps {
+                value: &mut self.search_query,
+                placeholder: "Search… ($ prefix for JSONPath, e.g. $.user.name = \"alice\")",
+                icon: Some(egui_phosphor::regular::MAGNIFYING_GLASS),
+                password: false,
+                disabled: false,
+                multiline: false,
+                rows: 1,
+                desired_width: None,
+                id_salt: None,
+            },
+        );
+        let response = search_out.response;
 
-        // Apply custom background color to make the input more visible
-        let response = ui.add(text_edit.background_color(input_bg));
-
-        // Auto-focus only when the panel is just opened
         if props.just_opened {
             response.request_focus();
         }
 
-        // Add accessibility info for screen readers
         response.widget_info(|| {
             egui::WidgetInfo::text_edit(
                 ui.is_enabled(),
@@ -154,8 +144,6 @@ impl StatefulComponent for Search {
             )
         });
 
-        // Handle Enter key to trigger search
-        // Check for Enter key press while focused OR when losing focus with Enter
         let should_search = (response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
             || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
 
@@ -197,12 +185,7 @@ impl StatefulComponent for Search {
                     ui.add_space(8.0);
 
                     ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new("RECENT SEARCHES")
-                                .size(11.0)
-                                .color(header_color)
-                                .strong(),
-                        );
+                        Typography::panel_header(ui, "RECENT SEARCHES");
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let clear_output = IconButton::render(
                                 ui,
@@ -213,6 +196,8 @@ impl StatefulComponent for Search {
                                     badge_color: None,
                                     size: Some(egui::vec2(16.0, 16.0)),
                                     disabled: false,
+                                    icon_size: None,
+                                    selected: false,
                                 },
                             );
                             if clear_output.clicked {
@@ -227,10 +212,14 @@ impl StatefulComponent for Search {
                         .map(|q| ListItem {
                             title: q.as_str(),
                             description: None,
-                            icon: Some(egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE),
-                            icon_color: None,
+                            prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
+                                glyph: egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE,
+                                color: None,
+                            }),
                             badge: None,
-                            action: vec![],
+                            postfix: None,
+                            selected: false,
+                            tags: &[],
                         })
                         .collect();
 
@@ -239,6 +228,9 @@ impl StatefulComponent for Search {
                         ListProps {
                             items: &items,
                             empty_label: None,
+                            shrink_to_fit: false,
+                            show_separators: true,
+                            compact: false,
                         },
                     );
 
@@ -270,11 +262,7 @@ impl StatefulComponent for Search {
                     ui.label("Searching...");
                 });
             } else if result_count > 0 {
-                ui.label(
-                    egui::RichText::new(format!("{} result(s)", result_count))
-                        .size(12.0)
-                        .color(header_color),
-                );
+                Typography::caption(ui, &format!("{} result(s)", result_count));
                 ui.add_space(4.0);
 
                 let hits = props.search_state.results.hits();
@@ -301,10 +289,14 @@ impl StatefulComponent for Search {
                     .map(|(title, desc): (&String, &Option<String>)| ListItem {
                         title: title.as_str(),
                         description: desc.as_deref(),
-                        icon: Some(egui_phosphor::regular::MAGNIFYING_GLASS),
-                        icon_color: None,
+                        prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
+                            glyph: egui_phosphor::regular::MAGNIFYING_GLASS,
+                            color: None,
+                        }),
                         badge: None,
-                        action: vec![],
+                        postfix: None,
+                        selected: false,
+                        tags: &[],
                     })
                     .collect();
 
@@ -317,6 +309,9 @@ impl StatefulComponent for Search {
                             ListProps {
                                 items: &items,
                                 empty_label: None,
+                                shrink_to_fit: false,
+                                show_separators: true,
+                                compact: false,
                             },
                         );
                         if let Some(idx) = output.row_clicked {
@@ -328,11 +323,7 @@ impl StatefulComponent for Search {
                         }
                     });
             } else {
-                ui.label(
-                    egui::RichText::new("No results found")
-                        .size(12.0)
-                        .color(ui.visuals().weak_text_color()),
-                );
+                Typography::body_muted(ui, "No results found");
             }
         }
 
