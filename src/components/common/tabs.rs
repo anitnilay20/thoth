@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
+use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonSize, ButtonType};
 use crate::components::traits::StatelessComponent;
 use crate::theme::ThemeColors;
 
@@ -36,7 +36,7 @@ impl StatelessComponent for Tabs {
         let mut selected: Option<String> = None;
 
         egui::Frame::new()
-            .fill(colors.mantle)
+            .fill(colors.bg_panel)
             .outer_margin(egui::Margin {
                 left: 0,
                 right: 0,
@@ -51,8 +51,11 @@ impl StatelessComponent for Tabs {
             })
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
+                ui.set_height(40.0);
 
-                ui.horizontal(|ui| {
+                let frame_bottom = ui.max_rect().max.y;
+
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 3.0;
 
                     for item in props.items {
@@ -67,24 +70,20 @@ impl StatelessComponent for Tabs {
                                 } else {
                                     ButtonColor::Default
                                 },
-                                hover_text: None,
-                                size: None,
-                                width: None,
-                                height: Some(40.0),
-                                enabled: true,
+                                button_size: ButtonSize::Medium,
                                 ..Default::default()
                             },
                         );
 
                         let resp = btn.response;
 
-                        // Draw active underline
+                        // Draw active underline pinned to frame bottom
                         if is_active {
                             let bar_rect = egui::Rect::from_min_max(
-                                egui::pos2(resp.rect.left(), resp.rect.bottom() - 2.0),
-                                egui::pos2(resp.rect.right(), resp.rect.bottom()),
+                                egui::pos2(resp.rect.left(), frame_bottom - 2.0),
+                                egui::pos2(resp.rect.right(), frame_bottom),
                             );
-                            ui.painter().rect_filled(bar_rect, 0.0, colors.primary);
+                            ui.painter().rect_filled(bar_rect, 0.0, colors.accent);
                         }
 
                         if resp.clicked() && !is_active {

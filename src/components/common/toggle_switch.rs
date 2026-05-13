@@ -36,7 +36,14 @@ impl StatelessComponent for ToggleSwitch {
                 .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
                 .unwrap_or_else(|| Theme::default().colors())
         });
-        let mut response = Self::toggle_switch(ui, props.enabled, colors.success, colors.surface2);
+        let mut response = Self::toggle_switch(
+            ui,
+            props.enabled,
+            colors.accent,
+            colors.surface_active,
+            colors.bg,
+            colors.fg,
+        );
         let mut output = ToggleSwitchOutput { events: Vec::new() };
 
         response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -60,6 +67,8 @@ impl ToggleSwitch {
         enabled: bool,
         on_color: Color32,
         off_color: Color32,
+        on_pill_color: Color32,
+        off_pill_color: Color32,
     ) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(Vec2::new(36.0, 20.0), Sense::click());
 
@@ -80,9 +89,15 @@ impl ToggleSwitch {
             let knob_x_off = rect.left() + 10.0;
             let knob_x_on = rect.right() - 10.0;
             let knob_x = egui::lerp(knob_x_off..=knob_x_on, animation_progress);
+            let pill_color = egui::Color32::from_rgba_unmultiplied(
+                lerp_u8(off_pill_color.r(), on_pill_color.r(), animation_progress),
+                lerp_u8(off_pill_color.g(), on_pill_color.g(), animation_progress),
+                lerp_u8(off_pill_color.b(), on_pill_color.b(), animation_progress),
+                lerp_u8(off_pill_color.a(), on_pill_color.a(), animation_progress),
+            );
 
             ui.painter()
-                .circle_filled(egui::pos2(knob_x, rect.center().y), 8.0, Color32::WHITE);
+                .circle_filled(egui::pos2(knob_x, rect.center().y), 8.0, pill_color);
         }
 
         response

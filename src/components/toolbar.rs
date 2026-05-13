@@ -64,7 +64,12 @@ impl Toolbar {
         events: &mut Vec<ToolbarEvent>,
     ) {
         // Use theme colors from context
-        let bg_color = ui.ctx().global_style().visuals.extreme_bg_color; // Catppuccin Mantle
+        let bg_color = ui.ctx().memory(|mem| {
+            mem.data
+                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+                .map(|c| c.bg_sunken)
+                .unwrap_or(ui.ctx().global_style().visuals.extreme_bg_color)
+        });
 
         // Row 1: Title bar (32px height - integrated with window controls, with title)
         // Hide completely in fullscreen mode
@@ -153,6 +158,8 @@ impl Toolbar {
                             badge_color: None,
                             size: Some(button_size),
                             disabled: !props.can_go_back,
+                            selected: false,
+                            icon_size: None,
                         },
                     );
 
@@ -172,6 +179,8 @@ impl Toolbar {
                             badge_color: None,
                             size: Some(button_size),
                             disabled: !props.can_go_forward,
+                            selected: false,
+                            icon_size: None,
                         },
                     );
 
@@ -196,6 +205,8 @@ impl Toolbar {
                             badge_color: None,
                             size: Some(button_size),
                             disabled: false,
+                            icon_size: None,
+                            selected: false,
                         },
                     )
                     .clicked
@@ -220,6 +231,8 @@ impl Toolbar {
                             badge_color: None,
                             size: Some(button_size),
                             disabled: false,
+                            icon_size: None,
+                            selected: false,
                         },
                     )
                     .clicked
@@ -239,6 +252,8 @@ impl Toolbar {
                             badge_color: None,
                             size: Some(button_size),
                             disabled: false,
+                            icon_size: None,
+                            selected: false,
                         },
                     )
                     .clicked
@@ -250,31 +265,6 @@ impl Toolbar {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
 
-                        // Theme toggle (icon-only)
-                        let theme_icon = if props.dark_mode {
-                            egui_phosphor::regular::MOON
-                        } else {
-                            egui_phosphor::regular::SUN
-                        };
-                        if IconButton::render(
-                            ui,
-                            IconButtonProps {
-                                icon: theme_icon,
-                                frame: false,
-                                tooltip: Some(&format!(
-                                    "Toggle theme ({})",
-                                    props.shortcuts.toggle_theme.format()
-                                )),
-                                badge_color: None,
-                                size: Some(button_size),
-                                disabled: false,
-                            },
-                        )
-                        .clicked
-                        {
-                            events.push(ToolbarEvent::ToggleTheme);
-                        }
-
                         // Settings button (icon-only)
                         if IconButton::render(
                             ui,
@@ -285,6 +275,8 @@ impl Toolbar {
                                 badge_color: None,
                                 size: Some(button_size),
                                 disabled: false,
+                                icon_size: None,
+                                selected: false,
                             },
                         )
                         .clicked

@@ -6,6 +6,7 @@ use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
+use crate::app::persistent_state::PersistentState;
 use crate::error::{Result, ThothError};
 use crate::notification::NotificationManager;
 use crate::plugin::network_policy::{CheckOutcome, NetworkPolicy};
@@ -221,24 +222,9 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
     }
 }
 
-// ── plugin-storage WIT import — host side ────────────────────────────────────
-
-fn plugin_storage_path(plugin_id: &str) -> std::result::Result<std::path::PathBuf, String> {
-    let config_dir =
-        dirs::config_dir().ok_or_else(|| "failed to locate config directory".to_string())?;
-    // Stored under data/plugins/ to avoid colliding with the WASM plugin directory.
-    let dir = config_dir
-        .join("thoth")
-        .join("data")
-        .join("plugins")
-        .join(plugin_id);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("state.json"))
-}
-
 impl thoth::plugin::plugin_storage::Host for DataSourcePluginState {
     fn read(&mut self) -> String {
-        let path = match plugin_storage_path(&self.plugin_id) {
+        let path = match PersistentState::plugin_state_path(&self.plugin_id) {
             Ok(p) => p,
             Err(_) => return String::new(),
         };
@@ -246,7 +232,8 @@ impl thoth::plugin::plugin_storage::Host for DataSourcePluginState {
     }
 
     fn write(&mut self, data: String) -> std::result::Result<(), String> {
-        let path = plugin_storage_path(&self.plugin_id)?;
+        let path =
+            PersistentState::plugin_state_path(&self.plugin_id).map_err(|err| err.to_string())?;
         std::fs::write(&path, data.as_bytes()).map_err(|e| e.to_string())
     }
 }
@@ -421,6 +408,26 @@ impl WasmDataSourceLoader {
             .call_on_load(store, &settings_json)
             .map_err(|e| ThothError::PluginLoadError {
                 path: std::path::Path::new("<plugin on_load>").to_path_buf(),
+                reason: e.to_string(),
+            })?;
+        Ok(())
+    }
+
+    /// Invoke the plugin's on-setting-change lifecycle hook with the updated settings.
+    /// Settings are serialized as a JSON array of `{key, value}` objects.
+    pub fn on_setting_change(&mut self, settings: &[PluginSettingData]) -> Result<()> {
+        let settings_json = serde_json::to_string(settings).map_err(|e| ThothError::Unknown {
+            message: format!("Failed to serialize plugin settings: {e}"),
+        })?;
+
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let WasmDataSourceInner { store, bindings } = &mut *guard;
+        refuel(store)?;
+        bindings
+            .thoth_plugin_plugin_lifecycle()
+            .call_on_setting_change(store, &settings_json)
+            .map_err(|e| ThothError::PluginLoadError {
+                path: std::path::Path::new("<plugin on_setting_change>").to_path_buf(),
                 reason: e.to_string(),
             })?;
         Ok(())

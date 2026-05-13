@@ -8,10 +8,12 @@ pub use common::button;
 pub use common::card;
 pub use common::data_row;
 pub use common::icon_button;
+pub use common::input;
 pub use common::list;
 pub use common::table_view;
 pub use common::toggle_switch;
 pub use common::traits;
+pub use common::typography;
 
 // ── App-specific panels and feature components ────────────────────────────────
 pub mod bookmarks;
@@ -20,10 +22,10 @@ pub mod data_source_panel;
 pub mod drag_and_drop;
 pub mod error_modal;
 pub mod file_viewer;
+pub mod marketplace;
 pub mod recent_files;
 pub mod search;
 pub mod settings_dialog;
-pub mod settings_panel;
 pub mod sidebar;
 pub mod status_bar;
 pub mod toolbar;

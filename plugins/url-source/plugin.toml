@@ -3,7 +3,7 @@ name         = "URL Source"
 version      = "0.1.0"
 description  = "Fetch JSON data from any HTTP endpoint"
 author       = "Thoth contributors"
-capabilities = ["data-source"]
+capabilities = ["data-source", "new-ui-component"]
 icon         = "\uE28C"    # egui_phosphor::regular::GLOBE_HEMISPHERE_WEST
 
 [data-source]

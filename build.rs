@@ -32,6 +32,48 @@ fn main() {
             .to_string_lossy()
             .to_string();
 
+        let dst_dir = format!("{plugins_dst}/{plugin_name}");
+        if let Err(e) = fs::create_dir_all(&dst_dir) {
+            println!(
+                "cargo:warning=Could not create output directory for '{plugin_name}' ({dst_dir}): {e}"
+            );
+            continue;
+        }
+
+        // ── Theme plugins (no WASM — just copy plugin.toml + theme.json + assets) ──
+        if plugin_dir.join("theme.json").exists() {
+            // plugin.toml and theme.json are required — skip and clean up if missing.
+            if let Err(e) = fs::copy(
+                plugin_dir.join("plugin.toml"),
+                format!("{dst_dir}/plugin.toml"),
+            ) {
+                println!(
+                    "cargo:warning=Could not copy plugin.toml for '{plugin_name}': {e} — cleaning up"
+                );
+                let _ = fs::remove_dir_all(&dst_dir);
+                continue;
+            }
+            if let Err(e) = fs::copy(
+                plugin_dir.join("theme.json"),
+                format!("{dst_dir}/theme.json"),
+            ) {
+                println!(
+                    "cargo:warning=Could not copy theme.json for '{plugin_name}': {e} — cleaning up"
+                );
+                let _ = fs::remove_dir_all(&dst_dir);
+                continue;
+            }
+            // icon.png is optional.
+            let icon_src = plugin_dir.join("icon.png");
+            if icon_src.exists() {
+                if let Err(e) = fs::copy(&icon_src, format!("{dst_dir}/icon.png")) {
+                    println!("cargo:warning=Could not copy icon.png for '{plugin_name}': {e}");
+                }
+            }
+            continue;
+        }
+
+        // ── WASM plugins — build with cargo-component then copy artifacts ────────
         if !cargo_component_available {
             println!(
                 "cargo:warning=cargo-component not found — skipping plugin '{plugin_name}'. Install with: cargo install cargo-component"
@@ -39,7 +81,6 @@ fn main() {
             continue;
         }
 
-        // Compile the plugin to WASM
         let status = Command::new("cargo")
             .args([
                 "component",
@@ -71,14 +112,6 @@ fn main() {
             plugin_name.replace('-', "_")
         );
 
-        let dst_dir = format!("{plugins_dst}/{plugin_name}");
-        if let Err(e) = fs::create_dir_all(&dst_dir) {
-            println!(
-                "cargo:warning=Could not create output directory for '{plugin_name}' ({dst_dir}): {e}"
-            );
-            continue;
-        }
-
         // Copy .wasm — fatal: without it the plugin is unusable.
         if let Err(e) = fs::copy(&wasm_src, format!("{dst_dir}/plugin.wasm")) {
             println!("cargo:warning=Could not copy {plugin_name}.wasm: {e} — cleaning up");
@@ -96,15 +129,11 @@ fn main() {
             continue;
         }
 
-        // Copy icon.png if present — optional, clean up on failure.
+        // Copy icon.png if present — optional.
         let icon_src = plugin_dir.join("icon.png");
         if icon_src.exists() {
             if let Err(e) = fs::copy(&icon_src, format!("{dst_dir}/icon.png")) {
-                println!(
-                    "cargo:warning=Could not copy icon.png for '{plugin_name}': {e} — cleaning up"
-                );
-                let _ = fs::remove_dir_all(&dst_dir);
-                continue;
+                println!("cargo:warning=Could not copy icon.png for '{plugin_name}': {e}");
             }
         }
     }

@@ -1,4 +1,5 @@
 use crate::error::{Result, ThothError};
+use eframe::egui;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,7 +15,7 @@ pub struct Settings {
     #[serde(default)]
     pub version: u32,
 
-    /// Dark mode enabled
+    /// Dark mode enabled (derived from theme_id, kept for backwards-compat)
     pub dark_mode: bool,
 
     /// Font size for UI
@@ -125,7 +126,7 @@ pub struct UiSettings {
     pub enable_animations: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(default)]
 pub struct PluginNetworkPolicy {
     #[serde(default)]
@@ -138,7 +139,7 @@ pub struct PluginNetworkPolicy {
     pub rate_limit_rpm: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct PluginSettingData {
     pub key: String,
     pub value: String,
@@ -191,8 +192,8 @@ impl Default for Settings {
 impl Default for WindowSettings {
     fn default() -> Self {
         Self {
-            default_width: 1200.0,
-            default_height: 800.0,
+            default_width: 1800.0,
+            default_height: 1200.0,
         }
     }
 }
@@ -249,6 +250,53 @@ impl Default for PluginSettings {
 }
 
 impl Settings {
+    const CTX_ID: &'static str = "app_settings";
+    const CTX_DIRTY_ID: &'static str = "app_settings_dirty";
+
+    /// Write settings into the egui context. Call once at the top of each frame.
+    pub fn store(ctx: &egui::Context, settings: &Self) {
+        ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new(Self::CTX_ID), settings.clone());
+            d.insert_temp(egui::Id::new(Self::CTX_DIRTY_ID), false);
+        });
+    }
+
+    /// Read settings from the egui context.
+    /// Falls back to `Settings::default()` if not yet stored (first frame).
+    pub fn read(ctx: &egui::Context) -> Self {
+        ctx.data(|d| d.get_temp(egui::Id::new(Self::CTX_ID)).unwrap_or_default())
+    }
+
+    /// Mutate settings in the egui context.
+    /// Any component can call this; `ThothApp` picks up the change at end of frame.
+    ///
+    /// Example:
+    /// ```ignore
+    /// Settings::update(ui.ctx(), |s| s.ui.show_toolbar = false);
+    /// ```
+    pub fn update(ctx: &egui::Context, f: impl FnOnce(&mut Self)) {
+        ctx.data_mut(|d| {
+            let mut s: Self = d.get_temp(egui::Id::new(Self::CTX_ID)).unwrap_or_default();
+            f(&mut s);
+            d.insert_temp(egui::Id::new(Self::CTX_ID), s);
+            d.insert_temp(egui::Id::new(Self::CTX_DIRTY_ID), true);
+        });
+    }
+
+    /// Returns `Some(settings)` if any component called `update()` this frame, otherwise `None`.
+    /// Resets the dirty flag. Call once at the end of each frame from `ThothApp`.
+    pub fn take_if_dirty(ctx: &egui::Context) -> Option<Self> {
+        let dirty: bool = ctx
+            .data(|d| d.get_temp(egui::Id::new(Self::CTX_DIRTY_ID)))
+            .unwrap_or(false);
+        if dirty {
+            ctx.data_mut(|d| d.insert_temp(egui::Id::new(Self::CTX_DIRTY_ID), false));
+            ctx.data(|d| d.get_temp(egui::Id::new(Self::CTX_ID)))
+        } else {
+            None
+        }
+    }
+
     /// Current configuration version
     pub const CURRENT_VERSION: u32 = 1;
 
@@ -431,8 +479,8 @@ mod tests {
         assert_eq!(settings.version, 1);
         assert!(settings.dark_mode);
         assert_eq!(settings.font_size, 14.0);
-        assert_eq!(settings.window.default_width, 1200.0);
-        assert_eq!(settings.window.default_height, 800.0);
+        assert_eq!(settings.window.default_width, 1800.0);
+        assert_eq!(settings.window.default_height, 1200.0);
         assert_eq!(settings.performance.cache_size, 100);
         assert_eq!(settings.performance.max_recent_files, 10);
         assert!(settings.viewer.syntax_highlighting);

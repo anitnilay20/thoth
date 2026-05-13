@@ -1,3 +1,4 @@
+use crate::theme::icon_rich_text;
 use eframe::egui;
 use std::path::Path;
 
@@ -106,7 +107,7 @@ impl ContextComponent for StatusBar {
                     let dark_mode = ui.ctx().global_style().visuals.dark_mode;
                     crate::theme::Theme::for_dark_mode(dark_mode).colors()
                 })
-                .crust
+                .bg_sunken
         });
 
         egui::Panel::bottom("status_bar")
@@ -127,7 +128,7 @@ impl ContextComponent for StatusBar {
                             let dark_mode = ui.ctx().global_style().visuals.dark_mode;
                             crate::theme::Theme::for_dark_mode(dark_mode).colors()
                         })
-                        .text
+                        .fg
                 });
                 ui.style_mut().visuals.override_text_color = Some(text_color);
 
@@ -140,30 +141,21 @@ impl ContextComponent for StatusBar {
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("Untitled");
-                        ui.label(format!(
-                            "{} {}",
-                            egui_phosphor::regular::FILE_TEXT,
-                            filename
-                        ));
+                        ui.label(icon_rich_text(egui_phosphor::regular::FILE_TEXT, 12.0));
+                        ui.label(filename);
                         ui.separator();
                     }
 
                     // Item count with icon
                     if let Some(filtered) = props.filtered_count {
-                        ui.label(format!(
-                            "{} {} of {} items",
-                            egui_phosphor::regular::FUNNEL,
-                            filtered,
-                            props.item_count
-                        ));
+                        ui.label(icon_rich_text(egui_phosphor::regular::FUNNEL, 12.0));
+                        ui.label(format!("{} of {} items", filtered, props.item_count));
                     } else if props.item_count > 0 {
-                        ui.label(format!(
-                            "{} {} items",
-                            egui_phosphor::regular::LIST_BULLETS,
-                            props.item_count
-                        ));
+                        ui.label(icon_rich_text(egui_phosphor::regular::LIST_BULLETS, 12.0));
+                        ui.label(format!("{} items", props.item_count));
                     } else {
-                        ui.label(format!("{} No items", egui_phosphor::regular::LIST_BULLETS));
+                        ui.label(icon_rich_text(egui_phosphor::regular::LIST_BULLETS, 12.0));
+                        ui.label("No items");
                     }
 
                     ui.separator();
@@ -175,7 +167,8 @@ impl ContextComponent for StatusBar {
                         FileKind::Plugin => egui_phosphor::regular::PLUG,
                         FileKind::PluginTable => egui_phosphor::regular::TABLE,
                     };
-                    ui.label(format!("{} {:?}", file_type_icon, props.file_type));
+                    ui.label(icon_rich_text(file_type_icon, 12.0));
+                    ui.label(format!("{:?}", props.file_type));
 
                     // Breadcrumbs navigation
                     if props.selected_path.is_some() {

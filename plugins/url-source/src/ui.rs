@@ -614,10 +614,8 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
         // req-tabs emits a "change" event with the header label when switched.
         // We only need to react to "Body" — auto-promote method so the editor
         // becomes enabled.
-        "req-tabs" => {
-            if parse_str(&event.value) == "Body" && !is_body_method(&st.method) {
-                st.method = "POST".to_string();
-            }
+        "req-tabs" if parse_str(&event.value) == "Body" && !is_body_method(&st.method) => {
+            st.method = "POST".to_string();
         }
 
         "params" => st.params = parse_kv_list(&event.value),
@@ -632,14 +630,12 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
         "auth-key-value" => st.auth_key_value = parse_str(&event.value),
         "auth-key-in" => st.auth_key_in = parse_str(&event.value),
 
-        "send" => {
-            if !st.url.is_empty() {
-                let req = build_request(st);
-                let request_id = http_client::submit(&req);
-                st.pending_request_id = Some(request_id);
-                st.loading = true;
-                st.response = None; // clear previous response while loading
-            }
+        "send" if !st.url.is_empty() => {
+            let req = build_request(st);
+            let request_id = http_client::submit(&req);
+            st.pending_request_id = Some(request_id);
+            st.loading = true;
+            st.response = None; // clear previous response while loading
         }
 
         _ => {}
