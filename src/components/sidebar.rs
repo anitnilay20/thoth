@@ -189,9 +189,6 @@ impl Sidebar {
                         BookmarksEvent::NavigateToBookmark { file_path, path } => {
                             events.push(SidebarEvent::NavigateToBookmark { file_path, path });
                         }
-                        BookmarksEvent::RemoveBookmark(index) => {
-                            events.push(SidebarEvent::RemoveBookmark(index));
-                        }
                         BookmarksEvent::JumpToPath(path) => {
                             events.push(SidebarEvent::JumpToPath(path));
                         }

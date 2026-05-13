@@ -228,9 +228,8 @@ impl StatelessComponent for List {
                     let row_resp = ui
                         .push_id(item_id, |ui| {
                             let avail_width = ui.available_width();
-                            let alloc =
-                                ui.allocate_ui(egui::vec2(avail_width, row_h), |ui| {
-                                    ui.horizontal(|ui| {
+                            let alloc = ui.allocate_ui(egui::vec2(avail_width, row_h), |ui| {
+                                ui.horizontal(|ui| {
                                         ui.set_min_width(ui.available_width());
                                         ui.set_min_height(row_h);
 
@@ -544,7 +543,7 @@ impl StatelessComponent for List {
                                             },
                                         );
                                     });
-                                });
+                            });
                             alloc.response
                         })
                         .inner;

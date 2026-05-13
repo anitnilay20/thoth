@@ -248,7 +248,7 @@ impl PluginManager {
         WasmPluginSettings::new(&self.engine, wasm_path)
     }
 
-    pub fn get_installed_plugn() -> HashMap<String, Plugin> {
+    pub fn get_installed_plugin() -> HashMap<String, Plugin> {
         if let Some(Some(pm)) = PLUGIN_MANAGER.get() {
             return pm.registry.get_installed_plugins();
         }

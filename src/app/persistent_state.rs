@@ -459,8 +459,11 @@ impl PersistentState {
 
     pub fn clear_plugins_icon() -> Result<()> {
         let dir = Self::plugin_icon_dir()?;
-        fs::remove_dir_all(dir)?;
-        Ok(())
+        match fs::remove_dir_all(dir) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
     }
 }
 

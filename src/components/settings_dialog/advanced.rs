@@ -67,9 +67,8 @@ impl StatelessComponent for AdvancedTab {
                                 },
                             );
                             for evt in out.events {
-                                if let ToggleSwitchEvent::Toggled(v) = evt {
-                                    events.push(AdvancedTabEvent::ShowProfilerChanged(v));
-                                }
+                                let ToggleSwitchEvent::Toggled(v) = evt;
+                                events.push(AdvancedTabEvent::ShowProfilerChanged(v));
                             }
                         },
                     );

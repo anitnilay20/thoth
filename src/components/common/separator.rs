@@ -41,7 +41,7 @@ impl StatelessComponent for Separator {
 }
 
 impl Separator {
-    pub fn default(ui: &mut egui::Ui) -> SeparatorOutput {
+    pub fn plain(ui: &mut egui::Ui) -> SeparatorOutput {
         Self::render(ui, SeparatorProps::default())
     }
 

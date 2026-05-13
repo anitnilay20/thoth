@@ -175,20 +175,10 @@ impl NetworkPolicy {
     }
 
     fn is_allowed(&self, host: &str) -> bool {
-        let result = self
-            .config
+        self.config
             .allowed_domains
             .iter()
-            .any(|domain| self.domain_matches(host, domain));
-
-        if !result {
-            eprintln!(
-                "Domain not allowed - Host: '{}', Allowed domains: {:?}",
-                host, self.config.allowed_domains
-            );
-        }
-
-        result
+            .any(|domain| self.domain_matches(host, domain))
     }
 
     fn domain_matches(&self, host: &str, pattern: &str) -> bool {

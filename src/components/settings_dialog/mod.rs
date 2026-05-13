@@ -557,6 +557,10 @@ fn reset_section(tab: SettingsTab, draft: &mut Settings) {
         SettingsTab::Developer => {
             draft.dev = def.dev;
         }
+        SettingsTab::Plugins => {
+            draft.plugins.disabled_plugin_ids = def.plugins.disabled_plugin_ids;
+            draft.plugins.plugin_settings = def.plugins.plugin_settings;
+        }
         _ => {}
     }
 }

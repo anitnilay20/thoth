@@ -237,7 +237,7 @@ impl MarketplaceUiState {
                 let mut install_states = HashMap::new();
                 // let disabled_plugins = settings::Settings::read(ctx);
 
-                PluginManager::get_installed_plugn()
+                PluginManager::get_installed_plugin()
                     .iter()
                     .for_each(|(key, i_p)| {
                         if let Some(m_p) = data.get(key) {

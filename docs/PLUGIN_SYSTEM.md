@@ -926,6 +926,8 @@ All inputs take `id: string`, `label: string`, `disabled?: bool`.
 
 Badge colour values: `"blue"`, `"green"`, `"red"`, `"orange"`, `"purple"`, `"gray"`.
 
+> **Note:** The `actions` array is parsed by the host but action buttons are not yet rendered. Declaring them now is forward-compatible — they will become hover-revealed icon buttons in a future release.
+
 ---
 
 ## RenderNode Schema Reference
@@ -1074,6 +1076,7 @@ Each plugin runs in a fully isolated Wasmtime instance:
 | User consent | First request to an unlisted domain triggers a consent popup; the plugin receives `{"err":{"code":"consent_pending"}}` until the user approves; the host re-dispatches the request automatically on approval |
 | CPU budget | Fuel is replenished to 5,000,000,000 units before every WIT call — infinite loops are caught and surfaced as a recoverable error |
 | Bundled vs user | Bundled plugins (shipped with Thoth) set `plugin.bundled = true` at scan time; the UI prevents uninstalling them |
+| Download integrity | The `sha256` field in the marketplace manifest is **always** verified against the downloaded archive; installation is aborted if the checksum is absent or does not match |
 
 ---
 

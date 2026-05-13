@@ -65,55 +65,6 @@ impl StatelessComponent for GeneralTab {
                     }
                 });
 
-                // ── Theme ────────────────────────────────────────────────────
-                // group_rows(ui, "THEME", "general-theme", colors, |ui| {
-                //     setting_row(
-                //         ui,
-                //         "Active theme",
-                //         Some("Changes apply immediately."),
-                //         s.theme_id != b.theme_id,
-                //         None,
-                //         colors,
-                //         |ui| {
-                //             let mut id = s.theme_id.clone();
-                //             let catalog = Theme::catalog();
-                //             egui::ComboBox::from_id_salt("theme_id_combo")
-                //                 .width(200.0)
-                //                 .selected_text(
-                //                     catalog
-                //                         .iter()
-                //                         .find(|(tid, _, _, _)| *tid == id.as_str())
-                //                         .map(|(_, name, _, _)| *name)
-                //                         .unwrap_or(&id),
-                //                 )
-                //                 .show_ui(ui, |ui| {
-                //                     let mut last_family = "";
-                //                     for &(tid, name, _dark, family) in catalog {
-                //                         if family != last_family {
-                //                             if !last_family.is_empty() {
-                //                                 ui.separator();
-                //                             }
-                //                             ui.label(
-                //                                 RichText::new(family)
-                //                                     .size(10.0)
-                //                                     .color(colors.fg_muted)
-                //                                     .strong(),
-                //                             );
-                //                             last_family = family;
-                //                         }
-                //                         if ui
-                //                             .selectable_value(&mut id, tid.to_string(), name)
-                //                             .changed()
-                //                         {
-                //                             events
-                //                                 .push(GeneralTabEvent::ThemeId(id.clone()));
-                //                         }
-                //                     }
-                //                 });
-                //         },
-                //     );
-                // });
-
                 // ── Typography ───────────────────────────────────────────────
                 group_rows(ui, "TYPOGRAPHY", "general-typography", colors, |ui| {
                     setting_row(

@@ -38,11 +38,7 @@ pub fn get_plugin_theme_by_name(name: &str) -> Option<Theme> {
     all_theme_plugins().iter().for_each(|plugin| {
         if let Some(theme_plugin) = &plugin.theme
             && let Some(location) = &plugin.location
-            && theme_plugin
-                .catalog
-                .iter()
-                .find(|(n, _)| n == name)
-                .is_some()
+            && theme_plugin.catalog.iter().any(|(n, _)| n == name)
             && let Ok(file) = File::open(location).map_err(|err| {
                 eprintln!(
                     "Error opening theme.json file for {} - {}",

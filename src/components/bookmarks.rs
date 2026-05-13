@@ -13,7 +13,6 @@ pub struct BookmarksProps<'a> {
 #[derive(Debug, Clone)]
 pub enum BookmarksEvent {
     NavigateToBookmark { file_path: String, path: String },
-    RemoveBookmark(usize),
     JumpToPath(String),
 }
 
@@ -162,12 +161,6 @@ mod tests {
             path: "0.user".to_string(),
         };
         assert!(format!("{:?}", event).contains("NavigateToBookmark"));
-    }
-
-    #[test]
-    fn test_bookmarks_event_remove_debug() {
-        let event = BookmarksEvent::RemoveBookmark(5);
-        assert!(format!("{:?}", event).contains("RemoveBookmark"));
     }
 
     #[test]

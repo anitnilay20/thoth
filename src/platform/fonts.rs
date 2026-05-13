@@ -42,6 +42,6 @@ pub fn find_font_bytes(family: &str) -> Option<Vec<u8>> {
     match &face.source {
         fontdb::Source::File(path) => std::fs::read(path).ok(),
         fontdb::Source::Binary(data) => Some(data.as_ref().as_ref().to_vec()),
-        fontdb::Source::SharedFile(path, _) => std::fs::read(path).ok(),
+        fontdb::Source::SharedFile(_, data) => Some(data.as_ref().as_ref().to_vec()),
     }
 }

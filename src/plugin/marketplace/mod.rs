@@ -122,14 +122,23 @@ impl MarketPlacePlugin {
         if needs_download {
             let path_clone = path.clone();
             let icon_url = self.icon_url.clone();
-            thread::spawn(move || {
-                if let Ok(mut file) = File::create(&path_clone) {
-                    if let Ok(mut response) = reqwest::blocking::get(&icon_url) {
-                        let _ = std::io::copy(&mut response, &mut file);
-                        drop(file);
+            thread::spawn(move || match File::create(&path_clone) {
+                Err(e) => eprintln!(
+                    "warn: failed to create icon file {}: {e}",
+                    path_clone.display()
+                ),
+                Ok(mut file) => match reqwest::blocking::get(&icon_url) {
+                    Err(e) => eprintln!("warn: failed to download icon from {icon_url}: {e}"),
+                    Ok(mut response) => {
+                        if let Err(e) = std::io::copy(&mut response, &mut file) {
+                            eprintln!(
+                                "warn: failed to write icon to {}: {e}",
+                                path_clone.display()
+                            );
+                        }
                         ctx.request_repaint();
                     }
-                }
+                },
             });
         }
 
@@ -215,16 +224,21 @@ impl MarketPlacePlugin {
             }
         }
 
-        if !expected_sha256.is_empty() {
-            let hash = Sha256::digest(&data);
-            let hex = format!("{hash:x}");
-            if hex != expected_sha256 {
-                return Err(ThothError::PluginDownloadError {
-                    name: plugin_id.to_string(),
-                    url: url.to_string(),
-                    reason: format!("SHA256 mismatch: expected {expected_sha256}, got {hex}"),
-                });
-            }
+        let hash = Sha256::digest(&data);
+        let hex = format!("{hash:x}");
+        if expected_sha256.is_empty() {
+            return Err(ThothError::PluginDownloadError {
+                name: plugin_id.to_string(),
+                url: url.to_string(),
+                reason: "SHA256 checksum is missing from the plugin manifest".to_string(),
+            });
+        }
+        if hex != expected_sha256 {
+            return Err(ThothError::PluginDownloadError {
+                name: plugin_id.to_string(),
+                url: url.to_string(),
+                reason: format!("SHA256 mismatch: expected {expected_sha256}, got {hex}"),
+            });
         }
 
         *slot.lock().unwrap() = PluginInstallProgress::Downloading(90);
@@ -289,12 +303,31 @@ impl MarketPlacePlugin {
                 trimmed
             };
 
-            // Skip the wrapper dir entry itself and guard against zip-slip
-            if rel_path.is_empty() || rel_path.contains("..") {
+            if rel_path.is_empty() {
                 continue;
             }
 
             let out_path = dest.join(rel_path);
+            // Zip-slip guard: normalize away ".." components and verify the
+            // resolved path is still inside dest. We can't use canonicalize()
+            // on paths that don't exist yet, so resolve via components instead.
+            let out_path = {
+                use std::path::Component;
+                let mut resolved = std::path::PathBuf::new();
+                for c in out_path.components() {
+                    match c {
+                        Component::ParentDir => {
+                            resolved.pop();
+                        }
+                        Component::CurDir => {}
+                        _ => resolved.push(c),
+                    }
+                }
+                resolved
+            };
+            if !out_path.starts_with(&dest) {
+                continue;
+            }
 
             if entry.is_dir() {
                 fs::create_dir_all(&out_path)?;

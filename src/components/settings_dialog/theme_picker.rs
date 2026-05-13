@@ -196,13 +196,13 @@ impl StatelessComponent for ThemePicker {
             .iter()
             .filter(|&(name, is_dark, _)| {
                 let mode_ok = match mode {
-                    1 => is_dark,
-                    2 => &!is_dark,
-                    _ => &true,
+                    1 => *is_dark,
+                    2 => !is_dark,
+                    _ => true,
                 };
                 let text_ok =
                     filter_lower.is_empty() || name.to_lowercase().contains(&filter_lower);
-                *mode_ok && text_ok
+                mode_ok && text_ok
             })
             .cloned()
             .collect();

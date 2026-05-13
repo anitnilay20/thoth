@@ -42,13 +42,32 @@ fn main() {
 
         // ── Theme plugins (no WASM — just copy plugin.toml + theme.json + assets) ──
         if plugin_dir.join("theme.json").exists() {
-            let files = ["plugin.toml", "theme.json", "icon.png"];
-            for file in &files {
-                let src = plugin_dir.join(file);
-                if src.exists() {
-                    if let Err(e) = fs::copy(&src, format!("{dst_dir}/{file}")) {
-                        println!("cargo:warning=Could not copy {file} for '{plugin_name}': {e}");
-                    }
+            // plugin.toml and theme.json are required — skip and clean up if missing.
+            if let Err(e) = fs::copy(
+                plugin_dir.join("plugin.toml"),
+                format!("{dst_dir}/plugin.toml"),
+            ) {
+                println!(
+                    "cargo:warning=Could not copy plugin.toml for '{plugin_name}': {e} — cleaning up"
+                );
+                let _ = fs::remove_dir_all(&dst_dir);
+                continue;
+            }
+            if let Err(e) = fs::copy(
+                plugin_dir.join("theme.json"),
+                format!("{dst_dir}/theme.json"),
+            ) {
+                println!(
+                    "cargo:warning=Could not copy theme.json for '{plugin_name}': {e} — cleaning up"
+                );
+                let _ = fs::remove_dir_all(&dst_dir);
+                continue;
+            }
+            // icon.png is optional.
+            let icon_src = plugin_dir.join("icon.png");
+            if icon_src.exists() {
+                if let Err(e) = fs::copy(&icon_src, format!("{dst_dir}/icon.png")) {
+                    println!("cargo:warning=Could not copy icon.png for '{plugin_name}': {e}");
                 }
             }
             continue;

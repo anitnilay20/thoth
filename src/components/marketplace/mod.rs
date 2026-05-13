@@ -145,6 +145,10 @@ impl StatelessComponent for MarketplaceDetail {
                         match result {
                             Ok(()) => {
                                 state.install_states.remove(&plugin_id);
+                                // Also remove from disabled list so a reinstall isn't blocked.
+                                crate::settings::Settings::update(ui.ctx(), |s| {
+                                    s.plugins.disabled_plugin_ids.retain(|id| *id != plugin_id);
+                                });
                                 crate::notification::NotificationManager::notify(
                                     crate::notification::Notification::new(
                                         "Plugin uninstalled",
