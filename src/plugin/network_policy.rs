@@ -15,7 +15,6 @@ pub enum CheckOutcome {
 
 #[derive(Debug)]
 pub enum PolicyViolation {
-    PrivateAddress,
     RateLimitExceeded,
     HttpNotAllowed,
     UserBlocked,
@@ -109,9 +108,6 @@ impl NetworkPolicy {
         if self.config.require_https && !url.starts_with("https://") {
             return Err(PolicyViolation::HttpNotAllowed);
         }
-        if self.is_private_address(url) {
-            return Err(PolicyViolation::PrivateAddress);
-        }
 
         // Check if domain is explicitly blocked
         if self.is_blocked(&host) {
@@ -127,51 +123,6 @@ impl NetworkPolicy {
         Ok(CheckOutcome::NeedsConsent {
             domain: host.to_string(),
         })
-    }
-
-    fn is_private_address(&self, url: &str) -> bool {
-        let parsed_url = match Url::parse(url) {
-            Ok(u) => u,
-            Err(_) => return false,
-        };
-
-        let host = match parsed_url.host() {
-            Some(h) => h.to_string(),
-            None => return false,
-        };
-
-        // Check if it's an IP address (either private or localhost)
-        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-            return match ip {
-                std::net::IpAddr::V4(addr) => {
-                    addr.is_private() || addr.is_loopback() || addr.is_link_local()
-                }
-                std::net::IpAddr::V6(addr) => addr.is_loopback() || addr.is_unicast_link_local(),
-            };
-        }
-
-        // Resolve the hostname and check all returned addresses.
-        // A single private answer in any position is enough to block the request.
-        if let Ok(addrs) = std::net::ToSocketAddrs::to_socket_addrs(&format!("{}:80", host)) {
-            for addr in addrs {
-                let is_private = match addr.ip() {
-                    std::net::IpAddr::V4(ip) => {
-                        ip.is_private() || ip.is_loopback() || ip.is_link_local()
-                    }
-                    std::net::IpAddr::V6(ip) => {
-                        ip.is_loopback()
-                            || ip.is_unicast_link_local()
-                            // Unique-local range fc00::/7
-                            || (ip.segments()[0] & 0xfe00) == 0xfc00
-                    }
-                };
-                if is_private {
-                    return true;
-                }
-            }
-        }
-
-        false
     }
 
     fn is_blocked(&self, host: &str) -> bool {
