@@ -394,10 +394,8 @@ impl ContextComponent for Sidebar {
         let (icon_strip_bg, content_bg) = if let Some(colors) = theme_colors {
             (colors.bg_sunken, colors.bg_panel)
         } else {
-            (
-                egui::Color32::from_rgb(30, 30, 30),
-                egui::Color32::from_rgb(37, 37, 38),
-            )
+            let visuals = ui.visuals();
+            (visuals.widgets.inactive.bg_fill, visuals.panel_fill)
         };
 
         let mut sidebar_panel = egui::Panel::left("sidebar");

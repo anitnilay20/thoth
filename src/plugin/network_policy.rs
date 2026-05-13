@@ -33,33 +33,40 @@ impl NetworkPolicy {
         // - If plugin allows wildcard "*", use user's allowed domains
         // - If user allows wildcard "*", use plugin's allowed domains
         // - Otherwise, intersect: plugin can only access domains the user also allows
-        let allowed_domains: Vec<String> = if user.allowed_domains.is_empty() {
+        // Normalise once so all comparisons and dedup work regardless of
+        // how the caller formatted the domain strings.
+        let norm = |v: &[String]| -> Vec<String> {
+            v.iter().map(|d| d.trim().to_ascii_lowercase()).collect()
+        };
+        let user_domains = norm(&user.allowed_domains);
+        let plugin_domains = norm(&plugin.allowed_domains);
+
+        let allowed_domains: Vec<String> = if user_domains.is_empty() {
             // User hasn't permitted any domains
             Vec::new()
-        } else if plugin.allowed_domains.is_empty() {
+        } else if plugin_domains.is_empty() {
             // Plugin has no restrictions, use user's allowed domains
-            let mut v = user.allowed_domains.clone();
+            let mut v = user_domains;
             v.sort_unstable();
             v.dedup();
             v
-        } else if plugin.allowed_domains.contains(&"*".to_string()) {
+        } else if plugin_domains.contains(&"*".to_string()) {
             // Plugin allows wildcard, use user's permissions
-            let mut v = user.allowed_domains.clone();
+            let mut v = user_domains;
             v.sort_unstable();
             v.dedup();
             v
-        } else if user.allowed_domains.contains(&"*".to_string()) {
+        } else if user_domains.contains(&"*".to_string()) {
             // User allows wildcard, use plugin's declarations
-            let mut v = plugin.allowed_domains.clone();
+            let mut v = plugin_domains;
             v.sort_unstable();
             v.dedup();
             v
         } else {
             // Both have specific restrictions, intersect
-            let mut v: Vec<String> = plugin
-                .allowed_domains
+            let mut v: Vec<String> = plugin_domains
                 .iter()
-                .filter(|d| user.allowed_domains.contains(d))
+                .filter(|d| user_domains.contains(d))
                 .cloned()
                 .collect();
             v.sort_unstable();
@@ -67,8 +74,8 @@ impl NetworkPolicy {
             v
         };
 
-        // User's blocked list is authoritative — plugins declare no blocked domains.
-        let mut blocked_domains = user.blocked_domains.clone();
+        // User's blocked list is authoritative — normalise for consistent matching.
+        let mut blocked_domains = norm(&user.blocked_domains);
         blocked_domains.sort_unstable();
         blocked_domains.dedup();
 
