@@ -1,5 +1,7 @@
 use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
-use crate::components::common::list::{List, ListItem, ListItemAction, ListProps};
+use crate::components::common::list::{List, ListItem, ListItemPostfix, ListProps};
+use crate::components::common::typography::Typography;
+use crate::components::icon_button::IconButtonProps;
 use crate::components::traits::{StatefulComponent, StatelessComponent};
 use eframe::egui;
 
@@ -35,25 +37,14 @@ impl StatefulComponent for RecentFiles {
             return RecentFilesOutput { events };
         }
 
-        let header_color = ui.ctx().memory(|mem| {
-            mem.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
-                .map(|c| c.sidebar_header)
-                .unwrap_or_else(|| egui::Color32::from_rgb(153, 153, 153))
-        });
-
         ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("RECENT FILES")
-                .size(11.0)
-                .color(header_color)
-                .strong(),
-        );
+        Typography::panel_header(ui, "RECENT FILES");
         ui.add_space(4.0);
         ui.separator();
         ui.add_space(4.0);
 
         egui::ScrollArea::vertical()
+            .scroll([false, true])
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let items: Vec<ListItem<'_>> = props
@@ -67,13 +58,23 @@ impl StatefulComponent for RecentFiles {
                         ListItem {
                             title: filename,
                             description: None,
-                            icon: Some(egui_phosphor::regular::FILE),
-                            icon_color: None,
+                            prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
+                                glyph: egui_phosphor::regular::FILE,
+                                color: None,
+                            }),
                             badge: None,
-                            action: vec![ListItemAction {
+                            tags: &[],
+                            postfix: Some(ListItemPostfix::IconButton(IconButtonProps {
                                 icon: egui_phosphor::regular::X,
-                                tooltip: "Remove",
-                            }],
+                                frame: true,
+                                tooltip: Some("Remove"),
+                                badge_color: None,
+                                size: None,
+                                icon_size: None,
+                                disabled: false,
+                                selected: false,
+                            })),
+                            selected: false,
                         }
                     })
                     .collect();
@@ -83,32 +84,36 @@ impl StatefulComponent for RecentFiles {
                     ListProps {
                         items: &items,
                         empty_label: Some("No recent files"),
+                        shrink_to_fit: false,
+                        show_separators: true,
+                        compact: false,
                     },
                 );
+
+                if let Some(item_idx) = output.postfix_clicked {
+                    if let Some(path) = props.recent_files.get(item_idx) {
+                        events.push(RecentFilesEvent::RemoveFile(path.clone()));
+                    }
+                }
 
                 if let Some(item_idx) = output.row_clicked {
                     if let Some(path) = props.recent_files.get(item_idx) {
                         events.push(RecentFilesEvent::OpenFile(path.clone()));
                     }
                 }
-                if let (Some(item_idx), Some(0)) = output.action_clicked {
-                    if let Some(path) = props.recent_files.get(item_idx) {
-                        events.push(RecentFilesEvent::RemoveFile(path.clone()));
-                    }
-                }
-
                 ui.add_space(8.0);
 
                 let button_response = Button::render(
                     ui,
                     ButtonProps {
-                        label: format!("{} Open File...", egui_phosphor::regular::FILE_PLUS),
+                        label: "Open File...".to_string(),
                         button_type: ButtonType::Elevated,
                         color: ButtonColor::Default,
                         hover_text: None,
                         size: Some(13.0),
                         width: Some(ui.available_width() - 16.0),
                         height: Some(28.0),
+                        icon: Some(egui_phosphor::regular::FILE_PLUS.to_string()),
                         ..Default::default()
                     },
                 );

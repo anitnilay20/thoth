@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use eframe::egui::{self, Color32, CornerRadius, Frame, Layout, Sense, TextureHandle, Vec2};
+use eframe::egui::{self, Color32, CornerRadius, Frame, Layout, Sense, Vec2};
 
 use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::toggle_switch::{ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps};
@@ -69,7 +69,7 @@ impl StatelessComponent for Card {
         let mut output = CardOutput { events: Vec::new() };
 
         Frame::new()
-            .fill(colors.surface0)
+            .fill(colors.surface)
             .corner_radius(CornerRadius::same(12))
             .inner_margin(16.0)
             .show(ui, |ui| {
@@ -86,13 +86,16 @@ impl StatelessComponent for Card {
                             ui.painter().circle_filled(rect.center(), 12.0, *color);
                         }
                         CardIcon::Path(path) => {
-                            let texture = load_icon_texture(ui.ctx(), path);
-                            ui.put(
-                                rect,
-                                egui::Image::new(&texture)
-                                    .fit_to_exact_size(rect.size())
-                                    .corner_radius(CornerRadius::same(10)),
-                            );
+                            if let Some(texture) =
+                                super::helpers::load_icon_texture(ui.ctx(), path, "card_icon")
+                            {
+                                ui.put(
+                                    rect,
+                                    egui::Image::new(&texture)
+                                        .fit_to_exact_size(rect.size())
+                                        .corner_radius(CornerRadius::same(10)),
+                                );
+                            }
                         }
                     }
 
@@ -103,7 +106,7 @@ impl StatelessComponent for Card {
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new(props.title)
-                                    .color(colors.text)
+                                    .color(colors.fg)
                                     .size(16.0)
                                     .strong(),
                             );
@@ -133,7 +136,7 @@ impl StatelessComponent for Card {
 
                         ui.label(
                             egui::RichText::new(props.subtitle)
-                                .color(colors.overlay1)
+                                .color(colors.fg_muted)
                                 .size(13.0),
                         );
 
@@ -142,7 +145,7 @@ impl StatelessComponent for Card {
                             ui.horizontal(|ui| {
                                 for tag in props.tags {
                                     egui::Frame::new()
-                                        .fill(colors.surface1)
+                                        .fill(colors.surface_raised)
                                         .corner_radius(4.0)
                                         .inner_margin(egui::Margin::symmetric(6, 2))
                                         .show(ui, |ui| {
@@ -161,7 +164,7 @@ impl StatelessComponent for Card {
                             ui.add_space(4.0);
                             ui.label(
                                 egui::RichText::new(meta)
-                                    .color(colors.overlay1.linear_multiply(0.8))
+                                    .color(colors.fg_muted.linear_multiply(0.8))
                                     .size(11.0),
                             );
                         }
@@ -201,84 +204,4 @@ impl StatelessComponent for Card {
 
         output
     }
-}
-
-// TODO: Move load icon texture logic to a shared utility module if other components need it
-// ── Icon texture loader ───────────────────────────────────────────────────────
-
-/// Decode a PNG from `path` and upload it to the GPU as an egui texture.
-/// The `TextureHandle` is stored in egui's per-frame memory keyed by path,
-/// so the file is read and decoded only once per session.
-fn load_icon_texture(ctx: &egui::Context, path: &Path) -> TextureHandle {
-    let key = egui::Id::new(("card_icon", path));
-
-    ctx.memory(|mem| mem.data.get_temp::<TextureHandle>(key))
-        .unwrap_or_else(|| {
-            let texture = decode_png_to_texture(ctx, path);
-            ctx.memory_mut(|mem| mem.data.insert_temp(key, texture.clone()));
-            texture
-        })
-}
-
-/// Maximum icon file size we're willing to read. Protects against accidentally
-/// pointing at a large asset and allocating huge amounts of memory.
-const MAX_ICON_SIZE_BYTES: u64 = 5_000_000;
-
-fn decode_png_to_texture(ctx: &egui::Context, path: &Path) -> TextureHandle {
-    // Attempt to decode; on failure log a warning and fall back to a 1×1 transparent pixel.
-
-    // Guard against unexpectedly large files before reading into memory.
-    match std::fs::metadata(path) {
-        Ok(meta) if meta.len() > MAX_ICON_SIZE_BYTES => {
-            eprintln!(
-                "warn: icon at {} is too large ({} bytes > {MAX_ICON_SIZE_BYTES}), skipping",
-                path.display(),
-                meta.len()
-            );
-            let fallback = egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]);
-            return ctx.load_texture(
-                path.to_string_lossy(),
-                fallback,
-                egui::TextureOptions::LINEAR,
-            );
-        }
-        Err(e) => {
-            eprintln!("warn: failed to stat icon at {}: {e}", path.display());
-            let fallback = egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]);
-            return ctx.load_texture(
-                path.to_string_lossy(),
-                fallback,
-                egui::TextureOptions::LINEAR,
-            );
-        }
-        _ => {}
-    }
-
-    let color_image = match std::fs::read(path) {
-        Err(e) => {
-            eprintln!("warn: failed to read icon at {}: {e}", path.display());
-            None
-        }
-        Ok(bytes) => match image::load_from_memory(&bytes) {
-            Err(e) => {
-                eprintln!("warn: failed to decode icon at {}: {e}", path.display());
-                None
-            }
-            Ok(img) => {
-                let rgba = img.to_rgba8();
-                let (w, h) = rgba.dimensions();
-                Some(egui::ColorImage::from_rgba_unmultiplied(
-                    [w as usize, h as usize],
-                    &rgba,
-                ))
-            }
-        },
-    }
-    .unwrap_or_else(|| egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]));
-
-    ctx.load_texture(
-        path.to_string_lossy(),
-        color_image,
-        egui::TextureOptions::LINEAR,
-    )
 }

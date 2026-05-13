@@ -15,9 +15,11 @@
 /// ```
 pub mod archive;
 pub mod file_io;
+pub mod fonts;
 pub mod fs;
 pub mod path_registry;
 
 pub use archive::get_extractor_for_file;
 pub use file_io::FileIO;
+pub use fonts::{find_font_bytes, list_system_font_families};
 pub use fs::get_fs_ops;

@@ -334,6 +334,8 @@ fn expandable_row(
                 badge_color: None,
                 size: None,
                 disabled: false,
+                icon_size: None,
+                selected: false,
             },
         )
         .clicked
@@ -347,20 +349,20 @@ fn expandable_row(
             ui.add(egui::Label::new(
                 egui::RichText::new(key)
                     .size(FONT_SIZE)
-                    .color(colors.key)
+                    .color(colors.syntax_key)
                     .monospace(),
             ));
             ui.add(egui::Label::new(
                 egui::RichText::new(rest)
                     .size(FONT_SIZE)
-                    .color(colors.overlay1)
+                    .color(colors.fg_muted)
                     .monospace(),
             ));
         } else {
             ui.add(egui::Label::new(
                 egui::RichText::new(label)
                     .size(FONT_SIZE)
-                    .color(colors.overlay1)
+                    .color(colors.fg_muted)
                     .monospace(),
             ));
         }
@@ -389,7 +391,7 @@ fn closing_row(ui: &mut egui::Ui, bracket: &str, indent: usize, colors: &ThemeCo
         ui.add(egui::Label::new(
             egui::RichText::new(bracket)
                 .size(FONT_SIZE)
-                .color(colors.overlay1)
+                .color(colors.fg_muted)
                 .monospace(),
         ));
     });
@@ -401,10 +403,10 @@ fn closing_row(ui: &mut egui::Ui, bracket: &str, indent: usize, colors: &ThemeCo
 
 fn value_display(val: &Value, colors: &ThemeColors) -> (String, Color32) {
     match val {
-        Value::String(s) => (format!("\"{s}\""), colors.string),
-        Value::Number(n) => (n.to_string(), colors.number),
-        Value::Bool(b) => (b.to_string(), colors.primary),
-        Value::Null => ("null".to_string(), colors.overlay1),
-        _ => (val.to_string(), colors.text),
+        Value::String(s) => (format!("\"{s}\""), colors.syntax_string),
+        Value::Number(n) => (n.to_string(), colors.syntax_number),
+        Value::Bool(b) => (b.to_string(), colors.accent),
+        Value::Null => ("null".to_string(), colors.fg_muted),
+        _ => (val.to_string(), colors.fg),
     }
 }

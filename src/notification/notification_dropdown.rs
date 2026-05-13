@@ -2,8 +2,9 @@ use eframe::egui::{self, Align2, CornerRadius, Layout};
 
 use crate::{
     components::{
+        button::{Button, ButtonColor, ButtonProps},
         icon_button::{IconButton, IconButtonProps},
-        list::{List, ListItem, ListItemAction, ListProps},
+        list::{List, ListItem, ListProps},
         traits::{ContextComponent, StatelessComponent},
     },
     notification::{Notification, NotificationManager, NotificationStatus},
@@ -55,6 +56,8 @@ impl ContextComponent for NotificationDropdown {
                 badge_color,
                 size: None,
                 disabled: false,
+                icon_size: None,
+                selected: false,
             },
         );
 
@@ -77,7 +80,7 @@ impl ContextComponent for NotificationDropdown {
                     egui::Frame::new()
                         .inner_margin(egui::Margin::same(8))
                         .corner_radius(CornerRadius::same(4))
-                        .fill(colors.surface1)
+                        .fill(colors.surface_raised)
                         .stroke(ui.style().visuals.window_stroke())
                         .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
@@ -94,6 +97,8 @@ impl ContextComponent for NotificationDropdown {
                                             badge_color: None,
                                             size: None,
                                             disabled: false,
+                                            icon_size: None,
+                                            selected: false,
                                         },
                                     );
                                     if let Some(mutex) = notification_manager {
@@ -107,6 +112,8 @@ impl ContextComponent for NotificationDropdown {
                                                     badge_color: None,
                                                     size: None,
                                                     disabled: nm.notifications.is_empty(),
+                                                    selected: false,
+                                                    icon_size: None,
                                                 },
                                             );
 
@@ -159,31 +166,31 @@ impl ContextComponent for NotificationDropdown {
                                 } else {
                                     Some(message.as_str())
                                 },
-                                icon: Some(icon),
-                                icon_color: Some(color),
+                                prefix: Some(
+                                    crate::components::common::list::ListItemPrefix::Icon {
+                                        glyph: icon,
+                                        color: Some(color),
+                                    },
+                                ),
                                 badge: None,
-                                action: vec![ListItemAction {
-                                    icon: egui_phosphor::regular::X,
-                                    tooltip: "Dismiss",
-                                }],
+                                postfix: None,
+                                selected: false,
+                                tags: &[],
                             }
                         })
                         .collect();
 
                     ui.set_min_width(280.0);
-                    let list_out = List::render(
+                    let _list_out = List::render(
                         ui,
                         ListProps {
                             items: &items,
                             empty_label: Some("No notifications"),
+                            shrink_to_fit: false,
+                            show_separators: true,
+                            compact: false,
                         },
                     );
-
-                    if let (Some(idx), Some(_)) = list_out.action_clicked {
-                        if let Some((id, _, _, _)) = notifications.get(idx) {
-                            NotificationManager::remove_notification(id);
-                        }
-                    }
                 });
         }
 
@@ -212,47 +219,47 @@ impl ContextComponent for NotificationDropdown {
                     ui.set_min_width(300.0);
                     ui.heading("Action Required");
 
-                    let list_items = open_consent_notifications
-                        .iter()
-                        .map(|n| {
-                            let action = n
-                                .actions
-                                .iter()
-                                .enumerate()
-                                .map(|(i, (label, _))| ListItemAction {
-                                    icon: if i == 0 {
-                                        egui_phosphor::regular::CHECK
-                                    } else {
-                                        egui_phosphor::regular::X
+                    let mut clicked: Option<(
+                        String,
+                        std::sync::Arc<dyn Fn() + Send + Sync + 'static>,
+                    )> = None;
+
+                    for n in &open_consent_notifications {
+                        ui.horizontal(|ui| {
+                            ui.colored_label(colors.warning, egui_phosphor::regular::WARNING);
+                            ui.vertical(|ui| {
+                                ui.label(&n.title);
+                                if !n.message.is_empty() {
+                                    ui.label(egui::RichText::new(&n.message).weak().small());
+                                }
+                            });
+                        });
+                        ui.horizontal(|ui| {
+                            for (i, (label, callback)) in n.actions.iter().enumerate() {
+                                let color = if i == 0 {
+                                    ButtonColor::Primary
+                                } else {
+                                    ButtonColor::Default
+                                };
+                                let btn = Button::render(
+                                    ui,
+                                    ButtonProps {
+                                        label: label.clone(),
+                                        color,
+                                        ..Default::default()
                                     },
-                                    tooltip: label.as_str(),
-                                })
-                                .collect();
-                            ListItem {
-                                title: &n.title,
-                                description: Some(&n.message),
-                                icon: Some(egui_phosphor::regular::WARNING),
-                                icon_color: Some(colors.warning),
-                                badge: None,
-                                action,
+                                );
+                                if btn.clicked && clicked.is_none() {
+                                    clicked = Some((n.id.clone(), callback.clone()));
+                                }
                             }
-                        })
-                        .collect::<Vec<ListItem>>();
+                        });
+                        ui.separator();
+                    }
 
-                    let output = List::render(
-                        ui,
-                        ListProps {
-                            items: &list_items,
-                            empty_label: None,
-                        },
-                    );
-
-                    if let (Some(item_idx), Some(action_idx)) = output.action_clicked {
-                        let notification = &open_consent_notifications[item_idx];
-                        if let Some(action) = notification.actions.get(action_idx) {
-                            action.1();
-                        }
-                        NotificationManager::mark_notification_as_complete(&notification.id);
+                    if let Some((id, callback)) = clicked {
+                        callback();
+                        NotificationManager::mark_notification_as_complete(&id);
                     }
                 });
         }

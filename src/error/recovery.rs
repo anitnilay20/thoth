@@ -56,6 +56,12 @@ impl ErrorRecovery {
             ThothError::PluginDirectoryInvalid { .. } => RecoveryAction::ShowError,
             ThothError::PluginFileInvalid { .. } => RecoveryAction::ShowError,
             ThothError::PluginLoadError { .. } => RecoveryAction::ShowError,
+            ThothError::PluginDownloadError { .. } => RecoveryAction::Retry,
+            ThothError::PluginRemoveError { .. } => RecoveryAction::ShowError,
+
+            // Download/save errors
+            ThothError::DownloadError { .. } => RecoveryAction::Retry,
+            ThothError::FileSaveError { .. } => RecoveryAction::ShowError,
         }
     }
 

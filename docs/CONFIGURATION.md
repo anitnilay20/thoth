@@ -19,8 +19,10 @@ The configuration is organized into logical sections:
 version = 1           # Configuration version (managed automatically)
 dark_mode = true      # Enable dark theme
 font_size = 14.0      # UI font size in points (8.0-72.0)
-font_family = ""      # Custom font family (optional)
+font_family = ""      # Custom font family — any family installed on your OS (optional)
 ```
+
+**`font_family`** accepts the exact family name of any font installed on your system (e.g. `"JetBrains Mono"`, `"Inter"`, `"Fira Code"`). Leave it empty to use the system default. The Settings UI shows a live list of every installed font family so you never have to type the name manually. Changes take effect immediately after saving — no restart required.
 
 ### 2. Window Settings
 
@@ -90,14 +92,27 @@ show_toolbar = true             # Show toolbar at top
 enable_animations = true        # Enable UI animations
 ```
 
-### 7. Developer Settings
+**`remember_sidebar_state`**: When toggled ON while the app is running, the sidebar immediately restores its last saved state from persistent storage — no restart required. Toggling OFF takes effect on the next session only.
+
+### 7. Plugin Settings
+
+Control the plugin system behavior:
+
+```toml
+[plugins]
+enabled = true    # Enable the plugin system
+```
+
+> **Restart required**: Changes to `plugins.enabled` take effect after restarting the app. All other plugin settings (per-plugin configuration, network policies) apply immediately when saved.
+
+### 8. Developer Settings
 
 ```toml
 [dev]
 show_profiler = false    # Show performance profiler (requires profiling feature)
 ```
 
-### 8. Theme Customization
+### 9. Theme Customization
 
 Thoth uses the Catppuccin color scheme with full customization support:
 
@@ -140,7 +155,7 @@ selection_stroke = "#89b4fa"
 - Light mode uses Catppuccin Latte
 - All colors can be customized individually
 
-### 9. Keyboard Shortcuts
+### 10. Keyboard Shortcuts
 
 All keyboard shortcuts are fully customizable:
 
@@ -243,6 +258,22 @@ max_file_size_mb = 100      # Smaller files only
 [ui]
 enable_animations = false   # Disable animations
 ```
+
+## Settings Reactivity
+
+Most settings take effect immediately when saved — no restart required. The exceptions are noted below.
+
+| Setting | Live? | Notes |
+|---|---|---|
+| `font_family` | ✅ Yes | Font is loaded and applied to the UI immediately |
+| `font_size` | ✅ Yes | Applies on next frame |
+| `dark_mode` / theme | ✅ Yes | Applies on next frame |
+| `ui.remember_sidebar_state` | ✅ Yes | Toggling ON restores sidebar state immediately |
+| `ui.sidebar_width`, `show_status_bar`, etc. | ✅ Yes | Applies on next frame |
+| `viewer.*`, `performance.*`, `updates.*` | ✅ Yes | Read from settings every frame |
+| `window.default_width/height` | ⚠️ Next session | Only used when creating a new window |
+| `plugins.enabled` | 🔄 Restart | Plugin system is initialized once at startup |
+| Per-plugin settings | ✅ Yes | Active plugin pane receives `on-setting-change` immediately |
 
 ## Resetting Configuration
 

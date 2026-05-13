@@ -1,0 +1,35 @@
+id = "com.thoth.material-theme"
+name = "Material Theme"
+version = "0.1.0"
+description = "Material theme for Thoth"
+author = "Thoth contributors"
+capabilities = ["theme"]
+
+[theme]
+family = "Material"
+catalog = [
+  [
+    "Material Light",
+    false,
+  ],
+  [
+    "Material Dark",
+    true,
+  ],
+  [
+    "Material Darker",
+    true,
+  ],
+  [
+    "Material Palenight",
+    true,
+  ],
+  [
+    "Material Ocean",
+    true,
+  ],
+  [
+    "Material High Contrast",
+    true,
+  ],
+]

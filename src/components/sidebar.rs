@@ -5,8 +5,11 @@ use crate::components::bookmarks::{Bookmarks, BookmarksEvent, BookmarksProps};
 use crate::components::data_source_panel::{
     DataSourcePanel, DataSourcePanelEvent, DataSourcePanelProps,
 };
+use crate::components::icon_button::{IconButton, IconButtonProps};
+use crate::components::marketplace::{Marketplace, MarketplaceProps};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 use crate::components::search::{Search, SearchEvent, SearchProps};
+use crate::components::traits::StatelessComponent;
 use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
 use crate::plugin::{Plugin, render_node::render_ui_node, wasm_data_source::ConsentRequest};
@@ -26,6 +29,7 @@ pub enum SidebarSection {
     PluginSidebar {
         plugin_id: String,
     },
+    MarketPlace,
 }
 
 /// Props passed to the Sidebar (immutable, one-way binding)
@@ -107,7 +111,7 @@ pub struct Sidebar {
     search: Search,
     bookmarks: Bookmarks,
 
-    data_soure_panel: HashMap<String, DataSourcePanel>,
+    data_source_panel: HashMap<String, DataSourcePanel>,
 }
 
 impl Default for Sidebar {
@@ -116,7 +120,7 @@ impl Default for Sidebar {
             recent_files: RecentFiles,
             search: Search::default(),
             bookmarks: Bookmarks::default(),
-            data_soure_panel: HashMap::new(),
+            data_source_panel: HashMap::new(),
         }
     }
 }
@@ -129,7 +133,7 @@ impl Sidebar {
         plugin_id: String,
         loader: crate::plugin::wasm_data_source::WasmDataSourceLoader,
     ) {
-        let panel = self.data_soure_panel.entry(plugin_id).or_default();
+        let panel = self.data_source_panel.entry(plugin_id).or_default();
         if !panel.has_loader() {
             panel.set_loader(loader);
         }
@@ -185,9 +189,6 @@ impl Sidebar {
                         BookmarksEvent::NavigateToBookmark { file_path, path } => {
                             events.push(SidebarEvent::NavigateToBookmark { file_path, path });
                         }
-                        BookmarksEvent::RemoveBookmark(index) => {
-                            events.push(SidebarEvent::RemoveBookmark(index));
-                        }
                         BookmarksEvent::JumpToPath(path) => {
                             events.push(SidebarEvent::JumpToPath(path));
                         }
@@ -195,7 +196,7 @@ impl Sidebar {
                 }
             }
             Some(SidebarSection::DataSource { plugin_id }) => {
-                if let Some(panel) = self.data_soure_panel.get_mut(plugin_id.as_str()) {
+                if let Some(panel) = self.data_source_panel.get_mut(plugin_id.as_str()) {
                     for ev in panel.render(ui, DataSourcePanelProps {}) {
                         match ev {
                             DataSourcePanelEvent::QueryResult { json, display_url } => {
@@ -236,6 +237,9 @@ impl Sidebar {
                     }
                 }
             }
+            Some(SidebarSection::MarketPlace) => {
+                Marketplace::render(ui, MarketplaceProps);
+            }
             None => {}
         }
     }
@@ -246,80 +250,73 @@ impl Sidebar {
         ui: &mut egui::Ui,
         props: &SidebarProps<'_>,
         events: &mut Vec<SidebarEvent>,
-        hover_bg: egui::Color32,
-        selection_bg: egui::Color32,
-        text_color: egui::Color32,
     ) {
-        let icon_size = 20.0;
         let button_size = egui::vec2(48.0, 48.0);
 
-        // Recent Files button
-        let recent_files_selected = props.selected_section == Some(SidebarSection::RecentFiles);
-        if self.render_icon_button(
+        let sidebar_btn = |icon, tooltip, selected| IconButtonProps {
+            icon,
+            tooltip: Some(tooltip),
+            size: Some(button_size),
+            icon_size: Some(20.0),
+            selected,
+            frame: false,
+            badge_color: None,
+            disabled: false,
+        };
+
+        if IconButton::render(
             ui,
-            egui_phosphor::regular::FOLDER,
-            "Recent Files",
-            recent_files_selected,
-            (button_size, icon_size),
-            (hover_bg, selection_bg, text_color),
-        ) {
-            // Emit toggle event - parent will decide whether to collapse or expand
+            sidebar_btn(
+                egui_phosphor::regular::FOLDER,
+                "Recent Files",
+                props.selected_section == Some(SidebarSection::RecentFiles),
+            ),
+        )
+        .clicked
+        {
             events.push(SidebarEvent::SectionToggled(SidebarSection::RecentFiles));
         }
 
-        // Search button
-        let search_selected = props.selected_section == Some(SidebarSection::Search);
-        if self.render_icon_button(
+        if IconButton::render(
             ui,
-            egui_phosphor::regular::MAGNIFYING_GLASS,
-            "Search",
-            search_selected,
-            (button_size, icon_size),
-            (hover_bg, selection_bg, text_color),
-        ) {
-            // Emit toggle event - parent will decide whether to collapse or expand
+            sidebar_btn(
+                egui_phosphor::regular::MAGNIFYING_GLASS,
+                "Search",
+                props.selected_section == Some(SidebarSection::Search),
+            ),
+        )
+        .clicked
+        {
             events.push(SidebarEvent::SectionToggled(SidebarSection::Search));
         }
 
-        // Bookmarks button
-        let bookmarks_selected = props.selected_section == Some(SidebarSection::Bookmarks);
-        if self.render_icon_button(
+        if IconButton::render(
             ui,
-            egui_phosphor::regular::BOOKMARK_SIMPLE,
-            "Bookmarks",
-            bookmarks_selected,
-            (button_size, icon_size),
-            (hover_bg, selection_bg, text_color),
-        ) {
+            sidebar_btn(
+                egui_phosphor::regular::BOOKMARK_SIMPLE,
+                "Bookmarks",
+                props.selected_section == Some(SidebarSection::Bookmarks),
+            ),
+        )
+        .clicked
+        {
             events.push(SidebarEvent::SectionToggled(SidebarSection::Bookmarks));
         }
 
-        // Icon button for the active ui-component plugin's sidebar (if any).
-        if let Some(info) = &props.plugin_sidebar {
-            let section = SidebarSection::PluginSidebar {
-                plugin_id: info.plugin_id.to_string(),
-            };
-            let selected = props.selected_section == Some(section.clone());
-            let icon = info.icon.unwrap_or(egui_phosphor::regular::SIDEBAR_SIMPLE);
-            if self.render_icon_button(
-                ui,
-                icon,
-                info.plugin_name,
-                selected,
-                (button_size, icon_size),
-                (hover_bg, selection_bg, text_color),
-            ) {
-                events.push(SidebarEvent::SectionToggled(section));
-            }
+        if IconButton::render(
+            ui,
+            sidebar_btn(
+                egui_phosphor::regular::STOREFRONT,
+                "Marketplace",
+                props.selected_section == Some(SidebarSection::MarketPlace),
+            ),
+        )
+        .clicked
+        {
+            events.push(SidebarEvent::SectionToggled(SidebarSection::MarketPlace));
         }
 
-        // One icon button per registered data-source plugin.
-        // Skip any plugin that is already represented by the plugin_sidebar button above.
-        let plugin_sidebar_id = props.plugin_sidebar.as_ref().map(|i| i.plugin_id);
         for plugin in props.data_source_plugins {
-            if plugin_sidebar_id == Some(plugin.id.as_str()) {
-                continue;
-            }
             let section = SidebarSection::DataSource {
                 plugin_id: plugin.id.clone(),
             };
@@ -328,54 +325,24 @@ impl Sidebar {
                 .icon
                 .as_deref()
                 .unwrap_or(egui_phosphor::regular::DATABASE);
-            if self.render_icon_button(
+            if IconButton::render(
                 ui,
-                icon,
-                &plugin.name,
-                selected,
-                (button_size, icon_size),
-                (hover_bg, selection_bg, text_color),
-            ) {
+                IconButtonProps {
+                    icon,
+                    tooltip: Some(plugin.name.as_str()),
+                    size: Some(button_size),
+                    icon_size: Some(20.0),
+                    selected,
+                    frame: false,
+                    badge_color: None,
+                    disabled: false,
+                },
+            )
+            .clicked
+            {
                 events.push(SidebarEvent::SectionToggled(section));
             }
         }
-    }
-
-    fn render_icon_button(
-        &self,
-        ui: &mut egui::Ui,
-        icon: &str,
-        tooltip: &str,
-        selected: bool,
-        (size, icon_size): (egui::Vec2, f32),
-        (hover_bg, selection_bg, text_color): (egui::Color32, egui::Color32, egui::Color32),
-    ) -> bool {
-        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-
-        if ui.is_rect_visible(rect) {
-            // Background
-            if selected || response.hovered() {
-                let bg_color = if selected {
-                    selection_bg // Use theme selection color
-                } else {
-                    hover_bg
-                };
-                ui.painter().rect_filled(rect, 0.0, bg_color);
-            }
-
-            // Icon (always use text_color)
-            let icon_color = text_color;
-
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                icon,
-                egui::FontId::proportional(icon_size),
-                icon_color,
-            );
-        }
-
-        response.on_hover_text(tooltip).clicked()
     }
 
     fn render_search_section(
@@ -424,50 +391,24 @@ impl ContextComponent for Sidebar {
                 .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
         });
 
-        let (icon_strip_bg, content_bg, hover_bg, selection_bg, text_color) =
-            if let Some(colors) = theme_colors {
-                (
-                    colors.crust,  // Icon strip uses darker crust
-                    colors.mantle, // Content area uses mantle
-                    colors.sidebar_hover,
-                    colors.overlay1, // Selection background
-                    colors.text,
-                )
-            } else {
-                // Fallback colors
-                (
-                    egui::Color32::from_rgb(30, 30, 30),
-                    egui::Color32::from_rgb(37, 37, 38),
-                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 13),
-                    egui::Color32::from_rgb(60, 60, 60),
-                    egui::Color32::from_rgb(204, 204, 204),
-                )
-            };
-
-        let sidebar_width = if props.expanded {
-            props.sidebar_width
+        let (icon_strip_bg, content_bg) = if let Some(colors) = theme_colors {
+            (colors.bg_sunken, colors.bg_panel)
         } else {
-            48.0
+            let visuals = ui.visuals();
+            (visuals.widgets.inactive.bg_fill, visuals.panel_fill)
         };
 
-        // Build sidebar panel - always resizable when expanded
-        let is_resizable = props.expanded;
-        let mut sidebar_panel = egui::Panel::left("sidebar").resizable(is_resizable);
-
-        // Set width constraints
+        let mut sidebar_panel = egui::Panel::left("sidebar");
         if props.expanded {
-            // When expanded, use stored width with min/max constraints
             let min_width = MIN_SIDEBAR_WIDTH;
             let window_width = ui.ctx().content_rect().width();
             let max_width = window_width * MAX_SIDEBAR_WIDTH_RATIO;
-
             sidebar_panel = sidebar_panel
                 .resizable(true)
                 .size_range(min_width..=max_width)
                 .default_size(props.sidebar_width.clamp(min_width, max_width));
         } else {
-            // When collapsed, use icon strip width
-            sidebar_panel = sidebar_panel.exact_size(sidebar_width);
+            sidebar_panel = sidebar_panel.resizable(false).exact_size(48.0);
         }
 
         let sidebar_response = sidebar_panel
@@ -498,14 +439,7 @@ impl ContextComponent for Sidebar {
                             .max_rect(icon_strip_rect)
                             .layout(egui::Layout::top_down(egui::Align::Center)),
                     );
-                    self.render_icon_buttons(
-                        &mut icon_ui,
-                        &props,
-                        &mut events,
-                        hover_bg,
-                        selection_bg,
-                        text_color,
-                    );
+                    self.render_icon_buttons(&mut icon_ui, &props, &mut events);
 
                     // Right side: expanded content (takes remaining width)
                     let content_width = actual_width - 48.0; // Calculate from actual width
@@ -533,14 +467,7 @@ impl ContextComponent for Sidebar {
                     ui.allocate_rect(available_rect, egui::Sense::hover());
                 } else {
                     // Just show icon buttons
-                    self.render_icon_buttons(
-                        ui,
-                        &props,
-                        &mut events,
-                        hover_bg,
-                        selection_bg,
-                        text_color,
-                    );
+                    self.render_icon_buttons(ui, &props, &mut events);
                 }
             });
 

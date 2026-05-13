@@ -229,8 +229,10 @@ interface plugin-lifecycle {
     /// Called before the plugin is unloaded. Release held resources.
     on-close: func();
 
-    /// Called when the user saves settings in Settings → Plugins.
-    /// `setting` is the same JSON array format as on-load.
+    /// Called automatically by the host whenever the user saves settings while
+    /// this plugin's pane is active. `setting` is the same JSON array format
+    /// as on-load. This covers both plugin-specific settings changes and any
+    /// other settings save while the plugin is open.
     on-setting-change: func(setting: string);
 }
 ```
@@ -284,8 +286,14 @@ interface http-client {
     /// delivers the result by calling handle-event with:
     ///   widget-id = <request-id>
     ///   kind      = "http-response"
-    ///   value     = JSON: {"ok":{"status":200,"headers":[...],"body":"..."}}
-    ///            or JSON: {"err":{"code":1,"message":"..."}}
+    ///   value     = JSON: {"ok":{"status":200,"headers":[["k","v"]],"body":"...","duration_ms":42}}
+    ///            or JSON: {"err":{"code":"error","message":"..."}}
+    ///            or JSON: {"err":{"code":"consent_pending","message":"domain '...' not approved"}}
+    ///
+    /// The "consent_pending" code means the user has not yet approved the
+    /// domain. A consent popup is shown; once approved, the host re-dispatches
+    /// the request and delivers a new http-response event. While waiting, keep
+    /// loading=true and show a "Waiting for consent approval…" spinner.
     ///
     /// Use submit() when you want to show a spinner while waiting. Store the
     /// request-id, set a loading flag in your state, and return a UI tree with
@@ -360,8 +368,12 @@ interface ui-component {
 
     record ui-event {
         widget-id: string,
-        kind:      string,   // "click" | "change" | "http-response"
-        value:     string,   // JSON-encoded new value; empty for "click"
+        /// "click"         — button / icon-button pressed (value is empty)
+        /// "change"        — any input value changed (JSON-encoded new value)
+        /// "http-response" — async HTTP result from submit() (JSON payload)
+        /// "notify"        — host notification, e.g. "consent-approved"
+        kind:      string,
+        value:     string,
     }
 
     record ui-output {
@@ -369,8 +381,12 @@ interface ui-component {
         height-hint: u32,
     }
 
-    render-ui:    func()              -> result<ui-output, plugin-error>;
-    handle-event: func(event: ui-event) -> result<ui-output, plugin-error>;
+    render-ui:      func()               -> result<ui-output, plugin-error>;
+    handle-event:   func(event: ui-event) -> result<ui-output, plugin-error>;
+    /// Optional sidebar panel. Return some(output) to show a sidebar slot.
+    /// Return none if this plugin has no sidebar content.
+    /// Called after every handle-event to keep the sidebar in sync.
+    render-sidebar: func()               -> result<option<ui-output>, plugin-error>;
 }
 ```
 
@@ -473,9 +489,26 @@ ThothApp::ui() — called every frame:
             └── if has_pending_http(): ctx.request_repaint()
 ```
 
+### Settings-change notification flow
+
+```text
+ThothApp — user clicks "Save" in Settings dialog
+    ├── settings saved to disk
+    ├── self.settings updated in memory
+    ├── PluginManager::update_plugin_settings(new_plugin_settings)
+    │       └── overwrites internal RwLock<HashMap> with latest per-plugin values
+    └── if active_plugin_pane exists:
+            └── WasmDataSourceLoader::on_setting_change(updated_settings)
+                    └── wasmtime call: plugin-lifecycle.on-setting-change(settings_json)
+                            └── plugin re-parses JSON, updates internal state
+```
+
+> If `plugins.enabled` changed, a toast notification is shown and no further plugin calls
+> are made — the change takes effect only after the app is restarted.
+
 ### Fuel replenishment
 
-Each WIT call replenishes fuel to `u64::MAX / 2` before calling into the plugin. This prevents fuel exhaustion across many sequential calls while still bounding any single infinite-loop.
+Each WIT call replenishes fuel to **5,000,000,000 units** (`PLUGIN_FUEL_BUDGET`) before calling into the plugin via the `refuel()` helper in `wasm_data_source.rs`. This gives plugins ample budget for serialising large JSON responses while still bounding runaway infinite loops. Fuel exhaustion surfaces as `ThothError::Unknown` with a "all fuel consumed" message.
 
 ---
 
@@ -822,10 +855,14 @@ Used by `ui-component` (via `render-ui` / `handle-event`) and `plugin-settings` 
 
 | Node | Fields | Notes |
 |---|---|---|
-| `row` | `children`, `gap?: number`, `align?: "start\|center\|end\|fill"` | Horizontal |
-| `column` | `children`, `gap?: number` | Vertical |
+| `row` | `children`, `gap?: number`, `align?: "start\|center\|end\|fill"`, `padding?: number`, `max-width?: bool` | Horizontal |
+| `column` | `children`, `gap?: number`, `padding?: number`, `bg-color?: string` | Vertical |
+| `split` | `children` (exactly 2), `gap?: number`, `separator?: bool` | Equal-width columns; `separator: true` draws a 1px divider |
 | `group` | `label: string`, `children` | Labelled section box |
 | `scroll` | `child`, `height?: number` | Scrollable area |
+| `footer` | `children`, `gap?: number`, `padding?: number` | Sticky bottom panel (rendered before content) |
+| `modal` | `id`, `title`, `open: bool`, `children`, `close-id?: string`, `width-pct?: number`, `height-pct?: number` | Overlay dialog with backdrop; `close-id` emits a click event when × is pressed |
+| `tabs` | `id`, `header: string[]`, `children` | Tabbed container; one child per header entry |
 | `spacer` | `height?: number` | Empty vertical space |
 | `separator` | — | Horizontal rule |
 
@@ -839,7 +876,8 @@ Used by `ui-component` (via `render-ui` / `handle-event`) and `plugin-settings` 
 | `code` | `value: string`, `language?: string` |
 | `markdown` | `value: string` |
 | `progress` | `value: number` (0.0–1.0) |
-| `spinner` | — | Animated loading indicator |
+| `spinner` | `size?: number` | Animated loading indicator |
+| `json-tree` | `value: any` | Virtualised interactive JSON tree |
 
 ### Inputs (all fire `"change"` event with JSON-encoded new value)
 
@@ -847,7 +885,7 @@ All inputs take `id: string`, `label: string`, `disabled?: bool`.
 
 | Node | Extra fields | Event value |
 |---|---|---|
-| `text-input` | `value`, `placeholder`, `required` | JSON string |
+| `text-input` | `value`, `placeholder`, `required`, `grow?: bool`, `multiline?: bool`, `rows?: number` | JSON string |
 | `number-input` | `value`, `min`, `max` | JSON number |
 | `password-input` | `value` | JSON string |
 | `textarea` | `value`, `rows` | JSON string |
@@ -858,13 +896,37 @@ All inputs take `id: string`, `label: string`, `disabled?: bool`.
 | `radio` | `value`, `options` | JSON string |
 | `slider` | `value`, `min`, `max` | JSON number |
 | `key-value-list` | `entries: [{key,value}]`, `add-label` | JSON array of `{key,value}` |
+| `button-group` | `id`, `options: [{value,label}]`, `value: string` | JSON string (selected value) |
 
 ### Actions (fire `"click"` event with empty value)
 
-| Node | Fields |
-|---|---|
-| `button` | `id`, `label`, `variant?: "primary\|secondary\|danger"`, `enabled?: bool` |
-| `icon-button` | `id`, `icon: string`, `tooltip`, `enabled?: bool` |
+| Node | Fields | Notes |
+|---|---|---|
+| `button` | `id`, `props: {label, button-type, color, enabled}`, `copy?: string` | `copy` writes text to clipboard on the host side without a plugin round-trip |
+| `icon-button` | `id`, `icon: string`, `tooltip`, `enabled?: bool`, `frame?: bool` | Uses Phosphor icon glyphs |
+
+### List items
+
+`list` nodes support a `badge` field on each item for coloured pill labels (e.g. HTTP method badges):
+
+```json
+{
+  "type": "list",
+  "id": "saved-requests",
+  "items": [
+    {
+      "title": "My Request",
+      "description": "https://api.example.com",
+      "badge": { "text": "GET", "color": "blue" },
+      "actions": [{ "icon": "x", "tooltip": "Delete" }]
+    }
+  ]
+}
+```
+
+Badge colour values: `"blue"`, `"green"`, `"red"`, `"orange"`, `"purple"`, `"gray"`.
+
+> **Note:** The `actions` array is parsed by the host but action buttons are not yet rendered. Declaring them now is forward-compatible — they will become hover-revealed icon buttons in a future release.
 
 ---
 
@@ -911,6 +973,96 @@ Used by `file-viewer` (`render-record`) and `data-source` (`render-pane`). WIT d
 
 ---
 
+## Implementing a Theme Plugin
+
+Theme plugins change Thoth's colour scheme without WASM. A theme is a directory containing `plugin.toml` + `theme.json`.
+
+### `plugin.toml`
+
+`family` groups related variants (shown as a section header in the theme picker). `catalog` is a list of `[variant-name, is-dark]` pairs — one entry per variant in `theme.json`.
+
+```toml
+id           = "com.example.gruvbox"
+name         = "Gruvbox"
+version      = "1.0.0"
+description  = "Gruvbox colour schemes"
+capabilities = ["theme"]
+
+[theme]
+family  = "Gruvbox"
+catalog = [
+  ["Gruvbox Dark",  true],
+  ["Gruvbox Light", false],
+]
+```
+
+### `theme.json` — colour token map
+
+The file is a JSON object keyed by the variant names listed in `catalog`. Each variant must include all tokens below.
+
+```json
+{
+  "Gruvbox Dark": {
+    "name":               "Gruvbox Dark",
+    "dark_mode":          true,
+    "bg":                 "#282828",
+    "bg_panel":           "#1d2021",
+    "bg_sunken":          "#191b1c",
+    "surface":            "#3c3836",
+    "surface_raised":     "#504945",
+    "surface_active":     "#665c54",
+    "fg":                 "#ebdbb2",
+    "fg_muted":           "#928374",
+    "syntax_key":         "#83a598",
+    "syntax_string":      "#b8bb26",
+    "syntax_number":      "#d79921",
+    "syntax_bool":        "#8ec07c",
+    "syntax_punctuation": "#ebdbb2",
+    "success":            "#98971a",
+    "warning":            "#d65d0e",
+    "error":              "#cc241d",
+    "info":               "#689d6a",
+    "accent":             "#d79921",
+    "accent_secondary":   "#458588",
+    "sidebar_hover":      "#3c383680",
+    "sidebar_header":     "#ebdbb2",
+    "indent_guide":       "#504945"
+  },
+  "Gruvbox Light": {
+    "name":               "Gruvbox Light",
+    "dark_mode":          false,
+    "bg":                 "#fbf1c7",
+    "bg_panel":           "#f2e5bc",
+    "bg_sunken":          "#ebdbb2",
+    "surface":            "#d5c4a1",
+    "surface_raised":     "#bdae93",
+    "surface_active":     "#a89984",
+    "fg":                 "#3c3836",
+    "fg_muted":           "#7c6f64",
+    "syntax_key":         "#076678",
+    "syntax_string":      "#79740e",
+    "syntax_number":      "#b57614",
+    "syntax_bool":        "#427b58",
+    "syntax_punctuation": "#3c3836",
+    "success":            "#79740e",
+    "warning":            "#b57614",
+    "error":              "#9d0006",
+    "info":               "#427b58",
+    "accent":             "#b57614",
+    "accent_secondary":   "#076678",
+    "sidebar_hover":      "#d5c4a133",
+    "sidebar_header":     "#3c3836",
+    "indent_guide":       "#d5c4a1"
+  }
+}
+```
+
+All tokens map 1-to-1 to fields in `ThemeColors` (`src/theme.rs`). Missing tokens fall back to the built-in defaults.
+
+A dynamic WASM variant can expose a `theme-provider` interface that returns the colour map at runtime — useful for adaptive themes or palettes generated from user preferences. See [#70](https://github.com/anitnilay20/thoth/issues/70) for the full spec.
+
+---
+
 ## Security Model
 
 Each plugin runs in a fully isolated Wasmtime instance:
@@ -920,10 +1072,11 @@ Each plugin runs in a fully isolated Wasmtime instance:
 | Memory isolation | Each plugin has its own WASM linear memory; cannot read host or other plugin memory |
 | Filesystem access | WASI preopened-dir grants read access to the **file's parent directory only** (set at open time) |
 | No direct network access | Plugins cannot open sockets directly; all HTTP goes through the host's `http-client` import |
-| Network policy | Each `http-client` call is validated against a per-plugin allowlist and SSRF guard before forwarding |
-| User consent | First request to a new domain triggers a consent prompt; the plugin receives an error until the user approves |
-| CPU budget | Fuel is replenished to `u64::MAX / 2` before every WIT call — infinite loops cannot stall the UI indefinitely |
+| Network policy | Per-plugin allowlist (intersection of plugin-declared and user-approved domains), SSRF guard (all DNS answers checked, IPv4 + IPv6 private ranges), and rate limiter (minimum of plugin and user RPM caps) |
+| User consent | First request to an unlisted domain triggers a consent popup; the plugin receives `{"err":{"code":"consent_pending"}}` until the user approves; the host re-dispatches the request automatically on approval |
+| CPU budget | Fuel is replenished to 5,000,000,000 units before every WIT call — infinite loops are caught and surfaced as a recoverable error |
 | Bundled vs user | Bundled plugins (shipped with Thoth) set `plugin.bundled = true` at scan time; the UI prevents uninstalling them |
+| Download integrity | The `sha256` field in the marketplace manifest is **always** verified against the downloaded archive; installation is aborted if the checksum is absent or does not match |
 
 ---
 

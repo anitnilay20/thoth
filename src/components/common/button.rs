@@ -1,9 +1,10 @@
 use eframe::egui::{self, Color32};
+use egui::text::{LayoutJob, TextFormat};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     components::traits::StatelessComponent,
-    theme::{Theme, ThemeColors, get_contrast_text_color},
+    theme::{Theme, ThemeColors, get_contrast_text_color, phosphor_font_id},
 };
 
 pub struct Button;
@@ -13,6 +14,14 @@ pub enum ButtonType {
     #[default]
     Elevated,
     Text,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+pub enum ButtonSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
@@ -33,11 +42,15 @@ pub struct ButtonProps {
     #[serde(default)]
     pub color: ButtonColor,
     #[serde(default)]
+    pub button_size: ButtonSize,
+    #[serde(default)]
     pub hover_text: Option<String>,
+    /// Font size override — if unset, derived from `button_size`.
     #[serde(default)]
     pub size: Option<f32>,
     #[serde(default)]
     pub width: Option<f32>,
+    /// Height override — if unset, derived from `button_size`.
     #[serde(default)]
     pub height: Option<f32>,
     #[serde(default = "default_enabled")]
@@ -56,6 +69,7 @@ impl Default for ButtonProps {
             label: String::new(),
             button_type: ButtonType::Elevated,
             color: ButtonColor::Default,
+            button_size: ButtonSize::Medium,
             hover_text: None,
             size: None,
             width: None,
@@ -83,21 +97,21 @@ impl StatelessComponent for Button {
                 .unwrap_or_else(|| Theme::default().colors())
         });
 
-        let label = if let Some(icon) = props.icon {
-            format!("{} {}", icon, props.label)
-        } else {
-            props.label
+        let (default_font, default_h) = match props.button_size {
+            ButtonSize::Small => (11.0_f32, 24.0_f32),
+            ButtonSize::Medium => (13.0_f32, 28.0_f32),
+            ButtonSize::Large => (15.0_f32, 32.0_f32),
         };
-
-        let size = props.size.unwrap_or(14.0);
-        let text = egui::RichText::new(&label).size(size);
+        let size = props.size.unwrap_or(default_font);
+        let height = Some(props.height.unwrap_or(default_h));
+        let icon = props.icon.as_deref();
 
         let bg_color = match props.color {
-            ButtonColor::Default => colors.surface2,
-            ButtonColor::Primary => colors.primary,
+            ButtonColor::Default => colors.surface_active,
+            ButtonColor::Primary => colors.accent,
             ButtonColor::Danger => colors.error,
             ButtonColor::Success => colors.success,
-            ButtonColor::Secondary => colors.secondary,
+            ButtonColor::Secondary => colors.accent_secondary,
         };
 
         let mut response = ui
@@ -106,20 +120,21 @@ impl StatelessComponent for Button {
                     let text_color = get_contrast_text_color(bg_color);
                     Self::elevated_button(
                         ui,
-                        text.color(text_color),
+                        Self::make_layout_job(icon, &props.label, size, text_color),
                         bg_color,
                         props.width,
-                        props.height,
+                        height,
                     )
                 }
                 ButtonType::Text => Self::text_button(
                     ui,
-                    &label,
-                    props.size.unwrap_or(14.0),
+                    &props.label,
+                    icon,
+                    size,
                     bg_color,
-                    colors.text,
+                    colors.fg,
                     props.width,
-                    props.height,
+                    height,
                 ),
             })
             .inner;
@@ -138,65 +153,94 @@ impl StatelessComponent for Button {
 }
 
 impl Button {
+    fn make_layout_job(icon: Option<&str>, label: &str, size: f32, color: Color32) -> LayoutJob {
+        let mut job = LayoutJob::default();
+        if let Some(ic) = icon {
+            job.append(
+                ic,
+                0.0,
+                TextFormat {
+                    font_id: phosphor_font_id(size),
+                    color,
+                    valign: egui::Align::Center,
+                    ..Default::default()
+                },
+            );
+            job.append(
+                " ",
+                0.0,
+                TextFormat {
+                    font_id: egui::FontId::proportional(size),
+                    color,
+                    valign: egui::Align::Center,
+                    ..Default::default()
+                },
+            );
+        }
+        job.append(
+            label,
+            0.0,
+            TextFormat {
+                font_id: egui::FontId::proportional(size),
+                color,
+                valign: egui::Align::Center,
+                ..Default::default()
+            },
+        );
+        job
+    }
+
     fn elevated_button(
         ui: &mut egui::Ui,
-        text: egui::RichText,
+        job: LayoutJob,
         bg_color: Color32,
         width: Option<f32>,
         height: Option<f32>,
     ) -> egui::Response {
-        let button = egui::Button::new(text)
-            .stroke(egui::Stroke::NONE)
-            .corner_radius(4);
+        let galley = ui.painter().layout_job(job);
+        let desired = egui::vec2(
+            width.unwrap_or(galley.size().x + 20.0),
+            height.unwrap_or(galley.size().y + 10.0),
+        );
+        let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click());
 
-        // Zero out expansion so the painted background never overflows the
-        // allocated rect on hover (+1 px default) or shrinks on press (-1 px
-        // default), which would visually shift neighbouring widgets.
-        // Set weak_bg_fill per state so the hover/active darkening is handled
-        // by egui's state machine rather than a static override.
-        ui.scope(|ui| {
-            {
-                let w = &mut ui.visuals_mut().widgets;
-                w.inactive.weak_bg_fill = bg_color;
-                w.inactive.expansion = 0.0;
-                w.inactive.bg_stroke = egui::Stroke::NONE;
-                w.hovered.weak_bg_fill = bg_color.linear_multiply(0.85);
-                w.hovered.expansion = 0.0;
-                w.hovered.bg_stroke = egui::Stroke::NONE;
-                w.active.weak_bg_fill = bg_color.linear_multiply(0.75);
-                w.active.expansion = 0.0;
-                w.active.bg_stroke = egui::Stroke::NONE;
-            }
-            if let (Some(w), Some(h)) = (width, height) {
-                ui.add_sized(egui::vec2(w, h), button)
-            } else if let Some(w) = width {
-                ui.add_sized(egui::vec2(w, 0.0), button)
-            } else if let Some(h) = height {
-                ui.add_sized(egui::vec2(0.0, h), button)
+        if ui.is_rect_visible(rect) {
+            let bg = if !ui.is_enabled() {
+                bg_color.linear_multiply(0.35)
+            } else if response.is_pointer_button_down_on() {
+                bg_color.linear_multiply(0.75)
+            } else if response.hovered() {
+                bg_color.linear_multiply(0.85)
             } else {
-                ui.add(button)
-            }
-        })
-        .inner
+                bg_color
+            };
+            ui.painter().rect_filled(rect, 4.0, bg);
+
+            let text_color = get_contrast_text_color(bg_color);
+            let pos = rect.center() - galley.rect.center().to_vec2();
+            // Faux bold: second pass shifted 0.5 px right thickens vertical strokes.
+            ui.painter()
+                .galley(pos + egui::vec2(0.5, 0.0), galley.clone(), text_color);
+            ui.painter().galley(pos, galley, text_color);
+        }
+
+        response.on_hover_cursor(egui::CursorIcon::PointingHand)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn text_button(
         ui: &mut egui::Ui,
         label: &str,
+        icon: Option<&str>,
         size: f32,
         normal_color: Color32,
         hover_color: Color32,
         width: Option<f32>,
         height: Option<f32>,
     ) -> egui::Response {
-        // Render the Button with invisible text so it handles sizing and
-        // interaction rect allocation — then paint the visible text ourselves
-        // using response.hovered() which is current-frame accurate and
-        // per-widget (no shared ID issues).
-        let invisible = egui::RichText::new(label)
-            .size(size)
-            .color(Color32::TRANSPARENT);
-        let button = egui::Button::new(invisible)
+        // Transparent sizing job — allocates correct space for icon+label.
+        let sizing_job = Self::make_layout_job(icon, label, size, Color32::TRANSPARENT);
+        let button = egui::Button::new(sizing_job)
             .fill(Color32::TRANSPARENT)
             .stroke(egui::Stroke::NONE);
 
@@ -213,12 +257,9 @@ impl Button {
                 w.active.expansion = 0.0;
                 w.active.bg_stroke = egui::Stroke::NONE;
 
-                if let (Some(w), Some(h)) = (width, height) {
+                if let Some(w) = width {
+                    let h = height.unwrap_or(0.0);
                     ui.add_sized(egui::vec2(w, h), button)
-                } else if let Some(w) = width {
-                    ui.add_sized(egui::vec2(w, 0.0), button)
-                } else if let Some(h) = height {
-                    ui.add_sized(egui::vec2(0.0, h), button)
                 } else {
                     ui.add(button)
                 }
@@ -231,13 +272,12 @@ impl Button {
             } else {
                 normal_color
             };
-            ui.painter().text(
-                response.rect.center(),
-                egui::Align2::CENTER_CENTER,
-                label,
-                egui::FontId::proportional(size),
-                color,
-            );
+            let paint_job = Self::make_layout_job(icon, label, size, color);
+            let galley = ui.painter().layout_job(paint_job);
+            let pos = response.rect.center() - galley.rect.center().to_vec2();
+            ui.painter()
+                .galley(pos + egui::vec2(0.5, 0.0), galley.clone(), color);
+            ui.painter().galley(pos, galley, color);
         }
 
         response

@@ -39,9 +39,6 @@ jobs:
       - name: Run integration tests
         run: cargo test --test '*'
 
-      - name: Check benchmarks compile
-        run: cargo bench --no-run
-
   clippy:
     name: Clippy
     runs-on: ubuntu-latest

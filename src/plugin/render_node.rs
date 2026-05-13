@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::components::button::{Button, ButtonProps, ButtonType};
 use crate::components::common::button_group::{ButtonGroup, ButtonGroupItem, ButtonGroupProps};
+use crate::components::common::input::{Input, InputProps};
 use crate::components::common::json_tree::{JsonTree, JsonTreeProps};
-use crate::components::common::list::{List, ListItem, ListItemAction, ListProps};
+use crate::components::common::list::{List, ListItem, ListProps};
+use crate::components::common::select::{Select, SelectOption as CommonSelectOption, SelectProps};
 use crate::components::common::tabs::{TabItem, TabProps, Tabs};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::table_view::{TableCell, TableView, TableViewProps};
@@ -824,8 +826,10 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 .map(|item| ListItem {
                     title: &item.title,
                     description: item.description.as_deref(),
-                    icon: item.icon.as_deref(),
-                    icon_color: None,
+                    prefix: item.icon.as_deref().map(|glyph| {
+                        crate::components::common::list::ListItemPrefix::Icon { glyph, color: None }
+                    }),
+                    postfix: None,
                     badge: item.badge.as_ref().map(|b| {
                         let (bg, fg) = method_badge_colors(b.color.as_str());
                         crate::components::common::list::ListItemBadge {
@@ -834,14 +838,8 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                             text_color: fg,
                         }
                     }),
-                    action: item
-                        .actions
-                        .iter()
-                        .map(|a| ListItemAction {
-                            icon: &a.icon,
-                            tooltip: &a.tooltip,
-                        })
-                        .collect(),
+                    selected: false,
+                    tags: &[],
                 })
                 .collect();
 
@@ -853,6 +851,9 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     ListProps {
                         items: &list_items,
                         empty_label: empty_label.as_deref(),
+                        shrink_to_fit: false,
+                        show_separators: true,
+                        compact: false,
                     },
                 );
 
@@ -861,13 +862,6 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                         widget_id: id.clone(),
                         kind: "click".to_string(),
                         value: row_idx.to_string(),
-                    });
-                }
-                if let (Some(item_idx), Some(action_idx)) = output.action_clicked {
-                    events.push(UiEvent {
-                        widget_id: id.clone(),
-                        kind: "action".to_string(),
-                        value: format!(r#"{{"item":{},"action":{}}}"#, item_idx, action_idx),
                     });
                 }
             });
@@ -945,7 +939,6 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             value,
             placeholder,
             disabled,
-            grow,
             multiline,
             rows,
             ..
@@ -966,52 +959,47 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             if !label.is_empty() {
                 ui.label(label.as_str());
             }
-            let resp = if *multiline {
-                let row_count = rows.unwrap_or(4) as f32;
-                let row_height = ui.text_style_height(&egui::TextStyle::Body);
-                let fixed_height = row_height * row_count
-                    + ui.spacing().item_spacing.y * (row_count - 1.0)
-                    + ui.spacing().button_padding.y * 2.0;
-                let width = ui.available_width();
-                let mut changed = false;
-                egui::ScrollArea::vertical()
-                    .id_salt(("ui:text:scroll", id.as_str()))
-                    .max_height(fixed_height)
-                    .min_scrolled_height(fixed_height)
-                    .show(ui, |ui| {
-                        let edit = egui::TextEdit::multiline(&mut buf)
-                            .hint_text(placeholder.as_str())
-                            .desired_rows(rows.unwrap_or(4) as usize)
-                            .desired_width(width);
-                        let r = ui.add_enabled(!disabled, edit);
-                        if r.changed() {
-                            changed = true;
-                        }
-                        r
-                    });
-                // Synthesise a dummy Response for the changed check below.
-                // We track `changed` separately since ScrollArea wraps the inner Response.
-                if changed {
+            if *multiline {
+                let out = Input::render(
+                    ui,
+                    InputProps {
+                        value: &mut buf,
+                        placeholder: placeholder.as_str(),
+                        icon: None,
+                        password: false,
+                        disabled: *disabled,
+                        multiline: true,
+                        rows: rows.unwrap_or(4) as usize,
+                        desired_width: None,
+                        id_salt: Some(egui::Id::new(("ui:text:scroll", id.as_str()))),
+                    },
+                );
+                if out.changed {
                     events.push(ui_event(id, "change", json_str(&buf)));
                 }
                 ui.ctx().data_mut(|d| {
                     d.insert_temp(buf_id, buf);
                     d.insert_temp(prev_id, value.clone());
                 });
-                // Early-return — we already pushed the event and saved state above.
                 return;
             } else {
-                let edit = egui::TextEdit::singleline(&mut buf).hint_text(placeholder.as_str());
-                if *grow {
-                    let size = egui::vec2(ui.available_width(), ui.available_height());
-                    ui.add_enabled_ui(!disabled, |ui| ui.add_sized(size, edit))
-                        .inner
-                } else {
-                    ui.add_enabled(!disabled, edit)
+                let out = Input::render(
+                    ui,
+                    InputProps {
+                        value: &mut buf,
+                        placeholder: placeholder.as_str(),
+                        icon: None,
+                        password: false,
+                        disabled: *disabled,
+                        multiline: false,
+                        rows: 1,
+                        desired_width: None,
+                        id_salt: None,
+                    },
+                );
+                if out.changed {
+                    events.push(ui_event(id, "change", json_str(&buf)));
                 }
-            };
-            if resp.changed() {
-                events.push(ui_event(id, "change", json_str(&buf)));
             }
             ui.ctx().data_mut(|d| {
                 d.insert_temp(buf_id, buf);
@@ -1073,11 +1061,21 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             if !label.is_empty() {
                 ui.label(label.as_str());
             }
-            let resp = ui.add_enabled(
-                !disabled,
-                egui::TextEdit::singleline(&mut buf).password(true),
+            let out = Input::render(
+                ui,
+                InputProps {
+                    value: &mut buf,
+                    placeholder: "",
+                    icon: None,
+                    password: true,
+                    disabled: *disabled,
+                    multiline: false,
+                    rows: 1,
+                    desired_width: None,
+                    id_salt: None,
+                },
             );
-            if resp.changed() {
+            if out.changed {
                 events.push(ui_event(id, "change", json_str(&buf)));
             }
             ui.ctx().data_mut(|d| d.insert_temp(buf_id, buf));
@@ -1097,11 +1095,21 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             if !label.is_empty() {
                 ui.label(label.as_str());
             }
-            let resp = ui.add_enabled(
-                !disabled,
-                egui::TextEdit::multiline(&mut buf).desired_rows(*rows as usize),
+            let out = Input::render(
+                ui,
+                InputProps {
+                    value: &mut buf,
+                    placeholder: "",
+                    icon: None,
+                    password: false,
+                    disabled: *disabled,
+                    multiline: true,
+                    rows: *rows as usize,
+                    desired_width: None,
+                    id_salt: None,
+                },
             );
-            if resp.changed() {
+            if out.changed {
                 events.push(ui_event(id, "change", json_str(&buf)));
             }
             ui.ctx().data_mut(|d| d.insert_temp(buf_id, buf));
@@ -1121,26 +1129,36 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             if !label.is_empty() {
                 ui.label(label.as_str());
             }
-            let current = options
-                .iter()
-                .find(|o| o.value == buf)
-                .map(|o| o.label.as_str())
-                .unwrap_or(buf.as_str());
-            egui::ComboBox::from_id_salt(id)
-                .selected_text(current)
-                .show_ui(ui, |ui| {
-                    for opt in options {
-                        let selected = buf == opt.value;
-                        if ui
-                            .add_enabled(!disabled, egui::Button::selectable(selected, &opt.label))
-                            .clicked()
-                            && !selected
-                        {
-                            buf = opt.value.clone();
-                            events.push(ui_event(id, "change", json_str(&buf)));
-                        }
-                    }
-                });
+            if !disabled {
+                let common_opts: Vec<CommonSelectOption> = options
+                    .iter()
+                    .map(|o| CommonSelectOption {
+                        value: o.value.clone(),
+                        label: o.label.clone(),
+                    })
+                    .collect();
+                let out = Select::render(
+                    ui,
+                    SelectProps {
+                        id_salt: id,
+                        value: buf.as_str(),
+                        options: &common_opts,
+                        prefix_label: None,
+                        size: Default::default(),
+                    },
+                );
+                if let Some(new_val) = out.changed {
+                    events.push(ui_event(id, "change", json_str(&new_val)));
+                    buf = new_val;
+                }
+            } else {
+                let current = options
+                    .iter()
+                    .find(|o| o.value == buf)
+                    .map(|o| o.label.as_str())
+                    .unwrap_or(buf.as_str());
+                ui.add_enabled(false, egui::Label::new(current));
+            }
             ui.ctx().data_mut(|d| d.insert_temp(buf_id, buf));
         }
         UiNode::MultiSelect {
@@ -1313,7 +1331,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 .horizontal(|ui| {
                     ui.set_width(available);
                     ui.spacing_mut().item_spacing.x = 4.0;
-                    let label_color = colors.overlay1;
+                    let label_color = colors.fg_muted;
                     let font = egui::FontId::proportional(11.0);
                     ui.painter().text(
                         ui.cursor().min + egui::vec2(text_edit_pad, 8.0),
@@ -1342,7 +1360,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     egui::pos2(header_rect.left(), border_y),
                     egui::pos2(header_rect.right(), border_y),
                 ],
-                egui::Stroke::new(1.0, colors.surface1),
+                egui::Stroke::new(1.0, colors.surface_raised),
             );
 
             // ── Data rows ─────────────────────────────────────────────────
@@ -1398,7 +1416,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                         egui::pos2(row_rect.left(), row_rect.bottom()),
                         egui::pos2(row_rect.right(), row_rect.bottom()),
                     ],
-                    egui::Stroke::new(1.0, colors.surface0),
+                    egui::Stroke::new(1.0, colors.surface),
                 );
             }
 
@@ -1469,6 +1487,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     frame: *frame,
                     tooltip: Some(&tooltip.clone().unwrap_or_default()),
                     disabled: !*enabled,
+                    selected: false,
                     ..Default::default()
                 },
             );
@@ -1478,7 +1497,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
         }
         UiNode::Spinner { size } => {
             let sz = size.unwrap_or(16.0);
-            ui.add(egui::Spinner::new().color(colors.primary).size(sz));
+            ui.add(egui::Spinner::new().color(colors.accent).size(sz));
         }
         UiNode::CodeEditor { id, value } => {
             let buf_id = egui::Id::new(("ui:code-editor", id));
@@ -1543,7 +1562,16 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             }
 
             if let Some(child) = children.get(active_idx) {
-                render_ui_node(ui, child, events);
+                egui::Frame::new()
+                    .inner_margin(egui::Margin {
+                        left: 8,
+                        right: 8,
+                        top: 4,
+                        bottom: 8,
+                    })
+                    .show(ui, |ui| {
+                        render_ui_node(ui, child, events);
+                    });
             }
         }
     }

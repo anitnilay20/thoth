@@ -1,5 +1,7 @@
 use crate::app::persistent_state::Bookmark;
-use crate::components::common::list::{List, ListItem, ListItemAction, ListProps};
+use crate::components::common::input::{Input, InputProps};
+use crate::components::common::list::{List, ListItem, ListProps};
+use crate::components::common::typography::Typography;
 use crate::components::traits::{StatefulComponent, StatelessComponent};
 use eframe::egui;
 
@@ -11,7 +13,6 @@ pub struct BookmarksProps<'a> {
 #[derive(Debug, Clone)]
 pub enum BookmarksEvent {
     NavigateToBookmark { file_path: String, path: String },
-    RemoveBookmark(usize),
     JumpToPath(String),
 }
 
@@ -38,41 +39,30 @@ impl StatefulComponent for Bookmarks {
             return BookmarksOutput { events };
         }
 
-        let (header_color, muted_color) = ui.ctx().memory(|mem| {
-            mem.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
-                .map(|c| (c.sidebar_header, c.overlay1))
-                .unwrap_or_else(|| {
-                    (
-                        egui::Color32::from_rgb(153, 153, 153),
-                        egui::Color32::from_rgb(128, 128, 128),
-                    )
-                })
-        });
-
         // Header
         ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("BOOKMARKS")
-                .size(11.0)
-                .color(header_color)
-                .strong(),
-        );
+        Typography::panel_header(ui, "BOOKMARKS");
         ui.add_space(4.0);
         ui.separator();
         ui.add_space(8.0);
 
         // Jump-to-path input
-        ui.horizontal(|ui| {
-            ui.add_space(4.0);
-            ui.label(egui::RichText::new(egui_phosphor::regular::CROSSHAIR).color(header_color));
-            ui.add_space(4.0);
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut self.jump_input)
-                    .hint_text("Jump to path (e.g., 0.user.name)")
-                    .desired_width(ui.available_width() - 8.0)
-                    .font(egui::FontId::proportional(13.0)),
+        {
+            let input_out = Input::render(
+                ui,
+                InputProps {
+                    value: &mut self.jump_input,
+                    placeholder: "Jump to path (e.g., 0.user.name)",
+                    icon: Some(egui_phosphor::regular::CROSSHAIR),
+                    password: false,
+                    disabled: false,
+                    multiline: false,
+                    rows: 1,
+                    desired_width: None,
+                    id_salt: None,
+                },
             );
+            let response = input_out.response;
             if response.lost_focus()
                 && ui.input(|i| i.key_pressed(egui::Key::Enter))
                 && !self.jump_input.is_empty()
@@ -83,7 +73,7 @@ impl StatefulComponent for Bookmarks {
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.jump_input.clear();
             }
-        });
+        }
 
         ui.add_space(8.0);
         ui.separator();
@@ -117,13 +107,14 @@ impl StatefulComponent for Bookmarks {
                         ListItem {
                             title,
                             description,
-                            icon: Some(egui_phosphor::regular::BOOKMARK_SIMPLE),
-                            icon_color: Some(muted_color),
+                            prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
+                                glyph: egui_phosphor::regular::BOOKMARK_SIMPLE,
+                                color: None,
+                            }),
                             badge: None,
-                            action: vec![ListItemAction {
-                                icon: egui_phosphor::regular::X,
-                                tooltip: "Remove bookmark",
-                            }],
+                            postfix: None,
+                            selected: false,
+                            tags: &[],
                         }
                     })
                     .collect();
@@ -133,6 +124,9 @@ impl StatefulComponent for Bookmarks {
                     ListProps {
                         items: &items,
                         empty_label: Some("No bookmarks — press Cmd+D to add one"),
+                        shrink_to_fit: false,
+                        show_separators: true,
+                        compact: false,
                     },
                 );
 
@@ -143,9 +137,6 @@ impl StatefulComponent for Bookmarks {
                             path: b.path.clone(),
                         });
                     }
-                }
-                if let (Some(item_idx), Some(0)) = output.action_clicked {
-                    events.push(BookmarksEvent::RemoveBookmark(item_idx));
                 }
             });
 
@@ -170,12 +161,6 @@ mod tests {
             path: "0.user".to_string(),
         };
         assert!(format!("{:?}", event).contains("NavigateToBookmark"));
-    }
-
-    #[test]
-    fn test_bookmarks_event_remove_debug() {
-        let event = BookmarksEvent::RemoveBookmark(5);
-        assert!(format!("{:?}", event).contains("RemoveBookmark"));
     }
 
     #[test]
