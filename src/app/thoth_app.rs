@@ -1039,12 +1039,19 @@ impl ThothApp {
                     if let components::sidebar::SidebarSection::DataSource { ref plugin_id } =
                         section
                     {
-                        if self
+                        let same_plugin_active = self
                             .window_state
                             .active_plugin_pane
                             .as_ref()
-                            .is_none_or(|p| &p.plugin_id != plugin_id)
-                        {
+                            .is_some_and(|p| &p.plugin_id == plugin_id);
+
+                        if same_plugin_active {
+                            // Clicking the active plugin's icon again closes it.
+                            self.window_state.active_plugin_pane = None;
+                            self.window_state.plugin_sidebar_output = None;
+                            self.window_state.sidebar_expanded = false;
+                            self.window_state.sidebar_selected_section = None;
+                        } else {
                             // Open: create a loader, call render_ui(), store in active_plugin_pane.
                             if let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) {
                                 if let Some(plugin) = manager.registry.get_by_id(plugin_id) {
