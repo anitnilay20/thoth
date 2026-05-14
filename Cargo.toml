@@ -68,19 +68,9 @@ resources = ["assets"]
 
 # macOS bundle configuration
 [package.metadata.packager.macos]
-# File associations for macOS "Open With" and default app
-files = [
-  { ext = [
-    "json",
-  ], name = "JSON File", role = "Editor", mime = "application/json" },
-  { ext = [
-    "ndjson",
-    "jsonl",
-  ], name = "NDJSON File", role = "Editor", mime = "application/x-ndjson" },
-  { ext = [
-    "geojson",
-  ], name = "GeoJSON File", role = "Editor", mime = "application/geo+json" },
-]
+# File associations are declared in a custom Info.plist (CFBundleDocumentTypes).
+# cargo-packager merges this with its auto-generated plist.
+info_plist_path = "assets/Info.plist"
 
 # Windows installer configuration
 [package.metadata.packager.windows]
