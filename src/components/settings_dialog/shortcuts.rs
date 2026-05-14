@@ -1,27 +1,21 @@
-use crate::components::traits::StatelessComponent;
-use crate::shortcuts::KeyboardShortcuts;
-use crate::theme::ThemeColors;
 use eframe::egui;
 
-/// Shortcuts settings tab component
+use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
+use crate::components::traits::StatelessComponent;
+use crate::shortcuts::{KeyboardShortcuts, Shortcut};
+use crate::theme::ThemeColors;
+
 pub struct ShortcutsTab;
 
-/// Props for the Shortcuts tab
 pub struct ShortcutsTabProps<'a> {
     pub shortcuts: &'a KeyboardShortcuts,
     pub theme_colors: &'a ThemeColors,
 }
 
-/// Events emitted by the Shortcuts tab
 #[derive(Debug, Clone)]
-pub enum ShortcutsTabEvent {
-    // No events yet - shortcuts are read-only for now
-    // Future: Add shortcut customization events
-}
+pub enum ShortcutsTabEvent {}
 
-/// Output from the Shortcuts tab
 pub struct ShortcutsTabOutput {
-    #[allow(dead_code)] // Reserved for future shortcut customization
     pub events: Vec<ShortcutsTabEvent>,
 }
 
@@ -30,182 +24,200 @@ impl StatelessComponent for ShortcutsTab {
     type Output = ShortcutsTabOutput;
 
     fn render(ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
-        let events = Vec::new();
+        let sc = props.shortcuts;
+        let colors = props.theme_colors;
+
+        // Pre-compute the widest badge so every badge gets the same width.
+        let badge_width = {
+            let font_id = egui::FontId::proportional(12.0);
+            let all: &[&Shortcut] = &[
+                &sc.open_file,
+                &sc.clear_file,
+                &sc.new_window,
+                &sc.focus_search,
+                &sc.next_match,
+                &sc.prev_match,
+                &sc.nav_back,
+                &sc.nav_forward,
+                &sc.escape,
+                &sc.expand_node,
+                &sc.collapse_node,
+                &sc.expand_all,
+                &sc.collapse_all,
+                &sc.copy_key,
+                &sc.copy_value,
+                &sc.copy_object,
+                &sc.copy_path,
+                &sc.toggle_bookmark,
+                &sc.open_bookmarks,
+                &sc.move_up,
+                &sc.move_down,
+                &sc.settings,
+                &sc.toggle_theme,
+                &sc.toggle_profiler,
+            ];
+            let max_text_w = all
+                .iter()
+                .map(|s| {
+                    let txt = s.format();
+                    if txt.is_empty() {
+                        return 0.0_f32;
+                    }
+                    ui.painter()
+                        .layout_no_wrap(txt, font_id.clone(), colors.fg)
+                        .size()
+                        .x
+                })
+                .fold(0.0_f32, f32::max);
+            // text width + 2×horizontal pad (8px each side)
+            (max_text_w + 16.0).ceil()
+        };
 
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                // Add padding to the content
-                ui.add_space(24.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(24.0);
-                    ui.vertical(|ui| {
-                        ui.set_max_width(ui.available_width() - 24.0);
+                section_header(
+                    ui,
+                    egui_phosphor::regular::KEYBOARD,
+                    "Shortcuts",
+                    "Keyboard shortcuts per action.",
+                    colors,
+                );
 
-                        ui.heading("Keyboard Shortcuts");
-                        ui.add_space(16.0);
-
-                        // File Operations Section
-                        Self::render_section(
-                            ui,
-                            "File Operations",
-                            props.theme_colors,
-                            &[
-                                ("Open file", &props.shortcuts.open_file),
-                                ("Close file", &props.shortcuts.clear_file),
-                                ("New window", &props.shortcuts.new_window),
-                            ],
-                        );
-
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-
-                        // Navigation Section
-                        Self::render_section(
-                            ui,
-                            "Navigation",
-                            props.theme_colors,
-                            &[
-                                ("Focus search", &props.shortcuts.focus_search),
-                                ("Next match", &props.shortcuts.next_match),
-                                ("Previous match", &props.shortcuts.prev_match),
-                                ("Navigate back", &props.shortcuts.nav_back),
-                                ("Navigate forward", &props.shortcuts.nav_forward),
-                                ("Toggle bookmark", &props.shortcuts.toggle_bookmark),
-                                ("Open bookmarks", &props.shortcuts.open_bookmarks),
-                                ("Escape", &props.shortcuts.escape),
-                            ],
-                        );
-
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-
-                        // Tree Operations Section
-                        Self::render_section(
-                            ui,
-                            "Tree Operations",
-                            props.theme_colors,
-                            &[
-                                ("Expand node", &props.shortcuts.expand_node),
-                                ("Collapse node", &props.shortcuts.collapse_node),
-                                ("Expand all", &props.shortcuts.expand_all),
-                                ("Collapse all", &props.shortcuts.collapse_all),
-                            ],
-                        );
-
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-
-                        // Clipboard Section
-                        Self::render_section(
-                            ui,
-                            "Clipboard",
-                            props.theme_colors,
-                            &[
-                                ("Copy key", &props.shortcuts.copy_key),
-                                ("Copy value", &props.shortcuts.copy_value),
-                                ("Copy object", &props.shortcuts.copy_object),
-                                ("Copy path", &props.shortcuts.copy_path),
-                            ],
-                        );
-
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-
-                        // Movement Section
-                        Self::render_section(
-                            ui,
-                            "Movement",
-                            props.theme_colors,
-                            &[
-                                ("Move up", &props.shortcuts.move_up),
-                                ("Move down", &props.shortcuts.move_down),
-                            ],
-                        );
-
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-
-                        // UI Section
-                        Self::render_section(
-                            ui,
-                            "User Interface",
-                            props.theme_colors,
-                            &[
-                                ("Settings", &props.shortcuts.settings),
-                                ("Toggle theme", &props.shortcuts.toggle_theme),
-                            ],
-                        );
-
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-
-                        // Developer Section
-                        Self::render_section(
-                            ui,
-                            "Developer",
-                            props.theme_colors,
-                            &[("Toggle profiler", &props.shortcuts.toggle_profiler)],
-                        );
-
-                        ui.add_space(16.0);
-                    });
+                // ── File ────────────────────────────────────────────────────
+                group_rows(ui, "FILE", "sc-file", colors, |ui| {
+                    shortcut_row(ui, "Open file", &sc.open_file, badge_width, colors);
+                    shortcut_row(ui, "Close file", &sc.clear_file, badge_width, colors);
+                    shortcut_row(ui, "New window", &sc.new_window, badge_width, colors);
                 });
+
+                // ── Navigation ───────────────────────────────────────────────
+                group_rows(ui, "NAVIGATION", "sc-nav", colors, |ui| {
+                    shortcut_row(ui, "Focus search", &sc.focus_search, badge_width, colors);
+                    shortcut_row(ui, "Next match", &sc.next_match, badge_width, colors);
+                    shortcut_row(ui, "Previous match", &sc.prev_match, badge_width, colors);
+                    shortcut_row(ui, "Navigate back", &sc.nav_back, badge_width, colors);
+                    shortcut_row(ui, "Navigate forward", &sc.nav_forward, badge_width, colors);
+                    shortcut_row(ui, "Escape / dismiss", &sc.escape, badge_width, colors);
+                });
+
+                // ── Tree ─────────────────────────────────────────────────────
+                group_rows(ui, "TREE", "sc-tree", colors, |ui| {
+                    shortcut_row(ui, "Expand node", &sc.expand_node, badge_width, colors);
+                    shortcut_row(ui, "Collapse node", &sc.collapse_node, badge_width, colors);
+                    shortcut_row(ui, "Expand all", &sc.expand_all, badge_width, colors);
+                    shortcut_row(ui, "Collapse all", &sc.collapse_all, badge_width, colors);
+                });
+
+                // ── Clipboard ────────────────────────────────────────────────
+                group_rows(ui, "CLIPBOARD", "sc-clip", colors, |ui| {
+                    shortcut_row(ui, "Copy key", &sc.copy_key, badge_width, colors);
+                    shortcut_row(ui, "Copy value", &sc.copy_value, badge_width, colors);
+                    shortcut_row(ui, "Copy object", &sc.copy_object, badge_width, colors);
+                    shortcut_row(ui, "Copy path", &sc.copy_path, badge_width, colors);
+                });
+
+                // ── Bookmarks ────────────────────────────────────────────────
+                group_rows(ui, "BOOKMARKS", "sc-marks", colors, |ui| {
+                    shortcut_row(
+                        ui,
+                        "Toggle bookmark",
+                        &sc.toggle_bookmark,
+                        badge_width,
+                        colors,
+                    );
+                    shortcut_row(
+                        ui,
+                        "Open bookmarks",
+                        &sc.open_bookmarks,
+                        badge_width,
+                        colors,
+                    );
+                });
+
+                // ── Movement ────────────────────────────────────────────────
+                group_rows(ui, "MOVEMENT", "sc-move", colors, |ui| {
+                    shortcut_row(ui, "Move up", &sc.move_up, badge_width, colors);
+                    shortcut_row(ui, "Move down", &sc.move_down, badge_width, colors);
+                });
+
+                // ── UI ───────────────────────────────────────────────────────
+                group_rows(ui, "UI", "sc-ui", colors, |ui| {
+                    shortcut_row(ui, "Open settings", &sc.settings, badge_width, colors);
+                    shortcut_row(ui, "Toggle theme", &sc.toggle_theme, badge_width, colors);
+                });
+
+                // ── Developer ────────────────────────────────────────────────
+                group_rows(ui, "DEVELOPER", "sc-dev", colors, |ui| {
+                    shortcut_row(
+                        ui,
+                        "Toggle profiler",
+                        &sc.toggle_profiler,
+                        badge_width,
+                        colors,
+                    );
+                });
+
+                ui.add_space(24.0);
             });
 
-        ShortcutsTabOutput { events }
+        ShortcutsTabOutput { events: Vec::new() }
     }
 }
 
-impl ShortcutsTab {
-    fn render_section(
-        ui: &mut egui::Ui,
-        title: &str,
-        theme_colors: &ThemeColors,
-        shortcuts: &[(&str, &crate::shortcuts::Shortcut)],
-    ) {
-        ui.label(egui::RichText::new(title).size(16.0));
-        ui.add_space(8.0);
+/// Render a single shortcut as a `setting_row` with a fixed-width keyboard badge.
+fn shortcut_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    shortcut: &Shortcut,
+    badge_width: f32,
+    colors: &ThemeColors,
+) {
+    setting_row(ui, label, None, false, None, colors, |ui| {
+        kbd_badge(ui, &shortcut.format(), badge_width, colors);
+    });
+}
 
-        for (label, shortcut) in shortcuts {
-            ui.horizontal(|ui| {
-                // Label
-                ui.label(*label);
+/// A pill-shaped keyboard shortcut badge with a uniform fixed width.
+fn kbd_badge(ui: &mut egui::Ui, text: &str, width: f32, colors: &ThemeColors) {
+    let pad_v = 4.0;
+    let height = ui.text_style_height(&egui::TextStyle::Body) + pad_v * 2.0;
 
-                // Spacer
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Shortcut badge - render as regular text so icons work
-                    let shortcut_text = shortcut.format();
-
-                    // Create a badge-like background
-                    let text = egui::RichText::new(&shortcut_text).size(13.0);
-
-                    let response = ui.add(egui::Label::new(text).sense(egui::Sense::hover()));
-
-                    // Draw background frame
-                    let rect = response.rect;
-                    let expanded_rect = rect.expand2(egui::vec2(6.0, 3.0));
-                    ui.painter()
-                        .rect_filled(expanded_rect, 4.0, theme_colors.surface0);
-
-                    // Re-draw the text on top of the background
-                    ui.painter().text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        &shortcut_text,
-                        egui::FontId::proportional(13.0),
-                        theme_colors.text,
-                    );
-                });
-            });
-
-            ui.add_space(4.0);
-        }
+    if text.is_empty() {
+        // Still allocate the same width so columns stay aligned.
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "—",
+            egui::FontId::proportional(12.0),
+            colors.fg_muted,
+        );
+        return;
     }
+
+    let font_id = egui::FontId::proportional(12.0);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font_id, colors.fg);
+
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(4),
+        colors.bg_sunken,
+        egui::Stroke::new(1.0, colors.surface_active),
+        egui::StrokeKind::Outside,
+    );
+
+    // Centre the text inside the fixed-width pill.
+    ui.painter().galley(
+        egui::pos2(
+            rect.center().x - galley.size().x / 2.0,
+            rect.center().y - galley.size().y / 2.0,
+        ),
+        galley,
+        colors.fg,
+    );
 }

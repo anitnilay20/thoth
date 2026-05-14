@@ -548,9 +548,7 @@ fn apply_curl_import(st: &mut State, curl: &str) {
     let mut i = 0;
     while i < tokens.len() {
         match tokens[i].as_str() {
-            "curl" => {
-                i += 1;
-            }
+            "curl" => {}
             "-X" | "--request" => {
                 if let Some(m) = tokens.get(i + 1) {
                     st.method = m.to_uppercase();
@@ -588,6 +586,28 @@ fn apply_curl_import(st: &mut State, curl: &str) {
                     i += 2;
                     continue;
                 }
+            }
+            "-b" | "--cookie" => {
+                if let Some(cookie) = tokens.get(i + 1) {
+                    st.req_headers.push(crate::KvPair {
+                        key: "Cookie".to_string(),
+                        value: cookie.clone(),
+                    });
+                    i += 2;
+                    continue;
+                }
+            }
+            t if t.starts_with("--cookie=") => {
+                st.req_headers.push(crate::KvPair {
+                    key: "Cookie".to_string(),
+                    value: t["--cookie=".len()..].to_string(),
+                });
+            }
+            t if t.starts_with("-b") && t.len() > 2 => {
+                st.req_headers.push(crate::KvPair {
+                    key: "Cookie".to_string(),
+                    value: t[2..].to_string(),
+                });
             }
             "-d" | "--data" | "--data-raw" => {
                 if let Some(body) = tokens.get(i + 1) {

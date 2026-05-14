@@ -90,6 +90,65 @@ impl ThothApp {
         }
     }
 
+    /// Apply a new `Settings` value, running all required side-effects.
+    /// Called both from the settings dialog output and from `Settings::take_if_dirty`.
+    fn apply_new_settings(&mut self, new_settings: settings::Settings) {
+        let prev_remember_sidebar = self.settings.ui.remember_sidebar_state;
+        let prev_plugins_enabled = self.settings.plugins.enabled;
+        let prev_disabled_plugin_ids = self.settings.plugins.disabled_plugin_ids.clone();
+
+        self.settings = new_settings;
+        self.settings_changed = true;
+
+        if !prev_remember_sidebar && self.settings.ui.remember_sidebar_state {
+            self.window_state.sidebar_expanded = self.persistent_state.get_sidebar_expanded();
+        }
+
+        if let Some(Some(pm)) = PLUGIN_MANAGER.get() {
+            pm.update_plugin_settings(self.settings.plugins.plugin_settings.clone());
+        }
+
+        if let Some(pane) = self.window_state.active_plugin_pane.as_mut() {
+            let updated = self
+                .settings
+                .plugins
+                .plugin_settings
+                .get(&pane.plugin_id)
+                .cloned()
+                .unwrap_or_default();
+            if let Err(e) = pane.loader.on_setting_change(&updated) {
+                eprintln!(
+                    "Failed to notify plugin '{}' of setting change: {e}",
+                    pane.plugin_id
+                );
+            }
+        }
+
+        let plugins_changed = self.settings.plugins.enabled != prev_plugins_enabled
+            || self.settings.plugins.disabled_plugin_ids != prev_disabled_plugin_ids;
+        if plugins_changed {
+            crate::notification::NotificationManager::notify(
+                crate::notification::Notification::new(
+                    "Restart required",
+                    "Plugin changes take effect after restarting the app.",
+                )
+                .with_id("plugin_restart_required")
+                .with_action(
+                    "Restart Now",
+                    std::sync::Arc::new(|| {
+                        if let Ok(exe) = std::env::current_exe() {
+                            let _ = std::process::Command::new(exe).spawn();
+                        }
+                        std::process::exit(0);
+                    }),
+                )
+                .with_action("Later", std::sync::Arc::new(|| {}))
+                .with_toast(true)
+                .with_status(crate::notification::NotificationStatus::ConsentRequired),
+            );
+        }
+    }
+
     /// Open settings dialog as a separate viewport window
     fn open_settings_window(&mut self, ctx: &egui::Context) {
         self.settings_dialog.open(&self.settings);
@@ -136,6 +195,9 @@ impl App for ThothApp {
         puffin::profile_function!();
 
         let ctx = ui.ctx().clone();
+
+        // Publish settings into egui context so any component can read or mutate them.
+        settings::Settings::store(&ctx, &self.settings);
 
         // Poll completed async HTTP requests from the active plugin pane.
         // Must happen before rendering so the updated ui_output is used this frame.
@@ -186,6 +248,7 @@ impl App for ThothApp {
             ui,
             SettingsDialogProps {
                 update_state: Some(&self.update_state.update_status.state),
+                last_check: self.update_state.update_status.last_check,
                 current_version: crate::update::UpdateManager::get_current_version(),
             },
         );
@@ -195,10 +258,9 @@ impl App for ThothApp {
             crate::theme::apply_theme(&ctx, &self.settings);
         }
 
-        // Handle settings changes
+        // Handle settings changes from the dialog
         if let Some(new_settings) = settings_output.new_settings {
-            self.settings = new_settings;
-            self.settings_changed = true;
+            self.apply_new_settings(new_settings);
         }
 
         // Handle settings dialog events
@@ -259,14 +321,28 @@ impl App for ThothApp {
             }
         }
 
-        // Save settings when they have changed
-        self.save_settings_if_changed();
-
-        // Render the central panel and handle events
-        self.render_central_panel(ui, msg_to_central);
+        // Render the central panel and handle events.
+        // When the marketplace section is active, show the plugin detail pane instead.
+        if self.window_state.sidebar_selected_section
+            == Some(components::sidebar::SidebarSection::MarketPlace)
+        {
+            use crate::components::marketplace::{MarketplaceDetail, MarketplaceDetailProps};
+            use crate::components::traits::StatelessComponent;
+            MarketplaceDetail::render(ui, MarketplaceDetailProps);
+        } else {
+            self.render_central_panel(ui, msg_to_central);
+        }
 
         // Render error modal if there's an error
         self.render_error_modal(&ctx);
+
+        // Collect settings mutations from any component rendered this frame,
+        // then save. Done last so every component has had a chance to call
+        // Settings::update() before we drain and persist.
+        if let Some(new_settings) = settings::Settings::take_if_dirty(&ctx) {
+            self.apply_new_settings(new_settings);
+        }
+        self.save_settings_if_changed();
 
         // Show profiler if enabled (only when profiling feature is enabled)
         #[cfg(feature = "profiling")]
@@ -963,12 +1039,19 @@ impl ThothApp {
                     if let components::sidebar::SidebarSection::DataSource { ref plugin_id } =
                         section
                     {
-                        if self
+                        let same_plugin_active = self
                             .window_state
                             .active_plugin_pane
                             .as_ref()
-                            .is_none_or(|p| &p.plugin_id != plugin_id)
-                        {
+                            .is_some_and(|p| &p.plugin_id == plugin_id);
+
+                        if same_plugin_active {
+                            // Clicking the active plugin's icon again closes it.
+                            self.window_state.active_plugin_pane = None;
+                            self.window_state.plugin_sidebar_output = None;
+                            self.window_state.sidebar_expanded = false;
+                            self.window_state.sidebar_selected_section = None;
+                        } else {
                             // Open: create a loader, call render_ui(), store in active_plugin_pane.
                             if let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) {
                                 if let Some(plugin) = manager.registry.get_by_id(plugin_id) {

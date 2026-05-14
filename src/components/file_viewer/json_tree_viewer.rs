@@ -543,6 +543,8 @@ impl JsonTreeViewer {
                                     badge_color: None,
                                     size: None,
                                     disabled: false,
+                                    icon_size: None,
+                                    selected: false,
                                 },
                             )
                             .clicked
@@ -565,6 +567,8 @@ impl JsonTreeViewer {
                                         badge_color: None,
                                         size: None,
                                         disabled: false,
+                                        icon_size: None,
+                                        selected: false,
                                     },
                                 );
                             });

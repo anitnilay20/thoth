@@ -1,6 +1,7 @@
 use crate::error::{Result, ThothError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 
 use crate::constants::{DEFAULT_SIDEBAR_WIDTH, MAX_RECENT_FILES, MIN_SIDEBAR_WIDTH};
@@ -396,6 +397,74 @@ impl PersistentState {
         store.histories.remove(file_path);
         Self::save_history_store(&store)
     }
+
+    pub fn local_plugin_dir(plugin_id: &str) -> Result<PathBuf> {
+        let config_dir =
+            dirs::config_dir().ok_or_else(|| "failed to locate config directory".to_string())?;
+
+        let dir = config_dir
+            .join("thoth")
+            .join("data")
+            .join("plugins")
+            .join(plugin_id);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+        Ok(dir)
+    }
+
+    pub fn plugin_state_path(plugin_id: &str) -> Result<PathBuf> {
+        let dir = Self::local_plugin_dir(plugin_id)?;
+        Ok(dir.join("state.json"))
+    }
+
+    pub fn marketplace_dir() -> Result<PathBuf> {
+        let config_dir =
+            dirs::config_dir().ok_or_else(|| "failed to locate config directory".to_string())?;
+
+        let dir = config_dir.join("thoth").join("marketplace");
+
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+        Ok(dir)
+    }
+
+    pub fn plugin_install_dir() -> Result<PathBuf> {
+        let mp_dir = Self::marketplace_dir()?;
+        let dir = mp_dir.join("installs");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        Ok(dir)
+    }
+
+    pub fn plugin_install_dir_by_id(plugin_id: &str) -> Result<PathBuf> {
+        let dir = Self::plugin_install_dir()?.join(plugin_id);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        Ok(dir)
+    }
+
+    pub fn marketplace_registry_file() -> Result<PathBuf> {
+        let dir = Self::marketplace_dir()?;
+        Ok(dir.join("manifest.toml"))
+    }
+
+    pub fn plugin_icon_dir() -> Result<PathBuf> {
+        let dir = Self::marketplace_dir()?.join("icons");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        Ok(dir)
+    }
+
+    pub fn plugin_icon_file(plugin_id: &str) -> Result<PathBuf> {
+        let dir = Self::plugin_icon_dir()?;
+        Ok(dir.join(plugin_id))
+    }
+
+    pub fn clear_plugins_icon() -> Result<()> {
+        let dir = Self::plugin_icon_dir()?;
+        match fs::remove_dir_all(dir) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -469,14 +538,19 @@ mod tests {
 
     #[test]
     fn test_sidebar_width() {
-        let mut state = PersistentState::default();
+        let mut state = PersistentState {
+            recent_files: Vec::new(),
+            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+            sidebar_expanded: false,
+            bookmarks: Vec::new(),
+        };
 
         assert_eq!(state.get_sidebar_width(), DEFAULT_SIDEBAR_WIDTH);
 
-        state.set_sidebar_width(350.0);
-        assert_eq!(state.get_sidebar_width(), 350.0);
+        state.set_sidebar_width(500.0);
+        assert_eq!(state.get_sidebar_width(), 500.0);
 
-        // Test minimum width enforcement
+        // Values below MIN_SIDEBAR_WIDTH are clamped to the minimum
         state.set_sidebar_width(100.0);
         assert_eq!(state.get_sidebar_width(), MIN_SIDEBAR_WIDTH);
     }

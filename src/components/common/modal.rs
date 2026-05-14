@@ -118,6 +118,8 @@ impl Modal {
                             badge_color: None,
                             size: None,
                             disabled: false,
+                            icon_size: None,
+                            selected: false,
                         },
                     );
 

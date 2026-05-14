@@ -40,7 +40,7 @@ impl StatelessComponent for Breadcrumbs {
                 .data
                 .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
             {
-                (colors.text, colors.overlay1)
+                (colors.fg, colors.fg_muted)
             } else {
                 // Fallback colors
                 (

@@ -1,5 +1,5 @@
 use crate::components::traits::StatelessComponent;
-use crate::theme::ThemeColors;
+use crate::theme::{ThemeColors, phosphor_font_id};
 use eframe::egui;
 use egui::{Color32, Sense};
 
@@ -20,8 +20,12 @@ pub struct IconButtonProps<'a> {
     pub badge_color: Option<egui::Color32>,
     /// Optional custom size (defaults to 20.0 x 20.0)
     pub size: Option<egui::Vec2>,
+    /// Override the icon glyph size; derived from `size` when None
+    pub icon_size: Option<f32>,
     /// Whether the button is disabled
     pub disabled: bool,
+    /// Whether the button is in a selected/active state
+    pub selected: bool,
 }
 
 /// Output from the IconButton component
@@ -54,7 +58,9 @@ impl StatelessComponent for IconButton {
         let size = props
             .size
             .unwrap_or(egui::vec2(DEFAULT_BUTTON_SIZE, DEFAULT_BUTTON_SIZE));
-        let icon_size = (size.y / DEFAULT_BUTTON_SIZE) * DEFAULT_ICON_SIZE;
+        let icon_size = props
+            .icon_size
+            .unwrap_or_else(|| (size.y / DEFAULT_BUTTON_SIZE) * DEFAULT_ICON_SIZE);
 
         // Allocate the button rect FIRST so we can paint the hover background
         // before placing the icon widget (correct z-order: bg behind glyph).
@@ -68,15 +74,15 @@ impl StatelessComponent for IconButton {
         if ui.is_rect_visible(rect) {
             // Paint frame background if requested
             if props.frame {
-                ui.painter().rect_filled(rect, 4.0, colors.surface1);
+                ui.painter().rect_filled(rect, 4.0, colors.surface_raised);
             }
 
             // Paint hover background before the icon so it sits behind the glyph
             if response.hovered() && !props.disabled {
                 let hover_bg = Color32::from_rgba_premultiplied(
-                    colors.surface1.r(),
-                    colors.surface1.g(),
-                    colors.surface1.b(),
+                    colors.surface_raised.r(),
+                    colors.surface_raised.g(),
+                    colors.surface_raised.b(),
                     40, // Low alpha for subtle effect
                 );
                 ui.painter().rect_filled(rect, 4.0, hover_bg);
@@ -84,12 +90,17 @@ impl StatelessComponent for IconButton {
 
             // Paint the icon glyph on top of the background
             // Paint the icon glyph centred in the allocated rect.
+            let icon_color = if (response.hovered() && !props.disabled) || props.selected {
+                colors.accent
+            } else {
+                base_color
+            };
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 props.icon,
-                egui::FontId::proportional(icon_size),
-                base_color,
+                phosphor_font_id(icon_size),
+                icon_color,
             );
 
             // Draw badge if provided (on top of everything)

@@ -1,22 +1,26 @@
+use chrono::{DateTime, Utc};
+use eframe::egui::{self, RichText};
+
 use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
+use crate::components::common::toggle_switch::{
+    ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps,
+};
+use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::components::traits::StatelessComponent;
 use crate::settings::UpdateSettings;
 use crate::theme::ThemeColors;
 use crate::update::UpdateState;
-use eframe::egui;
 
-/// Updates settings tab component
 pub struct UpdatesTab;
 
-/// Props for the Updates tab
 pub struct UpdatesTabProps<'a> {
     pub update_settings: &'a UpdateSettings,
     pub update_state: Option<&'a UpdateState>,
+    pub last_check: Option<DateTime<Utc>>,
     pub current_version: &'a str,
     pub theme_colors: &'a ThemeColors,
 }
 
-/// Events emitted by the Updates tab
 #[derive(Debug, Clone)]
 pub enum UpdatesTabEvent {
     AutoCheckChanged(bool),
@@ -26,7 +30,6 @@ pub enum UpdatesTabEvent {
     InstallUpdate,
 }
 
-/// Output from the Updates tab
 pub struct UpdatesTabOutput {
     pub events: Vec<UpdatesTabEvent>,
 }
@@ -37,285 +40,252 @@ impl StatelessComponent for UpdatesTab {
 
     fn render(ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         let mut events = Vec::new();
+        let s = props.update_settings;
+        let def = UpdateSettings::default();
+        let colors = props.theme_colors;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                // Add padding to the content
-                ui.add_space(24.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(24.0);
-                    ui.vertical(|ui| {
-                        ui.set_max_width(ui.available_width() - 24.0);
+                section_header(
+                    ui,
+                    egui_phosphor::regular::ARROWS_CLOCKWISE,
+                    "Updates",
+                    "Auto-update and version info.",
+                    colors,
+                );
 
-                        ui.heading("Updates");
-                        ui.add_space(16.0);
+                // ── Auto-update ───────────────────────��───────────────────────────
+                group_rows(ui, "AUTO-UPDATE", "updates-auto", colors, |ui| {
+                    setting_row(
+                        ui,
+                        "Automatically check for updates",
+                        Some("Check for new versions periodically in the background."),
+                        s.auto_check != def.auto_check,
+                        None,
+                        colors,
+                        |ui| {
+                            let out = ToggleSwitch::render(
+                                ui,
+                                ToggleSwitchProps {
+                                    enabled: s.auto_check,
+                                    hover_text: None,
+                                },
+                            );
+                            for evt in out.events {
+                                let ToggleSwitchEvent::Toggled(v) = evt;
+                                events.push(UpdatesTabEvent::AutoCheckChanged(v));
+                            }
+                        },
+                    );
 
-                        // Current version section
-                        Self::render_current_version(ui, props.current_version, props.theme_colors);
-
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-
-                        // Update settings section
-                        Self::render_update_settings(
-                            ui,
-                            props.update_settings,
-                            props.theme_colors,
-                            &mut events,
-                        );
-
-                        ui.add_space(16.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-
-                        // Update status section
-                        Self::render_update_status(
-                            ui,
-                            props.update_state,
-                            &mut events,
-                            props.theme_colors,
-                        );
-
-                        ui.add_space(16.0);
-                    });
+                    setting_row(
+                        ui,
+                        "Check interval",
+                        Some("How often to check for new versions (1–168 hours)."),
+                        s.check_interval_hours != def.check_interval_hours,
+                        None,
+                        colors,
+                        |ui| {
+                            let mut val = s.check_interval_hours;
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut val, 1..=168)
+                                        .suffix(" h")
+                                        .clamping(egui::SliderClamping::Always),
+                                )
+                                .changed()
+                            {
+                                events.push(UpdatesTabEvent::CheckIntervalChanged(val));
+                            }
+                        },
+                    );
                 });
+
+                // ── Status ────────────────────────────────────────────────────────
+                group_rows(ui, "STATUS", "updates-status", colors, |ui| {
+                    // Current version
+                    setting_row(ui, "Current version", None, false, None, colors, |ui| {
+                        ui.label(
+                            RichText::new(props.current_version)
+                                .size(13.0)
+                                .color(colors.fg_muted),
+                        );
+                    });
+
+                    // Last checked
+                    let last_check_str = props
+                        .last_check
+                        .map(|t| {
+                            let local: chrono::DateTime<chrono::Local> = t.into();
+                            local.format("%b %d, %Y %H:%M").to_string()
+                        })
+                        .unwrap_or_else(|| "Never".to_string());
+                    setting_row(ui, "Last checked", None, false, None, colors, |ui| {
+                        ui.label(
+                            RichText::new(&last_check_str)
+                                .size(13.0)
+                                .color(colors.fg_muted),
+                        );
+                    });
+
+                    // Next check (only meaningful when auto-check is enabled and we have a last_check)
+                    if s.auto_check {
+                        let next_check_str = props
+                            .last_check
+                            .map(|t| {
+                                let next =
+                                    t + chrono::Duration::hours(s.check_interval_hours as i64);
+                                let local: chrono::DateTime<chrono::Local> = next.into();
+                                local.format("%b %d, %Y %H:%M").to_string()
+                            })
+                            .unwrap_or_else(|| "Soon".to_string());
+                        setting_row(ui, "Next check", None, false, None, colors, |ui| {
+                            ui.label(
+                                RichText::new(&next_check_str)
+                                    .size(13.0)
+                                    .color(colors.fg_muted),
+                            );
+                        });
+                    }
+
+                    // Update state row
+                    match props.update_state {
+                        Some(UpdateState::UpdateAvailable { latest_version, .. }) => {
+                            setting_row(
+                                ui,
+                                "New version available",
+                                Some(latest_version.as_str()),
+                                false,
+                                None,
+                                colors,
+                                |ui| {
+                                    if Button::render(
+                                        ui,
+                                        ButtonProps {
+                                            label: "Download".to_string(),
+                                            button_type: ButtonType::Elevated,
+                                            color: ButtonColor::Success,
+                                            size: Some(13.0),
+                                            ..Default::default()
+                                        },
+                                    )
+                                    .clicked
+                                    {
+                                        events.push(UpdatesTabEvent::DownloadUpdate);
+                                    }
+                                },
+                            );
+                        }
+
+                        Some(UpdateState::Downloading { version, progress }) => {
+                            setting_row(
+                                ui,
+                                &format!("Downloading {}…", version),
+                                None,
+                                false,
+                                None,
+                                colors,
+                                |ui| {
+                                    ui.add(egui::ProgressBar::new(*progress).desired_width(120.0));
+                                },
+                            );
+                        }
+
+                        Some(UpdateState::ReadyToInstall { version, .. }) => {
+                            setting_row(
+                                ui,
+                                &format!("Version {} ready to install", version),
+                                Some("Thoth will restart after installing."),
+                                false,
+                                None,
+                                colors,
+                                |ui| {
+                                    if Button::render(
+                                        ui,
+                                        ButtonProps {
+                                            label: "Install & Restart".to_string(),
+                                            button_type: ButtonType::Elevated,
+                                            color: ButtonColor::Primary,
+                                            size: Some(13.0),
+                                            ..Default::default()
+                                        },
+                                    )
+                                    .clicked
+                                    {
+                                        events.push(UpdatesTabEvent::InstallUpdate);
+                                    }
+                                },
+                            );
+                        }
+
+                        Some(UpdateState::Error(err)) => {
+                            let err_str = err.to_string();
+                            setting_row(
+                                ui,
+                                "Last check failed",
+                                Some(&err_str),
+                                false,
+                                None,
+                                colors,
+                                |ui| {
+                                    if Button::render(
+                                        ui,
+                                        ButtonProps {
+                                            label: "Retry".to_string(),
+                                            button_type: ButtonType::Elevated,
+                                            color: ButtonColor::Default,
+                                            size: Some(13.0),
+                                            ..Default::default()
+                                        },
+                                    )
+                                    .clicked
+                                    {
+                                        events.push(UpdatesTabEvent::CheckForUpdates);
+                                    }
+                                },
+                            );
+                        }
+
+                        state => {
+                            let checking = matches!(
+                                state,
+                                Some(UpdateState::Checking) | Some(UpdateState::Installing)
+                            );
+                            let hint = if matches!(state, Some(UpdateState::Installing)) {
+                                Some("Installing…")
+                            } else if checking {
+                                Some("Checking…")
+                            } else {
+                                None
+                            };
+                            setting_row(ui, "Last check", hint, false, None, colors, |ui| {
+                                if checking {
+                                    ui.add(egui::Spinner::new().size(14.0).color(colors.info));
+                                } else {
+                                    if Button::render(
+                                        ui,
+                                        ButtonProps {
+                                            label: "Check now".to_string(),
+                                            button_type: ButtonType::Elevated,
+                                            color: ButtonColor::Default,
+                                            size: Some(13.0),
+                                            ..Default::default()
+                                        },
+                                    )
+                                    .clicked
+                                    {
+                                        events.push(UpdatesTabEvent::CheckForUpdates);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
+
+                ui.add_space(24.0);
             });
 
         UpdatesTabOutput { events }
-    }
-}
-
-impl UpdatesTab {
-    fn render_current_version(ui: &mut egui::Ui, version: &str, theme_colors: &ThemeColors) {
-        ui.label(egui::RichText::new("Version Information").size(16.0));
-        ui.add_space(8.0);
-
-        ui.horizontal(|ui| {
-            ui.label("Current version:");
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(version)
-                    .strong()
-                    .color(theme_colors.text),
-            );
-        });
-    }
-
-    fn render_update_settings(
-        ui: &mut egui::Ui,
-        update_settings: &UpdateSettings,
-        theme_colors: &ThemeColors,
-        events: &mut Vec<UpdatesTabEvent>,
-    ) {
-        ui.label(egui::RichText::new("Update Settings").size(16.0));
-        ui.add_space(8.0);
-
-        // Auto-check for updates
-        ui.horizontal(|ui| {
-            let mut auto_check = update_settings.auto_check;
-            let checkbox = ui.checkbox(&mut auto_check, "");
-
-            if checkbox.changed() {
-                events.push(UpdatesTabEvent::AutoCheckChanged(auto_check));
-            }
-
-            if checkbox.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-            ui.label("Automatically check for updates");
-        });
-
-        ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new("Check for updates periodically in the background")
-                .size(12.0)
-                .color(theme_colors.overlay1),
-        );
-
-        ui.add_space(12.0);
-
-        // Check interval
-        ui.horizontal(|ui| {
-            ui.label("Check interval:");
-            ui.add_space(8.0);
-
-            let mut check_interval = update_settings.check_interval_hours;
-            let slider = egui::Slider::new(&mut check_interval, 1..=168)
-                .suffix(" hours")
-                .min_decimals(0)
-                .max_decimals(0);
-
-            let response = ui.add_sized([ui.available_width().min(300.0), 20.0], slider);
-
-            if response.changed() {
-                events.push(UpdatesTabEvent::CheckIntervalChanged(check_interval));
-            }
-
-            if response.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-        });
-
-        ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new("How often to check for new versions (1 hour to 7 days)")
-                .size(12.0)
-                .color(theme_colors.overlay1),
-        );
-    }
-
-    fn render_update_status(
-        ui: &mut egui::Ui,
-        update_state: Option<&UpdateState>,
-        events: &mut Vec<UpdatesTabEvent>,
-        theme_colors: &ThemeColors,
-    ) {
-        ui.label(egui::RichText::new("Update Status").size(16.0));
-        ui.add_space(8.0);
-
-        match update_state {
-            None | Some(UpdateState::Idle) => {
-                ui.label("No update check performed yet");
-                ui.add_space(8.0);
-
-                let check_btn = Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Check for Updates".to_string(),
-                        button_type: ButtonType::Elevated,
-                        color: ButtonColor::Default,
-                        hover_text: None,
-                        size: None,
-                        width: None,
-                        height: None,
-                        ..Default::default()
-                    },
-                );
-                if check_btn.clicked {
-                    events.push(UpdatesTabEvent::CheckForUpdates);
-                }
-            }
-            Some(UpdateState::Checking) => {
-                ui.label("Checking for updates...");
-                ui.add_space(8.0);
-                ui.spinner();
-            }
-            Some(UpdateState::UpdateAvailable {
-                latest_version,
-                current_version,
-                releases,
-            }) => {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Update available: {} -> {}",
-                        current_version, latest_version
-                    ))
-                    .strong()
-                    .color(theme_colors.text),
-                );
-                ui.add_space(8.0);
-
-                if let Some(release) = releases.first() {
-                    ui.label(format!("Release: {}", release.name));
-                    ui.add_space(4.0);
-
-                    // Show release notes in a scrollable area
-                    if !release.body.is_empty() {
-                        ui.label("Release Notes:");
-                        ui.add_space(4.0);
-
-                        egui::Frame::default()
-                            .fill(ui.visuals().faint_bg_color)
-                            .inner_margin(8.0)
-                            .corner_radius(4.0)
-                            .show(ui, |ui| {
-                                ui.label(&release.body);
-                            });
-
-                        ui.add_space(8.0);
-                    }
-
-                    let download_btn = Button::render(
-                        ui,
-                        ButtonProps {
-                            label: "Download Update".to_string(),
-                            button_type: ButtonType::Elevated,
-                            color: ButtonColor::Success,
-                            hover_text: None,
-                            size: None,
-                            width: None,
-                            height: None,
-                            ..Default::default()
-                        },
-                    );
-                    if download_btn.clicked {
-                        events.push(UpdatesTabEvent::DownloadUpdate);
-                    }
-                }
-            }
-            Some(UpdateState::Downloading { progress, version }) => {
-                ui.label(format!("Downloading version {}...", version));
-                ui.add_space(8.0);
-
-                let progress_bar = egui::ProgressBar::new(*progress).show_percentage();
-                ui.add(progress_bar);
-            }
-            Some(UpdateState::ReadyToInstall { version, .. }) => {
-                ui.label(
-                    egui::RichText::new(format!("Update {} ready to install", version))
-                        .strong()
-                        .color(theme_colors.text),
-                );
-                ui.add_space(8.0);
-
-                let install_btn = Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Install and Restart".to_string(),
-                        button_type: ButtonType::Elevated,
-                        color: ButtonColor::Success,
-                        hover_text: None,
-                        size: None,
-                        width: None,
-                        height: None,
-                        ..Default::default()
-                    },
-                );
-                if install_btn.clicked {
-                    events.push(UpdatesTabEvent::InstallUpdate);
-                }
-            }
-            Some(UpdateState::Installing) => {
-                ui.label("Installing update...");
-                ui.add_space(8.0);
-                ui.spinner();
-            }
-            Some(UpdateState::Error(error)) => {
-                ui.label(
-                    egui::RichText::new(format!("Error: {}", error))
-                        .color(ui.visuals().error_fg_color),
-                );
-                ui.add_space(8.0);
-
-                let retry_btn = Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Retry".to_string(),
-                        button_type: ButtonType::Elevated,
-                        color: ButtonColor::Default,
-                        hover_text: None,
-                        size: None,
-                        width: None,
-                        height: None,
-                        ..Default::default()
-                    },
-                );
-                if retry_btn.clicked {
-                    events.push(UpdatesTabEvent::CheckForUpdates);
-                }
-            }
-        }
     }
 }

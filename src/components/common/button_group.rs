@@ -24,7 +24,7 @@ pub struct ButtonGroupOutput {
 
 /// A pill-style segmented button group — one selection at a time.
 ///
-/// The active item is filled with `colors.surface2`; inactive items are
+/// The active item is filled with `colors.surface_active`; inactive items are
 /// transparent text buttons that highlight on hover.
 pub struct ButtonGroup;
 
@@ -42,7 +42,7 @@ impl StatelessComponent for ButtonGroup {
         let mut selected: Option<String> = None;
 
         egui::Frame::new()
-            .fill(colors.mantle)
+            .fill(colors.bg_panel)
             .corner_radius(6)
             .inner_margin(egui::Margin::same(2))
             .show(ui, |ui| {
@@ -79,24 +79,24 @@ fn render_segment(
 
     if ui.is_rect_visible(rect) {
         if is_active {
-            ui.painter().rect_filled(rect, 4.0, colors.surface2);
+            ui.painter().rect_filled(rect, 4.0, colors.surface_active);
         } else if response.hovered() {
             ui.painter().rect_filled(
                 rect,
                 4.0,
                 egui::Color32::from_rgba_premultiplied(
-                    colors.surface1.r(),
-                    colors.surface1.g(),
-                    colors.surface1.b(),
+                    colors.surface_raised.r(),
+                    colors.surface_raised.g(),
+                    colors.surface_raised.b(),
                     60,
                 ),
             );
         }
 
         let text_color = if is_active || response.hovered() {
-            colors.text
+            colors.fg
         } else {
-            colors.overlay1
+            colors.fg_muted
         };
 
         ui.painter().text(

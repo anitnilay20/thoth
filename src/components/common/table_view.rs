@@ -170,8 +170,11 @@ impl StatelessComponent for TableView {
                         egui::pos2(header_shadow_left, header_shadow_top),
                         egui::vec2(header_shadow_width, 3.0),
                     );
-                    ui.painter()
-                        .rect_filled(shadow_rect, 0.0, colors.crust.linear_multiply(0.6));
+                    ui.painter().rect_filled(
+                        shadow_rect,
+                        0.0,
+                        colors.bg_sunken.linear_multiply(0.6),
+                    );
                 }
             });
 

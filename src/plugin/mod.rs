@@ -4,9 +4,11 @@ use crate::helpers::default_rate_limit;
 use serde::{Deserialize, Serialize};
 
 pub mod manager;
+pub mod marketplace;
 pub mod network_policy;
 pub mod plugin_registry;
 pub mod render_node;
+pub mod theme_plugin;
 pub mod wasm_data_source;
 pub mod wasm_file_viewer_loader;
 pub mod wasm_loader;
@@ -52,6 +54,15 @@ pub struct ExporterMeta {
     pub output_extension: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeMeta {
+    pub family: String,
+
+    // Catalog of themes featured by the plugin.
+    // List of Display name and if its a dark mode theme.
+    pub catalog: Vec<(String, bool)>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub enum Capability {
@@ -60,7 +71,9 @@ pub enum Capability {
     DataSource,
     Exporter,
     SearchProvider,
+    #[serde(rename = "new-ui-component")]
     NewUIComponent,
+    Theme,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,12 +89,16 @@ pub struct Plugin {
     // ── Capability-specific metadata (from plugin.toml sections) ──────────────
     #[serde(rename = "file-loader", default)]
     pub file_loader: Vec<FileLoaderMeta>,
+
     #[serde(rename = "data-source")]
     pub data_source: Option<DataSourceMeta>,
     pub exporter: Option<ExporterMeta>,
 
     #[serde(default)]
     pub network: Option<NetworkDeclarations>,
+
+    #[serde(rename = "theme")]
+    pub theme: Option<ThemeMeta>,
 
     /// Phosphor glyph character for the sidebar icon button.
     /// Set this in plugin.toml, e.g. `icon = "\u{E28C}"`.
@@ -116,6 +133,7 @@ impl Display for Capability {
                 Capability::Exporter => "Exporter",
                 Capability::SearchProvider => "Search Provider",
                 Capability::NewUIComponent => "New UI Component",
+                Capability::Theme => "Theme",
             }
         )
     }

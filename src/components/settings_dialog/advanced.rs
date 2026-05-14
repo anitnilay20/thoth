@@ -1,30 +1,30 @@
+use eframe::egui::{self, RichText};
+
 use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
+#[cfg(feature = "profiling")]
+use crate::components::common::toggle_switch::{
+    ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps,
+};
+use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::components::traits::StatelessComponent;
 use crate::settings::DeveloperSettings;
 use crate::theme::ThemeColors;
-use eframe::egui;
 
-/// Advanced settings tab component
 pub struct AdvancedTab;
 
-/// Props for the Advanced tab
 pub struct AdvancedTabProps<'a> {
-    #[allow(dead_code)] // Used when profiling feature is enabled
     pub dev_settings: &'a DeveloperSettings,
     pub theme_colors: &'a ThemeColors,
     pub is_in_path: bool,
 }
 
-/// Events emitted by the Advanced tab
 #[derive(Debug, Clone)]
 pub enum AdvancedTabEvent {
-    #[allow(dead_code)] // Used when profiling feature is enabled
     ShowProfilerChanged(bool),
     RegisterInPath,
     UnregisterFromPath,
 }
 
-/// Output from the Advanced tab
 pub struct AdvancedTabOutput {
     pub events: Vec<AdvancedTabEvent>,
 }
@@ -34,156 +34,153 @@ impl StatelessComponent for AdvancedTab {
     type Output = AdvancedTabOutput;
 
     fn render(ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
-        #[allow(unused_mut)] // mut needed when profiling feature is enabled
         let mut events = Vec::new();
+        let colors = props.theme_colors;
 
         egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                // Add padding to the content
-                ui.add_space(24.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(24.0);
-                    ui.vertical(|ui| {
-                        ui.set_max_width(ui.available_width() - 24.0);
+                section_header(
+                    ui,
+                    egui_phosphor::regular::WRENCH,
+                    "Developer",
+                    "Profiler and configuration file.",
+                    colors,
+                );
 
-                        ui.heading("Advanced");
-                        ui.add_space(16.0);
-
-                        // Developer Settings Section
-                        ui.label(egui::RichText::new("Developer").size(16.0));
-                        ui.add_space(8.0);
-
-                        // Show profiler toggle (only visible when profiling feature is enabled)
-                        #[cfg(feature = "profiling")]
-                        {
-                            ui.horizontal(|ui| {
-                                let mut show_profiler = props.dev_settings.show_profiler;
-                                let checkbox = ui.checkbox(&mut show_profiler, "");
-
-                                if checkbox.changed() {
-                                    events.push(AdvancedTabEvent::ShowProfilerChanged(
-                                        show_profiler,
-                                    ));
-                                }
-
-                                if checkbox.hovered() {
-                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                                }
-                                ui.label("Show profiler");
-                            });
-
-                            ui.add_space(4.0);
-                            ui.label(
-                                egui::RichText::new("Display performance profiling information (requires profiling feature)")
-                                    .size(12.0)
-                                    .color(props.theme_colors.overlay1),
+                // ── Profiler ─────────────────────────────────────────────────────
+                group_rows(ui, "PROFILER", "dev-profiler", colors, |ui| {
+                    #[cfg(feature = "profiling")]
+                    setting_row(
+                        ui,
+                        "Show profiler",
+                        Some("Display puffin performance profiling overlay."),
+                        false,
+                        None,
+                        colors,
+                        |ui| {
+                            let out = ToggleSwitch::render(
+                                ui,
+                                ToggleSwitchProps {
+                                    enabled: props.dev_settings.show_profiler,
+                                    hover_text: None,
+                                },
                             );
-                        }
-
-                        #[cfg(not(feature = "profiling"))]
-                        {
-                            ui.label(
-                                egui::RichText::new("No developer settings available")
-                                    .color(props.theme_colors.overlay1),
-                            );
-                            ui.add_space(4.0);
-                            ui.label(
-                                egui::RichText::new(
-                                    "Build with --features profiling to enable developer options",
-                                )
-                                .size(12.0)
-                                .color(props.theme_colors.overlay1),
-                            );
-                        }
-
-                        ui.add_space(24.0);
-
-                        // System Integration Section
-                        ui.label(egui::RichText::new("System Integration").size(16.0));
-                        ui.add_space(8.0);
-
-                        ui.horizontal(|ui| {
-                            ui.label("Command-line access:");
-                            if props.is_in_path {
-                                ui.label(
-                                    egui::RichText::new(format!("{} Available", egui_phosphor::regular::CHECK_CIRCLE))
-                                        .color(props.theme_colors.success),
-                                );
-                            } else {
-                                ui.label(
-                                    egui::RichText::new(format!("{} Not available", egui_phosphor::regular::X_CIRCLE))
-                                        .color(props.theme_colors.overlay1),
-                                );
+                            for evt in out.events {
+                                let ToggleSwitchEvent::Toggled(v) = evt;
+                                events.push(AdvancedTabEvent::ShowProfilerChanged(v));
                             }
-                        });
+                        },
+                    );
 
-                        ui.add_space(4.0);
-                        ui.label(
-                            egui::RichText::new(
-                                "Add Thoth to your system PATH to use the 'thoth' command from any terminal",
+                    #[cfg(not(feature = "profiling"))]
+                    setting_row(
+                        ui,
+                        "Profiling",
+                        Some("Build with --features profiling to enable developer options."),
+                        false,
+                        None,
+                        colors,
+                        |ui| {
+                            ui.label(RichText::new("Disabled").size(12.0).color(colors.fg_muted));
+                        },
+                    );
+                });
+
+                // ── Config file ──────────────────────────────────────────────────
+                group_rows(ui, "CONFIGURATION FILE", "dev-config", colors, |ui| {
+                    let path_str = crate::settings::Settings::settings_file_path()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| "—".to_string());
+
+                    setting_row(
+                        ui,
+                        "Settings file",
+                        Some(&path_str),
+                        false,
+                        None,
+                        colors,
+                        |ui| {
+                            if Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: "Open".to_string(),
+                                    button_type: ButtonType::Elevated,
+                                    color: ButtonColor::Default,
+                                    size: Some(12.0),
+                                    ..Default::default()
+                                },
                             )
-                            .size(12.0)
-                            .color(props.theme_colors.overlay1),
-                        );
+                            .clicked
+                            {
+                                if let Ok(path) = crate::settings::Settings::settings_file_path() {
+                                    let _ = open::that(path);
+                                }
+                            }
+                        },
+                    );
+                });
 
-                        ui.add_space(8.0);
+                // ── System integration ───────────────────────────────────────────
+                group_rows(ui, "SYSTEM INTEGRATION", "dev-path", colors, |ui| {
+                    let (status_text, status_color) = if props.is_in_path {
+                        (
+                            format!("{} Available in PATH", egui_phosphor::regular::CHECK_CIRCLE),
+                            colors.success,
+                        )
+                    } else {
+                        (
+                            format!("{} Not in PATH", egui_phosphor::regular::X_CIRCLE),
+                            colors.fg_muted,
+                        )
+                    };
 
-                        ui.horizontal(|ui| {
+                    setting_row(
+                        ui,
+                        "Command-line access",
+                        Some("Use the `thoth` command from any terminal."),
+                        false,
+                        None,
+                        colors,
+                        |ui| {
                             if props.is_in_path {
-                                let button = Button::render(
+                                if Button::render(
                                     ui,
                                     ButtonProps {
                                         label: "Remove from PATH".to_string(),
                                         button_type: ButtonType::Elevated,
                                         color: ButtonColor::Danger,
-                                        hover_text: None,
-                                        size: None,
-                                        width: None,
-                                        height: None,
-                ..Default::default()
+                                        size: Some(12.0),
+                                        ..Default::default()
                                     },
-                                );
-                                if button.clicked {
+                                )
+                                .clicked
+                                {
                                     events.push(AdvancedTabEvent::UnregisterFromPath);
                                 }
                             } else {
-                                let button = Button::render(
+                                if Button::render(
                                     ui,
                                     ButtonProps {
                                         label: "Add to PATH".to_string(),
                                         button_type: ButtonType::Elevated,
                                         color: ButtonColor::Success,
-                                        hover_text: None,
-                                        size: None,
-                                        width: None,
-                                        height: None,
-                ..Default::default()
+                                        size: Some(12.0),
+                                        ..Default::default()
                                     },
-                                );
-                                if button.clicked {
+                                )
+                                .clicked
+                                {
                                     events.push(AdvancedTabEvent::RegisterInPath);
                                 }
                             }
-                        });
-
-                        ui.add_space(4.0);
-                        ui.label(
-                            egui::RichText::new(
-                                if cfg!(target_os = "windows") {
-                                    "Note: Restart Thoth and your terminal for changes to take effect"
-                                } else {
-                                    "Note: Restart Thoth and your terminal, or run 'source ~/.zshrc' (or ~/.bashrc)"
-                                }
-                            )
-                            .size(11.0)
-                            .italics()
-                            .color(props.theme_colors.overlay1),
-                        );
-
-                        ui.add_space(16.0);
-                    });
+                            ui.add_space(8.0);
+                            ui.label(RichText::new(&status_text).size(12.0).color(status_color));
+                        },
+                    );
                 });
+
+                ui.add_space(24.0);
             });
 
         AdvancedTabOutput { events }
