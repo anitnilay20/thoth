@@ -133,7 +133,8 @@ impl ContextComponent for StatusBar {
                     let domain = domain.to_string();
                     let plugin_id = plugin_id.to_string();
                     Settings::update(&ctx, |s| {
-                        let domains = &mut s.plugins
+                        let domains = &mut s
+                            .plugins
                             .network_policies
                             .entry(plugin_id)
                             .or_default()

@@ -1,4 +1,8 @@
-use std::{collections::VecDeque, sync::Arc, sync::atomic::{AtomicU64, Ordering}};
+use std::{
+    collections::VecDeque,
+    sync::Arc,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 static CONSENT_ID: AtomicU64 = AtomicU64::new(1);
 
