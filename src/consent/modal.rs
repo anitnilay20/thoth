@@ -65,7 +65,13 @@ impl ContextComponent for ConsentModal {
                     ui.add(egui::Separator::default().spacing(0.0));
                     render_body(ui, &request, &colors);
                     ui.add(egui::Separator::default().spacing(0.0));
-                    render_footer(ui, &mut self.remember, &mut accepted, &mut cancelled, &colors);
+                    render_footer(
+                        ui,
+                        &mut self.remember,
+                        &mut accepted,
+                        &mut cancelled,
+                        &colors,
+                    );
                 });
         });
 
@@ -85,13 +91,19 @@ impl ContextComponent for ConsentModal {
 
 fn render_header(ui: &mut egui::Ui, request: &ConsentRequest, colors: &ThemeColors) {
     Frame::new()
-        .inner_margin(Margin { left: 24, right: 24, top: 20, bottom: 16 })
+        .inner_margin(Margin {
+            left: 24,
+            right: 24,
+            top: 20,
+            bottom: 16,
+        })
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 // Plugin avatar with shield-warning badge
                 let avatar_size = egui::vec2(44.0, 44.0);
                 let (avatar_rect, _) = ui.allocate_exact_size(avatar_size, egui::Sense::hover());
-                ui.painter().rect_filled(avatar_rect, CornerRadius::same(8), colors.surface);
+                ui.painter()
+                    .rect_filled(avatar_rect, CornerRadius::same(8), colors.surface);
                 ui.painter().text(
                     avatar_rect.center(),
                     Align2::CENTER_CENTER,
@@ -104,7 +116,8 @@ fn render_header(ui: &mut egui::Ui, request: &ConsentRequest, colors: &ThemeColo
                     avatar_rect.max - egui::vec2(14.0, 14.0),
                     egui::vec2(18.0, 18.0),
                 );
-                ui.painter().rect_filled(badge_rect, CornerRadius::same(9), colors.warning);
+                ui.painter()
+                    .rect_filled(badge_rect, CornerRadius::same(9), colors.warning);
                 ui.painter().rect_stroke(
                     badge_rect,
                     CornerRadius::same(9),
@@ -139,7 +152,12 @@ fn render_header(ui: &mut egui::Ui, request: &ConsentRequest, colors: &ThemeColo
 
 fn render_body(ui: &mut egui::Ui, request: &ConsentRequest, colors: &ThemeColors) {
     Frame::new()
-        .inner_margin(Margin { left: 24, right: 24, top: 16, bottom: 12 })
+        .inner_margin(Margin {
+            left: 24,
+            right: 24,
+            top: 16,
+            bottom: 12,
+        })
         .show(ui, |ui| {
             if !request.message.is_empty() {
                 Typography::body_large(ui, &request.message);
@@ -173,7 +191,12 @@ fn render_footer(
     colors: &ThemeColors,
 ) {
     Frame::new()
-        .inner_margin(Margin { left: 24, right: 24, top: 12, bottom: 16 })
+        .inner_margin(Margin {
+            left: 24,
+            right: 24,
+            top: 12,
+            bottom: 16,
+        })
         .fill(colors.bg_panel)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -187,10 +210,18 @@ fn render_footer(
                 ui.painter().rect(
                     cb_rect,
                     CornerRadius::same(3),
-                    if *remember { colors.accent } else { Color32::TRANSPARENT },
+                    if *remember {
+                        colors.accent
+                    } else {
+                        Color32::TRANSPARENT
+                    },
                     Stroke::new(
                         1.0,
-                        if *remember { colors.accent } else { colors.surface_active },
+                        if *remember {
+                            colors.accent
+                        } else {
+                            colors.surface_active
+                        },
                     ),
                     egui::StrokeKind::Outside,
                 );
@@ -256,9 +287,15 @@ fn render_footer(
 
 fn render_permission_row(ui: &mut egui::Ui, entry: &PermissionEntry, colors: &ThemeColors) {
     ui.horizontal(|ui| {
-        let icon_color = if entry.sensitive { colors.warning } else { colors.accent };
+        let icon_color = if entry.sensitive {
+            colors.warning
+        } else {
+            colors.accent
+        };
         ui.label(
-            egui::RichText::new(entry.icon).font(phosphor_font_id(16.0)).color(icon_color),
+            egui::RichText::new(entry.icon)
+                .font(phosphor_font_id(16.0))
+                .color(icon_color),
         );
         ui.add_space(8.0);
         Typography::body_large(ui, &entry.label);
@@ -278,7 +315,12 @@ fn render_permission_row(ui: &mut egui::Ui, entry: &PermissionEntry, colors: &Th
                 Frame::new()
                     .fill(Color32::from_rgba_premultiplied(249, 226, 175, 26))
                     .corner_radius(CornerRadius::same(3))
-                    .inner_margin(Margin { left: 5, right: 5, top: 2, bottom: 2 })
+                    .inner_margin(Margin {
+                        left: 5,
+                        right: 5,
+                        top: 2,
+                        bottom: 2,
+                    })
                     .show(ui, |ui| {
                         Typography::render(
                             ui,

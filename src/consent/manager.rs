@@ -103,17 +103,17 @@ impl ConsentManager {
 
     /// Clone the first pending consent's data so the caller can render without
     /// holding the lock across frames.
-    pub fn take_first() -> Option<(
-        ConsentRequest,
-        ConsentCallback,
-        ConsentCallback,
-    )> {
+    pub fn take_first() -> Option<(ConsentRequest, ConsentCallback, ConsentCallback)> {
         crate::CONSENT_MANAGER
             .get()
             .and_then(|m| m.lock().ok())
             .and_then(|cm| {
                 cm.queue.front().map(|c| {
-                    (c.request.clone(), Arc::clone(&c.on_allow), Arc::clone(&c.on_deny))
+                    (
+                        c.request.clone(),
+                        Arc::clone(&c.on_allow),
+                        Arc::clone(&c.on_deny),
+                    )
                 })
             })
     }

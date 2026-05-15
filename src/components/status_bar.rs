@@ -4,13 +4,13 @@ use std::path::Path;
 
 use crate::components::breadcrumbs::{Breadcrumbs, BreadcrumbsEvent, BreadcrumbsProps};
 use crate::components::traits::{ContextComponent, StatelessComponent};
-use crate::file::loaders::FileKind;
 use crate::consent::{
     manager::ConsentManager,
     modal::{ConsentModal, ConsentModalProps},
 };
-use crate::settings::Settings;
+use crate::file::loaders::FileKind;
 use crate::notification::notification_dropdown::{NotificationDropdown, NotificationDropdownProps};
+use crate::settings::Settings;
 
 /// Status bar component displaying file info and application status
 #[derive(Default)]
@@ -119,8 +119,12 @@ impl ContextComponent for StatusBar {
         let on_accept = |remember: bool| {
             // Pass `remember` to the callback so the in-memory NetworkPolicy is
             // updated immediately (via runtime_allowed_handle).
-            if let Some(ref f) = allow_fn { f(remember); }
-            if let Some(ref id) = id_accept { ConsentManager::resolve(id); }
+            if let Some(ref f) = allow_fn {
+                f(remember);
+            }
+            if let Some(ref id) = id_accept {
+                ConsentManager::resolve(id);
+            }
             if remember {
                 // Also persist to Settings so the domain survives a restart.
                 if let (Some(domain), Some(plugin_id)) =
@@ -140,12 +144,20 @@ impl ContextComponent for StatusBar {
             }
         };
         let on_cancel = || {
-            if let Some(ref f) = deny_fn { f(false); }
-            if let Some(ref id) = id_cancel { ConsentManager::resolve(id); }
+            if let Some(ref f) = deny_fn {
+                f(false);
+            }
+            if let Some(ref id) = id_cancel {
+                ConsentManager::resolve(id);
+            }
         };
         self.consent_modal.render(
             ui,
-            ConsentModalProps { request: consent_request, on_accept: &on_accept, on_cancel: &on_cancel },
+            ConsentModalProps {
+                request: consent_request,
+                on_accept: &on_accept,
+                on_cancel: &on_cancel,
+            },
         );
 
         // Use theme colors from context

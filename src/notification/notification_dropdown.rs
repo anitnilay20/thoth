@@ -103,7 +103,11 @@ impl ContextComponent for NotificationDropdown {
                 icon: bell_icon,
                 tooltip: Some("Notifications"),
                 frame: false,
-                badge_color: if unread_count > 0 { Some(colors.error) } else { None },
+                badge_color: if unread_count > 0 {
+                    Some(colors.error)
+                } else {
+                    None
+                },
                 size: None,
                 disabled: false,
                 icon_size: None,
@@ -146,7 +150,12 @@ impl NotificationDropdown {
 
                 // ── Header ────────────────────────────────────────────────────
                 Frame::new()
-                    .inner_margin(Margin { left: 16, right: 12, top: 12, bottom: 10 })
+                    .inner_margin(Margin {
+                        left: 16,
+                        right: 12,
+                        top: 12,
+                        bottom: 10,
+                    })
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             Typography::title(ui, "Notifications");
@@ -202,16 +211,33 @@ impl NotificationDropdown {
 
                 // ── Filter tabs ───────────────────────────────────────────────
                 Frame::new()
-                    .inner_margin(Margin { left: 12, right: 12, top: 8, bottom: 8 })
+                    .inner_margin(Margin {
+                        left: 12,
+                        right: 12,
+                        top: 8,
+                        bottom: 8,
+                    })
                     .show(ui, |ui| {
                         let out = ButtonGroup::render(
                             ui,
                             ButtonGroupProps {
                                 items: &[
-                                    ButtonGroupItem { value: "all", label: "All" },
-                                    ButtonGroupItem { value: "unread", label: "Unread" },
-                                    ButtonGroupItem { value: "plugins", label: "Plugins" },
-                                    ButtonGroupItem { value: "errors", label: "Errors" },
+                                    ButtonGroupItem {
+                                        value: "all",
+                                        label: "All",
+                                    },
+                                    ButtonGroupItem {
+                                        value: "unread",
+                                        label: "Unread",
+                                    },
+                                    ButtonGroupItem {
+                                        value: "plugins",
+                                        label: "Plugins",
+                                    },
+                                    ButtonGroupItem {
+                                        value: "errors",
+                                        label: "Errors",
+                                    },
                                 ],
                                 active: new_filter.as_str(),
                             },
@@ -253,8 +279,7 @@ impl NotificationDropdown {
                         Filter::Unread => *unread,
                         Filter::Plugins => *kind == NotificationKind::Plugin,
                         Filter::Errors => {
-                            *status == NotificationStatus::Error
-                                || *kind == NotificationKind::Error
+                            *status == NotificationStatus::Error || *kind == NotificationKind::Error
                         }
                     })
                     .collect();
@@ -286,10 +311,7 @@ impl NotificationDropdown {
                                         bottom: 4,
                                     })
                                     .show(ui, |ui| {
-                                        Typography::group_label(
-                                            ui,
-                                            &bucket_label.to_uppercase(),
-                                        );
+                                        Typography::group_label(ui, &bucket_label.to_uppercase());
                                     });
 
                                 // Pre-build descriptions (formatted Strings that
@@ -374,7 +396,12 @@ impl NotificationDropdown {
                 // ── Footer ────────────────────────────────────────────────────
                 ui.add(egui::Separator::default().spacing(0.0));
                 Frame::new()
-                    .inner_margin(Margin { left: 14, right: 14, top: 8, bottom: 8 })
+                    .inner_margin(Margin {
+                        left: 14,
+                        right: 14,
+                        top: 8,
+                        bottom: 8,
+                    })
                     .fill(colors.bg_sunken)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -438,7 +465,12 @@ fn render_empty_state(ui: &mut egui::Ui, filter: Filter) {
     });
 
     Frame::new()
-        .inner_margin(Margin { left: 0, right: 0, top: 40, bottom: 40 })
+        .inner_margin(Margin {
+            left: 0,
+            right: 0,
+            top: 40,
+            bottom: 40,
+        })
         .show(ui, |ui| {
             ui.with_layout(Layout::top_down(egui::Align::Center), |ui| {
                 ui.label(
