@@ -17,12 +17,23 @@ pub enum NotificationStatus {
     Created,
     Viewed,
     Error,
-    ConsentRequired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NotificationKind {
+    Success,
+    Error,
+    Warn,
+    Update,
+    Plugin,
+    Tip,
+    #[default]
+    Info,
 }
 
 #[derive(Clone)]
 pub struct Notification {
-    id: String,
+    pub id: String,
     pub title: String,
     pub message: String,
     pub actions: Vec<(String, Arc<dyn Fn() + Send + Sync + 'static>)>,
@@ -30,6 +41,8 @@ pub struct Notification {
     pub show_toast: bool,
     pub show_in_status_bar: bool,
     pub status: NotificationStatus,
+    pub kind: NotificationKind,
+    pub unread: bool,
 }
 
 pub struct NotificationManager {
@@ -63,29 +76,9 @@ impl NotificationManager {
         Self::notify(
             notification
                 .with_status(NotificationStatus::Error)
+                .with_kind(NotificationKind::Error)
                 .with_toast(true),
         )
-    }
-
-    pub fn show_http_consent_notification(
-        domain: &str,
-        actions: Vec<(String, Arc<dyn Fn() + Send + Sync + 'static>)>,
-    ) -> String {
-        let mut notification = Notification::new(
-            "Network Request Consent",
-            &format!(
-                "A plugin is trying to access '{}'. Do you allow this?",
-                domain
-            ),
-        )
-        .with_status(NotificationStatus::ConsentRequired)
-        .with_toast(false);
-
-        for (label, action) in actions {
-            notification = notification.with_action(&label, action);
-        }
-
-        Self::notify(notification)
     }
 
     pub fn mark_notification_as_complete(id: &str) {
@@ -112,20 +105,6 @@ impl NotificationManager {
             .unwrap_or_default()
     }
 
-    pub fn all_consent_notifications() -> Vec<Notification> {
-        let notifications: Vec<Notification> = NOTIFICATION_MANAGER
-            .get()
-            .and_then(|mutex| mutex.lock().ok())
-            .map(|nm| nm.tasks.values().cloned().collect())
-            .unwrap_or_default();
-
-        notifications
-            .iter()
-            .filter(|n| n.status == NotificationStatus::ConsentRequired)
-            .cloned()
-            .collect()
-    }
-
     pub fn is_notification_empty() -> bool {
         NOTIFICATION_MANAGER
             .get()
@@ -135,10 +114,7 @@ impl NotificationManager {
     }
 
     pub fn add_notification(&mut self, notification: Notification) {
-        if notification.status == NotificationStatus::Running
-            || notification.show_in_status_bar
-            || notification.status == NotificationStatus::ConsentRequired
-        {
+        if notification.status == NotificationStatus::Running || notification.show_in_status_bar {
             self.tasks
                 .insert(notification.id.clone(), notification.clone());
         } else {
@@ -161,6 +137,19 @@ impl NotificationManager {
     pub fn clear_notifications(&mut self) {
         self.notifications.clear();
         self.toasts.dismiss_all_toasts();
+    }
+
+    pub fn mark_all_read(&mut self) {
+        for n in self.notifications.values_mut() {
+            n.unread = false;
+            if n.status == NotificationStatus::Created {
+                n.status = NotificationStatus::Viewed;
+            }
+        }
+    }
+
+    pub fn unread_count(&self) -> usize {
+        self.notifications.values().filter(|n| n.unread).count()
     }
 
     pub fn move_to_notifications(&mut self, id: &str) {
@@ -192,7 +181,14 @@ impl Notification {
             show_toast: true,
             show_in_status_bar: false,
             status: NotificationStatus::Created,
+            kind: NotificationKind::default(),
+            unread: true,
         }
+    }
+
+    pub fn with_kind(mut self, kind: NotificationKind) -> Self {
+        self.kind = kind;
+        self
     }
 
     pub fn with_id(mut self, id: &str) -> Self {

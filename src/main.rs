@@ -11,8 +11,11 @@ use eframe::{
 };
 use std::path::PathBuf;
 use thoth::{
-    NOTIFICATION_MANAGER, PLUGIN_MANAGER, app, error::Result, helpers::load_icon,
-    notification::NotificationManager, plugin::manager::PluginManager, settings,
+    CONSENT_MANAGER, NOTIFICATION_MANAGER, PLUGIN_MANAGER, app, error::Result, helpers::load_icon,
+    consent::manager::ConsentManager,
+    notification::NotificationManager,
+    plugin::manager::PluginManager,
+    settings,
 };
 
 /// Parse command-line arguments to extract file path
@@ -81,6 +84,9 @@ fn main() -> Result<()> {
 
     NOTIFICATION_MANAGER
         .set(std::sync::Mutex::new(NotificationManager::new()))
+        .ok();
+    CONSENT_MANAGER
+        .set(std::sync::Mutex::new(ConsentManager::new()))
         .ok();
 
     let plugin_settings = settings.plugins.plugin_settings.clone();
