@@ -143,8 +143,7 @@ impl ThothApp {
                     }),
                 )
                 .with_action("Later", std::sync::Arc::new(|| {}))
-                .with_toast(true)
-                .with_status(crate::notification::NotificationStatus::ConsentRequired),
+                .with_toast(true),
             );
         }
     }

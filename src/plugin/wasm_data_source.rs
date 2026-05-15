@@ -7,8 +7,8 @@ use wasmtime::{Engine, Store};
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::app::persistent_state::PersistentState;
+use crate::consent::manager::{ConsentCallback, ConsentManager};
 use crate::error::{Result, ThothError};
-use crate::notification::NotificationManager;
 use crate::plugin::network_policy::{CheckOutcome, NetworkPolicy};
 use crate::settings::PluginSettingData;
 
@@ -98,6 +98,48 @@ impl WasiView for DataSourcePluginState {
     }
 }
 
+// ── consent helper ────────────────────────────────────────────────────────────
+
+impl DataSourcePluginState {
+    /// Register a pending consent request for `domain`.
+    ///
+    /// Notifies the host via `consent_tx` so the UI can show an indicator, then
+    /// queues a `ConsentManager` entry whose `on_allow` closure retries `req`
+    /// through `retry_tx` (the host re-dispatches it as a normal async request).
+    /// `on_deny` is called if the user rejects; for synchronous `fetch()` callers
+    /// the plugin already received an error, so pass `Arc::new(|| {})`.
+    fn push_consent(
+        &self,
+        domain: &str,
+        req: thoth::plugin::http_client::HttpRequest,
+        retry_id: String,
+        on_deny: ConsentCallback,
+    ) {
+        let _ = self.consent_tx.send(ConsentRequest {
+            domain: domain.to_string(),
+            plugin_id: self.plugin_id.clone(),
+        });
+        let retry_tx = Arc::clone(&self.retry_tx);
+        let runtime_allowed = self.policy.runtime_allowed_handle();
+        let dom = domain.to_string();
+        ConsentManager::push_http_consent(
+            domain,
+            &self.plugin_id,
+            Arc::new(move |remember: bool| {
+                if let Ok(tx) = retry_tx.lock() {
+                    let _ = tx.send((retry_id.clone(), req.clone()));
+                }
+                if remember {
+                    if let Ok(mut list) = runtime_allowed.lock() {
+                        list.push(dom.clone());
+                    }
+                }
+            }),
+            on_deny,
+        );
+    }
+}
+
 // ── http-client WIT import — host side ───────────────────────────────────────
 
 impl thoth::plugin::http_client::Host for DataSourcePluginState {
@@ -117,27 +159,30 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
                 })
             }
             Ok(CheckOutcome::NeedsConsent { domain }) => {
+                // fetch() is synchronous — return Err immediately.
+                // Show the consent modal so the user is informed, and update
+                // runtime_allowed on approval so a subsequent fetch() succeeds.
+                // We do NOT queue a retry here: the plugin already received an
+                // error and there is no request-id for the caller to correlate
+                // an async result against.
                 let _ = self.consent_tx.send(ConsentRequest {
                     domain: domain.clone(),
                     plugin_id: self.plugin_id.clone(),
                 });
-
-                let retry_tx = Arc::clone(&self.retry_tx);
-                let retry_id = next_request_id();
-                let retry_req = req.clone();
-
-                NotificationManager::show_http_consent_notification(
+                let runtime_allowed = self.policy.runtime_allowed_handle();
+                let dom = domain.clone();
+                ConsentManager::push_http_consent(
                     &domain,
-                    vec![(
-                        "Allow".to_string(),
-                        Arc::new(move || {
-                            if let Ok(tx) = retry_tx.lock() {
-                                let _ = tx.send((retry_id.clone(), retry_req.clone()));
+                    &self.plugin_id,
+                    Arc::new(move |remember: bool| {
+                        if remember {
+                            if let Ok(mut list) = runtime_allowed.lock() {
+                                list.push(dom.clone());
                             }
-                        }),
-                    )],
+                        }
+                    }),
+                    Arc::new(|_| {}),
                 );
-
                 Err(thoth::plugin::http_client::PluginError {
                     code: 403,
                     message: format!("domain '{domain}' not approved — waiting for user consent"),
@@ -175,32 +220,27 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
                 });
             }
             Ok(CheckOutcome::NeedsConsent { domain }) => {
-                let _ = self.consent_tx.send(ConsentRequest {
-                    domain: domain.clone(),
-                    plugin_id: self.plugin_id.clone(),
-                });
-                // pending_count is incremented below before the immediate error send
-                // so drain_http_results' fetch_sub stays balanced. The retry path
-                // also increments separately when the user approves.
-
-                let retry_tx = Arc::clone(&self.retry_tx);
-                let retry_id = request_id.clone();
-                let retry_req = req.clone();
-                NotificationManager::show_http_consent_notification(
+                let deny_tx = tx.clone();
+                let deny_id = id.clone();
+                let deny_domain = domain.clone();
+                let deny_count = Arc::clone(&self.pending_count);
+                self.push_consent(
                     &domain,
-                    vec![(
-                        "Allow".to_string(),
-                        Arc::new(move || {
-                            if let Ok(tx) = retry_tx.lock() {
-                                let _ = tx.send((retry_id.clone(), retry_req.clone()));
-                            }
-                        }),
-                    )],
+                    req,
+                    request_id.clone(),
+                    Arc::new(move |_remember: bool| {
+                        deny_count.fetch_add(1, Ordering::Relaxed);
+                        let _ = deny_tx.send((
+                            deny_id.clone(),
+                            Err::<HttpResponseRaw, String>(format!(
+                                "domain '{deny_domain}' access denied by user"
+                            )),
+                        ));
+                    }),
                 );
 
-                // Deliver an immediate error so the plugin can show "awaiting consent".
-                // Must increment pending_count before sending so drain_http_results'
-                // unconditional fetch_sub stays balanced.
+                // Immediate "awaiting consent" notification — lets the plugin update
+                // its UI state while the modal is open.
                 self.pending_count.fetch_add(1, Ordering::Relaxed);
                 let _ = tx.send((
                     id,

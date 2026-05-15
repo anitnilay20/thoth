@@ -4,13 +4,19 @@ use std::path::Path;
 
 use crate::components::breadcrumbs::{Breadcrumbs, BreadcrumbsEvent, BreadcrumbsProps};
 use crate::components::traits::{ContextComponent, StatelessComponent};
+use crate::consent::{
+    manager::ConsentManager,
+    modal::{ConsentModal, ConsentModalProps},
+};
 use crate::file::loaders::FileKind;
 use crate::notification::notification_dropdown::{NotificationDropdown, NotificationDropdownProps};
+use crate::settings::Settings;
 
 /// Status bar component displaying file info and application status
 #[derive(Default)]
 pub struct StatusBar {
     notification_dropdown: NotificationDropdown,
+    consent_modal: ConsentModal,
 }
 
 /// Props for the status bar component (immutable, one-way binding)
@@ -97,6 +103,65 @@ impl ContextComponent for StatusBar {
 
     fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
         let mut events = Vec::new();
+
+        // Render consent modal (uses egui::Modal, so it floats above everything)
+        let consent = ConsentManager::take_first();
+        let (consent_request, allow_fn, deny_fn) = match consent {
+            Some((r, a, d)) => (Some(r), Some(a), Some(d)),
+            None => (None, None, None),
+        };
+        let id_accept = consent_request.as_ref().map(|r| r.id.clone());
+        let id_cancel = id_accept.clone();
+        let remember_domain = consent_request.as_ref().and_then(|r| r.domain.clone());
+        let remember_plugin_id = consent_request.as_ref().and_then(|r| r.plugin_id.clone());
+
+        let ctx = ui.ctx().clone();
+        let on_accept = |remember: bool| {
+            // Pass `remember` to the callback so the in-memory NetworkPolicy is
+            // updated immediately (via runtime_allowed_handle).
+            if let Some(ref f) = allow_fn {
+                f(remember);
+            }
+            if let Some(ref id) = id_accept {
+                ConsentManager::resolve(id);
+            }
+            if remember {
+                // Also persist to Settings so the domain survives a restart.
+                if let (Some(domain), Some(plugin_id)) =
+                    (remember_domain.as_deref(), remember_plugin_id.as_deref())
+                {
+                    let domain = domain.to_string();
+                    let plugin_id = plugin_id.to_string();
+                    Settings::update(&ctx, |s| {
+                        let domains = &mut s
+                            .plugins
+                            .network_policies
+                            .entry(plugin_id)
+                            .or_default()
+                            .allowed_domains;
+                        if !domains.contains(&domain) {
+                            domains.push(domain);
+                        }
+                    });
+                }
+            }
+        };
+        let on_cancel = || {
+            if let Some(ref f) = deny_fn {
+                f(false);
+            }
+            if let Some(ref id) = id_cancel {
+                ConsentManager::resolve(id);
+            }
+        };
+        self.consent_modal.render(
+            ui,
+            ConsentModalProps {
+                request: consent_request,
+                on_accept: &on_accept,
+                on_cancel: &on_cancel,
+            },
+        );
 
         // Use theme colors from context
         let bg_color = ui.ctx().memory(|mem| {

@@ -66,15 +66,7 @@ icons = [
 # Resources to include in the bundle
 resources = ["assets"]
 
-# macOS bundle configuration
-[package.metadata.packager.macos]
-# File associations are declared in a custom Info.plist (CFBundleDocumentTypes).
-# cargo-packager merges this with its auto-generated plist.
-info_plist_path = "assets/Info.plist"
-
-# Windows installer configuration
-[package.metadata.packager.windows]
-# File associations for Windows "Open With" and default app
+# File associations (top-level — applies to all platforms cargo-packager supports)
 file_associations = [
   { ext = [
     "json",
@@ -87,6 +79,15 @@ file_associations = [
     "geojson",
   ], name = "GeoJSON File", description = "GeoJSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/geo+json" },
 ]
+
+# macOS bundle configuration
+[package.metadata.packager.macos]
+# File associations are declared in a custom Info.plist (CFBundleDocumentTypes).
+# cargo-packager merges this with its auto-generated plist.
+info_plist_path = "assets/Info.plist"
+
+# Windows installer configuration (signing only — no extra fields needed here)
+[package.metadata.packager.windows]
 
 # Debian/Linux package configuration
 [package.metadata.packager.deb]
