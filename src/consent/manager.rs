@@ -1,4 +1,6 @@
-use std::{collections::VecDeque, sync::Arc, time::SystemTime};
+use std::{collections::VecDeque, sync::Arc, sync::atomic::{AtomicU64, Ordering}};
+
+static CONSENT_ID: AtomicU64 = AtomicU64::new(1);
 
 // ── Data types ────────────────────────────────────────────────────────────────
 
@@ -59,11 +61,7 @@ impl ConsentManager {
         on_allow: ConsentCallback,
         on_deny: ConsentCallback,
     ) {
-        let id = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-            .to_string();
+        let id = format!("consent-{}", CONSENT_ID.fetch_add(1, Ordering::Relaxed));
         Self::push(PendingConsent {
             request: ConsentRequest {
                 id,

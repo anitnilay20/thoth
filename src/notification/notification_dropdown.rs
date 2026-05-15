@@ -17,7 +17,7 @@ use crate::{
 
 type NotifAction = Arc<dyn Fn() + Send + Sync + 'static>;
 
-// id, title, message, status, kind, unread, actions
+// id, title, message, status, kind, unread, actions, created_at
 type NotifRow = (
     String,
     String,
@@ -26,6 +26,7 @@ type NotifRow = (
     NotificationKind,
     bool,
     Vec<(String, NotifAction)>,
+    i64,
 );
 
 // ── Filter ────────────────────────────────────────────────────────────────────
@@ -264,22 +265,25 @@ impl NotificationDropdown {
                                     n.kind,
                                     n.unread,
                                     n.actions.clone(),
+                                    n.created_at,
                                 )
                             })
                             .collect();
-                        items.sort_by(|a, b| b.0.cmp(&a.0));
+                        items.sort_by(|a, b| b.7.cmp(&a.7));
                         items
                     })
                     .unwrap_or_default();
 
                 let visible: Vec<&NotifRow> = notifications
                     .iter()
-                    .filter(|(_, _, _, status, kind, unread, _)| match new_filter {
+                    .filter(|(_, _, _, status, kind, unread, _, _)| match new_filter {
                         Filter::All => true,
                         Filter::Unread => *unread,
                         Filter::Plugins => *kind == NotificationKind::Plugin,
                         Filter::Errors => {
-                            *status == NotificationStatus::Error || *kind == NotificationKind::Error
+                            *status == NotificationStatus::Error
+                                || *kind == NotificationKind::Error
+                                || *kind == NotificationKind::Warn
                         }
                     })
                     .collect();
@@ -296,7 +300,7 @@ impl NotificationDropdown {
                                 let bucket: Vec<&NotifRow> = visible
                                     .iter()
                                     .copied()
-                                    .filter(|(id, ..)| date_bucket(id) == bucket_label)
+                                    .filter(|row| date_bucket(row.7) == bucket_label)
                                     .collect();
 
                                 if bucket.is_empty() {
@@ -318,12 +322,12 @@ impl NotificationDropdown {
                                 // must outlive the ListItem borrows below).
                                 let descs: Vec<String> = bucket
                                     .iter()
-                                    .map(|(id, _, message, ..)| {
-                                        let ts = relative_time(id);
-                                        if message.is_empty() {
+                                    .map(|row| {
+                                        let ts = relative_time(row.7);
+                                        if row.2.is_empty() {
                                             ts
                                         } else {
-                                            format!("{message}\n{ts}")
+                                            format!("{}\n{ts}", row.2)
                                         }
                                     })
                                     .collect();
@@ -331,7 +335,7 @@ impl NotificationDropdown {
                                 let list_items: Vec<ListItem<'_>> = bucket
                                     .iter()
                                     .zip(descs.iter())
-                                    .map(|((_, title, _, _, kind, unread, _), desc)| {
+                                    .map(|((_, title, _, _, kind, unread, _, _), desc)| {
                                         let (icon, icon_color) = kind_icon(*kind, colors);
                                         ListItem {
                                             title: title.as_str(),
@@ -381,10 +385,10 @@ impl NotificationDropdown {
                                     }
                                 }
 
-                                // Clicking a row fires its registered actions.
+                                // Clicking a row fires the primary (first) action only.
                                 if let Some(idx) = list_out.row_clicked {
                                     if let Some(row) = bucket.get(idx) {
-                                        for (_, cb) in &row.6 {
+                                        if let Some((_, cb)) = row.6.first() {
                                             cb();
                                         }
                                     }
@@ -506,14 +510,13 @@ fn kind_icon(kind: NotificationKind, colors: &ThemeColors) -> (&'static str, Col
     }
 }
 
-fn date_bucket(id: &str) -> &'static str {
+fn date_bucket(created_ms: i64) -> &'static str {
     let now_ms = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis();
-    let created_ms: u128 = id.parse().unwrap_or(0);
-    let age_ms = now_ms.saturating_sub(created_ms);
-    let day_ms: u128 = 24 * 60 * 60 * 1000;
+        .as_millis() as i64;
+    let age_ms = (now_ms - created_ms).max(0);
+    let day_ms: i64 = 24 * 60 * 60 * 1000;
     if age_ms < day_ms {
         "Today"
     } else if age_ms < 2 * day_ms {
@@ -523,13 +526,12 @@ fn date_bucket(id: &str) -> &'static str {
     }
 }
 
-fn relative_time(id: &str) -> String {
+fn relative_time(created_ms: i64) -> String {
     let now_ms = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis();
-    let created_ms: u128 = id.parse().unwrap_or(0);
-    let age_secs = now_ms.saturating_sub(created_ms) / 1000;
+        .as_millis() as i64;
+    let age_secs = ((now_ms - created_ms).max(0)) / 1000;
     if age_secs < 60 {
         "just now".to_string()
     } else if age_secs < 3600 {

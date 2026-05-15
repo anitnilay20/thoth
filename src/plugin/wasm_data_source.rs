@@ -159,10 +159,30 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
                 })
             }
             Ok(CheckOutcome::NeedsConsent { domain }) => {
-                // fetch() is synchronous: return Err immediately so the plugin
-                // can show an error. If the user later approves, the retry goes
-                // through retry_tx and is delivered as an async http event.
-                self.push_consent(&domain, req, next_request_id(), Arc::new(|_| {}));
+                // fetch() is synchronous — return Err immediately.
+                // Show the consent modal so the user is informed, and update
+                // runtime_allowed on approval so a subsequent fetch() succeeds.
+                // We do NOT queue a retry here: the plugin already received an
+                // error and there is no request-id for the caller to correlate
+                // an async result against.
+                let _ = self.consent_tx.send(ConsentRequest {
+                    domain: domain.clone(),
+                    plugin_id: self.plugin_id.clone(),
+                });
+                let runtime_allowed = self.policy.runtime_allowed_handle();
+                let dom = domain.clone();
+                ConsentManager::push_http_consent(
+                    &domain,
+                    &self.plugin_id,
+                    Arc::new(move |remember: bool| {
+                        if remember {
+                            if let Ok(mut list) = runtime_allowed.lock() {
+                                list.push(dom.clone());
+                            }
+                        }
+                    }),
+                    Arc::new(|_| {}),
+                );
                 Err(thoth::plugin::http_client::PluginError {
                     code: 403,
                     message: format!("domain '{domain}' not approved — waiting for user consent"),

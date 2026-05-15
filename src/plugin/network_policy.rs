@@ -11,6 +11,10 @@ pub struct NetworkPolicy {
     /// Domains approved at runtime via "Remember this choice" — checked after
     /// the static policy so consent-modal approvals take effect immediately.
     runtime_allowed: Arc<Mutex<Vec<String>>>,
+    /// Original normalised plugin-manifest domain list. Runtime consent can
+    /// only relax user-side restrictions; it cannot expand the plugin's own
+    /// declared scope.
+    plugin_declared_domains: Vec<String>,
 }
 
 pub enum CheckOutcome {
@@ -96,6 +100,7 @@ impl NetworkPolicy {
             request_count: 0,
             window_start: std::time::Instant::now(),
             runtime_allowed: Arc::new(Mutex::new(Vec::new())),
+            plugin_declared_domains: norm(&plugin.allowed_domains),
         }
     }
 
@@ -127,8 +132,12 @@ impl NetworkPolicy {
             return Err(PolicyViolation::UserBlocked);
         }
 
-        // Check static allowed list, then runtime approvals from consent modal
-        if self.is_allowed(&host) || self.is_runtime_allowed(&host) {
+        // Static allowed list passes unconditionally.
+        // Runtime approvals only apply within the plugin's declared scope so a
+        // user approval cannot expand the plugin beyond its manifest.
+        if self.is_allowed(&host)
+            || (self.is_within_plugin_scope(&host) && self.is_runtime_allowed(&host))
+        {
             return Ok(CheckOutcome::Allowed);
         }
 
@@ -150,6 +159,20 @@ impl NetworkPolicy {
             .allowed_domains
             .iter()
             .any(|domain| self.domain_matches(host, domain))
+    }
+
+    /// Returns true when `host` falls within what the plugin's manifest declared.
+    /// An empty or wildcard manifest means the plugin imposed no domain
+    /// restrictions, so any host is considered within scope.
+    pub fn is_within_plugin_scope(&self, host: &str) -> bool {
+        if self.plugin_declared_domains.is_empty()
+            || self.plugin_declared_domains.contains(&"*".to_string())
+        {
+            return true;
+        }
+        self.plugin_declared_domains
+            .iter()
+            .any(|d| self.domain_matches(host, d))
     }
 
     fn is_runtime_allowed(&self, host: &str) -> bool {

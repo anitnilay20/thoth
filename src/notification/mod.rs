@@ -34,6 +34,9 @@ pub enum NotificationKind {
 #[derive(Clone)]
 pub struct Notification {
     pub id: String,
+    /// Creation time as Unix epoch milliseconds. Independent of `id` so callers
+    /// can override `id` via `with_id()` without breaking time-based display.
+    pub created_at: i64,
     pub title: String,
     pub message: String,
     pub actions: Vec<(String, Arc<dyn Fn() + Send + Sync + 'static>)>,
@@ -168,12 +171,13 @@ impl Default for NotificationManager {
 
 impl Notification {
     pub fn new(title: &str, message: &str) -> Self {
+        let now_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
         Self {
-            id: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-                .to_string(),
+            id: now_ms.to_string(),
+            created_at: now_ms,
             title: title.to_string(),
             message: message.to_string(),
             actions: Vec::new(),
