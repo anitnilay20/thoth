@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use reqwest::Url;
 
 use crate::{plugin::NetworkDeclarations, settings::PluginNetworkPolicy};
@@ -6,6 +8,13 @@ pub struct NetworkPolicy {
     config: PluginNetworkPolicy,
     request_count: u32,
     window_start: std::time::Instant,
+    /// Domains approved at runtime via "Remember this choice" — checked after
+    /// the static policy so consent-modal approvals take effect immediately.
+    runtime_allowed: Arc<Mutex<Vec<String>>>,
+    /// Original normalised plugin-manifest domain list. Runtime consent can
+    /// only relax user-side restrictions; it cannot expand the plugin's own
+    /// declared scope.
+    plugin_declared_domains: Vec<String>,
 }
 
 pub enum CheckOutcome {
@@ -90,8 +99,17 @@ impl NetworkPolicy {
             config,
             request_count: 0,
             window_start: std::time::Instant::now(),
+            runtime_allowed: Arc::new(Mutex::new(Vec::new())),
+            plugin_declared_domains: norm(&plugin.allowed_domains),
         }
     }
+
+    /// Returns a handle to the runtime-approved domain list so it can be shared
+    /// into consent callbacks and populated when the user checks "Remember".
+    pub fn runtime_allowed_handle(&self) -> Arc<Mutex<Vec<String>>> {
+        Arc::clone(&self.runtime_allowed)
+    }
+
     pub fn check(&mut self, url: &str) -> Result<CheckOutcome, PolicyViolation> {
         let parsed_url =
             Url::parse(url).map_err(|err| PolicyViolation::InvalidUrl(err.to_string()))?;
@@ -114,8 +132,12 @@ impl NetworkPolicy {
             return Err(PolicyViolation::UserBlocked);
         }
 
-        // Check if domain is explicitly allowed
-        if self.is_allowed(&host) {
+        // Static allowed list passes unconditionally.
+        // Runtime approvals only apply within the plugin's declared scope so a
+        // user approval cannot expand the plugin beyond its manifest.
+        if self.is_allowed(&host)
+            || (self.is_within_plugin_scope(&host) && self.is_runtime_allowed(&host))
+        {
             return Ok(CheckOutcome::Allowed);
         }
 
@@ -137,6 +159,28 @@ impl NetworkPolicy {
             .allowed_domains
             .iter()
             .any(|domain| self.domain_matches(host, domain))
+    }
+
+    /// Returns true when `host` falls within what the plugin's manifest declared.
+    /// An empty or wildcard manifest means the plugin imposed no domain
+    /// restrictions, so any host is considered within scope.
+    pub fn is_within_plugin_scope(&self, host: &str) -> bool {
+        if self.plugin_declared_domains.is_empty()
+            || self.plugin_declared_domains.contains(&"*".to_string())
+        {
+            return true;
+        }
+        self.plugin_declared_domains
+            .iter()
+            .any(|d| self.domain_matches(host, d))
+    }
+
+    fn is_runtime_allowed(&self, host: &str) -> bool {
+        if let Ok(list) = self.runtime_allowed.lock() {
+            list.iter().any(|d| self.domain_matches(host, d))
+        } else {
+            false
+        }
     }
 
     fn domain_matches(&self, host: &str, pattern: &str) -> bool {
