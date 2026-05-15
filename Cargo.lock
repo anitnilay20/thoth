@@ -5370,6 +5370,7 @@ dependencies = [
  "fontdb",
  "image",
  "memchr",
+ "objc2 0.5.2",
  "open",
  "proptest",
  "puffin",

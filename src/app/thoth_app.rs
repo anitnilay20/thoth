@@ -183,6 +183,9 @@ impl App for ThothApp {
             }
         }
 
+        // Handle OS-dispatched file opens (e.g. macOS Apple Events / Finder)
+        self.poll_os_open_requests();
+
         // Handle file drops
         self.handle_file_drop(ctx);
 
@@ -597,6 +600,29 @@ impl ThothApp {
                     });
                 }
             }
+        }
+    }
+
+    /// Drain OS-dispatched file open requests (e.g. macOS Apple Events) and
+    /// load the most recent one. Called once per frame from `update()`.
+    ///
+    /// This mirrors the existing `poll_plugin_http_results` pattern: a
+    /// platform-specific handler enqueues paths from a callback thread, and
+    /// we drain them on the UI thread each frame.
+    pub fn poll_os_open_requests(&mut self) {
+        let paths = crate::platform::drain_open_requests();
+        if let Some(path) = paths.into_iter().last() {
+            // Add to recent files (same as toolbar / sidebar open-file paths)
+            if let Some(path_str) = path.to_str() {
+                self.persistent_state.add_recent_file(
+                    path_str.to_string(),
+                    self.settings.performance.max_recent_files,
+                );
+                let _ = self.persistent_state.save();
+            }
+
+            self.window_state.file_path = Some(path);
+            self.window_state.error = None;
         }
     }
 
