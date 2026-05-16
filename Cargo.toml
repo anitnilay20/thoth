@@ -46,6 +46,13 @@ path = "src/main.rs"
 codegen-units = 1
 lto = true
 
+# Faster local release builds: thin LTO links in parallel, ~3–5 min vs 20+ min.
+# Use with: cargo build --profile release-local
+[profile.release-local]
+inherits = "release"
+lto = "thin"
+codegen-units = 8
+
 # cargo-packager configuration (stable cross-platform bundler)
 [package.metadata.packager]
 product_name = "Thoth"
@@ -68,16 +75,9 @@ resources = ["assets"]
 
 # File associations (top-level — applies to all platforms cargo-packager supports)
 file_associations = [
-  { ext = [
-    "json",
-  ], name = "JSON File", description = "JSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/json" },
-  { ext = [
-    "ndjson",
-    "jsonl",
-  ], name = "NDJSON File", description = "Newline Delimited JSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/x-ndjson" },
-  { ext = [
-    "geojson",
-  ], name = "GeoJSON File", description = "GeoJSON File", icon = "assets/thoth_icon_256.ico", role = "Editor", mime = "application/geo+json" },
+  { extensions = ["json"], name = "JSON File", description = "JSON File", role = "editor", mime_type = "application/json" },
+  { extensions = ["ndjson", "jsonl"], name = "NDJSON File", description = "Newline Delimited JSON File", role = "editor", mime_type = "application/x-ndjson" },
+  { extensions = ["geojson"], name = "GeoJSON File", description = "GeoJSON File", role = "editor", mime_type = "application/geo+json" },
 ]
 
 # macOS bundle configuration
@@ -86,13 +86,27 @@ file_associations = [
 # cargo-packager merges this with its auto-generated plist.
 info_plist_path = "assets/Info.plist"
 
-# Windows installer configuration (signing only — no extra fields needed here)
+# Windows installer configuration
 [package.metadata.packager.windows]
+
+# WiX fragment that writes DefaultIcon registry entries for each file type.
+# cargo-packager generates ProgIds as "<identifier>.<extension>" (e.g. com.thoth.app.json).
+[package.metadata.packager.wix]
+fragment_paths = ["assets/wix/file-type-icons.wxs"]
+component_group_refs = ["FileTypeIconsGroup"]
 
 # Debian/Linux package configuration
 [package.metadata.packager.deb]
 depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
 desktop_template = "assets/thoth.desktop"
+
+# Install per-MIME-type icons for the XDG icon theme so file managers show the
+# Thoth icon next to json/ndjson/geojson files.  The filename convention is
+# <mime-type-with-slash-replaced-by-dash>.png under hicolor/256x256/mimetypes/.
+[package.metadata.packager.deb.files]
+"assets/mime/application-json.png" = "/usr/share/icons/hicolor/256x256/mimetypes/application-json.png"
+"assets/mime/application-x-ndjson.png" = "/usr/share/icons/hicolor/256x256/mimetypes/application-x-ndjson.png"
+"assets/mime/application-geo+json.png" = "/usr/share/icons/hicolor/256x256/mimetypes/application-geo+json.png"
 
 
 [dependencies]

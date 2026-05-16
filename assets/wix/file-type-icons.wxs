@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX fragment: registers Thoth's icon for each file type it handles.
+  cargo-packager generates ProgIds as "<identifier>.<extension>", e.g. "com.thoth.app.json".
+  The DefaultIcon value uses [INSTALLDIR] which WiX resolves to the install directory at runtime.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <ComponentGroup Id="FileTypeIconsGroup" Directory="TARGETDIR">
+      <Component Id="FileTypeIconsComponent" Guid="7077DEAB-9B2E-4C32-A0B1-D7379546E3E9">
+
+        <!-- JSON (.json) -->
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\com.thoth.app.json\DefaultIcon"
+          Value="[INSTALLDIR]thoth.exe,0"
+          Type="string"
+          Action="write" />
+
+        <!-- NDJSON (.ndjson) -->
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\com.thoth.app.ndjson\DefaultIcon"
+          Value="[INSTALLDIR]thoth.exe,0"
+          Type="string"
+          Action="write" />
+
+        <!-- JSONL (.jsonl) -->
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\com.thoth.app.jsonl\DefaultIcon"
+          Value="[INSTALLDIR]thoth.exe,0"
+          Type="string"
+          Action="write" />
+
+        <!-- GeoJSON (.geojson) -->
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Classes\com.thoth.app.geojson\DefaultIcon"
+          Value="[INSTALLDIR]thoth.exe,0"
+          Type="string"
+          Action="write" />
+
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

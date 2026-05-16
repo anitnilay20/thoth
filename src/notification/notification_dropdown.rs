@@ -269,7 +269,7 @@ impl NotificationDropdown {
                                 )
                             })
                             .collect();
-                        items.sort_by(|a, b| b.7.cmp(&a.7));
+                        items.sort_by_key(|b| std::cmp::Reverse(b.7));
                         items
                     })
                     .unwrap_or_default();
