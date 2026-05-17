@@ -1,10 +1,10 @@
 /// Platform-specific PATH registration for making `thoth` command available in CLI
 ///
-/// - macOS:   Symlink at `/usr/local/bin/thoth`.  Tries direct creation first;
-///            falls back to `osascript` admin dialog (same as VS Code "Install
-///            'code' command in PATH") when the directory is root-owned.
-/// - Linux:   Symlink at `~/.local/bin/thoth` — XDG standard, no root needed,
-///            on PATH by default on Ubuntu 20.04+, Fedora, Arch, etc.
+/// - macOS: Symlink at `/usr/local/bin/thoth`. Tries direct creation first;
+///   falls back to `osascript` admin dialog (same as VS Code "Install
+///   'code' command in PATH") when the directory is root-owned.
+/// - Linux: Symlink at `~/.local/bin/thoth` — XDG standard, no root needed,
+///   on PATH by default on Ubuntu 20.04+, Fedora, Arch, etc.
 /// - Windows: Modifies the User PATH registry key via PowerShell.
 use crate::error::{Result, ThothError};
 use std::env;
@@ -40,8 +40,18 @@ fn get_executable_path() -> Result<PathBuf> {
 
 // ── macOS ─────────────────────────────────────────────────────────────────────
 
-/// Returns the target symlink path and attempts a direct `symlink()` call.
-/// Returns `true` when the direct call succeeded, `false` on permission error.
+/// Escapes single quotes so a path can be safely embedded in a single-quoted
+/// POSIX shell string (`'…'`).  Each `'` becomes `'\''` (close quote, escaped
+/// literal, reopen quote).
+#[cfg(target_os = "macos")]
+fn shell_escape_single_quoted(s: &str) -> String {
+    s.replace('\'', "'\\''")
+}
+
+/// Attempts a direct `symlink()` call without privilege elevation.
+/// Returns `Ok(())` on success; callers should inspect the error kind
+/// (e.g. `ErrorKind::PermissionDenied`) to decide whether to retry with
+/// elevated privileges.
 #[cfg(target_os = "macos")]
 fn try_symlink_direct(exe: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::fs::symlink;
@@ -70,9 +80,10 @@ pub fn register_in_path() -> Result<()> {
 
     // Fall back: native macOS admin dialog via osascript — identical UX to
     // VS Code "Install 'code' command in PATH".
+    let exe_escaped = shell_escape_single_quoted(&exe_path.to_string_lossy());
     let script = format!(
         "do shell script \"mkdir -p /usr/local/bin && ln -sf '{}' '/usr/local/bin/thoth'\" with administrator privileges",
-        exe_path.to_string_lossy()
+        exe_escaped
     );
     let output = Command::new("osascript")
         .args(["-e", &script])
@@ -179,19 +190,26 @@ pub fn unregister_from_path() -> Result<()> {
 // ── Windows ───────────────────────────────────────────────────────────────────
 
 #[cfg(target_os = "windows")]
-pub fn register_in_path() -> Result<()> {
-    let exe_dir = get_executable_path()?
+fn get_executable_dir() -> Result<PathBuf> {
+    get_executable_path()?
         .parent()
         .map(|p| p.to_path_buf())
         .ok_or_else(|| ThothError::PathRegistryError {
             reason: "Failed to get executable directory".to_string(),
-        })?;
-    let exe_dir_str = exe_dir.to_string_lossy();
+        })
+}
 
+#[cfg(target_os = "windows")]
+pub fn register_in_path() -> Result<()> {
+    let exe_dir_str = get_executable_dir()?.to_string_lossy().into_owned();
+
+    // Split on ';' and compare each trimmed segment exactly to avoid false
+    // positives from substring matches (e.g. C:\Foo\thoth matching C:\thoth).
     let script = format!(
         r#"
         $currentPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-        if ($currentPath -notlike '*{0}*') {{
+        $segments = $currentPath -split ';' | ForEach-Object {{ $_.Trim() }}
+        if ($segments -notcontains '{0}') {{
             [Environment]::SetEnvironmentVariable('Path', $currentPath + ';{0}', 'User')
         }}
         "#,
@@ -216,13 +234,7 @@ pub fn register_in_path() -> Result<()> {
 
 #[cfg(target_os = "windows")]
 pub fn unregister_from_path() -> Result<()> {
-    let exe_dir = get_executable_path()?
-        .parent()
-        .map(|p| p.to_path_buf())
-        .ok_or_else(|| ThothError::PathRegistryError {
-            reason: "Failed to get executable directory".to_string(),
-        })?;
-    let exe_dir_str = exe_dir.to_string_lossy();
+    let exe_dir_str = get_executable_dir()?.to_string_lossy().into_owned();
 
     let script = format!(
         r#"
