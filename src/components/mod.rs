@@ -5,6 +5,7 @@ pub mod common;
 // paths (e.g. `crate::components::button::Button`) continue to work.
 pub use common::breadcrumbs;
 pub use common::button;
+pub use common::button_group;
 pub use common::card;
 pub use common::data_row;
 pub use common::icon_button;
