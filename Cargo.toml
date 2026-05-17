@@ -55,6 +55,7 @@ codegen-units = 8
 
 # cargo-packager configuration (stable cross-platform bundler)
 [package.metadata.packager]
+before_packaging_command = "cargo build --release"
 product_name = "Thoth"
 identifier = "com.thoth.app"
 category = "DeveloperTool"
@@ -156,6 +157,9 @@ optional = true
 [dependencies.dhat]
 version = "0.3"
 optional = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
 
 [dev-dependencies]
 proptest = "1.5"

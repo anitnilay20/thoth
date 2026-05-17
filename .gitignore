@@ -27,3 +27,4 @@ target
 
 # Plugin runtime directory (built/copied by build.rs at compile time)
 assets/plugins/
+.idea/
