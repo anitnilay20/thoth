@@ -125,6 +125,12 @@ fn main() -> Result<()> {
         ..Default::default()
     };
 
+    // Issue #67: Install macOS file association handlers.
+    // Phase 1: Register NSAppleEventManager handler + hook willFinishLaunching
+    // to inject application:openURLs: before macOS processes odoc events.
+    #[cfg(target_os = "macos")]
+    thoth::platform::macos::install_all_handlers();
+
     let result = eframe::run_native(
         "Thoth — JSON & NDJSON Viewer",
         options,
