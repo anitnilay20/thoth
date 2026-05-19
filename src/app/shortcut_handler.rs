@@ -44,6 +44,11 @@ pub enum ShortcutAction {
 
     // Developer
     ToggleProfiler,
+
+    // Tabs
+    CloseTab,
+    NextTab,
+    PrevTab,
 }
 
 /// Handle keyboard shortcuts and return triggered actions
@@ -186,6 +191,29 @@ impl ShortcutHandler {
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.toggle_profiler.to_keyboard_shortcut()))
         {
             actions.push(ShortcutAction::ToggleProfiler);
+        }
+
+        // Tabs — check Shift+Tab before Tab to avoid conflict.
+        if ctx.input_mut(|i| {
+            i.modifiers.command
+                && i.modifiers.shift
+                && i.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                    egui::Key::Tab,
+                )
+        }) {
+            actions.push(ShortcutAction::PrevTab);
+        } else if ctx.input_mut(|i| {
+            i.modifiers.command
+                && i.consume_key(egui::Modifiers::COMMAND, egui::Key::Tab)
+        }) {
+            actions.push(ShortcutAction::NextTab);
+        }
+
+        if ctx.input_mut(|i| {
+            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::W)
+        }) {
+            actions.push(ShortcutAction::CloseTab);
         }
 
         actions

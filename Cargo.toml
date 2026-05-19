@@ -15,7 +15,7 @@ authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
 description = "Thoth is a fast, desktop JSON/NDJSON viewer built with Rust + egui. It opens ~500 MB files by lazily parsing only visible/expanded nodes, keeps the UI responsive with an LRU cache and parallel search, and ships with an Andromeda-themed light/dark UI."
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-rust-version = "1.85"
+rust-version = "1.92"
 
 [package.metadata.release]
 # Don't publish to crates.io (this is a desktop app)
@@ -149,6 +149,7 @@ egui_extras = "0.34.1"
 tempfile = "3.15"
 egui_code_editor = "0.2.24"
 egui_commonmark = "0.23"
+egui_dock = "0.19"
 
 [dependencies.puffin]
 git = "https://github.com/EmbarkStudios/puffin"

@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 use crate::{
+    app::tab_manager::TabManager,
     components,
-    error::ThothError,
-    file,
     plugin::{render_node::UiOutput, wasm_data_source::WasmDataSourceLoader},
-    search, update,
+    search,
+    update,
 };
 
 /// Holds the active plugin pane shown in the main area.
@@ -23,27 +23,15 @@ pub struct ActivePluginPane {
 mod tests;
 
 // ============================================================================
-// Window State - Per-window state (file, search, UI)
+// Window State - Per-window state (UI chrome + tab manager)
 // ============================================================================
 
-/// Per-window state - each window has its own file, search, and UI components
-/// Note: This is independent of PersistentState which is shared application-wide
+/// Per-window state. File/search/navigation state lives inside each tab via TabManager.
 pub struct WindowState {
-    // File state
-    pub file_path: Option<PathBuf>,
-    pub file_type: file::lazy_loader::FileKind,
-    pub error: Option<ThothError>,
-    pub total_items: usize,
+    // Tab manager owns all per-tab state and the dock layout.
+    pub tab_manager: TabManager,
 
-    // Search state
-    pub search_engine_state: SearchEngineState,
-
-    // Navigation state
-    pub navigation_history: NavigationHistory,
-    /// Pending navigation to apply after file loads
-    pub pending_navigation: Option<String>,
-
-    // UI state
+    // Sidebar state (global — one sidebar for all tabs)
     pub sidebar_expanded: bool,
     pub sidebar_selected_section: Option<components::sidebar::SidebarSection>,
     /// Track previous section to determine when to focus search
@@ -51,18 +39,9 @@ pub struct WindowState {
     /// Track previous expanded state to detect sidebar reopening
     pub previous_sidebar_expanded: bool,
 
-    /// Plugin-driven main-pane content. When `Some`, `CentralPanel` renders this
-    /// instead of the file viewer. Cleared when a new file is opened.
-    pub active_plugin_pane: Option<ActivePluginPane>,
-
-    /// Cached sidebar output from the active ui-component plugin's `render-sidebar`.
-    /// `None` means the plugin has no sidebar content.
-    pub plugin_sidebar_output: Option<crate::plugin::render_node::UiOutput>,
-
-    // UI components
+    // UI components (global)
     pub sidebar: components::sidebar::Sidebar,
     pub toolbar: components::toolbar::Toolbar,
-    pub central_panel: components::central_panel::CentralPanel,
     pub status_bar: components::status_bar::StatusBar,
     pub error_modal: components::error_modal::ErrorModal,
 }
@@ -70,25 +49,23 @@ pub struct WindowState {
 impl Default for WindowState {
     fn default() -> Self {
         Self {
-            file_path: None,
-            file_type: file::lazy_loader::FileKind::default(),
-            error: None,
-            total_items: 0,
-            search_engine_state: SearchEngineState::default(),
-            navigation_history: NavigationHistory::default(),
-            pending_navigation: None,
-            active_plugin_pane: None,
+            tab_manager: TabManager::new(NavigationHistory::DEFAULT_CAPACITY),
             sidebar_expanded: true,
             sidebar_selected_section: Some(components::sidebar::SidebarSection::RecentFiles),
             previous_sidebar_section: None,
             previous_sidebar_expanded: false,
-            plugin_sidebar_output: None,
             sidebar: components::sidebar::Sidebar::default(),
             toolbar: components::toolbar::Toolbar::default(),
-            central_panel: components::central_panel::CentralPanel::default(),
             status_bar: components::status_bar::StatusBar::default(),
             error_modal: components::error_modal::ErrorModal,
         }
+    }
+}
+
+impl WindowState {
+    /// Convenience accessor — delegates to the tab manager.
+    pub fn active_tab_mut(&mut self) -> Option<&mut crate::app::tab_manager::TabState> {
+        self.tab_manager.active_tab_mut()
     }
 }
 
@@ -114,9 +91,13 @@ pub struct NavigationHistory {
 }
 
 impl NavigationHistory {
+    pub const DEFAULT_CAPACITY: usize = 100;
+}
+
+impl NavigationHistory {
     /// Create a new navigation history with default max size
     pub fn new() -> Self {
-        Self::with_capacity(100)
+        Self::with_capacity(Self::DEFAULT_CAPACITY)
     }
 
     /// Create a new navigation history with specified max size
