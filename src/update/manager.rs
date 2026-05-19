@@ -295,11 +295,10 @@ impl UpdateManager {
                 return Ok(path);
             }
 
-            if path.is_dir() {
-                if let Ok(found) = Self::find_executable(&path) {
+            if path.is_dir()
+                && let Ok(found) = Self::find_executable(&path) {
                     return Ok(found);
                 }
-            }
         }
 
         Err(ThothError::UpdateInstallError {

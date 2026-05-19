@@ -210,14 +210,11 @@ impl Toolbar {
                         },
                     )
                     .clicked
-                    {
-                        if let Some(path) = pick_file(props.plugins_enabled) {
-                            if let Some(file_type) = infer_file_type(&path) {
+                        && let Some(path) = pick_file(props.plugins_enabled)
+                            && let Some(file_type) = infer_file_type(&path) {
                                 self.previous_file_type = file_type;
                                 events.push(ToolbarEvent::FileOpen { path, file_type });
                             }
-                        }
-                    }
 
                     if IconButton::render(
                         ui,
@@ -297,8 +294,8 @@ fn infer_file_type(path: &Path) -> Option<FileKind> {
         _ => {
             // Ask the plugin registry whether any plugin handles this extension
             // so we don't fall back to a stale file-type from the previous file.
-            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() {
-                if pm.find_loader_for_extension(&ext).is_some() {
+            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get()
+                && pm.find_loader_for_extension(&ext).is_some() {
                     return Some(
                         if pm.plugin_has_capability(&ext, &crate::plugin::Capability::FileViewer) {
                             FileKind::PluginTable
@@ -307,7 +304,6 @@ fn infer_file_type(path: &Path) -> Option<FileKind> {
                         },
                     );
                 }
-            }
             None
         }
     }

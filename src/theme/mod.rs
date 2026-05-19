@@ -331,8 +331,8 @@ pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
         vec!["phosphor".into()],
     );
 
-    if let Some(family) = &settings.font_family {
-        if let Some(bytes) = crate::platform::find_font_bytes(family) {
+    if let Some(family) = &settings.font_family
+        && let Some(bytes) = crate::platform::find_font_bytes(family) {
             fonts.font_data.insert(
                 family.clone(),
                 std::sync::Arc::new(egui::FontData::from_owned(bytes)),
@@ -350,7 +350,6 @@ pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
                 }
             }
         }
-    }
 
     ctx.set_fonts(fonts);
     ctx.memory_mut(|m| m.data.insert_temp(cache_key, settings.font_family.clone()));

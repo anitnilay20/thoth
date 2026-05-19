@@ -130,14 +130,13 @@ impl StatefulComponent for Bookmarks {
                     },
                 );
 
-                if let Some(item_idx) = output.row_clicked {
-                    if let Some(b) = props.bookmarks.get(item_idx) {
+                if let Some(item_idx) = output.row_clicked
+                    && let Some(b) = props.bookmarks.get(item_idx) {
                         events.push(BookmarksEvent::NavigateToBookmark {
                             file_path: b.file_path.clone(),
                             path: b.path.clone(),
                         });
                     }
-                }
             });
 
         BookmarksOutput { events }

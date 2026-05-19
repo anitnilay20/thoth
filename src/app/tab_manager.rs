@@ -160,14 +160,13 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
 
         // Navigation history: push if selection changed.
         let current_path = tab.central_panel.get_selected_path();
-        if current_path != previous_path.as_ref() {
-            if let Some(path) = current_path {
+        if current_path != previous_path.as_ref()
+            && let Some(path) = current_path {
                 self.events.push(TabEvent::NavigationPush {
                     tab_id: *tab_id,
                     path: path.clone(),
                 });
             }
-        }
 
         // Translate CentralPanelEvents to TabEvents.
         for event in output.events {
@@ -271,15 +270,14 @@ impl TabManager {
 
     /// Open a file: reuse active tab if empty, otherwise create a new tab.
     pub fn open_file(&mut self, path: PathBuf, nav_capacity: usize) -> TabId {
-        if let Some(id) = self.active_tab_id() {
-            if self.tabs.get(&id).is_some_and(|t| t.is_empty()) {
+        if let Some(id) = self.active_tab_id()
+            && self.tabs.get(&id).is_some_and(|t| t.is_empty()) {
                 if let Some(tab) = self.tabs.get_mut(&id) {
                     tab.file_path = Some(path);
                     tab.error = None;
                 }
                 return id;
             }
-        }
         let id = self.next_id;
         self.next_id += 1;
         self.tabs

@@ -197,13 +197,10 @@ impl NotificationDropdown {
                                     },
                                 )
                                 .clicked
-                                {
-                                    if let Some(m) = crate::NOTIFICATION_MANAGER.get() {
-                                        if let Ok(mut nm) = m.lock() {
+                                    && let Some(m) = crate::NOTIFICATION_MANAGER.get()
+                                        && let Ok(mut nm) = m.lock() {
                                             nm.mark_all_read();
                                         }
-                                    }
-                                }
                             });
                         });
                     });
@@ -379,20 +376,17 @@ impl NotificationDropdown {
                                     },
                                 );
 
-                                if let Some(idx) = list_out.postfix_clicked {
-                                    if let Some(row) = bucket.get(idx) {
+                                if let Some(idx) = list_out.postfix_clicked
+                                    && let Some(row) = bucket.get(idx) {
                                         to_dismiss = Some(row.0.clone());
                                     }
-                                }
 
                                 // Clicking a row fires the primary (first) action only.
-                                if let Some(idx) = list_out.row_clicked {
-                                    if let Some(row) = bucket.get(idx) {
-                                        if let Some((_, cb)) = row.6.first() {
+                                if let Some(idx) = list_out.row_clicked
+                                    && let Some(row) = bucket.get(idx)
+                                        && let Some((_, cb)) = row.6.first() {
                                             cb();
                                         }
-                                    }
-                                }
                             }
                         }
                     });
@@ -420,13 +414,10 @@ impl NotificationDropdown {
                                 },
                             )
                             .clicked
-                            {
-                                if let Some(m) = crate::NOTIFICATION_MANAGER.get() {
-                                    if let Ok(mut nm) = m.lock() {
+                                && let Some(m) = crate::NOTIFICATION_MANAGER.get()
+                                    && let Ok(mut nm) = m.lock() {
                                         nm.clear_notifications();
                                     }
-                                }
-                            }
                         });
                     });
             });

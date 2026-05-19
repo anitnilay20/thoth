@@ -172,8 +172,8 @@ impl StatefulComponent for Search {
         ui.add_space(8.0);
 
         // Display search history if no active search and history exists
-        if props.search_state.query.is_empty() {
-            if let Some(history) = props.search_history {
+        if props.search_state.query.is_empty()
+            && let Some(history) = props.search_history {
                 let queries: Vec<String> = history
                     .iter()
                     .map(|e| decode_history_entry(e).1)
@@ -234,8 +234,8 @@ impl StatefulComponent for Search {
                         },
                     );
 
-                    if let Some(idx) = output.row_clicked {
-                        if let Some(q) = queries.get(idx) {
+                    if let Some(idx) = output.row_clicked
+                        && let Some(q) = queries.get(idx) {
                             self.search_query = q.clone();
                             let query_mode = detect_query_mode(q);
                             if let Some(msg) =
@@ -244,10 +244,8 @@ impl StatefulComponent for Search {
                                 events.push(SearchEvent::Search(msg));
                             }
                         }
-                    }
                 }
             }
-        }
 
         ui.separator();
         ui.add_space(8.0);
@@ -314,13 +312,12 @@ impl StatefulComponent for Search {
                                 compact: false,
                             },
                         );
-                        if let Some(idx) = output.row_clicked {
-                            if let Some(hit) = props.search_state.results.hits().get(idx) {
+                        if let Some(idx) = output.row_clicked
+                            && let Some(hit) = props.search_state.results.hits().get(idx) {
                                 events.push(SearchEvent::NavigateToResult {
                                     record_index: hit.record_index,
                                 });
                             }
-                        }
                     });
             } else {
                 Typography::body_muted(ui, "No results found");

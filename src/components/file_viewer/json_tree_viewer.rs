@@ -455,14 +455,12 @@ impl JsonTreeViewer {
         }
 
         // Set target row for search navigation (persists across frames)
-        if *should_scroll_to_selection && is_search_navigation {
-            if let Some(selected_path) = selected.as_ref() {
-                if let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
+        if *should_scroll_to_selection && is_search_navigation
+            && let Some(selected_path) = selected.as_ref()
+                && let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
                     self.search_target_row = Some(row_idx);
                     *should_scroll_to_selection = false;
                 }
-            }
-        }
 
         let scroll_area = egui::ScrollArea::both()
             .auto_shrink([false, false])
@@ -478,8 +476,8 @@ impl JsonTreeViewer {
             }
 
             // Handle keyboard navigation
-            if let Some(selected_path) = selected.as_ref() {
-                if let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
+            if let Some(selected_path) = selected.as_ref()
+                && let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
                     // Only use scroll_to_selection for keyboard navigation (not search)
                     if !is_search_navigation {
                         scroll_to_selection(
@@ -491,7 +489,6 @@ impl JsonTreeViewer {
                         );
                     }
                 }
-            }
 
             // Get indent guide color from theme
             let guide_color = ui.ctx().memory(|mem| {
@@ -702,8 +699,8 @@ impl ContextMenuHandler for JsonTreeViewer {
         cache: &mut LruCache<usize, Value>,
         loader: &mut FileType,
     ) -> Option<String> {
-        if let Some(path) = selected {
-            if let Ok((root_idx, rel)) = split_root_rel(path) {
+        if let Some(path) = selected
+            && let Ok((root_idx, rel)) = split_root_rel(path) {
                 // Try to get from cache first
                 let value = if let Some(v) = cache.get(&root_idx) {
                     v.clone()
@@ -720,7 +717,6 @@ impl ContextMenuHandler for JsonTreeViewer {
 
                 return get_object_string(value, rel).ok();
             }
-        }
         None
     }
 

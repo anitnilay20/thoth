@@ -79,8 +79,8 @@ impl ThothApp {
             pm.update_plugin_settings(self.settings.plugins.plugin_settings.clone());
         }
 
-        if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-            if let Some(pane) = tab.active_plugin_pane.as_mut() {
+        if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+            && let Some(pane) = tab.active_plugin_pane.as_mut() {
                 let updated = self
                     .settings
                     .plugins
@@ -95,7 +95,6 @@ impl ThothApp {
                     );
                 }
             }
-        }
 
         let plugins_changed = self.settings.plugins.enabled != prev_plugins_enabled
             || self.settings.plugins.disabled_plugin_ids != prev_disabled_plugin_ids;
@@ -143,11 +142,10 @@ impl App for ThothApp {
             self.settings_dialog.open_updates(&self.settings);
         }
 
-        if let Some(nm) = NOTIFICATION_MANAGER.get() {
-            if let Ok(mut nm) = nm.lock() {
+        if let Some(nm) = NOTIFICATION_MANAGER.get()
+            && let Ok(mut nm) = nm.lock() {
                 nm.show_notifications(ctx);
             }
-        }
 
         // Handle OS-dispatched file opens (e.g. macOS Apple Events / Finder)
         self.poll_os_open_requests();
@@ -196,11 +194,10 @@ impl App for ThothApp {
             (None, None)
         };
 
-        if let Some(error) = search_error {
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+        if let Some(error) = search_error
+            && let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                 tab.error = Some(error);
             }
-        }
 
         let shortcut_actions =
             ShortcutHandler::handle_shortcuts(ui.ctx(), &self.settings.shortcuts);
@@ -406,18 +403,16 @@ impl ThothApp {
                 ShortcutAction::NextMatch => {}
                 ShortcutAction::PrevMatch => {}
                 ShortcutAction::NavBack => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(path) = tab.navigation_history.back() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(path) = tab.navigation_history.back() {
                             tab.central_panel.navigate_to_path(path);
                         }
-                    }
                 }
                 ShortcutAction::NavForward => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(path) = tab.navigation_history.forward() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(path) = tab.navigation_history.forward() {
                             tab.central_panel.navigate_to_path(path);
                         }
-                    }
                 }
                 ShortcutAction::Escape => {
                     if self.window_state.sidebar_expanded {
@@ -484,32 +479,28 @@ impl ThothApp {
                     }
                 }
                 ShortcutAction::CopyKey => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(text) = tab.central_panel.copy_selected_key() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(text) = tab.central_panel.copy_selected_key() {
                             self.clipboard_text = Some(text);
                         }
-                    }
                 }
                 ShortcutAction::CopyValue => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(text) = tab.central_panel.copy_selected_value() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(text) = tab.central_panel.copy_selected_value() {
                             self.clipboard_text = Some(text);
                         }
-                    }
                 }
                 ShortcutAction::CopyObject => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(text) = tab.central_panel.copy_selected_object() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(text) = tab.central_panel.copy_selected_object() {
                             self.clipboard_text = Some(text);
                         }
-                    }
                 }
                 ShortcutAction::CopyPath => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(text) = tab.central_panel.copy_selected_path() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(text) = tab.central_panel.copy_selected_path() {
                             self.clipboard_text = Some(text);
                         }
-                    }
                 }
                 ShortcutAction::CloseTab => {
                     if let Some(id) = self.window_state.tab_manager.active_tab_id() {
@@ -543,8 +534,8 @@ impl ThothApp {
     }
 
     fn dispatch_plugin_event(&mut self, event: crate::plugin::render_node::UiEvent) {
-        if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-            if let Some(pane) = tab.active_plugin_pane.as_mut() {
+        if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+            && let Some(pane) = tab.active_plugin_pane.as_mut() {
                 match pane.loader.handle_event(event) {
                     Ok(new_output) => {
                         pane.ui_output = new_output;
@@ -559,7 +550,6 @@ impl ThothApp {
                     }
                 }
             }
-        }
     }
 
     /// Drain OS-dispatched file open requests (e.g. macOS Apple Events) and
@@ -644,11 +634,10 @@ impl ThothApp {
         }
 
         for (request_id, req) in retry_requests {
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                if let Some(pane) = tab.active_plugin_pane.as_mut() {
+            if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                && let Some(pane) = tab.active_plugin_pane.as_mut() {
                     pane.loader.dispatch_approved_request(request_id, req);
                 }
-            }
             self.dispatch_plugin_event(UiEvent {
                 widget_id: "consent-approved".to_string(),
                 kind: "notify".to_string(),
@@ -731,18 +720,16 @@ impl ThothApp {
                     self.open_settings_window(ui.ctx());
                 }
                 components::toolbar::ToolbarEvent::NavigateBack => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(path) = tab.navigation_history.back() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(path) = tab.navigation_history.back() {
                             tab.central_panel.navigate_to_path(path);
                         }
-                    }
                 }
                 components::toolbar::ToolbarEvent::NavigateForward => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(path) = tab.navigation_history.forward() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(path) = tab.navigation_history.forward() {
                             tab.central_panel.navigate_to_path(path);
                         }
-                    }
                 }
             }
         }
@@ -1076,8 +1063,8 @@ impl ThothApp {
                             self.window_state.sidebar_expanded = false;
                             self.window_state.sidebar_selected_section = None;
                         } else {
-                            if let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) {
-                                if let Some(plugin) = manager.registry.get_by_id(plugin_id) {
+                            if let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref())
+                                && let Some(plugin) = manager.registry.get_by_id(plugin_id) {
                                     use crate::plugin::network_policy::NetworkPolicy;
                                     let user_policy = self
                                         .settings
@@ -1155,7 +1142,6 @@ impl ThothApp {
                                         }
                                     }
                                 }
-                            }
                         }
                     } else {
                         let is_plugin_sidebar = matches!(
@@ -1173,14 +1159,13 @@ impl ThothApp {
                                 self.window_state.sidebar_selected_section.clone();
                             self.window_state.sidebar_expanded = true;
                             self.window_state.sidebar_selected_section = Some(section);
-                            if !is_plugin_sidebar {
-                                if let Some(tab) =
+                            if !is_plugin_sidebar
+                                && let Some(tab) =
                                     self.window_state.tab_manager.active_tab_mut()
                                 {
                                     tab.active_plugin_pane = None;
                                     tab.plugin_sidebar_output = None;
                                 }
-                            }
                         }
                     }
 
@@ -1195,18 +1180,15 @@ impl ThothApp {
                     let _ = self.persistent_state.save();
                 }
                 components::sidebar::SidebarEvent::Search(msg) => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(file_path) = &tab.file_path {
-                            if let Some(path_str) = file_path.to_str() {
-                                if let Some(entry) = msg.history_entry() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(file_path) = &tab.file_path
+                            && let Some(path_str) = file_path.to_str()
+                                && let Some(entry) = msg.history_entry() {
                                     let _ =
                                         super::persistent_state::PersistentState::add_search_query(
                                             path_str, entry,
                                         );
                                 }
-                            }
-                        }
-                    }
                     return Some(msg);
                 }
                 components::sidebar::SidebarEvent::NavigateToSearchResult { record_index } => {
@@ -1215,16 +1197,14 @@ impl ThothApp {
                     }
                 }
                 components::sidebar::SidebarEvent::ClearSearchHistory => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if let Some(file_path) = &tab.file_path {
-                            if let Some(path_str) = file_path.to_str() {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && let Some(file_path) = &tab.file_path
+                            && let Some(path_str) = file_path.to_str() {
                                 let _ =
                                     super::persistent_state::PersistentState::clear_search_history(
                                         path_str,
                                     );
                             }
-                        }
-                    }
                 }
                 components::sidebar::SidebarEvent::NavigateToBookmark { file_path, path } => {
                     let current_file = self

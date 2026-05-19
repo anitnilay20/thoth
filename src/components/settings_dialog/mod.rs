@@ -393,16 +393,14 @@ impl SettingsDialog {
                                     pm.registry.get_by_id(&id).and_then(|p| p.location.clone());
                                 if let Some(location) = wasm_path {
                                     let path = std::path::Path::new(&location);
-                                    if let Some(dir) = path.parent() {
-                                        if dir.exists() {
-                                            if let Err(e) = std::fs::remove_dir_all(dir) {
+                                    if let Some(dir) = path.parent()
+                                        && dir.exists()
+                                            && let Err(e) = std::fs::remove_dir_all(dir) {
                                                 eprintln!(
                                                     "Failed to remove plugin directory {}: {e}",
                                                     dir.display()
                                                 );
                                             }
-                                        }
-                                    }
                                 }
                                 settings.plugins.disabled_plugin_ids.retain(|x| x != &id);
                             }
@@ -770,8 +768,8 @@ impl ContextComponent for SettingsDialog {
                                             ..Default::default()
                                         },
                                     );
-                                    if save_btn.clicked {
-                                        if let Ok(settings) = draft_settings.lock() {
+                                    if save_btn.clicked
+                                        && let Ok(settings) = draft_settings.lock() {
                                             new_settings = Some(settings.clone());
                                             NotificationManager::notify(
                                                 Notification::new("Setting saved.", "")
@@ -779,7 +777,6 @@ impl ContextComponent for SettingsDialog {
                                                     .with_status(NotificationStatus::Completed),
                                             );
                                         }
-                                    }
 
                                     ui.add_space(8.0);
 
@@ -815,13 +812,12 @@ impl ContextComponent for SettingsDialog {
                                                 ..Default::default()
                                             },
                                         );
-                                        if reset_btn.clicked {
-                                            if let (Ok(mut draft), Ok(tab)) =
+                                        if reset_btn.clicked
+                                            && let (Ok(mut draft), Ok(tab)) =
                                                 (draft_settings.lock(), selected_tab.lock())
                                             {
                                                 reset_section(*tab, &mut draft);
                                             }
-                                        }
                                     }
                                 },
                             );
@@ -925,13 +921,12 @@ impl ContextComponent for SettingsDialog {
                                             ..Default::default()
                                         },
                                     );
-                                    if btn.clicked {
-                                        if let Ok(path) =
+                                    if btn.clicked
+                                        && let Ok(path) =
                                             crate::settings::Settings::settings_file_path()
                                         {
                                             let _ = open::that(path);
                                         }
-                                    }
                                     btn.response.on_hover_text(
                                         crate::settings::Settings::settings_file_path()
                                             .map(|p| p.to_string_lossy().to_string())
@@ -1052,11 +1047,10 @@ impl ContextComponent for SettingsDialog {
                                     if resp.hovered() {
                                         ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
                                     }
-                                    if resp.clicked() {
-                                        if let Ok(mut t) = selected_tab.lock() {
+                                    if resp.clicked()
+                                        && let Ok(mut t) = selected_tab.lock() {
                                             *t = tab;
                                         }
-                                    }
                                 }
                             });
                     });
@@ -1103,8 +1097,8 @@ impl ContextComponent for SettingsDialog {
         let mut result = None;
         let mut collected_events = Vec::new();
 
-        if let Ok(mut closed) = self.viewport_closed.lock() {
-            if *closed {
+        if let Ok(mut closed) = self.viewport_closed.lock()
+            && *closed {
                 self.open = false;
                 *closed = false; // Reset for next time
 
@@ -1113,7 +1107,6 @@ impl ContextComponent for SettingsDialog {
                     result = viewport_result.take();
                 }
             }
-        }
 
         // Collect any events that were generated
         if let Ok(mut events) = self.viewport_events.lock() {

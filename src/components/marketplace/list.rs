@@ -226,11 +226,10 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         },
     );
 
-    if let Some(idx) = cat_out.row_clicked {
-        if let Some(cat) = cat_defs.get(idx) {
+    if let Some(idx) = cat_out.row_clicked
+        && let Some(cat) = cat_defs.get(idx) {
             state.selected_category = cat.id.clone();
         }
-    }
 
     ui.separator();
 
@@ -405,14 +404,13 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         },
     );
 
-    if let Some(idx) = list_output.row_clicked {
-        if let Some(row) = rows.get(idx) {
+    if let Some(idx) = list_output.row_clicked
+        && let Some(row) = rows.get(idx) {
             state.selected_id = Some(row.id.clone());
         }
-    }
 
-    if let Some(item_idx) = list_output.postfix_clicked {
-        if let Some(row) = rows.get(item_idx) {
+    if let Some(item_idx) = list_output.postfix_clicked
+        && let Some(row) = rows.get(item_idx) {
             state.selected_id = Some(row.id.clone());
             match &row.install_state {
                 InstallState::NotInstalled | InstallState::Update => {
@@ -436,7 +434,6 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                 _ => {}
             }
         }
-    }
 }
 
 pub(super) fn count_filtered(state: &MarketplaceUiState) -> usize {

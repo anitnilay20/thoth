@@ -10,8 +10,8 @@ fn supported_files(plugins_enabled: bool) -> Vec<(String, Vec<String>)> {
         vec!["json".to_string(), "ndjson".to_string()],
     )];
 
-    if plugins_enabled {
-        if let Some(Some(plugin_manager)) = PLUGIN_MANAGER.get() {
+    if plugins_enabled
+        && let Some(Some(plugin_manager)) = PLUGIN_MANAGER.get() {
             plugin_manager
                 .get_all_plugin_by_capability(Capability::FileLoader)
                 .iter()
@@ -24,7 +24,6 @@ fn supported_files(plugins_enabled: bool) -> Vec<(String, Vec<String>)> {
                     });
                 });
         }
-    }
 
     all_supported_file_types
 }

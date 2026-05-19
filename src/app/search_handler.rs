@@ -18,8 +18,8 @@ impl SearchHandler {
         let mut search_error: Option<ThothError> = None;
 
         // Check if background search has completed
-        if let Some(rx) = &search_state.search_rx {
-            if let Ok(done) = rx.try_recv() {
+        if let Some(rx) = &search_state.search_rx
+            && let Ok(done) = rx.try_recv() {
                 // Check if the search encountered an error
                 if let Some(error) = &done.error {
                     search_error = Some(error.clone());
@@ -28,7 +28,6 @@ impl SearchHandler {
                 msg_to_central = Some(search::SearchMessage::StartSearch(done));
                 search_state.search_rx = None; // finished
             }
-        }
 
         // Handle incoming search message from sidebar
         if let Some(msg) = incoming_msg {
