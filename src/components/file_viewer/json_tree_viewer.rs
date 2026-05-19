@@ -227,14 +227,37 @@ impl JsonTreeViewer {
 
         for i in indices {
             let path = i.to_string();
-            let is_expanded = self.expanded.contains(&path);
             let highlight_paths = self.record_highlights.get(&i).cloned();
 
-            let display_text = if is_expanded {
-                format!("[{}]: {{", i)
+            // Load value to determine its type for correct display
+            let value = if let Some(v) = cache.get(&i) {
+                v.clone()
             } else {
-                format!("[{}]: (…) ", i)
+                match loader.get(i) {
+                    Ok(v) => {
+                        cache.put(i, v.clone());
+                        v
+                    }
+                    Err(_) => continue,
+                }
             };
+
+            let is_expandable = matches!(value, Value::Object(_) | Value::Array(_));
+            let is_expanded = is_expandable && self.expanded.contains(&path);
+
+            let display_text = if is_expandable {
+                if is_expanded {
+                    match &value {
+                        Value::Array(_) => format!("[{}]: [", i),
+                        _ => format!("[{}]: {{", i),
+                    }
+                } else {
+                    format!("[{}]: (…) ", i)
+                }
+            } else {
+                format!("[{}]: {}", i, preview_value(&value))
+            };
+
             let row_highlights = compute_row_highlights(
                 &display_text,
                 highlight_paths.as_ref().and_then(|map| map.get(&path)),
@@ -243,36 +266,31 @@ impl JsonTreeViewer {
             self.rows.push(JsonRow {
                 path: path.clone(),
                 indent: 0,
-                is_expandable: true,
+                is_expandable,
                 is_expanded,
                 display_text,
-                text_token: (TextToken::Key, Some(TextToken::Bracket)),
+                text_token: if is_expandable {
+                    (TextToken::Key, Some(TextToken::Bracket))
+                } else {
+                    (TextToken::Key, Some(TextToken::from(&value)))
+                },
                 highlights: row_highlights,
             });
 
             if is_expanded {
-                // Try to get from cache, or load from file
-                let value = if let Some(v) = cache.get(&i) {
-                    v.clone()
-                } else {
-                    match loader.get(i) {
-                        Ok(v) => {
-                            cache.put(i, v.clone());
-                            v
-                        }
-                        Err(_) => continue,
-                    }
-                };
-
                 self.build_rows_from_value(&value, &path, 1, highlight_paths.as_ref());
 
-                // Closing brace
+                // Closing bracket/brace
+                let close_char = match &value {
+                    Value::Array(_) => "]",
+                    _ => "}",
+                };
                 self.rows.push(JsonRow {
                     path: format!("{}/_close", path),
                     indent: 0,
                     is_expandable: false,
                     is_expanded: false,
-                    display_text: "}".to_string(),
+                    display_text: close_char.to_string(),
                     text_token: (TextToken::Bracket, None),
                     highlights: RowHighlights::default(),
                 });
@@ -296,7 +314,7 @@ impl JsonTreeViewer {
                 for (key, val) in map.iter() {
                     let new_path = format!("{}.{}", path, key);
                     let is_expandable = matches!(val, Value::Object(_) | Value::Array(_));
-                    let is_expanded = self.expanded.contains(&new_path);
+                    let is_expanded = is_expandable && self.expanded.contains(&new_path);
 
                     let display_text = if is_expandable {
                         format!("\"{}\": {}", key, if is_expanded { "{" } else { "{}" })
@@ -343,7 +361,7 @@ impl JsonTreeViewer {
                 for (idx, val) in arr.iter().enumerate() {
                     let new_path = format!("{}[{}]", path, idx);
                     let is_expandable = matches!(val, Value::Object(_) | Value::Array(_));
-                    let is_expanded = self.expanded.contains(&new_path);
+                    let is_expanded = is_expandable && self.expanded.contains(&new_path);
 
                     let display_text = if is_expandable {
                         format!("[{}]: {}", idx, if is_expanded { "[" } else { "[]" })
@@ -361,7 +379,11 @@ impl JsonTreeViewer {
                         is_expandable,
                         is_expanded,
                         display_text,
-                        text_token: (TextToken::Key, Some(TextToken::Bracket)),
+                        text_token: if is_expandable {
+                            (TextToken::Key, Some(TextToken::Bracket))
+                        } else {
+                            (TextToken::Key, Some(TextToken::from(val)))
+                        },
                         highlights: row_highlights,
                     });
 
@@ -751,8 +773,13 @@ impl FileFormatViewer for JsonTreeViewer {
 
     fn expand_selected(&mut self, selected: &Option<String>) -> bool {
         if let Some(path) = selected {
-            // Insert returns false if already present
-            if self.expanded.insert(path.clone()) {
+            // Only expand if the selected row is actually expandable
+            let is_expandable = self
+                .rows
+                .iter()
+                .find(|r| r.path == *path)
+                .is_some_and(|r| r.is_expandable);
+            if is_expandable && self.expanded.insert(path.clone()) {
                 return true; // Need rebuild
             }
         }
@@ -886,5 +913,341 @@ impl FileFormatViewer for JsonTreeViewer {
 
         // Need to rebuild the view since we expanded a node
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::loaders::{FileType, JsonArrayFile};
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    /// Helper: create a JsonArrayFile-backed FileType from a JSON string
+    fn make_json_array_loader(json: &str) -> (FileType, usize) {
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(json.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+        let loader = JsonArrayFile::open(tmp.path()).unwrap();
+        let len = loader.len();
+        (FileType::JsonArray(loader), len)
+    }
+
+    /// Helper: get display texts from the viewer's current rows
+    fn row_display_texts(viewer: &JsonTreeViewer) -> Vec<String> {
+        viewer.rows.iter().map(|r| r.display_text.clone()).collect()
+    }
+
+    /// Helper: get (path, is_expandable, display_text) tuples
+    fn row_info(viewer: &JsonTreeViewer) -> Vec<(String, bool, String)> {
+        viewer
+            .rows
+            .iter()
+            .map(|r| (r.path.clone(), r.is_expandable, r.display_text.clone()))
+            .collect()
+    }
+
+    // ========================================================================
+    // Bug #64a: rebuild_rows always assumes root elements are objects
+    // ========================================================================
+
+    #[test]
+    fn test_root_string_element_not_expandable() {
+        // A JSON array with a string element at root level should NOT be expandable
+        let (mut loader, len) = make_json_array_loader(r#"["hello"]"#);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        let info = row_info(&viewer);
+        assert_eq!(info.len(), 1, "Should have exactly 1 row");
+        // The root string element should NOT be expandable
+        assert!(
+            !info[0].1,
+            "String root element should not be expandable, got: {:?}",
+            info[0]
+        );
+        // Should display the value inline, not as an object
+        assert!(
+            !info[0].2.contains("{"),
+            "String element should not show '{{' braces, got: {:?}",
+            info[0].2
+        );
+        assert!(
+            info[0].2.contains("hello"),
+            "String element should show its value inline, got: {:?}",
+            info[0].2
+        );
+    }
+
+    #[test]
+    fn test_root_number_element_not_expandable() {
+        let (mut loader, len) = make_json_array_loader(r#"[42]"#);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        let info = row_info(&viewer);
+        assert_eq!(info.len(), 1);
+        assert!(
+            !info[0].1,
+            "Number root element should not be expandable, got: {:?}",
+            info[0]
+        );
+        assert!(
+            info[0].2.contains("42"),
+            "Number element should show its value inline, got: {:?}",
+            info[0].2
+        );
+    }
+
+    #[test]
+    fn test_root_bool_null_elements_not_expandable() {
+        let (mut loader, len) = make_json_array_loader(r#"[true, false, null]"#);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        let info = row_info(&viewer);
+        assert_eq!(info.len(), 3);
+        for (i, row) in info.iter().enumerate() {
+            assert!(
+                !row.1,
+                "Primitive root element [{}] should not be expandable, got: {:?}",
+                i, row
+            );
+        }
+    }
+
+    #[test]
+    fn test_root_object_element_is_expandable() {
+        // Objects at root level SHOULD be expandable — verify we don't break this
+        let (mut loader, len) = make_json_array_loader(r#"[{"name": "Alice"}]"#);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        let info = row_info(&viewer);
+        assert_eq!(info.len(), 1);
+        assert!(
+            info[0].1,
+            "Object root element should be expandable, got: {:?}",
+            info[0]
+        );
+    }
+
+    #[test]
+    fn test_root_mixed_types_expandability() {
+        // Mix of primitives and objects — only objects/arrays should be expandable
+        let json = r#"["hello", 42, {"key": "val"}, [1, 2], true, null]"#;
+        let (mut loader, len) = make_json_array_loader(json);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        let info = row_info(&viewer);
+        assert_eq!(info.len(), 6);
+
+        // [0] "hello" - string, NOT expandable
+        assert!(!info[0].1, "String should not be expandable: {:?}", info[0]);
+        // [1] 42 - number, NOT expandable
+        assert!(!info[1].1, "Number should not be expandable: {:?}", info[1]);
+        // [2] {"key":"val"} - object, IS expandable
+        assert!(info[2].1, "Object should be expandable: {:?}", info[2]);
+        // [3] [1,2] - array, IS expandable
+        assert!(info[3].1, "Array should be expandable: {:?}", info[3]);
+        // [4] true - bool, NOT expandable
+        assert!(!info[4].1, "Bool should not be expandable: {:?}", info[4]);
+        // [5] null - null, NOT expandable
+        assert!(!info[5].1, "Null should not be expandable: {:?}", info[5]);
+    }
+
+    // ========================================================================
+    // Bug #64b: expand_selected doesn't check is_expandable, causing
+    //           primitive values to be rendered twice (duplicated on child line)
+    // ========================================================================
+
+    #[test]
+    fn test_expand_selected_ignores_non_expandable() {
+        // Expanding a primitive (string in array) should NOT add it to expanded set
+        let json = r#"[{"values": ["Talisman"]}]"#;
+        let (mut loader, len) = make_json_array_loader(json);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        // First build with root expanded
+        viewer.expanded.insert("0".to_string());
+        viewer.expanded.insert("0.values".to_string());
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        // The string element "Talisman" at path "0.values[0]" should be displayed
+        let info = row_info(&viewer);
+        let talisman_row = info
+            .iter()
+            .find(|(p, _, _)| p == "0.values[0]")
+            .expect("Should find the Talisman row");
+        assert!(
+            !talisman_row.1,
+            "String array element should not be expandable"
+        );
+
+        // Now try to expand it — should return false (no rebuild needed)
+        let selected = Some("0.values[0]".to_string());
+        let needs_rebuild = viewer.expand_selected(&selected);
+        assert!(
+            !needs_rebuild,
+            "expand_selected on a non-expandable row should return false"
+        );
+    }
+
+    #[test]
+    fn test_no_duplicate_rows_for_primitive_in_array() {
+        // When a primitive array element is "expanded" (path in expanded set),
+        // it should NOT produce duplicate child rows
+        let json = r#"[{"values": ["Talisman"]}]"#;
+        let (mut loader, len) = make_json_array_loader(json);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        // Expand root and values
+        viewer.expanded.insert("0".to_string());
+        viewer.expanded.insert("0.values".to_string());
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        // Count rows containing "Talisman"
+        let texts = row_display_texts(&viewer);
+        let talisman_count = texts.iter().filter(|t| t.contains("Talisman")).count();
+        assert_eq!(
+            talisman_count, 1,
+            "\"Talisman\" should appear exactly once, but found {} times in: {:?}",
+            talisman_count, texts
+        );
+    }
+
+    #[test]
+    fn test_no_duplicate_after_forced_expand_of_primitive() {
+        // Even if someone forces a primitive path into expanded set,
+        // rebuild should not produce duplicate rows
+        let json = r#"[{"items": ["hello", "world"]}]"#;
+        let (mut loader, len) = make_json_array_loader(json);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        // Expand root, items, AND force-expand the primitive "hello"
+        viewer.expanded.insert("0".to_string());
+        viewer.expanded.insert("0.items".to_string());
+        viewer.expanded.insert("0.items[0]".to_string()); // Force-expand primitive!
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        let texts = row_display_texts(&viewer);
+        let hello_count = texts.iter().filter(|t| t.contains("hello")).count();
+        assert_eq!(
+            hello_count, 1,
+            "\"hello\" should appear exactly once even if force-expanded, but found {} in: {:?}",
+            hello_count, texts
+        );
+    }
+
+    #[test]
+    fn test_expand_all_skips_primitives() {
+        // expand_all should only expand objects/arrays, not primitives
+        let json = r#"[{"name": "Alice", "scores": [100, 200]}]"#;
+        let (mut loader, len) = make_json_array_loader(json);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        // Initial build
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        // Expand all repeatedly until stable
+        for _ in 0..5 {
+            let changed = viewer.expand_all();
+            if changed {
+                viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+            }
+        }
+
+        let texts = row_display_texts(&viewer);
+        // "Alice" should appear exactly once
+        let alice_count = texts.iter().filter(|t| t.contains("Alice")).count();
+        assert_eq!(
+            alice_count, 1,
+            "\"Alice\" should appear exactly once after expand_all, got {} in: {:?}",
+            alice_count, texts
+        );
+
+        // 100 should appear exactly once
+        let hundred_count = texts.iter().filter(|t| t.contains("100")).count();
+        assert_eq!(
+            hundred_count, 1,
+            "\"100\" should appear exactly once after expand_all, got {} in: {:?}",
+            hundred_count, texts
+        );
+    }
+
+    // ========================================================================
+    // Bug #64 Screenshot 1: String field in object "expands" via right arrow,
+    // causing the URL to appear twice — once inline and once as a child row
+    // (e.g. "gemSkill": "https://..." then "https://..." on the next line)
+    // ========================================================================
+
+    #[test]
+    fn test_no_duplicate_for_string_field_in_object() {
+        // Simulates the PoE gemSkill URL from Screenshot 1
+        let json = r#"[{"gemSkill": "https://web.poecdn.com/gen/image/WzIxLDE0"}]"#;
+        let (mut loader, len) = make_json_array_loader(json);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        // Expand root object
+        viewer.expanded.insert("0".to_string());
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        // Try to expand the string field via expand_selected (simulates right arrow)
+        let selected = Some("0.gemSkill".to_string());
+        let needs_rebuild = viewer.expand_selected(&selected);
+        assert!(
+            !needs_rebuild,
+            "expand_selected on a string object field should return false"
+        );
+
+        // Even if we force the path into expanded set, rebuild should not duplicate
+        viewer.expanded.insert("0.gemSkill".to_string());
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        let texts = row_display_texts(&viewer);
+        let url_count = texts.iter().filter(|t| t.contains("poecdn.com")).count();
+        assert_eq!(
+            url_count, 1,
+            "URL should appear exactly once, not duplicated on child line, got {} in: {:?}",
+            url_count, texts
+        );
+    }
+
+    #[test]
+    fn test_no_duplicate_for_string_with_quotes_in_object() {
+        // String value containing embedded quotes — the original Screenshot 1 scenario
+        let json = r#"[{"url": "https://example.com/q=\"test\""}]"#;
+        let (mut loader, len) = make_json_array_loader(json);
+        let mut cache = LruCache::new(16);
+        let mut viewer = JsonTreeViewer::new();
+
+        // Expand root and force-expand the string field
+        viewer.expanded.insert("0".to_string());
+        viewer.expanded.insert("0.url".to_string());
+        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+
+        let texts = row_display_texts(&viewer);
+        let example_count = texts.iter().filter(|t| t.contains("example.com")).count();
+        assert_eq!(
+            example_count, 1,
+            "URL with quotes should appear exactly once, got {} in: {:?}",
+            example_count, texts
+        );
     }
 }
