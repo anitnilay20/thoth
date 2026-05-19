@@ -833,7 +833,9 @@ impl ThothApp {
             .ctx()
             .memory(|m| m.data.get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors")));
 
-        let dock_style = build_dock_style(ui.style(), colors);
+        let dock_style = colors
+            .map(|c| c.dock_style(ui.style()))
+            .unwrap_or_else(|| egui_dock::Style::from_egui(ui.style()));
 
         let (dock_state, tabs) = self.window_state.tab_manager.borrow_parts();
 
@@ -1341,68 +1343,4 @@ impl ThothApp {
             }
         }
     }
-}
-
-/// Build a Catppuccin-themed `egui_dock::Style` from the current theme colors.
-/// Falls back to the egui-derived defaults when colors are unavailable.
-fn build_dock_style(
-    egui_style: &egui::Style,
-    colors: Option<crate::theme::ThemeColors>,
-) -> egui_dock::Style {
-    let mut style = egui_dock::Style::from_egui(egui_style);
-
-    let Some(c) = colors else {
-        return style;
-    };
-
-    let zero_rounding = egui_dock::egui::CornerRadius::ZERO;
-
-    // ── Tab bar ──────────────────────────────────────────────────────────────
-    style.tab_bar.bg_fill = c.bg_sunken;
-    style.tab_bar.height = 35.0;
-    style.tab_bar.hline_color = c.surface;
-
-    // ── Tab body (content area) ───────────────────────────────────────────────
-    style.tab.tab_body.bg_fill = c.bg;
-    style.tab.tab_body.inner_margin = egui::Margin::ZERO;
-    style.tab.tab_body.stroke = egui::Stroke::NONE;
-
-    // ── Active tab ───────────────────────────────────────────────────────────
-    style.tab.active.bg_fill = c.bg;
-    style.tab.active.text_color = c.fg;
-    style.tab.active.outline_color = c.accent; // overridden per-tab by tab_style_override
-    style.tab.active.corner_radius = zero_rounding;
-
-    // ── Focused tab (same as active but in the focused leaf) ─────────────────
-    style.tab.focused.bg_fill = c.bg;
-    style.tab.focused.text_color = c.fg;
-    style.tab.focused.outline_color = c.accent;
-    style.tab.focused.corner_radius = zero_rounding;
-
-    // ── Inactive tab ─────────────────────────────────────────────────────────
-    style.tab.inactive.bg_fill = c.bg_sunken;
-    style.tab.inactive.text_color = c.fg_muted;
-    style.tab.inactive.outline_color = egui::Color32::TRANSPARENT;
-    style.tab.inactive.corner_radius = zero_rounding;
-
-    // ── Hovered tab ──────────────────────────────────────────────────────────
-    style.tab.hovered.bg_fill = c.surface;
-    style.tab.hovered.text_color = c.fg;
-    style.tab.hovered.outline_color = egui::Color32::TRANSPARENT;
-    style.tab.hovered.corner_radius = zero_rounding;
-
-    // ── KB-focus variants (match their non-kb counterparts) ──────────────────
-    style.tab.inactive_with_kb_focus = style.tab.inactive.clone();
-    style.tab.active_with_kb_focus = style.tab.active.clone();
-    style.tab.focused_with_kb_focus = style.tab.focused.clone();
-
-    style.tab.hline_below_active_tab_name = false;
-
-    // ── Separator between split panes ─────────────────────────────────────────
-    style.separator.width = 4.0;
-    style.separator.color_idle = c.surface;
-    style.separator.color_hovered = c.accent;
-    style.separator.color_dragged = c.accent;
-
-    style
 }

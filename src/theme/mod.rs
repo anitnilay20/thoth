@@ -304,6 +304,53 @@ impl ThemeColors {
             special: hex(self.error),
         }
     }
+
+    /// Build a Catppuccin-themed [`egui_dock::Style`] from these colors.
+    pub fn dock_style(&self, egui_style: &egui::Style) -> egui_dock::Style {
+        let mut style = egui_dock::Style::from_egui(egui_style);
+        let zero_rounding = egui::CornerRadius::ZERO;
+
+        style.tab_bar.bg_fill = self.bg_sunken;
+        style.tab_bar.height = 35.0;
+        style.tab_bar.hline_color = self.surface;
+
+        style.tab.tab_body.bg_fill = self.bg;
+        style.tab.tab_body.inner_margin = egui::Margin::ZERO;
+        style.tab.tab_body.stroke = egui::Stroke::NONE;
+
+        style.tab.active.bg_fill = self.bg;
+        style.tab.active.text_color = self.fg;
+        style.tab.active.outline_color = self.accent;
+        style.tab.active.corner_radius = zero_rounding;
+
+        style.tab.focused.bg_fill = self.bg;
+        style.tab.focused.text_color = self.fg;
+        style.tab.focused.outline_color = self.accent;
+        style.tab.focused.corner_radius = zero_rounding;
+
+        style.tab.inactive.bg_fill = self.bg_sunken;
+        style.tab.inactive.text_color = self.fg_muted;
+        style.tab.inactive.outline_color = Color32::TRANSPARENT;
+        style.tab.inactive.corner_radius = zero_rounding;
+
+        style.tab.hovered.bg_fill = self.surface;
+        style.tab.hovered.text_color = self.fg;
+        style.tab.hovered.outline_color = Color32::TRANSPARENT;
+        style.tab.hovered.corner_radius = zero_rounding;
+
+        style.tab.inactive_with_kb_focus = style.tab.inactive.clone();
+        style.tab.active_with_kb_focus = style.tab.active.clone();
+        style.tab.focused_with_kb_focus = style.tab.focused.clone();
+
+        style.tab.hline_below_active_tab_name = false;
+
+        style.separator.width = 4.0;
+        style.separator.color_idle = self.surface;
+        style.separator.color_hovered = self.accent;
+        style.separator.color_dragged = self.accent;
+
+        style
+    }
 }
 
 // ── apply_fonts ───────────────────────────────────────────────────────────────
