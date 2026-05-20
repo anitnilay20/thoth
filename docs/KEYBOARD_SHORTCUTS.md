@@ -12,11 +12,22 @@ Thoth supports keyboard shortcuts for efficient navigation and operation. All sh
 
 ### File Operations ✅
 
-| Action                    | macOS | Windows/Linux | Description                                                | Status     |
-| ------------------------- | ----- | ------------- | ---------------------------------------------------------- | ---------- |
-| Open File                 | `⌘O`  | `Ctrl+O`      | Open a JSON or NDJSON file                                 | ✅ Working |
-| Clear File / Close Window | `⌘W`  | `Ctrl+W`      | Close the current file, or close window if no file is open | ✅ Working |
-| New Window                | `⌘N`  | `Ctrl+N`      | Open a new Thoth window                                    | ✅ Working |
+| Action     | macOS | Windows/Linux | Description                | Status     |
+| ---------- | ----- | ------------- | -------------------------- | ---------- |
+| Open File  | `⌘O`  | `Ctrl+O`      | Open a JSON or NDJSON file | ✅ Working |
+| New Window | `⌘N`  | `Ctrl+N`      | Open a new Thoth window    | ✅ Working |
+
+### Tab Operations ✅
+
+| Action              | macOS    | Windows/Linux    | Description                                                         | Status     |
+| ------------------- | -------- | ---------------- | ------------------------------------------------------------------- | ---------- |
+| New Tab             | `⌘T`     | `Ctrl+T`         | Open a new empty tab (shows Welcome screen)                         | ✅ Working |
+| Close Tab           | `⌘W`     | `Ctrl+W`         | Close the active tab; if the last tab is the welcome screen, exit   | ✅ Working |
+| Next Tab            | `⌘⌥→`   | `Ctrl+Alt+→`     | Cycle to the next tab in the focused pane                           | ✅ Working |
+| Previous Tab        | `⌘⌥←`   | `Ctrl+Alt+←`     | Cycle to the previous tab in the focused pane                       | ✅ Working |
+| Switch to Tab 1–9   | `⌘1`–`⌘9` | `Ctrl+1`–`Ctrl+9` | Jump directly to tab by position; `⌘9` always goes to the last tab | ✅ Working |
+
+> **macOS note:** `⌘⇧[`/`⌘⇧]` and `Ctrl+Tab` are intercepted by the OS before reaching the app (`NSWindowTabbing` and egui focus traversal respectively). `⌘⌥→`/`⌘⌥←` are not affected.
 
 ### UI Controls ✅
 
@@ -65,9 +76,10 @@ Thoth supports keyboard shortcuts for efficient navigation and operation. All sh
 
 ## Summary
 
-**17 keyboard shortcuts are fully implemented and working:**
+**22 keyboard shortcuts are fully implemented and working:**
 
-- 3 File Operations
+- 2 File Operations
+- 5 Tab Operations
 - 3 UI Controls
 - 1 Navigation (+ 2 planned)
 - 2 Movement
@@ -89,8 +101,13 @@ Shortcuts are defined in the `[shortcuts]` section of the settings file:
 [shortcuts]
 # File operations
 open_file = { key = "O", ctrl = false, alt = false, shift = false, command = true }
-clear_file = { key = "W", ctrl = false, alt = false, shift = false, command = true }
 new_window = { key = "N", ctrl = false, alt = false, shift = false, command = true }
+
+# Tab operations
+tab_close = { key = "W", ctrl = false, alt = false, shift = false, command = true }
+tab_new = { key = "T", ctrl = false, alt = false, shift = false, command = true }
+tab_cycle_next = { key = "ArrowRight", ctrl = false, alt = true, shift = false, command = true }
+tab_cycle_prev = { key = "ArrowLeft", ctrl = false, alt = true, shift = false, command = true }
 
 # UI controls
 settings = { key = "Comma", ctrl = false, alt = false, shift = false, command = true }
