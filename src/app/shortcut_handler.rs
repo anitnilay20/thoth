@@ -7,7 +7,6 @@ use crate::shortcuts::KeyboardShortcuts;
 pub enum ShortcutAction {
     // File operations
     OpenFile,
-    ClearFile,
     NewWindow,
 
     // Navigation
@@ -47,8 +46,11 @@ pub enum ShortcutAction {
 
     // Tabs
     CloseTab,
+    NewTab,
     NextTab,
     PrevTab,
+    /// Switch to the tab at 0-based visual index in the focused leaf.
+    SwitchToTab(usize),
 }
 
 /// Handle keyboard shortcuts and return triggered actions
@@ -70,10 +72,6 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::OpenFile);
         }
 
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.clear_file.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::ClearFile);
-        }
-
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.new_window.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::NewWindow);
         }
@@ -92,17 +90,42 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::NextMatch);
         }
 
-        // Navigation shortcuts - using direct key handling for bracket keys
+        // Navigation: ⌘[ / ⌘]
         if ctx.input_mut(|i| {
-            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket)
+            i.modifiers.command
+                && i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket)
         }) {
             actions.push(ShortcutAction::NavBack);
         }
 
         if ctx.input_mut(|i| {
-            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket)
+            i.modifiers.command
+                && i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket)
         }) {
             actions.push(ShortcutAction::NavForward);
+        }
+
+        // Tab cycling: ⌘⌥→ / ⌘⌥← — arrow keys have no char-composition issues.
+        if ctx.input_mut(|i| {
+            i.modifiers.command
+                && i.modifiers.alt
+                && i.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+                    egui::Key::ArrowRight,
+                )
+        }) {
+            actions.push(ShortcutAction::NextTab);
+        }
+
+        if ctx.input_mut(|i| {
+            i.modifiers.command
+                && i.modifiers.alt
+                && i.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+                    egui::Key::ArrowLeft,
+                )
+        }) {
+            actions.push(ShortcutAction::PrevTab);
         }
 
         // Browser-style mouse back/forward buttons
@@ -193,27 +216,33 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::ToggleProfiler);
         }
 
-        // Tabs — check Shift+Tab before Tab to avoid conflict.
-        if ctx.input_mut(|i| {
-            i.modifiers.command
-                && i.modifiers.shift
-                && i.consume_key(
-                    egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-                    egui::Key::Tab,
-                )
-        }) {
-            actions.push(ShortcutAction::PrevTab);
-        } else if ctx.input_mut(|i| {
-            i.modifiers.command
-                && i.consume_key(egui::Modifiers::COMMAND, egui::Key::Tab)
-        }) {
-            actions.push(ShortcutAction::NextTab);
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.close_tab.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::CloseTab);
         }
 
-        if ctx.input_mut(|i| {
-            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::W)
-        }) {
-            actions.push(ShortcutAction::CloseTab);
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.new_tab.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::NewTab);
+        }
+
+        // ⌘1–⌘9 / Ctrl+1–9: switch to tab by position.
+        const TAB_KEYS: [egui::Key; 9] = [
+            egui::Key::Num1,
+            egui::Key::Num2,
+            egui::Key::Num3,
+            egui::Key::Num4,
+            egui::Key::Num5,
+            egui::Key::Num6,
+            egui::Key::Num7,
+            egui::Key::Num8,
+            egui::Key::Num9,
+        ];
+        for (idx, key) in TAB_KEYS.iter().enumerate() {
+            if ctx.input_mut(|i| {
+                i.consume_key(egui::Modifiers::COMMAND, *key)
+            }) {
+                actions.push(ShortcutAction::SwitchToTab(idx));
+                break;
+            }
         }
 
         actions

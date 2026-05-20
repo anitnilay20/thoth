@@ -222,8 +222,8 @@ impl Toolbar {
                             icon: egui_phosphor::regular::X,
                             frame: false,
                             tooltip: Some(&format!(
-                                "Clear file ({})",
-                                props.shortcuts.clear_file.format()
+                                "Close tab ({})",
+                                props.shortcuts.close_tab.format()
                             )),
                             badge_color: None,
                             size: Some(button_size),

@@ -30,3 +30,4 @@ pub mod settings_dialog;
 pub mod sidebar;
 pub mod status_bar;
 pub mod toolbar;
+pub mod welcome;

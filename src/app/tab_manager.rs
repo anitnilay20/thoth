@@ -94,6 +94,8 @@ pub enum TabEvent {
         path: String,
     },
     TabClosed(TabId),
+    OpenFilePicker,
+    OpenRecentFile(std::path::PathBuf),
 }
 
 /// Implements egui_dock::TabViewer. Holds mutable refs to tabs and settings so each
@@ -134,6 +136,9 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
             None
         };
 
+        // Snapshot recent files before the mutable tab borrow.
+        let recent_files: Vec<String> = self.persistent_state.get_recent_files().to_vec();
+
         let Some(tab) = self.tabs.get_mut(tab_id) else {
             return;
         };
@@ -155,6 +160,8 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
                 cache_size,
                 syntax_highlighting,
                 plugin_ui,
+                recent_files: &recent_files,
+                colors: self.colors,
             },
         );
 
@@ -207,6 +214,12 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
                         tab_id: *tab_id,
                         event: evt,
                     });
+                }
+                CentralPanelEvent::OpenFilePicker => {
+                    self.events.push(TabEvent::OpenFilePicker);
+                }
+                CentralPanelEvent::OpenRecentFile(path) => {
+                    self.events.push(TabEvent::OpenRecentFile(path));
                 }
             }
         }
@@ -314,27 +327,86 @@ impl TabManager {
         }
     }
 
-    /// Cycle the active tab by `delta` (+1 = next, -1 = previous).
-    pub fn cycle_tab(&mut self, delta: i32) {
-        // Get the active tab's ID (terminates the mutable borrow of dock_state).
-        let active = match self.active_tab_id() {
-            Some(id) => id,
-            None => return,
+    /// Close the active tab, removing it from both the dock tree and the tabs map.
+    /// Returns `true` if the closed tab was empty (showing the welcome screen).
+    pub fn close_active_tab(&mut self) -> bool {
+        let Some(id) = self.active_tab_id() else {
+            return false;
         };
+        let was_empty = self.tabs.get(&id).is_some_and(|t| t.is_empty());
+        // Remove from the dock tree first.
+        if let Some(path) = self.dock_state.find_tab(&id) {
+            self.dock_state.remove_tab(path);
+        }
+        self.tabs.remove(&id);
+        was_empty
+    }
 
-        // Find the focused leaf and set the adjacent tab active.
-        let Some(path) = self.dock_state.focused_leaf() else {
+    /// Open a new empty tab and return its id.
+    pub fn open_new_tab(&mut self, nav_capacity: usize) -> TabId {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.tabs.insert(id, TabState::new(id, None, nav_capacity));
+        self.dock_state.push_to_focused_leaf(id);
+        id
+    }
+
+    /// Return the NodePath of the focused leaf, falling back to the first leaf on the main
+    /// surface when focus has not been set yet (before any DockArea::show_inside interaction).
+    fn any_leaf_path(&self) -> Option<egui_dock::NodePath> {
+        if let Some(path) = self.dock_state.focused_leaf() {
+            return Some(path);
+        }
+        // No focus set yet — find the first leaf on the main surface.
+        self.dock_state
+            .iter_all_nodes()
+            .find_map(|(path, node)| node.is_leaf().then_some(path))
+    }
+
+    /// Activate the tab at `index` (0-based) in the focused leaf, clamped to the last tab.
+    pub fn switch_to_tab_by_index(&mut self, index: usize) {
+        let Some(path) = self.any_leaf_path() else {
             return;
         };
         if let Ok(leaf) = self.dock_state.leaf_mut(path) {
-            let tabs = leaf.tabs();
-            if tabs.len() < 2 {
+            let count = leaf.tabs().len();
+            if count == 0 {
                 return;
             }
-            let pos = tabs.iter().position(|&id| id == active).unwrap_or(0);
-            let next_pos = (pos as i32 + delta).rem_euclid(tabs.len() as i32) as usize;
+            let clamped = index.min(count - 1);
+            let _ = leaf.set_active_tab(egui_dock::TabIndex(clamped));
+        }
+        self.dock_state.set_focused_node_and_surface(path);
+    }
+
+    /// Cycle the active tab by `delta` (+1 = next, -1 = previous).
+    pub fn cycle_tab(&mut self, delta: i32) {
+        let Some(active) = self.active_tab_id() else {
+            return;
+        };
+        let Some(path) = self.any_leaf_path() else {
+            return;
+        };
+
+        // Collect the tab list before taking a mutable borrow.
+        let (count, pos) = match self.dock_state.leaf(path) {
+            Ok(leaf) => {
+                let tabs = leaf.tabs();
+                if tabs.len() < 2 {
+                    return;
+                }
+                let pos = tabs.iter().position(|&id| id == active).unwrap_or(0);
+                (tabs.len(), pos)
+            }
+            Err(_) => return,
+        };
+
+        let next_pos = (pos as i32 + delta).rem_euclid(count as i32) as usize;
+        if let Ok(leaf) = self.dock_state.leaf_mut(path) {
             let _ = leaf.set_active_tab(egui_dock::TabIndex(next_pos));
         }
+        // Update dock focus so find_active_focused() reflects the change immediately.
+        self.dock_state.set_focused_node_and_surface(path);
     }
 
     /// Split-borrow helper: returns `(dock_state, tabs)` as independent mutable refs so

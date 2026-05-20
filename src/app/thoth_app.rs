@@ -357,18 +357,6 @@ impl ThothApp {
                         self.window_state.tab_manager.open_file(path, nav_capacity);
                     }
                 }
-                ShortcutAction::ClearFile => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        if tab.file_path.is_some() {
-                            tab.file_path = None;
-                            tab.error = None;
-                        } else {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                    } else {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                }
                 ShortcutAction::NewWindow => {
                     self.create_new_window();
                 }
@@ -503,18 +491,26 @@ impl ThothApp {
                         }
                 }
                 ShortcutAction::CloseTab => {
-                    if let Some(id) = self.window_state.tab_manager.active_tab_id() {
-                        self.window_state.tab_manager.tabs.remove(&id);
-                        self.window_state
-                            .tab_manager
-                            .ensure_non_empty(nav_capacity);
+                    let was_empty = self.window_state.tab_manager.close_active_tab();
+                    let now_empty = self.window_state.tab_manager.tabs.is_empty();
+                    if was_empty && now_empty {
+                        // Last tab was already the welcome screen — close the window.
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    } else {
+                        self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                     }
+                }
+                ShortcutAction::NewTab => {
+                    self.window_state.tab_manager.open_new_tab(nav_capacity);
                 }
                 ShortcutAction::NextTab => {
                     self.window_state.tab_manager.cycle_tab(1);
                 }
                 ShortcutAction::PrevTab => {
                     self.window_state.tab_manager.cycle_tab(-1);
+                }
+                ShortcutAction::SwitchToTab(idx) => {
+                    self.window_state.tab_manager.switch_to_tab_by_index(idx);
                 }
             }
         }
@@ -570,8 +566,11 @@ impl ThothApp {
                 let _ = self.persistent_state.save();
             }
 
-            self.window_state.file_path = Some(path);
-            self.window_state.error = None;
+            let nav_capacity = self.settings.performance.navigation_history_size;
+            self.window_state.tab_manager.open_file(path, nav_capacity);
+            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                tab.error = None;
+            }
         }
     }
 
@@ -849,12 +848,24 @@ impl ThothApp {
             colors,
         };
 
-        egui_dock::DockArea::new(dock_state)
-            .style(dock_style)
-            .show_inside(ui, &mut viewer);
+        // Use a smaller font for tab labels (egui_dock hardcodes TextStyle::Button).
+        // Scoped so nothing outside the DockArea is affected.
+        let events = ui
+            .scope(|ui| {
+                ui.style_mut().text_styles.insert(
+                    egui::TextStyle::Button,
+                    egui::FontId::new(12.0, egui::FontFamily::Proportional),
+                );
+                egui_dock::DockArea::new(dock_state)
+                    .style(dock_style)
+                    .show_leaf_collapse_buttons(false)
+                    .show_inside(ui, &mut viewer);
+                viewer.events.drain(..).collect::<Vec<_>>()
+            })
+            .inner;
 
         // Drain and process events emitted during rendering.
-        let events: Vec<TabEvent> = viewer.events.drain(..).collect();
+        let events: Vec<TabEvent> = events;
         for event in events {
             self.handle_tab_event(event, nav_capacity);
         }
@@ -918,6 +929,17 @@ impl ThothApp {
             TabEvent::TabClosed(id) => {
                 self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                 let _ = id;
+            }
+            TabEvent::OpenFilePicker => {
+                let nav_cap = self.settings.performance.navigation_history_size;
+                if let Some(path) = pick_file(self.settings.plugins.enabled) {
+                    self.window_state.tab_manager.open_file(path, nav_cap);
+                }
+            }
+            TabEvent::OpenRecentFile(path) => {
+                self.window_state
+                    .tab_manager
+                    .open_file(path, nav_capacity);
             }
         }
     }

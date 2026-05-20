@@ -32,8 +32,11 @@ impl StatelessComponent for ShortcutsTab {
             let font_id = egui::FontId::proportional(12.0);
             let all: &[&Shortcut] = &[
                 &sc.open_file,
-                &sc.clear_file,
                 &sc.new_window,
+                &sc.close_tab,
+                &sc.new_tab,
+                &sc.next_tab,
+                &sc.prev_tab,
                 &sc.focus_search,
                 &sc.next_match,
                 &sc.prev_match,
@@ -87,8 +90,16 @@ impl StatelessComponent for ShortcutsTab {
                 // ── File ────────────────────────────────────────────────────
                 group_rows(ui, "FILE", "sc-file", colors, |ui| {
                     shortcut_row(ui, "Open file", &sc.open_file, badge_width, colors);
-                    shortcut_row(ui, "Close file", &sc.clear_file, badge_width, colors);
                     shortcut_row(ui, "New window", &sc.new_window, badge_width, colors);
+                });
+
+                // ── Tabs ─────────────────────────────────────────────────────
+                group_rows(ui, "TABS", "sc-tabs", colors, |ui| {
+                    shortcut_row(ui, "New tab", &sc.new_tab, badge_width, colors);
+                    shortcut_row(ui, "Close tab", &sc.close_tab, badge_width, colors);
+                    shortcut_row(ui, "Next tab", &sc.next_tab, badge_width, colors);
+                    shortcut_row(ui, "Previous tab", &sc.prev_tab, badge_width, colors);
+                    static_shortcut_row(ui, "Switch to tab 1–9", "⌘1 – ⌘9", badge_width, colors);
                 });
 
                 // ── Navigation ───────────────────────────────────────────────
@@ -175,6 +186,19 @@ fn shortcut_row(
 ) {
     setting_row(ui, label, None, false, None, colors, |ui| {
         kbd_badge(ui, &shortcut.format(), badge_width, colors);
+    });
+}
+
+/// Render a shortcut row with a literal string badge (for hardcoded shortcuts like ⌘1–9).
+fn static_shortcut_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    text: &str,
+    badge_width: f32,
+    colors: &ThemeColors,
+) {
+    setting_row(ui, label, None, false, None, colors, |ui| {
+        kbd_badge(ui, text, badge_width, colors);
     });
 }
 
