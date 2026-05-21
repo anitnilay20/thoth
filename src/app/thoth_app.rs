@@ -21,6 +21,14 @@ pub struct ThothApp {
     settings_dialog: components::settings_dialog::SettingsDialog,
     clipboard_text: Option<String>,
     settings_changed: bool,
+    session_dirty: bool,
+    /// Plugin IDs from the persisted session that couldn't be restored yet because
+    /// PLUGIN_MANAGER was still initializing on the background thread. Drained each
+    /// frame once the manager becomes available.
+    pending_plugin_restores: Vec<String>,
+    /// Active-tab index to switch to once all deferred session tabs are open.
+    /// `None` once the switch has been applied (or when no session is being restored).
+    session_restore_active_index: Option<usize>,
 }
 
 impl ThothApp {
@@ -33,14 +41,34 @@ impl ThothApp {
         }
 
         // Replace the default TabManager with one that uses the configured nav history size.
-        window_state.tab_manager =
-            crate::app::TabManager::new(settings.performance.navigation_history_size);
+        let nav_capacity = settings.performance.navigation_history_size;
+        window_state.tab_manager = crate::app::TabManager::new(nav_capacity);
 
-        if let Some(path) = file_to_open {
-            window_state
-                .tab_manager
-                .open_file(path, settings.performance.navigation_history_size);
-        }
+        let (pending_plugin_restores, session_restore_active_index) = if let Some(path) = file_to_open {
+            // A file was passed via CLI / OS file association — open it directly,
+            // skipping session restore so the user sees exactly what they asked for.
+            window_state.tab_manager.open_file(path, nav_capacity);
+            (Vec::new(), None)
+        } else {
+            // Restore the previous session (file tabs whose paths still exist, plugin tabs
+            // that can be re-instantiated). Plugin tabs that can't be opened yet (because
+            // PLUGIN_MANAGER is still initializing on a background thread) are returned
+            // here and retried via poll_pending_plugin_restores() each frame.
+            let (deferred, active_index) = Self::restore_tab_session(
+                &mut window_state.tab_manager,
+                &persistent_state,
+                &settings,
+            );
+            // Switch to the previously-active tab immediately if there are no deferred
+            // plugins; otherwise defer until poll_pending_plugin_restores() finishes.
+            let restore_index = if deferred.is_empty() {
+                window_state.tab_manager.switch_to_tab_by_index(active_index);
+                None
+            } else {
+                Some(active_index)
+            };
+            (deferred, restore_index)
+        };
 
         Self {
             settings,
@@ -50,6 +78,9 @@ impl ThothApp {
             settings_dialog: components::settings_dialog::SettingsDialog::default(),
             clipboard_text: None,
             settings_changed: false,
+            session_dirty: false,
+            pending_plugin_restores,
+            session_restore_active_index,
         }
     }
 
@@ -146,6 +177,9 @@ impl App for ThothApp {
             && let Ok(mut nm) = nm.lock() {
                 nm.show_notifications(ctx);
             }
+
+        // Restore plugin tabs that were deferred at startup (PLUGIN_MANAGER not ready yet).
+        self.poll_pending_plugin_restores();
 
         // Handle OS-dispatched file opens (e.g. macOS Apple Events / Finder)
         self.poll_os_open_requests();
@@ -299,6 +333,7 @@ impl App for ThothApp {
             self.apply_new_settings(new_settings);
         }
         self.save_settings_if_changed();
+        self.save_session_if_dirty();
 
         #[cfg(feature = "profiling")]
         if self.settings.dev.show_profiler {
@@ -499,9 +534,11 @@ impl ThothApp {
                     } else {
                         self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                     }
+                    self.session_dirty = true;
                 }
                 ShortcutAction::NewTab => {
                     self.window_state.tab_manager.open_new_tab(nav_capacity);
+                    // Empty tabs are not persisted, so no session_dirty needed here.
                 }
                 ShortcutAction::NextTab => {
                     self.window_state.tab_manager.cycle_tab(1);
@@ -707,6 +744,7 @@ impl ThothApp {
                         tab.file_path = None;
                         tab.error = None;
                     }
+                    self.session_dirty = true;
                 }
                 components::toolbar::ToolbarEvent::NewWindow => {
                     self.create_new_window();
@@ -740,6 +778,178 @@ impl ThothApp {
                 eprintln!("Failed to save settings: {}", e);
             }
             self.settings_changed = false;
+        }
+    }
+
+    /// Re-open tabs saved from the previous session.
+    /// Returns `(deferred_plugin_ids, active_tab_index)`.
+    /// - `deferred_plugin_ids`: plugin IDs that couldn't be opened yet because
+    ///   PLUGIN_MANAGER was still initializing; retried via `poll_pending_plugin_restores()`.
+    /// - `active_tab_index`: the dock-order index to switch to after all tabs are open.
+    fn restore_tab_session(
+        tab_manager: &mut crate::app::TabManager,
+        persistent_state: &PersistentState,
+        settings: &settings::Settings,
+    ) -> (Vec<String>, usize) {
+        use crate::app::persistent_state::PersistedTabKind;
+
+        let nav_capacity = settings.performance.navigation_history_size;
+        let persisted = persistent_state.get_open_tabs().to_vec();
+        let active_tab_index = persistent_state.get_active_tab_index();
+        let mut deferred_plugins = Vec::new();
+
+        for tab in &persisted {
+            match &tab.kind {
+                PersistedTabKind::File { path } => {
+                    let p = std::path::PathBuf::from(path);
+                    if p.exists() {
+                        tab_manager.open_file(p, nav_capacity);
+                    }
+                }
+                PersistedTabKind::Plugin { plugin_id } => {
+                    // PLUGIN_MANAGER is set by a background thread; it may not be ready yet.
+                    match PLUGIN_MANAGER.get() {
+                        Some(manager_opt) => {
+                            if let Some(manager) = manager_opt.as_ref() {
+                                Self::open_plugin_tab(tab_manager, manager, plugin_id, settings);
+                            }
+                            // manager_opt == None means plugins are disabled — skip silently.
+                        }
+                        None => {
+                            // Manager not initialized yet — defer to poll loop.
+                            deferred_plugins.push(plugin_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        (deferred_plugins, active_tab_index)
+    }
+
+    /// Try to open a single plugin tab. Shared by initial restore and the deferred poll loop.
+    fn open_plugin_tab(
+        tab_manager: &mut crate::app::TabManager,
+        manager: &crate::plugin::manager::PluginManager,
+        plugin_id: &str,
+        settings: &settings::Settings,
+    ) {
+        let nav_capacity = settings.performance.navigation_history_size;
+        let Some(plugin) = manager.registry.get_by_id(plugin_id) else {
+            return;
+        };
+        use crate::plugin::network_policy::NetworkPolicy;
+        let user_policy = settings
+            .plugins
+            .network_policies
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default();
+        let policy = NetworkPolicy::from_plugin_and_settings(
+            &plugin.network.clone().unwrap_or_default(),
+            &user_policy,
+        );
+        let Ok(loader) = manager.open_data_source(plugin_id, policy) else {
+            return;
+        };
+        let Ok(ui_output) = loader.render_ui() else {
+            return;
+        };
+        let sidebar_output = loader.render_sidebar().ok().flatten();
+        let tab_id = if tab_manager.active_tab_mut().is_some_and(|t| t.is_empty()) {
+            tab_manager.active_tab_id().unwrap()
+        } else {
+            tab_manager.open_new_tab(nav_capacity)
+        };
+        if let Some(t) = tab_manager.tabs.get_mut(&tab_id) {
+            t.active_plugin_pane = Some(crate::state::ActivePluginPane {
+                plugin_id: plugin_id.to_string(),
+                display_url: String::new(),
+                ui_output,
+                loader,
+            });
+            t.plugin_sidebar_output = sidebar_output;
+        }
+    }
+
+    /// Called each frame from `update()`. Once PLUGIN_MANAGER is ready, drains
+    /// `pending_plugin_restores` and opens each plugin tab, then applies the
+    /// saved active-tab index.
+    fn poll_pending_plugin_restores(&mut self) {
+        if self.pending_plugin_restores.is_empty() {
+            return;
+        }
+        // Wait until the background init thread has called PLUGIN_MANAGER.set().
+        let Some(manager_opt) = PLUGIN_MANAGER.get() else {
+            return;
+        };
+        let plugin_ids = std::mem::take(&mut self.pending_plugin_restores);
+        if let Some(manager) = manager_opt.as_ref() {
+            for plugin_id in &plugin_ids {
+                Self::open_plugin_tab(
+                    &mut self.window_state.tab_manager,
+                    manager,
+                    plugin_id,
+                    &self.settings,
+                );
+            }
+            self.session_dirty = true;
+        }
+        // If manager is None (plugins disabled), plugin_ids is simply dropped.
+
+        // All deferred tabs are now open — apply the saved active-tab index.
+        if let Some(idx) = self.session_restore_active_index.take() {
+            self.window_state.tab_manager.switch_to_tab_by_index(idx);
+        }
+    }
+
+    /// Snapshot the current open tabs and write them to persistent_state, then save to disk.
+    fn save_session_if_dirty(&mut self) {
+        if !self.session_dirty {
+            return;
+        }
+        self.session_dirty = false;
+
+        use crate::app::persistent_state::{PersistedTab, PersistedTabKind};
+
+        let ordered_ids = self.window_state.tab_manager.ordered_tab_ids();
+        let active_id = self.window_state.tab_manager.active_tab_id();
+
+        let mut active_tab_index: usize = 0;
+        let mut persisted_index: usize = 0;
+
+        let tabs: Vec<PersistedTab> = ordered_ids
+            .into_iter()
+            .filter_map(|id| {
+                let tab = self.window_state.tab_manager.tabs.get(&id)?;
+                let entry = if let Some(ref path) = tab.file_path {
+                    Some(PersistedTab {
+                        kind: PersistedTabKind::File {
+                            path: path.to_string_lossy().into_owned(),
+                        },
+                    })
+                } else if let Some(ref pane) = tab.active_plugin_pane {
+                    Some(PersistedTab {
+                        kind: PersistedTabKind::Plugin {
+                            plugin_id: pane.plugin_id.clone(),
+                        },
+                    })
+                } else {
+                    None // Empty / welcome tabs are not persisted.
+                };
+                if entry.is_some() {
+                    if Some(id) == active_id {
+                        active_tab_index = persisted_index;
+                    }
+                    persisted_index += 1;
+                }
+                entry
+            })
+            .collect();
+
+        self.persistent_state.set_open_tabs(tabs, active_tab_index);
+        if let Err(e) = self.persistent_state.save() {
+            eprintln!("Failed to save tab session: {e}");
         }
     }
 
@@ -896,6 +1106,7 @@ impl ThothApp {
                         tab.central_panel.navigate_to_path(pending_path);
                     }
                 }
+                self.session_dirty = true;
             }
             TabEvent::FileOpenError { tab_id, error } => {
                 if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
@@ -907,6 +1118,7 @@ impl ThothApp {
                     tab.file_path = None;
                     tab.total_items = 0;
                 }
+                self.session_dirty = true;
             }
             TabEvent::FileTypeChanged { tab_id, file_type } => {
                 if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
@@ -929,6 +1141,7 @@ impl ThothApp {
             TabEvent::TabClosed(id) => {
                 self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                 let _ = id;
+                self.session_dirty = true;
             }
             TabEvent::OpenFilePicker => {
                 let nav_cap = self.settings.performance.navigation_history_size;
@@ -1086,6 +1299,7 @@ impl ThothApp {
                             }
                             self.window_state.sidebar_expanded = false;
                             self.window_state.sidebar_selected_section = None;
+                            self.session_dirty = true;
                         } else {
                             if let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref())
                                 && let Some(plugin) = manager.registry.get_by_id(plugin_id) {
@@ -1121,6 +1335,7 @@ impl ThothApp {
                                                             ui_output,
                                                             loader,
                                                         });
+                                                    self.session_dirty = true;
                                                 }
                                                 if has_sidebar {
                                                     self.window_state.sidebar_expanded = true;

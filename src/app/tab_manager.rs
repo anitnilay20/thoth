@@ -409,6 +409,22 @@ impl TabManager {
         self.dock_state.set_focused_node_and_surface(path);
     }
 
+    /// Return tab IDs in the order they appear in the dock tree (left-to-right, pane by pane).
+    /// Used to build the ordered list of tabs for session persistence.
+    pub fn ordered_tab_ids(&self) -> Vec<TabId> {
+        let mut ids = Vec::new();
+        for (path, node) in self.dock_state.iter_all_nodes() {
+            if node.is_leaf() {
+                if let Ok(leaf) = self.dock_state.leaf(path) {
+                    for &id in leaf.tabs() {
+                        ids.push(id);
+                    }
+                }
+            }
+        }
+        ids
+    }
+
     /// Split-borrow helper: returns `(dock_state, tabs)` as independent mutable refs so
     /// `DockArea::new(dock_state)` and `ThothTabViewer { tabs, .. }` can coexist.
     pub fn borrow_parts(&mut self) -> (&mut DockState<TabId>, &mut HashMap<TabId, TabState>) {
