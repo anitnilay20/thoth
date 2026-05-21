@@ -17,7 +17,7 @@ use crate::{
 
 type NotifAction = Arc<dyn Fn() + Send + Sync + 'static>;
 
-// id, title, message, status, kind, unread, actions, created_at
+// id, title, message, status, kind, unread, actions, created_at, pinned
 type NotifRow = (
     String,
     String,
@@ -27,6 +27,7 @@ type NotifRow = (
     bool,
     Vec<(String, NotifAction)>,
     i64,
+    bool,
 );
 
 // ── Filter ────────────────────────────────────────────────────────────────────
@@ -263,6 +264,7 @@ impl NotificationDropdown {
                                     n.unread,
                                     n.actions.clone(),
                                     n.created_at,
+                                    n.pinned,
                                 )
                             })
                             .collect();
@@ -273,7 +275,7 @@ impl NotificationDropdown {
 
                 let visible: Vec<&NotifRow> = notifications
                     .iter()
-                    .filter(|(_, _, _, status, kind, unread, _, _)| match new_filter {
+                    .filter(|(_, _, _, status, kind, unread, _, _, _)| match new_filter {
                         Filter::All => true,
                         Filter::Unread => *unread,
                         Filter::Plugins => *kind == NotificationKind::Plugin,
@@ -309,7 +311,7 @@ impl NotificationDropdown {
                                         left: 16,
                                         right: 16,
                                         top: 8,
-                                        bottom: 4,
+                                        bottom: 8,
                                     })
                                     .show(ui, |ui| {
                                         Typography::group_label(ui, &bucket_label.to_uppercase());
@@ -329,11 +331,46 @@ impl NotificationDropdown {
                                     })
                                     .collect();
 
+                                // Pre-build action labels for pinned rows (must own the Strings).
+                                let action_labels: Vec<Option<String>> = bucket
+                                    .iter()
+                                    .map(|row| {
+                                        if row.8 {
+                                            row.6.first().map(|(label, _)| label.clone())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect();
+
                                 let list_items: Vec<ListItem<'_>> = bucket
                                     .iter()
                                     .zip(descs.iter())
-                                    .map(|((_, title, _, _, kind, unread, _, _), desc)| {
+                                    .zip(action_labels.iter())
+                                    .map(|(((_, title, _, _, kind, unread, _, _, pinned), desc), action_label)| {
                                         let (icon, icon_color) = kind_icon(*kind, colors);
+                                        let postfix = if *pinned {
+                                            action_label.as_deref().map(|label| {
+                                                ListItemPostfix::ActionButton(ButtonProps {
+                                                    label: label.to_string(),
+                                                    button_type: ButtonType::Elevated,
+                                                    color: ButtonColor::Primary,
+                                                    button_size: ButtonSize::Small,
+                                                    ..Default::default()
+                                                })
+                                            })
+                                        } else {
+                                            Some(ListItemPostfix::IconButton(IconButtonProps {
+                                                icon: egui_phosphor::regular::X,
+                                                tooltip: Some("Dismiss"),
+                                                frame: false,
+                                                badge_color: None,
+                                                size: Some(egui::vec2(18.0, 18.0)),
+                                                icon_size: Some(11.0),
+                                                disabled: false,
+                                                selected: false,
+                                            }))
+                                        };
                                         ListItem {
                                             title: title.as_str(),
                                             description: Some(desc.as_str()),
@@ -342,21 +379,9 @@ impl NotificationDropdown {
                                                 color: Some(icon_color),
                                             }),
                                             badge: None,
-                                            postfix: Some(ListItemPostfix::IconButton(
-                                                IconButtonProps {
-                                                    icon: egui_phosphor::regular::X,
-                                                    tooltip: Some("Dismiss"),
-                                                    frame: false,
-                                                    badge_color: None,
-                                                    size: Some(egui::vec2(18.0, 18.0)),
-                                                    icon_size: Some(11.0),
-                                                    disabled: false,
-                                                    selected: false,
-                                                },
-                                            )),
-                                            // selected drives the left accent border
-                                            // and the hover highlight — maps to unread.
-                                            selected: *unread,
+                                            postfix,
+                                            selected: false,
+                                            accent: if *unread { Some(icon_color) } else { None },
                                             tags: &[],
                                         }
                                     })
@@ -367,18 +392,23 @@ impl NotificationDropdown {
                                     ListProps {
                                         items: &list_items,
                                         empty_label: None,
-                                        // Must be true so the List's inner ScrollArea
-                                        // shrinks to content and doesn't conflict with
-                                        // our outer ScrollArea.
                                         shrink_to_fit: true,
                                         show_separators: true,
                                         compact: false,
+                                        max_height: None,
                                     },
                                 );
 
                                 if let Some(idx) = list_out.postfix_clicked
                                     && let Some(row) = bucket.get(idx) {
-                                        to_dismiss = Some(row.0.clone());
+                                        if row.8 {
+                                            // Pinned row: postfix is an action button — fire it.
+                                            if let Some((_, cb)) = row.6.first() {
+                                                cb();
+                                            }
+                                        } else {
+                                            to_dismiss = Some(row.0.clone());
+                                        }
                                     }
 
                                 // Clicking a row fires the primary (first) action only.

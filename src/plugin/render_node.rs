@@ -839,6 +839,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                         }
                     }),
                     selected: false,
+                    accent: None,
                     tags: &[],
                 })
                 .collect();
@@ -854,6 +855,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                         shrink_to_fit: false,
                         show_separators: true,
                         compact: false,
+                        max_height: None,
                     },
                 );
 

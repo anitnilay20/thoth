@@ -75,6 +75,7 @@ impl StatefulComponent for RecentFiles {
                                 selected: false,
                             })),
                             selected: false,
+                            accent: None,
                         }
                     })
                     .collect();
@@ -87,6 +88,7 @@ impl StatefulComponent for RecentFiles {
                         shrink_to_fit: false,
                         show_separators: true,
                         compact: false,
+                        max_height: None,
                     },
                 );
 

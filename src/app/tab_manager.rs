@@ -130,7 +130,11 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
 
     fn ui(&mut self, ui: &mut egui::Ui, tab_id: &mut TabId) {
         // Take the search message if it belongs to this tab (consumes it exactly once).
-        let search_msg = if self.search_msg.as_ref().is_some_and(|(tid, _)| *tid == *tab_id) {
+        let search_msg = if self
+            .search_msg
+            .as_ref()
+            .is_some_and(|(tid, _)| *tid == *tab_id)
+        {
             self.search_msg.take().map(|(_, msg)| msg)
         } else {
             None
@@ -168,12 +172,13 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         // Navigation history: push if selection changed.
         let current_path = tab.central_panel.get_selected_path();
         if current_path != previous_path.as_ref()
-            && let Some(path) = current_path {
-                self.events.push(TabEvent::NavigationPush {
-                    tab_id: *tab_id,
-                    path: path.clone(),
-                });
-            }
+            && let Some(path) = current_path
+        {
+            self.events.push(TabEvent::NavigationPush {
+                tab_id: *tab_id,
+                path: path.clone(),
+            });
+        }
 
         // Translate CentralPanelEvents to TabEvents.
         for event in output.events {
@@ -249,7 +254,11 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
             .tabs
             .get(tab_id)
             .is_some_and(|t| t.active_plugin_pane.is_some());
-        let accent = if is_plugin { c.accent_secondary } else { c.accent };
+        let accent = if is_plugin {
+            c.accent_secondary
+        } else {
+            c.accent
+        };
 
         let mut style = global_style.clone();
         // Active/focused: colored top accent strip via outline_color.
@@ -284,13 +293,14 @@ impl TabManager {
     /// Open a file: reuse active tab if empty, otherwise create a new tab.
     pub fn open_file(&mut self, path: PathBuf, nav_capacity: usize) -> TabId {
         if let Some(id) = self.active_tab_id()
-            && self.tabs.get(&id).is_some_and(|t| t.is_empty()) {
-                if let Some(tab) = self.tabs.get_mut(&id) {
-                    tab.file_path = Some(path);
-                    tab.error = None;
-                }
-                return id;
+            && self.tabs.get(&id).is_some_and(|t| t.is_empty())
+        {
+            if let Some(tab) = self.tabs.get_mut(&id) {
+                tab.file_path = Some(path);
+                tab.error = None;
             }
+            return id;
+        }
         let id = self.next_id;
         self.next_id += 1;
         self.tabs
@@ -414,11 +424,11 @@ impl TabManager {
     pub fn ordered_tab_ids(&self) -> Vec<TabId> {
         let mut ids = Vec::new();
         for (path, node) in self.dock_state.iter_all_nodes() {
-            if node.is_leaf() {
-                if let Ok(leaf) = self.dock_state.leaf(path) {
-                    for &id in leaf.tabs() {
-                        ids.push(id);
-                    }
+            if node.is_leaf()
+                && let Ok(leaf) = self.dock_state.leaf(path)
+            {
+                for &id in leaf.tabs() {
+                    ids.push(id);
                 }
             }
         }

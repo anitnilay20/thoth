@@ -46,6 +46,7 @@ pub struct Notification {
     pub status: NotificationStatus,
     pub kind: NotificationKind,
     pub unread: bool,
+    pub pinned: bool,
 }
 
 pub struct NotificationManager {
@@ -135,7 +136,7 @@ impl NotificationManager {
     }
 
     pub fn clear_notifications(&mut self) {
-        self.notifications.clear();
+        self.notifications.retain(|_, n| n.pinned);
         self.toasts.dismiss_all_toasts();
     }
 
@@ -184,6 +185,7 @@ impl Notification {
             status: NotificationStatus::Created,
             kind: NotificationKind::default(),
             unread: true,
+            pinned: false,
         }
     }
 
@@ -223,6 +225,11 @@ impl Notification {
 
     pub fn with_status(mut self, status: NotificationStatus) -> Self {
         self.status = status;
+        self
+    }
+
+    pub fn pinned(mut self) -> Self {
+        self.pinned = true;
         self
     }
 }

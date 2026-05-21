@@ -219,6 +219,7 @@ impl StatefulComponent for Search {
                             badge: None,
                             postfix: None,
                             selected: false,
+                            accent: None,
                             tags: &[],
                         })
                         .collect();
@@ -231,6 +232,7 @@ impl StatefulComponent for Search {
                             shrink_to_fit: false,
                             show_separators: true,
                             compact: false,
+                            max_height: Some(300.0),
                         },
                     );
 
@@ -294,6 +296,7 @@ impl StatefulComponent for Search {
                         badge: None,
                         postfix: None,
                         selected: false,
+                        accent: None,
                         tags: &[],
                     })
                     .collect();
@@ -310,6 +313,7 @@ impl StatefulComponent for Search {
                                 shrink_to_fit: false,
                                 show_separators: true,
                                 compact: false,
+                                max_height: Some(300.0),
                             },
                         );
                         if let Some(idx) = output.row_clicked

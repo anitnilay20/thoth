@@ -114,6 +114,10 @@ pub struct ListItem<'a> {
     pub postfix: Option<ListItemPostfix<'a>>,
     /// Persistent highlight — used for active/selected state (e.g. category strip).
     pub selected: bool,
+    /// Optional left accent border color. Pass `Some(color)` to draw a 2 px strip
+    /// on the left edge in the given color (e.g. per-notification-kind color).
+    /// Drawn for non-compact rows only; independent of `selected`.
+    pub accent: Option<egui::Color32>,
     /// Optional category/tag pills rendered below the description row.
     pub tags: &'a [&'a str],
 }
@@ -139,6 +143,10 @@ pub struct ListProps<'a> {
     /// Use compact 26 px rows — no description or tile prefix support.
     /// Intended for navigation / category strips.
     pub compact: bool,
+    /// Cap the scroll area at this height (px) and scroll beyond it.
+    /// `None` (default) lets the list grow to fit all its content.
+    /// Pass `Some(h)` for large or lazily-loaded lists (e.g. search results).
+    pub max_height: Option<f32>,
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -192,10 +200,13 @@ impl StatelessComponent for List {
         // in the same parent UI get different scroll IDs and different item IDs.
         let scroll_id = ui.next_auto_id();
 
-        egui::ScrollArea::vertical()
+        let mut scroll = egui::ScrollArea::vertical()
             .id_salt(scroll_id)
-            .auto_shrink([false, props.shrink_to_fit])
-            .show_viewport(ui, |ui, viewport| {
+            .auto_shrink([false, props.shrink_to_fit]);
+        if let Some(h) = props.max_height {
+            scroll = scroll.max_height(h);
+        }
+        scroll.show_viewport(ui, |ui, viewport| {
                 ui.set_min_height(total_h);
 
                 let start = offsets
@@ -560,26 +571,24 @@ impl StatelessComponent for List {
                     // always renders behind badges, icons, and text.
                     let is_hovering = is_hovered || was_hovered;
                     let bg_shape = if item.selected && is_hovering {
-                        // Selected + hovered: slightly brighter than selected alone.
                         egui::Shape::rect_filled(row_resp.rect, 3.0, colors.surface_raised)
-                    } else if item.selected {
-                        egui::Shape::rect_filled(row_resp.rect, 3.0, colors.surface_active)
-                    } else if is_hovering {
-                        // Subtle hover — uses the theme's sidebar_hover token which is
-                        // a catppuccin overlay color at low alpha (~0x33).
+                    } else if item.selected || is_hovering {
                         egui::Shape::rect_filled(row_resp.rect, 3.0, colors.sidebar_hover)
                     } else {
                         egui::Shape::Noop
                     };
                     ui.painter().set(bg_slot, bg_shape);
 
-                    // Left accent border for selected non-compact rows.
-                    if item.selected && !compact {
+                    // Left accent border — driven by the `accent` prop, not `selected`,
+                    // so callers control both color and presence independently.
+                    if let Some(accent_color) = item.accent
+                        && !compact
+                    {
                         let border = egui::Rect::from_min_size(
                             row_resp.rect.min,
                             egui::vec2(2.0, row_resp.rect.height()),
                         );
-                        ui.painter().rect_filled(border, 0.0, colors.accent);
+                        ui.painter().rect_filled(border, 0.0, accent_color);
                     }
 
                     if postfix_btn_clicked {

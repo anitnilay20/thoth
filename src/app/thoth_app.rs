@@ -22,6 +22,7 @@ pub struct ThothApp {
     clipboard_text: Option<String>,
     settings_changed: bool,
     session_dirty: bool,
+    show_update_consent: bool,
     /// Plugin IDs from the persisted session that couldn't be restored yet because
     /// PLUGIN_MANAGER was still initializing on the background thread. Drained each
     /// frame once the manager becomes available.
@@ -79,6 +80,7 @@ impl ThothApp {
             clipboard_text: None,
             settings_changed: false,
             session_dirty: false,
+            show_update_consent: false,
             pending_plugin_restores,
             session_restore_active_index,
         }
@@ -169,7 +171,14 @@ impl App for ThothApp {
         let should_show_updates =
             UpdateHandler::handle_update_messages(&mut self.update_state, ctx);
 
-        if should_show_updates && !self.settings_dialog.open {
+        if should_show_updates {
+            self.show_update_consent = true;
+            UpdateHandler::post_update_notification(&self.update_state);
+        }
+
+        if crate::OPEN_UPDATES_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed)
+            && !self.settings_dialog.open
+        {
             self.settings_dialog.open_updates(&self.settings);
         }
 
@@ -328,6 +337,7 @@ impl App for ThothApp {
         }
 
         self.render_error_modal(&ctx);
+        self.render_update_consent_modal(ui);
 
         if let Some(new_settings) = settings::Settings::take_if_dirty(&ctx) {
             self.apply_new_settings(new_settings);
@@ -922,21 +932,21 @@ impl ThothApp {
             .into_iter()
             .filter_map(|id| {
                 let tab = self.window_state.tab_manager.tabs.get(&id)?;
-                let entry = if let Some(ref path) = tab.file_path {
-                    Some(PersistedTab {
+                let entry = tab
+                    .file_path
+                    .as_ref()
+                    .map(|path| PersistedTab {
                         kind: PersistedTabKind::File {
                             path: path.to_string_lossy().into_owned(),
                         },
                     })
-                } else if let Some(ref pane) = tab.active_plugin_pane {
-                    Some(PersistedTab {
-                        kind: PersistedTabKind::Plugin {
-                            plugin_id: pane.plugin_id.clone(),
-                        },
-                    })
-                } else {
-                    None // Empty / welcome tabs are not persisted.
-                };
+                    .or_else(|| {
+                        tab.active_plugin_pane.as_ref().map(|pane| PersistedTab {
+                            kind: PersistedTabKind::Plugin {
+                                plugin_id: pane.plugin_id.clone(),
+                            },
+                        })
+                    });
                 if entry.is_some() {
                     if Some(id) == active_id {
                         active_tab_index = persisted_index;
@@ -1578,6 +1588,21 @@ impl ThothApp {
                     _ => {}
                 }
             }
+        }
+    }
+
+    fn render_update_consent_modal(&mut self, ui: &mut egui::Ui) {
+        use super::update_handler::ConsentAction;
+        match UpdateHandler::render_consent_modal(ui, &self.update_state, self.show_update_consent)
+        {
+            Some(ConsentAction::RemindLater) => self.show_update_consent = false,
+            Some(ConsentAction::UpdateNow) => {
+                self.show_update_consent = false;
+                if !self.settings_dialog.open {
+                    self.settings_dialog.open_updates(&self.settings);
+                }
+            }
+            None => {}
         }
     }
 }

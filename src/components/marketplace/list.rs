@@ -210,6 +210,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                     None
                 },
                 selected: is_active,
+                accent: None,
                 tags: &[],
             }
         })
@@ -223,6 +224,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
             shrink_to_fit: true,
             show_separators: false,
             compact: true,
+            max_height: None,
         },
     );
 
@@ -388,6 +390,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                 badge: None,
                 postfix,
                 selected: row.is_selected,
+                accent: None,
                 tags: &row.tag_labels,
             }
         })
@@ -401,6 +404,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
             shrink_to_fit: false,
             show_separators: true,
             compact: false,
+            max_height: None,
         },
     );
 

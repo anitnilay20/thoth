@@ -114,6 +114,7 @@ impl StatefulComponent for Bookmarks {
                             badge: None,
                             postfix: None,
                             selected: false,
+                            accent: None,
                             tags: &[],
                         }
                     })
@@ -127,6 +128,7 @@ impl StatefulComponent for Bookmarks {
                         shrink_to_fit: false,
                         show_separators: true,
                         compact: false,
+                        max_height: None,
                     },
                 );
 
