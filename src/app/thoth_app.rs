@@ -23,6 +23,8 @@ pub struct ThothApp {
     settings_changed: bool,
     session_dirty: bool,
     show_update_consent: bool,
+    /// Holds the live native menu bar (muda) so it isn't dropped.
+    _native_menu: Option<crate::platform::native_menu::NativeMenu>,
     /// Plugin IDs from the persisted session that couldn't be restored yet because
     /// PLUGIN_MANAGER was still initializing on the background thread. Drained each
     /// frame once the manager becomes available.
@@ -33,7 +35,11 @@ pub struct ThothApp {
 }
 
 impl ThothApp {
-    pub fn new(settings: settings::Settings, file_to_open: Option<PathBuf>) -> Self {
+    pub fn new(
+        settings: settings::Settings,
+        file_to_open: Option<PathBuf>,
+        cc: &eframe::CreationContext<'_>,
+    ) -> Self {
         let persistent_state = PersistentState::default();
 
         let mut window_state = state::WindowState::default();
@@ -71,6 +77,16 @@ impl ThothApp {
             (deferred, restore_index)
         };
 
+        // Set up native menu bar (macOS/Windows); Linux uses egui menu in toolbar.
+        use raw_window_handle::HasWindowHandle as _;
+        let native_menu = cc
+            .window_handle()
+            .ok()
+            .map(|h| h.as_raw())
+            .and_then(|raw| {
+                crate::platform::native_menu::setup(raw, &settings.shortcuts)
+            });
+
         Self {
             settings,
             persistent_state,
@@ -81,6 +97,7 @@ impl ThothApp {
             settings_changed: false,
             session_dirty: false,
             show_update_consent: false,
+            _native_menu: native_menu,
             pending_plugin_restores,
             session_restore_active_index,
         }
@@ -778,6 +795,47 @@ impl ThothApp {
                             tab.central_panel.navigate_to_path(path);
                         }
                 }
+            }
+        }
+
+        // Poll native menu bar events (macOS / Windows).
+        // Linux falls back to the egui in-window menu bar rendered by toolbar.rs.
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        for action in crate::platform::native_menu::poll_events() {
+            use crate::platform::native_menu::MenuAction;
+            match action {
+                MenuAction::OpenFile => {
+                    let plugins_enabled = self.settings.plugins.enabled;
+                    if let Some(path) = crate::app::pick_file(plugins_enabled)
+                        && let Some(file_type) =
+                            crate::components::toolbar::infer_file_type_pub(&path)
+                    {
+                        if let Some(path_str) = path.to_str() {
+                            self.persistent_state.add_recent_file(
+                                path_str.to_string(),
+                                self.settings.performance.max_recent_files,
+                            );
+                            let _ = self.persistent_state.save();
+                        }
+                        let id = self
+                            .window_state
+                            .tab_manager
+                            .open_file(path, nav_capacity);
+                        if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
+                            tab.file_type = file_type;
+                            tab.error = None;
+                        }
+                    }
+                }
+                MenuAction::NewWindow => self.create_new_window(),
+                MenuAction::CloseTab => {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.file_path = None;
+                        tab.error = None;
+                    }
+                    self.session_dirty = true;
+                }
+                MenuAction::OpenSettings => self.open_settings_window(ui.ctx()),
             }
         }
     }
@@ -1514,6 +1572,9 @@ impl ThothApp {
                 }
                 components::sidebar::SidebarEvent::PluginSidebarEvent(evt) => {
                     self.dispatch_plugin_event(evt);
+                }
+                components::sidebar::SidebarEvent::OpenSettings => {
+                    self.settings_dialog.open(&self.settings);
                 }
             }
         }

@@ -93,6 +93,7 @@ pub enum SidebarEvent {
     DataSourceLoading(bool),
     /// A widget interaction from the plugin's sidebar panel.
     PluginSidebarEvent(crate::plugin::render_node::UiEvent),
+    OpenSettings,
 }
 
 pub struct SidebarOutput {
@@ -342,6 +343,24 @@ impl Sidebar {
             {
                 events.push(SidebarEvent::SectionToggled(section));
             }
+        }
+
+        // Settings icon pinned to the bottom of the icon strip
+        let remaining = ui.available_height();
+        if remaining > button_size.y {
+            ui.add_space(remaining - button_size.y);
+        }
+        if IconButton::render(
+            ui,
+            sidebar_btn(
+                egui_phosphor::regular::GEAR,
+                "Settings",
+                false,
+            ),
+        )
+        .clicked
+        {
+            events.push(SidebarEvent::OpenSettings);
         }
     }
 
