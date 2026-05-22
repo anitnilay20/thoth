@@ -1,12 +1,9 @@
-/// Cross-platform native menu bar using muda.
+/// Cross-platform native menu bar.
 ///
-/// - macOS: sets NSApplication.mainMenu (system menu bar at top of screen)
-/// - Windows: attaches a Win32 menu bar to the window
-/// - Linux: no-op (handled by egui in-window menu bar in toolbar.rs)
-use muda::{
-    Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
-    accelerator::{Accelerator, Code, CMD_OR_CTRL},
-};
+/// - macOS: NSApplication system menu bar (via muda)
+/// - Windows: Win32 in-window menu bar (via muda)
+/// - Linux: no-op — egui in-window menu bar in toolbar.rs is used instead,
+///   so muda (which requires GTK dev headers) is not compiled on Linux.
 
 /// Actions that can be triggered from the native menu bar.
 #[derive(Debug, Clone)]
@@ -17,110 +14,121 @@ pub enum MenuAction {
     OpenSettings,
 }
 
-/// Holds the live `Menu` to prevent it from being dropped, which would
-/// remove the menu bar from the application on some platforms.
+/// Holds the live muda `Menu` on macOS/Windows so it is not dropped.
+/// On Linux this is an empty unit struct (zero cost).
 pub struct NativeMenu {
-    _menu: Menu,
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    _menu: muda::Menu,
 }
 
-/// Build and register the native menu bar for the current platform.
-/// Returns `None` on Linux (egui fallback handles it instead).
+/// Build and register the native menu bar. Returns `None` on Linux.
 pub fn setup(
     #[allow(unused_variables)] window_handle: raw_window_handle::RawWindowHandle,
-    _shortcuts: &crate::shortcuts::KeyboardShortcuts,
+    #[allow(unused_variables)] shortcuts: &crate::shortcuts::KeyboardShortcuts,
 ) -> Option<NativeMenu> {
-    let menu = Menu::new();
-
-    // ── Thoth menu ─────────────────────────────────────────────────────────
-    let thoth_menu = Submenu::new("Thoth", true);
-
-    let settings_item = MenuItem::with_id(
-        "settings",
-        "Settings",
-        true,
-        Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Comma)),
-    );
-
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        let quit_item = PredefinedMenuItem::quit(Some("Quit Thoth"));
-        let _ = thoth_menu.append_items(&[
-            &settings_item,
+        use muda::{
+            Menu, MenuItem, PredefinedMenuItem, Submenu,
+            accelerator::{Accelerator, Code, CMD_OR_CTRL},
+        };
+
+        let menu = Menu::new();
+
+        // ── Thoth menu ─────────────────────────────────────────────────────
+        let thoth_menu = Submenu::new("Thoth", true);
+        let settings_item = MenuItem::with_id(
+            "settings",
+            "Settings",
+            true,
+            Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Comma)),
+        );
+
+        #[cfg(target_os = "macos")]
+        {
+            let quit_item = PredefinedMenuItem::quit(Some("Quit Thoth"));
+            let _ = thoth_menu.append_items(&[
+                &settings_item,
+                &PredefinedMenuItem::separator(),
+                &quit_item,
+            ]);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let _ = thoth_menu.append_items(&[&settings_item]);
+        }
+
+        // ── File menu ──────────────────────────────────────────────────────
+        let file_menu = Submenu::new("File", true);
+        let open_item = MenuItem::with_id(
+            "open_file",
+            "Open File…",
+            true,
+            Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyO)),
+        );
+        let new_window_item = MenuItem::with_id(
+            "new_window",
+            "New Window",
+            true,
+            Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyN)),
+        );
+        let close_tab_item = MenuItem::with_id(
+            "close_tab",
+            "Close Tab",
+            true,
+            Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyW)),
+        );
+        let _ = file_menu.append_items(&[
+            &open_item,
+            &new_window_item,
             &PredefinedMenuItem::separator(),
-            &quit_item,
+            &close_tab_item,
         ]);
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = thoth_menu.append_items(&[&settings_item]);
-    }
 
-    // ── File menu ──────────────────────────────────────────────────────────
-    let file_menu = Submenu::new("File", true);
+        let _ = menu.append_items(&[&thoth_menu, &file_menu]);
 
-    let open_item = MenuItem::with_id(
-        "open_file",
-        "Open File…",
-        true,
-        Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyO)),
-    );
-    let new_window_item = MenuItem::with_id(
-        "new_window",
-        "New Window",
-        true,
-        Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyN)),
-    );
-    let close_tab_item = MenuItem::with_id(
-        "close_tab",
-        "Close Tab",
-        true,
-        Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyW)),
-    );
-    let _ = file_menu.append_items(&[
-        &open_item,
-        &new_window_item,
-        &PredefinedMenuItem::separator(),
-        &close_tab_item,
-    ]);
+        // ── Platform init ──────────────────────────────────────────────────
+        #[cfg(target_os = "macos")]
+        {
+            menu.init_for_nsapp();
+        }
+        #[cfg(target_os = "windows")]
+        {
+            if let raw_window_handle::RawWindowHandle::Win32(w) = window_handle {
+                let hwnd = w.hwnd.get() as isize;
+                let _ = unsafe { menu.init_for_hwnd(hwnd) };
+            }
+        }
 
-    let _ = menu.append_items(&[&thoth_menu, &file_menu]);
-
-    // ── Platform init ──────────────────────────────────────────────────────
-    #[cfg(target_os = "macos")]
-    {
-        menu.init_for_nsapp();
         return Some(NativeMenu { _menu: menu });
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        if let raw_window_handle::RawWindowHandle::Win32(w) = window_handle {
-            let hwnd = w.hwnd.get() as isize;
-            let _ = unsafe { menu.init_for_hwnd(hwnd) };
-            return Some(NativeMenu { _menu: menu });
-        }
-    }
-
-    // Linux: no native init — egui menu bar used instead
+    // Linux: no native menu — egui fallback in toolbar.rs handles it.
     #[allow(unreachable_code)]
     None
 }
 
-/// Drain the muda event channel and return all pending menu actions.
-/// Should be called every frame from `ThothApp::update()`.
+/// Drain pending native menu events. Returns an empty Vec on Linux.
 pub fn poll_events() -> Vec<MenuAction> {
-    let mut actions = Vec::new();
-    while let Ok(event) = MenuEvent::receiver().try_recv() {
-        let action = match event.id().0.as_str() {
-            "open_file" => Some(MenuAction::OpenFile),
-            "new_window" => Some(MenuAction::NewWindow),
-            "close_tab" => Some(MenuAction::CloseTab),
-            "settings" => Some(MenuAction::OpenSettings),
-            _ => None,
-        };
-        if let Some(a) = action {
-            actions.push(a);
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        use muda::MenuEvent;
+        let mut actions = Vec::new();
+        while let Ok(event) = MenuEvent::receiver().try_recv() {
+            let action = match event.id().0.as_str() {
+                "open_file" => Some(MenuAction::OpenFile),
+                "new_window" => Some(MenuAction::NewWindow),
+                "close_tab" => Some(MenuAction::CloseTab),
+                "settings" => Some(MenuAction::OpenSettings),
+                _ => None,
+            };
+            if let Some(a) = action {
+                actions.push(a);
+            }
         }
+        return actions;
     }
-    actions
+
+    #[allow(unreachable_code)]
+    Vec::new()
 }
