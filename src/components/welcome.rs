@@ -22,13 +22,21 @@ impl WelcomePanel {
 
         let c = colors.unwrap_or_else(|| {
             ui.ctx()
-                .memory(|m| m.data.get_temp::<ThemeColors>(egui::Id::new("theme_colors")))
+                .memory(|m| {
+                    m.data
+                        .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
+                })
                 .unwrap_or_else(|| crate::theme::Theme::default().colors())
         });
 
         // ── PluginShell header (title row + divider) ──────────────────────────
         // padding: 20px 24px 16px  — top 20, sides 24, bottom 16
-        let header_padding = egui::Margin { left: 24, right: 24, top: 20, bottom: 16 };
+        let header_padding = egui::Margin {
+            left: 24,
+            right: 24,
+            top: 20,
+            bottom: 16,
+        };
         egui::Frame::NONE
             .inner_margin(header_padding)
             .show(ui, |ui| {
@@ -59,10 +67,8 @@ impl WelcomePanel {
             });
 
         // Border-bottom: 1px solid --surface0
-        let sep_rect = egui::Rect::from_min_size(
-            ui.cursor().min,
-            egui::vec2(ui.available_width(), 1.0),
-        );
+        let sep_rect =
+            egui::Rect::from_min_size(ui.cursor().min, egui::vec2(ui.available_width(), 1.0));
         ui.painter().rect_filled(sep_rect, 0.0, c.surface);
         ui.advance_cursor_after_rect(sep_rect);
 
@@ -216,8 +222,11 @@ fn action_row(
             );
             let gsize = g.size();
             let hint_x = rect.max.x - pad_x - gsize.x;
-            ui.painter()
-                .galley(egui::pos2(hint_x, rect.center().y - gsize.y / 2.0), g, c.fg_muted);
+            ui.painter().galley(
+                egui::pos2(hint_x, rect.center().y - gsize.y / 2.0),
+                g,
+                c.fg_muted,
+            );
             gsize.x + pad_x + 4.0
         } else {
             0.0
@@ -232,8 +241,11 @@ fn action_row(
             c.fg,
             label_max_w,
         );
-        ui.painter()
-            .galley(egui::pos2(label_x, rect.center().y - lg.size().y / 2.0), lg, c.fg);
+        ui.painter().galley(
+            egui::pos2(label_x, rect.center().y - lg.size().y / 2.0),
+            lg,
+            c.fg,
+        );
     }
 
     if response.hovered() {
@@ -251,15 +263,16 @@ fn tip_row(ui: &mut egui::Ui, kbd: &str, body: &str, c: ThemeColors) {
 
         // Badge: padding 2px 8px, borderRadius 4, bg --surface0, color --text
         let badge_font = egui::FontId::monospace(12.0);
-        let badge_galley =
-            ui.painter()
-                .layout_no_wrap(kbd.to_string(), badge_font, c.fg);
+        let badge_galley = ui
+            .painter()
+            .layout_no_wrap(kbd.to_string(), badge_font, c.fg);
         let pad = egui::vec2(8.0, 2.0);
         let badge_size = badge_galley.size() + pad * 2.0;
         let (badge_rect, _) = ui.allocate_exact_size(badge_size, egui::Sense::hover());
         if ui.is_rect_visible(badge_rect) {
             ui.painter().rect_filled(badge_rect, 4.0, c.surface);
-            ui.painter().galley(badge_rect.min + pad, badge_galley, c.fg);
+            ui.painter()
+                .galley(badge_rect.min + pad, badge_galley, c.fg);
         }
 
         // Body: 13px --overlay1

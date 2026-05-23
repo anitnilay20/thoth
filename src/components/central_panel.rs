@@ -188,12 +188,16 @@ impl CentralPanel {
             }
 
             if self.loaded_path.is_none() {
-                use crate::components::welcome::{WelcomePanel, WelcomeEvent};
+                use crate::components::welcome::{WelcomeEvent, WelcomePanel};
                 let welcome_events = WelcomePanel::render(ui, props.recent_files, props.colors);
                 for evt in welcome_events {
                     match evt {
-                        WelcomeEvent::OpenFilePicker => events.push(CentralPanelEvent::OpenFilePicker),
-                        WelcomeEvent::OpenRecentFile(path) => events.push(CentralPanelEvent::OpenRecentFile(path)),
+                        WelcomeEvent::OpenFilePicker => {
+                            events.push(CentralPanelEvent::OpenFilePicker)
+                        }
+                        WelcomeEvent::OpenRecentFile(path) => {
+                            events.push(CentralPanelEvent::OpenRecentFile(path))
+                        }
                     }
                 }
                 return;

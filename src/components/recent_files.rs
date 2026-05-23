@@ -93,14 +93,16 @@ impl StatefulComponent for RecentFiles {
                 );
 
                 if let Some(item_idx) = output.postfix_clicked
-                    && let Some(path) = props.recent_files.get(item_idx) {
-                        events.push(RecentFilesEvent::RemoveFile(path.clone()));
-                    }
+                    && let Some(path) = props.recent_files.get(item_idx)
+                {
+                    events.push(RecentFilesEvent::RemoveFile(path.clone()));
+                }
 
                 if let Some(item_idx) = output.row_clicked
-                    && let Some(path) = props.recent_files.get(item_idx) {
-                        events.push(RecentFilesEvent::OpenFile(path.clone()));
-                    }
+                    && let Some(path) = props.recent_files.get(item_idx)
+                {
+                    events.push(RecentFilesEvent::OpenFile(path.clone()));
+                }
                 ui.add_space(8.0);
 
                 let button_response = Button::render(

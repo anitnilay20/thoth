@@ -214,10 +214,7 @@ impl Toolbar {
                     let new_win_shortcut = props.shortcuts.new_window.format();
 
                     ui.menu_button("File", |ui| {
-                        if ui
-                            .button(format!("Open File…  {open_shortcut}"))
-                            .clicked()
-                        {
+                        if ui.button(format!("Open File…  {open_shortcut}")).clicked() {
                             ui.close();
                             if let Some(path) = pick_file(plugins_enabled)
                                 && let Some(file_type) = infer_file_type(&path)
@@ -233,10 +230,7 @@ impl Toolbar {
                             ui.close();
                         }
                         ui.separator();
-                        if ui
-                            .button(format!("Close Tab  {close_shortcut}"))
-                            .clicked()
-                        {
+                        if ui.button(format!("Close Tab  {close_shortcut}")).clicked() {
                             pending = Some(ToolbarEvent::FileClear);
                             ui.close();
                         }
@@ -262,15 +256,16 @@ fn infer_file_type(path: &Path) -> Option<FileKind> {
             // Ask the plugin registry whether any plugin handles this extension
             // so we don't fall back to a stale file-type from the previous file.
             if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get()
-                && pm.find_loader_for_extension(&ext).is_some() {
-                    return Some(
-                        if pm.plugin_has_capability(&ext, &crate::plugin::Capability::FileViewer) {
-                            FileKind::PluginTable
-                        } else {
-                            FileKind::Plugin
-                        },
-                    );
-                }
+                && pm.find_loader_for_extension(&ext).is_some()
+            {
+                return Some(
+                    if pm.plugin_has_capability(&ext, &crate::plugin::Capability::FileViewer) {
+                        FileKind::PluginTable
+                    } else {
+                        FileKind::Plugin
+                    },
+                );
+            }
             None
         }
     }

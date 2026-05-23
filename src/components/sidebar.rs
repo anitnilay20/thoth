@@ -352,11 +352,7 @@ impl Sidebar {
         }
         if IconButton::render(
             ui,
-            sidebar_btn(
-                egui_phosphor::regular::GEAR,
-                "Settings",
-                false,
-            ),
+            sidebar_btn(egui_phosphor::regular::GEAR, "Settings", false),
         )
         .clicked
         {

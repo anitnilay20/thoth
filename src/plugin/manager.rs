@@ -116,11 +116,12 @@ impl PluginManager {
         if let Some(location) = &plugin.location {
             let wasm_path = std::path::Path::new(location);
             if let Some(plugin_dir) = wasm_path.parent()
-                && plugin_dir.exists() {
-                    std::fs::remove_dir_all(plugin_dir).map_err(|e| ThothError::Unknown {
-                        message: format!("Failed to delete plugin directory: {e}"),
-                    })?;
-                }
+                && plugin_dir.exists()
+            {
+                std::fs::remove_dir_all(plugin_dir).map_err(|e| ThothError::Unknown {
+                    message: format!("Failed to delete plugin directory: {e}"),
+                })?;
+            }
         }
 
         self.registry.remove_plugin(id);
@@ -271,12 +272,13 @@ impl PluginManager {
         // scan_directory can't be reused here because it appends "plugins" —
         // call scan_instances_dir directly instead.
         if let Ok(installs_dir) = PersistentState::plugin_install_dir()
-            && installs_dir.exists() {
-                eprintln!("Checking marketplace installs {}", installs_dir.display());
-                if let Err(e) = self.scan_instances_dir(&installs_dir, false) {
-                    eprintln!("Failed to scan marketplace installs: {e:?}");
-                }
+            && installs_dir.exists()
+        {
+            eprintln!("Checking marketplace installs {}", installs_dir.display());
+            if let Err(e) = self.scan_instances_dir(&installs_dir, false) {
+                eprintln!("Failed to scan marketplace installs: {e:?}");
             }
+        }
 
         Ok(())
     }

@@ -199,9 +199,10 @@ impl NotificationDropdown {
                                 )
                                 .clicked
                                     && let Some(m) = crate::NOTIFICATION_MANAGER.get()
-                                        && let Ok(mut nm) = m.lock() {
-                                            nm.mark_all_read();
-                                        }
+                                    && let Ok(mut nm) = m.lock()
+                                {
+                                    nm.mark_all_read();
+                                }
                             });
                         });
                     });
@@ -275,16 +276,18 @@ impl NotificationDropdown {
 
                 let visible: Vec<&NotifRow> = notifications
                     .iter()
-                    .filter(|(_, _, _, status, kind, unread, _, _, _)| match new_filter {
-                        Filter::All => true,
-                        Filter::Unread => *unread,
-                        Filter::Plugins => *kind == NotificationKind::Plugin,
-                        Filter::Errors => {
-                            *status == NotificationStatus::Error
-                                || *kind == NotificationKind::Error
-                                || *kind == NotificationKind::Warn
-                        }
-                    })
+                    .filter(
+                        |(_, _, _, status, kind, unread, _, _, _)| match new_filter {
+                            Filter::All => true,
+                            Filter::Unread => *unread,
+                            Filter::Plugins => *kind == NotificationKind::Plugin,
+                            Filter::Errors => {
+                                *status == NotificationStatus::Error
+                                    || *kind == NotificationKind::Error
+                                    || *kind == NotificationKind::Warn
+                            }
+                        },
+                    )
                     .collect();
 
                 egui::ScrollArea::vertical()
@@ -347,44 +350,53 @@ impl NotificationDropdown {
                                     .iter()
                                     .zip(descs.iter())
                                     .zip(action_labels.iter())
-                                    .map(|(((_, title, _, _, kind, unread, _, _, pinned), desc), action_label)| {
-                                        let (icon, icon_color) = kind_icon(*kind, colors);
-                                        let postfix = if *pinned {
-                                            action_label.as_deref().map(|label| {
-                                                ListItemPostfix::ActionButton(ButtonProps {
-                                                    label: label.to_string(),
-                                                    button_type: ButtonType::Elevated,
-                                                    color: ButtonColor::Primary,
-                                                    button_size: ButtonSize::Small,
-                                                    ..Default::default()
+                                    .map(
+                                        |(
+                                            ((_, title, _, _, kind, unread, _, _, pinned), desc),
+                                            action_label,
+                                        )| {
+                                            let (icon, icon_color) = kind_icon(*kind, colors);
+                                            let postfix = if *pinned {
+                                                action_label.as_deref().map(|label| {
+                                                    ListItemPostfix::ActionButton(ButtonProps {
+                                                        label: label.to_string(),
+                                                        button_type: ButtonType::Elevated,
+                                                        color: ButtonColor::Primary,
+                                                        button_size: ButtonSize::Small,
+                                                        ..Default::default()
+                                                    })
                                                 })
-                                            })
-                                        } else {
-                                            Some(ListItemPostfix::IconButton(IconButtonProps {
-                                                icon: egui_phosphor::regular::X,
-                                                tooltip: Some("Dismiss"),
-                                                frame: false,
-                                                badge_color: None,
-                                                size: Some(egui::vec2(18.0, 18.0)),
-                                                icon_size: Some(11.0),
-                                                disabled: false,
+                                            } else {
+                                                Some(ListItemPostfix::IconButton(IconButtonProps {
+                                                    icon: egui_phosphor::regular::X,
+                                                    tooltip: Some("Dismiss"),
+                                                    frame: false,
+                                                    badge_color: None,
+                                                    size: Some(egui::vec2(18.0, 18.0)),
+                                                    icon_size: Some(11.0),
+                                                    disabled: false,
+                                                    selected: false,
+                                                }))
+                                            };
+                                            ListItem {
+                                                title: title.as_str(),
+                                                description: Some(desc.as_str()),
+                                                prefix: Some(ListItemPrefix::Icon {
+                                                    glyph: icon,
+                                                    color: Some(icon_color),
+                                                }),
+                                                badge: None,
+                                                postfix,
                                                 selected: false,
-                                            }))
-                                        };
-                                        ListItem {
-                                            title: title.as_str(),
-                                            description: Some(desc.as_str()),
-                                            prefix: Some(ListItemPrefix::Icon {
-                                                glyph: icon,
-                                                color: Some(icon_color),
-                                            }),
-                                            badge: None,
-                                            postfix,
-                                            selected: false,
-                                            accent: if *unread { Some(icon_color) } else { None },
-                                            tags: &[],
-                                        }
-                                    })
+                                                accent: if *unread {
+                                                    Some(icon_color)
+                                                } else {
+                                                    None
+                                                },
+                                                tags: &[],
+                                            }
+                                        },
+                                    )
                                     .collect();
 
                                 let list_out = List::render(
@@ -400,23 +412,25 @@ impl NotificationDropdown {
                                 );
 
                                 if let Some(idx) = list_out.postfix_clicked
-                                    && let Some(row) = bucket.get(idx) {
-                                        if row.8 {
-                                            // Pinned row: postfix is an action button — fire it.
-                                            if let Some((_, cb)) = row.6.first() {
-                                                cb();
-                                            }
-                                        } else {
-                                            to_dismiss = Some(row.0.clone());
+                                    && let Some(row) = bucket.get(idx)
+                                {
+                                    if row.8 {
+                                        // Pinned row: postfix is an action button — fire it.
+                                        if let Some((_, cb)) = row.6.first() {
+                                            cb();
                                         }
+                                    } else {
+                                        to_dismiss = Some(row.0.clone());
                                     }
+                                }
 
                                 // Clicking a row fires the primary (first) action only.
                                 if let Some(idx) = list_out.row_clicked
                                     && let Some(row) = bucket.get(idx)
-                                        && let Some((_, cb)) = row.6.first() {
-                                            cb();
-                                        }
+                                    && let Some((_, cb)) = row.6.first()
+                                {
+                                    cb();
+                                }
                             }
                         }
                     });
@@ -445,9 +459,10 @@ impl NotificationDropdown {
                             )
                             .clicked
                                 && let Some(m) = crate::NOTIFICATION_MANAGER.get()
-                                    && let Ok(mut nm) = m.lock() {
-                                        nm.clear_notifications();
-                                    }
+                                && let Ok(mut nm) = m.lock()
+                            {
+                                nm.clear_notifications();
+                            }
                         });
                     });
             });

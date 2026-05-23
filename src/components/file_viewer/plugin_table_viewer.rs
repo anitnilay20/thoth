@@ -58,11 +58,12 @@ impl FileFormatViewer for PluginTableViewer {
                 // Plugin didn't provide headers — derive them from the keys of
                 // the first record so the table has something to render.
                 if let Ok(first) = loader.get(0)
-                    && let Some(obj) = first.as_object() {
-                        let mut keys: Vec<String> = obj.keys().cloned().collect();
-                        keys.sort(); // deterministic column order
-                        self.headers = keys;
-                    }
+                    && let Some(obj) = first.as_object()
+                {
+                    let mut keys: Vec<String> = obj.keys().cloned().collect();
+                    keys.sort(); // deterministic column order
+                    self.headers = keys;
+                }
             }
         }
 

@@ -158,17 +158,16 @@ impl UpdateHandler {
             return None;
         }
 
-        let (current_version, latest_version) =
-            if let update::UpdateState::UpdateAvailable {
-                ref current_version,
-                ref latest_version,
-                ..
-            } = update_state.update_status.state
-            {
-                (current_version.clone(), latest_version.clone())
-            } else {
-                return None;
-            };
+        let (current_version, latest_version) = if let update::UpdateState::UpdateAvailable {
+            ref current_version,
+            ref latest_version,
+            ..
+        } = update_state.update_status.state
+        {
+            (current_version.clone(), latest_version.clone())
+        } else {
+            return None;
+        };
 
         use crate::components::{
             traits::StatelessComponent,
@@ -194,17 +193,16 @@ impl UpdateHandler {
 
     /// Post (or refresh) the pinned update-available notification with an "Update Now" action.
     pub fn post_update_notification(update_state: &state::ApplicationUpdateState) {
-        let (current_version, latest_version) =
-            if let update::UpdateState::UpdateAvailable {
-                ref current_version,
-                ref latest_version,
-                ..
-            } = update_state.update_status.state
-            {
-                (current_version.clone(), latest_version.clone())
-            } else {
-                return;
-            };
+        let (current_version, latest_version) = if let update::UpdateState::UpdateAvailable {
+            ref current_version,
+            ref latest_version,
+            ..
+        } = update_state.update_status.state
+        {
+            (current_version.clone(), latest_version.clone())
+        } else {
+            return;
+        };
 
         crate::notification::NotificationManager::notify(
             crate::notification::Notification::new(
@@ -217,8 +215,7 @@ impl UpdateHandler {
             .with_action(
                 "Update Now",
                 std::sync::Arc::new(|| {
-                    crate::OPEN_UPDATES_REQUESTED
-                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    crate::OPEN_UPDATES_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
                 }),
             )
             .pinned(),

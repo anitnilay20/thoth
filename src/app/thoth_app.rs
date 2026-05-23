@@ -35,11 +35,7 @@ pub struct ThothApp {
 }
 
 impl ThothApp {
-    pub fn new(
-        settings: settings::Settings,
-        file_to_open: Option<PathBuf>,
-        cc: &eframe::CreationContext<'_>,
-    ) -> Self {
+    pub fn new(settings: settings::Settings, file_to_open: Option<PathBuf>) -> Self {
         let persistent_state = PersistentState::default();
 
         let mut window_state = state::WindowState::default();
@@ -51,41 +47,34 @@ impl ThothApp {
         let nav_capacity = settings.performance.navigation_history_size;
         window_state.tab_manager = crate::app::TabManager::new(nav_capacity);
 
-        let (pending_plugin_restores, session_restore_active_index) = if let Some(path) = file_to_open {
-            // A file was passed via CLI / OS file association — open it directly,
-            // skipping session restore so the user sees exactly what they asked for.
-            window_state.tab_manager.open_file(path, nav_capacity);
-            (Vec::new(), None)
-        } else {
-            // Restore the previous session (file tabs whose paths still exist, plugin tabs
-            // that can be re-instantiated). Plugin tabs that can't be opened yet (because
-            // PLUGIN_MANAGER is still initializing on a background thread) are returned
-            // here and retried via poll_pending_plugin_restores() each frame.
-            let (deferred, active_index) = Self::restore_tab_session(
-                &mut window_state.tab_manager,
-                &persistent_state,
-                &settings,
-            );
-            // Switch to the previously-active tab immediately if there are no deferred
-            // plugins; otherwise defer until poll_pending_plugin_restores() finishes.
-            let restore_index = if deferred.is_empty() {
-                window_state.tab_manager.switch_to_tab_by_index(active_index);
-                None
+        let (pending_plugin_restores, session_restore_active_index) =
+            if let Some(path) = file_to_open {
+                // A file was passed via CLI / OS file association — open it directly,
+                // skipping session restore so the user sees exactly what they asked for.
+                window_state.tab_manager.open_file(path, nav_capacity);
+                (Vec::new(), None)
             } else {
-                Some(active_index)
+                // Restore the previous session (file tabs whose paths still exist, plugin tabs
+                // that can be re-instantiated). Plugin tabs that can't be opened yet (because
+                // PLUGIN_MANAGER is still initializing on a background thread) are returned
+                // here and retried via poll_pending_plugin_restores() each frame.
+                let (deferred, active_index) = Self::restore_tab_session(
+                    &mut window_state.tab_manager,
+                    &persistent_state,
+                    &settings,
+                );
+                // Switch to the previously-active tab immediately if there are no deferred
+                // plugins; otherwise defer until poll_pending_plugin_restores() finishes.
+                let restore_index = if deferred.is_empty() {
+                    window_state
+                        .tab_manager
+                        .switch_to_tab_by_index(active_index);
+                    None
+                } else {
+                    Some(active_index)
+                };
+                (deferred, restore_index)
             };
-            (deferred, restore_index)
-        };
-
-        // Set up native menu bar (macOS/Windows); Linux uses egui menu in toolbar.
-        use raw_window_handle::HasWindowHandle as _;
-        let native_menu = cc
-            .window_handle()
-            .ok()
-            .map(|h| h.as_raw())
-            .and_then(|raw| {
-                crate::platform::native_menu::setup(raw, &settings.shortcuts)
-            });
 
         Self {
             settings,
@@ -97,10 +86,19 @@ impl ThothApp {
             settings_changed: false,
             session_dirty: false,
             show_update_consent: false,
-            _native_menu: native_menu,
+            _native_menu: None,
             pending_plugin_restores,
             session_restore_active_index,
         }
+    }
+
+    pub fn setup_native_menu(&mut self, cc: &eframe::CreationContext<'_>) {
+        use raw_window_handle::HasWindowHandle as _;
+        self._native_menu = cc
+            .window_handle()
+            .ok()
+            .map(|h| h.as_raw())
+            .and_then(|raw| crate::platform::native_menu::setup(raw, &self.settings.shortcuts));
     }
 
     pub fn create_new_window(&mut self) {
@@ -130,21 +128,22 @@ impl ThothApp {
         }
 
         if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-            && let Some(pane) = tab.active_plugin_pane.as_mut() {
-                let updated = self
-                    .settings
-                    .plugins
-                    .plugin_settings
-                    .get(&pane.plugin_id)
-                    .cloned()
-                    .unwrap_or_default();
-                if let Err(e) = pane.loader.on_setting_change(&updated) {
-                    eprintln!(
-                        "Failed to notify plugin '{}' of setting change: {e}",
-                        pane.plugin_id
-                    );
-                }
+            && let Some(pane) = tab.active_plugin_pane.as_mut()
+        {
+            let updated = self
+                .settings
+                .plugins
+                .plugin_settings
+                .get(&pane.plugin_id)
+                .cloned()
+                .unwrap_or_default();
+            if let Err(e) = pane.loader.on_setting_change(&updated) {
+                eprintln!(
+                    "Failed to notify plugin '{}' of setting change: {e}",
+                    pane.plugin_id
+                );
             }
+        }
 
         let plugins_changed = self.settings.plugins.enabled != prev_plugins_enabled
             || self.settings.plugins.disabled_plugin_ids != prev_disabled_plugin_ids;
@@ -200,9 +199,10 @@ impl App for ThothApp {
         }
 
         if let Some(nm) = NOTIFICATION_MANAGER.get()
-            && let Ok(mut nm) = nm.lock() {
-                nm.show_notifications(ctx);
-            }
+            && let Ok(mut nm) = nm.lock()
+        {
+            nm.show_notifications(ctx);
+        }
 
         // Restore plugin tabs that were deferred at startup (PLUGIN_MANAGER not ready yet).
         self.poll_pending_plugin_restores();
@@ -240,24 +240,24 @@ impl App for ThothApp {
         let sidebar_msg = self.render_sidebar(ui);
 
         // Handle search messages from sidebar against the active tab.
-        let (msg_to_central, search_error) = if let Some(tab) =
-            self.window_state.tab_manager.active_tab_mut()
-        {
-            SearchHandler::handle_search_messages(
-                sidebar_msg,
-                &mut tab.search_engine_state,
-                &tab.file_path,
-                &tab.file_type,
-                &ctx,
-            )
-        } else {
-            (None, None)
-        };
+        let (msg_to_central, search_error) =
+            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                SearchHandler::handle_search_messages(
+                    sidebar_msg,
+                    &mut tab.search_engine_state,
+                    &tab.file_path,
+                    &tab.file_type,
+                    &ctx,
+                )
+            } else {
+                (None, None)
+            };
 
         if let Some(error) = search_error
-            && let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                tab.error = Some(error);
-            }
+            && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+        {
+            tab.error = Some(error);
+        }
 
         let shortcut_actions =
             ShortcutHandler::handle_shortcuts(ui.ctx(), &self.settings.shortcuts);
@@ -454,15 +454,17 @@ impl ThothApp {
                 ShortcutAction::PrevMatch => {}
                 ShortcutAction::NavBack => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(path) = tab.navigation_history.back() {
-                            tab.central_panel.navigate_to_path(path);
-                        }
+                        && let Some(path) = tab.navigation_history.back()
+                    {
+                        tab.central_panel.navigate_to_path(path);
+                    }
                 }
                 ShortcutAction::NavForward => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(path) = tab.navigation_history.forward() {
-                            tab.central_panel.navigate_to_path(path);
-                        }
+                        && let Some(path) = tab.navigation_history.forward()
+                    {
+                        tab.central_panel.navigate_to_path(path);
+                    }
                 }
                 ShortcutAction::Escape => {
                     if self.window_state.sidebar_expanded {
@@ -475,11 +477,15 @@ impl ThothApp {
                     }
                 }
                 ShortcutAction::ToggleBookmark => {
-                    let info = self.window_state.tab_manager.active_tab_mut().and_then(|tab| {
-                        let path = tab.central_panel.get_selected_path()?.clone();
-                        let file_path = tab.file_path.as_ref()?.to_str()?.to_string();
-                        Some((path, file_path))
-                    });
+                    let info = self
+                        .window_state
+                        .tab_manager
+                        .active_tab_mut()
+                        .and_then(|tab| {
+                            let path = tab.central_panel.get_selected_path()?.clone();
+                            let file_path = tab.file_path.as_ref()?.to_str()?.to_string();
+                            Some((path, file_path))
+                        });
                     if let Some((selected_path, file_path_str)) = info {
                         self.persistent_state
                             .toggle_bookmark(selected_path, file_path_str);
@@ -530,27 +536,31 @@ impl ThothApp {
                 }
                 ShortcutAction::CopyKey => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_key() {
-                            self.clipboard_text = Some(text);
-                        }
+                        && let Some(text) = tab.central_panel.copy_selected_key()
+                    {
+                        self.clipboard_text = Some(text);
+                    }
                 }
                 ShortcutAction::CopyValue => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_value() {
-                            self.clipboard_text = Some(text);
-                        }
+                        && let Some(text) = tab.central_panel.copy_selected_value()
+                    {
+                        self.clipboard_text = Some(text);
+                    }
                 }
                 ShortcutAction::CopyObject => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_object() {
-                            self.clipboard_text = Some(text);
-                        }
+                        && let Some(text) = tab.central_panel.copy_selected_object()
+                    {
+                        self.clipboard_text = Some(text);
+                    }
                 }
                 ShortcutAction::CopyPath => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_path() {
-                            self.clipboard_text = Some(text);
-                        }
+                        && let Some(text) = tab.central_panel.copy_selected_path()
+                    {
+                        self.clipboard_text = Some(text);
+                    }
                 }
                 ShortcutAction::CloseTab => {
                     let was_empty = self.window_state.tab_manager.close_active_tab();
@@ -595,21 +605,22 @@ impl ThothApp {
 
     fn dispatch_plugin_event(&mut self, event: crate::plugin::render_node::UiEvent) {
         if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-            && let Some(pane) = tab.active_plugin_pane.as_mut() {
-                match pane.loader.handle_event(event) {
-                    Ok(new_output) => {
-                        pane.ui_output = new_output;
-                        if let Ok(sidebar) = pane.loader.render_sidebar() {
-                            tab.plugin_sidebar_output = sidebar;
-                        }
-                    }
-                    Err(e) => {
-                        tab.error = Some(crate::error::ThothError::Unknown {
-                            message: e.to_string(),
-                        });
+            && let Some(pane) = tab.active_plugin_pane.as_mut()
+        {
+            match pane.loader.handle_event(event) {
+                Ok(new_output) => {
+                    pane.ui_output = new_output;
+                    if let Ok(sidebar) = pane.loader.render_sidebar() {
+                        tab.plugin_sidebar_output = sidebar;
                     }
                 }
+                Err(e) => {
+                    tab.error = Some(crate::error::ThothError::Unknown {
+                        message: e.to_string(),
+                    });
+                }
             }
+        }
     }
 
     /// Drain OS-dispatched file open requests (e.g. macOS Apple Events) and
@@ -698,9 +709,10 @@ impl ThothApp {
 
         for (request_id, req) in retry_requests {
             if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                && let Some(pane) = tab.active_plugin_pane.as_mut() {
-                    pane.loader.dispatch_approved_request(request_id, req);
-                }
+                && let Some(pane) = tab.active_plugin_pane.as_mut()
+            {
+                pane.loader.dispatch_approved_request(request_id, req);
+            }
             self.dispatch_plugin_event(UiEvent {
                 widget_id: "consent-approved".to_string(),
                 kind: "notify".to_string(),
@@ -785,15 +797,17 @@ impl ThothApp {
                 }
                 components::toolbar::ToolbarEvent::NavigateBack => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(path) = tab.navigation_history.back() {
-                            tab.central_panel.navigate_to_path(path);
-                        }
+                        && let Some(path) = tab.navigation_history.back()
+                    {
+                        tab.central_panel.navigate_to_path(path);
+                    }
                 }
                 components::toolbar::ToolbarEvent::NavigateForward => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(path) = tab.navigation_history.forward() {
-                            tab.central_panel.navigate_to_path(path);
-                        }
+                        && let Some(path) = tab.navigation_history.forward()
+                    {
+                        tab.central_panel.navigate_to_path(path);
+                    }
                 }
             }
         }
@@ -817,10 +831,7 @@ impl ThothApp {
                             );
                             let _ = self.persistent_state.save();
                         }
-                        let id = self
-                            .window_state
-                            .tab_manager
-                            .open_file(path, nav_capacity);
+                        let id = self.window_state.tab_manager.open_file(path, nav_capacity);
                         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
                             tab.file_type = file_type;
                             tab.error = None;
@@ -1025,40 +1036,48 @@ impl ThothApp {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let (file_path_opt, file_type, total_items, error_present, search_scanning, _search_results_len, filtered_count, selected_path) =
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                let search = &tab.search_engine_state.search;
-                let scanning = search.scanning;
-                let results_len = search.results.len();
-                let query_non_empty = !search.query.is_empty();
-                let filtered = if query_non_empty && results_len > 0 {
-                    Some(results_len)
-                } else {
-                    None
-                };
-                let sel_path = tab.central_panel.get_selected_path().cloned();
-                (
-                    tab.file_path.clone(),
-                    tab.file_type,
-                    tab.total_items,
-                    tab.error.is_some(),
-                    scanning,
-                    results_len,
-                    filtered,
-                    sel_path,
-                )
+        let (
+            file_path_opt,
+            file_type,
+            total_items,
+            error_present,
+            search_scanning,
+            _search_results_len,
+            filtered_count,
+            selected_path,
+        ) = if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+            let search = &tab.search_engine_state.search;
+            let scanning = search.scanning;
+            let results_len = search.results.len();
+            let query_non_empty = !search.query.is_empty();
+            let filtered = if query_non_empty && results_len > 0 {
+                Some(results_len)
             } else {
-                (
-                    None,
-                    crate::file::lazy_loader::FileKind::default(),
-                    0,
-                    false,
-                    false,
-                    0,
-                    None,
-                    None,
-                )
+                None
             };
+            let sel_path = tab.central_panel.get_selected_path().cloned();
+            (
+                tab.file_path.clone(),
+                tab.file_type,
+                tab.total_items,
+                tab.error.is_some(),
+                scanning,
+                results_len,
+                filtered,
+                sel_path,
+            )
+        } else {
+            (
+                None,
+                crate::file::lazy_loader::FileKind::default(),
+                0,
+                false,
+                false,
+                0,
+                None,
+                None,
+            )
+        };
 
         let status = if search_scanning {
             components::status_bar::StatusBarStatus::Searching
@@ -1106,9 +1125,10 @@ impl ThothApp {
         let nav_capacity = self.settings.performance.navigation_history_size;
         let focused_id = self.window_state.tab_manager.active_tab_id();
 
-        let colors = ui
-            .ctx()
-            .memory(|m| m.data.get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors")));
+        let colors = ui.ctx().memory(|m| {
+            m.data
+                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+        });
 
         let dock_style = colors
             .map(|c| c.dock_style(ui.style()))
@@ -1218,9 +1238,7 @@ impl ThothApp {
                 }
             }
             TabEvent::OpenRecentFile(path) => {
-                self.window_state
-                    .tab_manager
-                    .open_file(path, nav_capacity);
+                self.window_state.tab_manager.open_file(path, nav_capacity);
             }
         }
     }
@@ -1255,17 +1273,14 @@ impl ThothApp {
                 (
                     tab.file_path.clone(),
                     tab.search_engine_state.search.clone(),
-                    tab.active_plugin_pane
-                        .as_ref()
-                        .map(|p| p.plugin_id.clone()),
+                    tab.active_plugin_pane.as_ref().map(|p| p.plugin_id.clone()),
                 )
             } else {
                 (None, crate::search::Search::default(), None)
             };
 
-        let plugin_sidebar_strings: Option<(String, String, Option<String>)> = active_datasource_plugin_id
-            .as_ref()
-            .and_then(|plugin_id| {
+        let plugin_sidebar_strings: Option<(String, String, Option<String>)> =
+            active_datasource_plugin_id.as_ref().and_then(|plugin_id| {
                 PLUGIN_MANAGER
                     .get()
                     .and_then(|m| m.as_ref())
@@ -1353,8 +1368,11 @@ impl ThothApp {
                     if let components::sidebar::SidebarSection::DataSource { ref plugin_id } =
                         section
                     {
-                        let same_plugin_active =
-                            self.window_state.tab_manager.active_tab_mut().is_some_and(|tab| {
+                        let same_plugin_active = self
+                            .window_state
+                            .tab_manager
+                            .active_tab_mut()
+                            .is_some_and(|tab| {
                                 tab.active_plugin_pane
                                     .as_ref()
                                     .is_some_and(|p| &p.plugin_id == plugin_id)
@@ -1370,85 +1388,73 @@ impl ThothApp {
                             self.session_dirty = true;
                         } else {
                             if let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref())
-                                && let Some(plugin) = manager.registry.get_by_id(plugin_id) {
-                                    use crate::plugin::network_policy::NetworkPolicy;
-                                    let user_policy = self
-                                        .settings
-                                        .plugins
-                                        .network_policies
-                                        .get(plugin_id)
-                                        .cloned()
-                                        .unwrap_or_default();
-                                    let policy = NetworkPolicy::from_plugin_and_settings(
-                                        &plugin.network.clone().unwrap_or_default(),
-                                        &user_policy,
-                                    );
-                                    match manager.open_data_source(plugin_id, policy) {
-                                        Ok(loader) => match loader.render_ui() {
-                                            Ok(ui_output) => {
-                                                let sidebar_output =
-                                                    loader.render_sidebar().ok().flatten();
-                                                let has_sidebar = sidebar_output.is_some();
-                                                if let Some(tab) = self
-                                                    .window_state
-                                                    .tab_manager
-                                                    .active_tab_mut()
-                                                {
-                                                    tab.file_path = None;
-                                                    tab.plugin_sidebar_output = sidebar_output;
-                                                    tab.active_plugin_pane =
-                                                        Some(crate::state::ActivePluginPane {
-                                                            plugin_id: plugin_id.clone(),
-                                                            display_url: String::new(),
-                                                            ui_output,
-                                                            loader,
-                                                        });
-                                                    self.session_dirty = true;
-                                                }
-                                                if has_sidebar {
-                                                    self.window_state.sidebar_expanded = true;
-                                                    self.window_state.sidebar_selected_section =
+                                && let Some(plugin) = manager.registry.get_by_id(plugin_id)
+                            {
+                                use crate::plugin::network_policy::NetworkPolicy;
+                                let user_policy = self
+                                    .settings
+                                    .plugins
+                                    .network_policies
+                                    .get(plugin_id)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                let policy = NetworkPolicy::from_plugin_and_settings(
+                                    &plugin.network.clone().unwrap_or_default(),
+                                    &user_policy,
+                                );
+                                match manager.open_data_source(plugin_id, policy) {
+                                    Ok(loader) => match loader.render_ui() {
+                                        Ok(ui_output) => {
+                                            let sidebar_output =
+                                                loader.render_sidebar().ok().flatten();
+                                            let has_sidebar = sidebar_output.is_some();
+                                            if let Some(tab) =
+                                                self.window_state.tab_manager.active_tab_mut()
+                                            {
+                                                tab.file_path = None;
+                                                tab.plugin_sidebar_output = sidebar_output;
+                                                tab.active_plugin_pane =
+                                                    Some(crate::state::ActivePluginPane {
+                                                        plugin_id: plugin_id.clone(),
+                                                        display_url: String::new(),
+                                                        ui_output,
+                                                        loader,
+                                                    });
+                                                self.session_dirty = true;
+                                            }
+                                            if has_sidebar {
+                                                self.window_state.sidebar_expanded = true;
+                                                self.window_state.sidebar_selected_section =
                                                         Some(components::sidebar::SidebarSection::PluginSidebar {
                                                             plugin_id: plugin_id.clone(),
                                                         });
-                                                } else {
-                                                    self.window_state.sidebar_expanded = false;
-                                                    self.window_state.sidebar_selected_section =
-                                                        None;
-                                                }
+                                            } else {
+                                                self.window_state.sidebar_expanded = false;
+                                                self.window_state.sidebar_selected_section = None;
                                             }
-                                            Err(e) => {
-                                                if let Some(tab) = self
-                                                    .window_state
-                                                    .tab_manager
-                                                    .active_tab_mut()
-                                                {
-                                                    tab.error =
-                                                        Some(crate::error::ThothError::Unknown {
-                                                            message: format!(
-                                                                "Plugin UI error: {e}"
-                                                            ),
-                                                        });
-                                                }
-                                            }
-                                        },
+                                        }
                                         Err(e) => {
-                                            if let Some(tab) = self
-                                                .window_state
-                                                .tab_manager
-                                                .active_tab_mut()
+                                            if let Some(tab) =
+                                                self.window_state.tab_manager.active_tab_mut()
                                             {
-                                                tab.error = Some(
-                                                    crate::error::ThothError::Unknown {
-                                                        message: format!(
-                                                            "Failed to load plugin: {e}"
-                                                        ),
-                                                    },
-                                                );
+                                                tab.error =
+                                                    Some(crate::error::ThothError::Unknown {
+                                                        message: format!("Plugin UI error: {e}"),
+                                                    });
                                             }
+                                        }
+                                    },
+                                    Err(e) => {
+                                        if let Some(tab) =
+                                            self.window_state.tab_manager.active_tab_mut()
+                                        {
+                                            tab.error = Some(crate::error::ThothError::Unknown {
+                                                message: format!("Failed to load plugin: {e}"),
+                                            });
                                         }
                                     }
                                 }
+                            }
                         }
                     } else {
                         let is_plugin_sidebar = matches!(
@@ -1467,12 +1473,11 @@ impl ThothApp {
                             self.window_state.sidebar_expanded = true;
                             self.window_state.sidebar_selected_section = Some(section);
                             if !is_plugin_sidebar
-                                && let Some(tab) =
-                                    self.window_state.tab_manager.active_tab_mut()
-                                {
-                                    tab.active_plugin_pane = None;
-                                    tab.plugin_sidebar_output = None;
-                                }
+                                && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                            {
+                                tab.active_plugin_pane = None;
+                                tab.plugin_sidebar_output = None;
+                            }
                         }
                     }
 
@@ -1489,13 +1494,13 @@ impl ThothApp {
                 components::sidebar::SidebarEvent::Search(msg) => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
                         && let Some(file_path) = &tab.file_path
-                            && let Some(path_str) = file_path.to_str()
-                                && let Some(entry) = msg.history_entry() {
-                                    let _ =
-                                        super::persistent_state::PersistentState::add_search_query(
-                                            path_str, entry,
-                                        );
-                                }
+                        && let Some(path_str) = file_path.to_str()
+                        && let Some(entry) = msg.history_entry()
+                    {
+                        let _ = super::persistent_state::PersistentState::add_search_query(
+                            path_str, entry,
+                        );
+                    }
                     return Some(msg);
                 }
                 components::sidebar::SidebarEvent::NavigateToSearchResult { record_index } => {
@@ -1506,23 +1511,31 @@ impl ThothApp {
                 components::sidebar::SidebarEvent::ClearSearchHistory => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
                         && let Some(file_path) = &tab.file_path
-                            && let Some(path_str) = file_path.to_str() {
-                                let _ =
-                                    super::persistent_state::PersistentState::clear_search_history(
-                                        path_str,
-                                    );
-                            }
+                        && let Some(path_str) = file_path.to_str()
+                    {
+                        let _ = super::persistent_state::PersistentState::clear_search_history(
+                            path_str,
+                        );
+                    }
                 }
                 components::sidebar::SidebarEvent::NavigateToBookmark { file_path, path } => {
-                    let current_file = self
-                        .window_state
-                        .tab_manager
-                        .active_tab_mut()
-                        .and_then(|tab| tab.file_path.as_ref().and_then(|p| p.to_str()).map(|s| s.to_string()));
+                    let current_file =
+                        self.window_state
+                            .tab_manager
+                            .active_tab_mut()
+                            .and_then(|tab| {
+                                tab.file_path
+                                    .as_ref()
+                                    .and_then(|p| p.to_str())
+                                    .map(|s| s.to_string())
+                            });
 
                     if current_file.as_deref() != Some(file_path.as_str()) {
                         let path_buf = std::path::PathBuf::from(&file_path);
-                        let id = self.window_state.tab_manager.open_file(path_buf, nav_capacity);
+                        let id = self
+                            .window_state
+                            .tab_manager
+                            .open_file(path_buf, nav_capacity);
                         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
                             tab.error = None;
                             tab.pending_navigation = Some(path.clone());
@@ -1601,7 +1614,10 @@ impl ThothApp {
                 .show(ctx, |ui| {
                     output = Some(self.window_state.error_modal.render(
                         ui,
-                        components::error_modal::ErrorModalProps { error: &error, open: true },
+                        components::error_modal::ErrorModalProps {
+                            error: &error,
+                            open: true,
+                        },
                     ));
                 });
 

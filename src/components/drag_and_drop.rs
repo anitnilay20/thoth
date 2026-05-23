@@ -10,21 +10,23 @@ impl app::ThothApp {
                 if let Some(path) = &file.path {
                     use std::fmt::Write as _;
                     if let Err(e) = write!(text, "\n{}", path.display())
-                        && let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                            tab.error = Some(crate::error::ThothError::UIRenderError {
-                                component: "DragAndDrop".to_string(),
-                                reason: format!("Failed to format file path: {e}"),
-                            });
-                        }
+                        && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                    {
+                        tab.error = Some(crate::error::ThothError::UIRenderError {
+                            component: "DragAndDrop".to_string(),
+                            reason: format!("Failed to format file path: {e}"),
+                        });
+                    }
                 } else if !file.mime.is_empty() {
                     use std::fmt::Write as _;
                     if let Err(e) = write!(text, "\n{}", file.mime)
-                        && let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                            tab.error = Some(crate::error::ThothError::UIRenderError {
-                                component: "DragAndDrop".to_string(),
-                                reason: format!("Failed to format MIME type: {e}"),
-                            });
-                        }
+                        && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                    {
+                        tab.error = Some(crate::error::ThothError::UIRenderError {
+                            component: "DragAndDrop".to_string(),
+                            reason: format!("Failed to format MIME type: {e}"),
+                        });
+                    }
                 }
             }
 
@@ -61,11 +63,10 @@ impl app::ThothApp {
                         }
                         Err(_) => {
                             if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                                tab.error =
-                                    Some(crate::error::ThothError::InvalidFileType {
-                                        path: path.clone(),
-                                        expected: "JSON or NDJSON".to_string(),
-                                    });
+                                tab.error = Some(crate::error::ThothError::InvalidFileType {
+                                    path: path.clone(),
+                                    expected: "JSON or NDJSON".to_string(),
+                                });
                             }
                         }
                     }

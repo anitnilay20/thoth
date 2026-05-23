@@ -93,15 +93,15 @@ impl MarketPlacePlugin {
 
         if let Ok(metadata) = fs::metadata(path.clone())
             && let Ok(modified) = metadata.modified()
-                && let Ok(elapsed) = modified.elapsed()
-                && elapsed > one_day
-            {
-                let path_clone = path.clone();
-                thread::spawn(|| {
-                    let _ = Self::update_local_file(path_clone)
-                        .map_err(|err| eprintln!("Unable to update local file - {}", err));
-                });
-            }
+            && let Ok(elapsed) = modified.elapsed()
+            && elapsed > one_day
+        {
+            let path_clone = path.clone();
+            thread::spawn(|| {
+                let _ = Self::update_local_file(path_clone)
+                    .map_err(|err| eprintln!("Unable to update local file - {}", err));
+            });
+        }
 
         Self::read_data_from_file(path)
     }

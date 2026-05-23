@@ -92,15 +92,13 @@ impl ShortcutHandler {
 
         // Navigation: ⌘[ / ⌘]
         if ctx.input_mut(|i| {
-            i.modifiers.command
-                && i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket)
+            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket)
         }) {
             actions.push(ShortcutAction::NavBack);
         }
 
         if ctx.input_mut(|i| {
-            i.modifiers.command
-                && i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket)
+            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket)
         }) {
             actions.push(ShortcutAction::NavForward);
         }
@@ -237,9 +235,7 @@ impl ShortcutHandler {
             egui::Key::Num9,
         ];
         for (idx, key) in TAB_KEYS.iter().enumerate() {
-            if ctx.input_mut(|i| {
-                i.consume_key(egui::Modifiers::COMMAND, *key)
-            }) {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, *key)) {
                 actions.push(ShortcutAction::SwitchToTab(idx));
                 break;
             }

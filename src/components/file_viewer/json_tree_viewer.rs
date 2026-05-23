@@ -455,12 +455,14 @@ impl JsonTreeViewer {
         }
 
         // Set target row for search navigation (persists across frames)
-        if *should_scroll_to_selection && is_search_navigation
+        if *should_scroll_to_selection
+            && is_search_navigation
             && let Some(selected_path) = selected.as_ref()
-                && let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
-                    self.search_target_row = Some(row_idx);
-                    *should_scroll_to_selection = false;
-                }
+            && let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path)
+        {
+            self.search_target_row = Some(row_idx);
+            *should_scroll_to_selection = false;
+        }
 
         let scroll_area = egui::ScrollArea::both()
             .auto_shrink([false, false])
@@ -477,18 +479,19 @@ impl JsonTreeViewer {
 
             // Handle keyboard navigation
             if let Some(selected_path) = selected.as_ref()
-                && let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path) {
-                    // Only use scroll_to_selection for keyboard navigation (not search)
-                    if !is_search_navigation {
-                        scroll_to_selection(
-                            ui,
-                            &row_range,
-                            row_idx,
-                            row_height,
-                            should_scroll_to_selection,
-                        );
-                    }
+                && let Some(row_idx) = self.rows.iter().position(|r| r.path == *selected_path)
+            {
+                // Only use scroll_to_selection for keyboard navigation (not search)
+                if !is_search_navigation {
+                    scroll_to_selection(
+                        ui,
+                        &row_range,
+                        row_idx,
+                        row_height,
+                        should_scroll_to_selection,
+                    );
                 }
+            }
 
             // Get indent guide color from theme
             let guide_color = ui.ctx().memory(|mem| {
@@ -700,23 +703,24 @@ impl ContextMenuHandler for JsonTreeViewer {
         loader: &mut FileType,
     ) -> Option<String> {
         if let Some(path) = selected
-            && let Ok((root_idx, rel)) = split_root_rel(path) {
-                // Try to get from cache first
-                let value = if let Some(v) = cache.get(&root_idx) {
-                    v.clone()
-                } else {
-                    // Load from file
-                    match loader.get(root_idx) {
-                        Ok(v) => {
-                            cache.put(root_idx, v.clone());
-                            v
-                        }
-                        Err(_) => return None,
+            && let Ok((root_idx, rel)) = split_root_rel(path)
+        {
+            // Try to get from cache first
+            let value = if let Some(v) = cache.get(&root_idx) {
+                v.clone()
+            } else {
+                // Load from file
+                match loader.get(root_idx) {
+                    Ok(v) => {
+                        cache.put(root_idx, v.clone());
+                        v
                     }
-                };
+                    Err(_) => return None,
+                }
+            };
 
-                return get_object_string(value, rel).ok();
-            }
+            return get_object_string(value, rel).ok();
+        }
         None
     }
 

@@ -68,9 +68,10 @@ impl NotificationManager {
         let id = notification.id.clone();
 
         if let Some(mutex) = NOTIFICATION_MANAGER.get()
-            && let Ok(mut nm) = mutex.lock() {
-                nm.add_notification(notification);
-            }
+            && let Ok(mut nm) = mutex.lock()
+        {
+            nm.add_notification(notification);
+        }
 
         id
     }
@@ -86,16 +87,18 @@ impl NotificationManager {
 
     pub fn mark_notification_as_complete(id: &str) {
         if let Some(mutex) = NOTIFICATION_MANAGER.get()
-            && let Ok(mut nm) = mutex.lock() {
-                nm.move_to_notifications(id);
-            }
+            && let Ok(mut nm) = mutex.lock()
+        {
+            nm.move_to_notifications(id);
+        }
     }
 
     pub fn remove_notification(id: &str) {
         if let Some(mutex) = NOTIFICATION_MANAGER.get()
-            && let Ok(mut nm) = mutex.lock() {
-                nm.notifications.remove(id);
-            }
+            && let Ok(mut nm) = mutex.lock()
+        {
+            nm.notifications.remove(id);
+        }
     }
 
     pub fn all_running_notifications_tasks() -> Vec<Notification> {

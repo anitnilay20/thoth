@@ -4,8 +4,7 @@ use crate::{
     app::tab_manager::TabManager,
     components,
     plugin::{render_node::UiOutput, wasm_data_source::WasmDataSourceLoader},
-    search,
-    update,
+    search, update,
 };
 
 /// Holds the active plugin pane shown in the main area.
@@ -114,9 +113,11 @@ impl NavigationHistory {
     pub fn push(&mut self, path: String) {
         // Don't add if it's the same as the current path
         if let Some(idx) = self.current_index
-            && idx < self.history.len() && self.history[idx] == path {
-                return;
-            }
+            && idx < self.history.len()
+            && self.history[idx] == path
+        {
+            return;
+        }
 
         // If we're in the middle of history, truncate everything after current
         if let Some(idx) = self.current_index {

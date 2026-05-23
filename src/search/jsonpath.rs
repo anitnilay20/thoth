@@ -116,9 +116,10 @@ impl JsonPathQuery {
         let mut matches = Vec::new();
         for (path, value) in current {
             if self.matches_filter(value, match_case)
-                && let Some(entry) = JsonPathMatch::from_value(path, value) {
-                    matches.push(entry);
-                }
+                && let Some(entry) = JsonPathMatch::from_value(path, value)
+            {
+                matches.push(entry);
+            }
         }
         matches
     }
@@ -386,9 +387,10 @@ impl PathSegment {
         match self {
             PathSegment::Field(name) => {
                 if let Value::Object(map) = value
-                    && let Some(child) = map.get(name) {
-                        out.push((format!("{}.{}", current_path, name), child));
-                    }
+                    && let Some(child) = map.get(name)
+                {
+                    out.push((format!("{}.{}", current_path, name), child));
+                }
             }
             PathSegment::FieldWildcard => {
                 if let Value::Object(map) = value {
@@ -399,9 +401,10 @@ impl PathSegment {
             }
             PathSegment::ArrayIndex(idx) => {
                 if let Value::Array(items) = value
-                    && let Some(child) = items.get(*idx) {
-                        out.push((format!("{}[{}]", current_path, idx), child));
-                    }
+                    && let Some(child) = items.get(*idx)
+                {
+                    out.push((format!("{}[{}]", current_path, idx), child));
+                }
             }
             PathSegment::ArrayWildcard => {
                 if let Value::Array(items) = value {

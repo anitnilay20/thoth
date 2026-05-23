@@ -112,9 +112,10 @@ impl StatelessComponent for AdvancedTab {
                                 },
                             )
                             .clicked
-                                && let Ok(path) = crate::settings::Settings::settings_file_path() {
-                                    let _ = open::that(path);
-                                }
+                                && let Ok(path) = crate::settings::Settings::settings_file_path()
+                            {
+                                let _ = open::that(path);
+                            }
                         },
                     );
                 });

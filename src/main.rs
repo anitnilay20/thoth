@@ -145,7 +145,9 @@ fn main() -> Result<()> {
             );
             cc.egui_ctx.set_fonts(fonts);
 
-            Ok(Box::new(app::ThothApp::new(settings, file_to_open, cc)))
+            let mut app = app::ThothApp::new(settings, file_to_open);
+            app.setup_native_menu(cc);
+            Ok(Box::new(app))
         }),
     );
 

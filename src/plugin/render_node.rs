@@ -924,13 +924,14 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 },
             );
             if output.close_requested
-                && let Some(cid) = close_id {
-                    events.push(UiEvent {
-                        widget_id: cid.clone(),
-                        kind: "click".to_string(),
-                        value: String::new(),
-                    });
-                }
+                && let Some(cid) = close_id
+            {
+                events.push(UiEvent {
+                    widget_id: cid.clone(),
+                    kind: "click".to_string(),
+                    value: String::new(),
+                });
+            }
         }
 
         // ── Inputs ────────────────────────────────────────────────────────
@@ -1552,14 +1553,15 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             );
 
             if let Some(val) = output.selected
-                && let Ok(new_idx) = val.parse::<usize>() {
-                    active_idx = new_idx;
-                    ui.ctx().data_mut(|d| d.insert_temp(mem_id, active_idx));
-                    // Notify the plugin which header label was selected.
-                    if let Some(h) = header.get(active_idx) {
-                        events.push(ui_event(id, "change", json_str(h)));
-                    }
+                && let Ok(new_idx) = val.parse::<usize>()
+            {
+                active_idx = new_idx;
+                ui.ctx().data_mut(|d| d.insert_temp(mem_id, active_idx));
+                // Notify the plugin which header label was selected.
+                if let Some(h) = header.get(active_idx) {
+                    events.push(ui_event(id, "change", json_str(h)));
                 }
+            }
 
             if let Some(child) = children.get(active_idx) {
                 egui::Frame::new()

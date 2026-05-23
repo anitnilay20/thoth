@@ -314,7 +314,12 @@ impl ThemeColors {
         style.tab_bar.bg_fill = self.bg_sunken;
         style.tab_bar.height = 28.0;
         // Side padding on the tab bar strip itself.
-        style.tab_bar.inner_margin = egui::Margin { left: 12, right: 12, top: 0, bottom: 0 };
+        style.tab_bar.inner_margin = egui::Margin {
+            left: 12,
+            right: 12,
+            top: 0,
+            bottom: 0,
+        };
         style.tab_bar.hline_color = self.surface;
 
         // ── Tab body ──────────────────────────────────────────────────────────
@@ -395,24 +400,25 @@ pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
     );
 
     if let Some(family) = &settings.font_family
-        && let Some(bytes) = crate::platform::find_font_bytes(family) {
-            fonts.font_data.insert(
-                family.clone(),
-                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
-            );
+        && let Some(bytes) = crate::platform::find_font_bytes(family)
+    {
+        fonts.font_data.insert(
+            family.clone(),
+            std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+        );
 
-            // Monospace-style fonts: prepend to both Proportional and Monospace stacks.
-            // Purely proportional fonts (e.g. Inter) only go into Proportional.
-            let is_mono = !matches!(family.as_str(), "Inter");
-            for target in [egui::FontFamily::Proportional]
-                .iter()
-                .chain(is_mono.then_some(&egui::FontFamily::Monospace))
-            {
-                if let Some(list) = fonts.families.get_mut(target) {
-                    list.insert(0, family.clone());
-                }
+        // Monospace-style fonts: prepend to both Proportional and Monospace stacks.
+        // Purely proportional fonts (e.g. Inter) only go into Proportional.
+        let is_mono = !matches!(family.as_str(), "Inter");
+        for target in [egui::FontFamily::Proportional]
+            .iter()
+            .chain(is_mono.then_some(&egui::FontFamily::Monospace))
+        {
+            if let Some(list) = fonts.families.get_mut(target) {
+                list.insert(0, family.clone());
             }
         }
+    }
 
     ctx.set_fonts(fonts);
     ctx.memory_mut(|m| m.data.insert_temp(cache_key, settings.font_family.clone()));

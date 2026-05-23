@@ -5,7 +5,7 @@
 /// - Linux: no-op — egui in-window menu bar in toolbar.rs is used instead,
 ///   so muda (which requires GTK dev headers) is not compiled on Linux.
 
-/// Actions that can be triggered from the native menu bar.
+// Actions that can be triggered from the native menu bar.
 #[derive(Debug, Clone)]
 pub enum MenuAction {
     OpenFile,
@@ -30,7 +30,7 @@ pub fn setup(
     {
         use muda::{
             Menu, MenuItem, PredefinedMenuItem, Submenu,
-            accelerator::{Accelerator, Code, CMD_OR_CTRL},
+            accelerator::{Accelerator, CMD_OR_CTRL, Code},
         };
 
         let menu = Menu::new();
