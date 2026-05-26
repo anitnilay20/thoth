@@ -132,7 +132,7 @@ fn main() -> Result<()> {
     thoth::platform::macos::install_all_handlers();
 
     let result = eframe::run_native(
-        "Thoth — JSON & NDJSON Viewer",
+        "Thoth",
         options,
         Box::new(move |cc| {
             // Initialize Phosphor icon fonts and register the named family so
@@ -145,7 +145,9 @@ fn main() -> Result<()> {
             );
             cc.egui_ctx.set_fonts(fonts);
 
-            Ok(Box::new(app::ThothApp::new(settings, file_to_open)))
+            let mut app = app::ThothApp::new(settings, file_to_open);
+            app.setup_native_menu(cc);
+            Ok(Box::new(app))
         }),
     );
 

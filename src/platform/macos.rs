@@ -74,8 +74,24 @@ unsafe extern "C" fn handle_open_urls(
 /// Must be called **before** `eframe::run_native` so the handlers are in place
 /// when macOS delivers the initial `odoc` Apple Event during cold launch.
 pub fn install_all_handlers() {
+    disable_automatic_window_tabbing();
     install_delegate_method();
     install_apple_event_handler();
+}
+
+/// Disable macOS automatic window tabbing globally.
+///
+/// macOS Sierra+ claims ⌘⇧[ and ⌘⇧] for its own NSWindowTabbing system unless
+/// the app opts out. Calling `[NSWindow setAllowsAutomaticWindowTabbing:NO]`
+/// releases those shortcuts so the app can use them for its own tab cycling.
+fn disable_automatic_window_tabbing() {
+    use objc2::runtime::Bool;
+    let Some(cls) = objc2::runtime::AnyClass::get("NSWindow") else {
+        return;
+    };
+    unsafe {
+        let _: () = msg_send![cls, setAllowsAutomaticWindowTabbing: Bool::NO];
+    }
 }
 
 /// Add `application:openURLs:` to `NSObject`.

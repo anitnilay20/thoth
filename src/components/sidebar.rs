@@ -93,6 +93,7 @@ pub enum SidebarEvent {
     DataSourceLoading(bool),
     /// A widget interaction from the plugin's sidebar panel.
     PluginSidebarEvent(crate::plugin::render_node::UiEvent),
+    OpenSettings,
 }
 
 pub struct SidebarOutput {
@@ -316,32 +317,56 @@ impl Sidebar {
             events.push(SidebarEvent::SectionToggled(SidebarSection::MarketPlace));
         }
 
-        for plugin in props.data_source_plugins {
-            let section = SidebarSection::DataSource {
-                plugin_id: plugin.id.clone(),
-            };
-            let selected = props.active_datasource_plugin_id == Some(plugin.id.as_str());
-            let icon = plugin
-                .icon
-                .as_deref()
-                .unwrap_or(egui_phosphor::regular::DATABASE);
-            if IconButton::render(
-                ui,
-                IconButtonProps {
-                    icon,
-                    tooltip: Some(plugin.name.as_str()),
-                    size: Some(button_size),
-                    icon_size: Some(20.0),
-                    selected,
-                    frame: false,
-                    badge_color: None,
-                    disabled: false,
-                },
-            )
-            .clicked
-            {
-                events.push(SidebarEvent::SectionToggled(section));
-            }
+        // Plugin icons in a scroll area capped to leave room for the settings button,
+        // so settings is never pushed off screen regardless of how many plugins exist.
+        let plugins_max_h = (ui.available_height() - button_size.y).max(0.0);
+        egui::ScrollArea::vertical()
+            .id_salt("sidebar_plugin_icons")
+            .max_height(plugins_max_h)
+            .show(ui, |ui| {
+                for plugin in props.data_source_plugins {
+                    let section = SidebarSection::DataSource {
+                        plugin_id: plugin.id.clone(),
+                    };
+                    let selected = props.active_datasource_plugin_id == Some(plugin.id.as_str());
+                    let icon = plugin
+                        .icon
+                        .as_deref()
+                        .unwrap_or(egui_phosphor::regular::DATABASE);
+                    if IconButton::render(
+                        ui,
+                        IconButtonProps {
+                            icon,
+                            tooltip: Some(plugin.name.as_str()),
+                            size: Some(button_size),
+                            icon_size: Some(20.0),
+                            selected,
+                            frame: false,
+                            badge_color: None,
+                            disabled: false,
+                        },
+                    )
+                    .clicked
+                    {
+                        events.push(SidebarEvent::SectionToggled(section));
+                    }
+                }
+            });
+
+        // Push settings to the absolute bottom of the strip
+        let remaining = ui.available_height();
+        if remaining > button_size.y {
+            ui.add_space(remaining - button_size.y);
+        }
+
+        // Settings icon pinned to the bottom of the icon strip
+        if IconButton::render(
+            ui,
+            sidebar_btn(egui_phosphor::regular::GEAR, "Settings", false),
+        )
+        .clicked
+        {
+            events.push(SidebarEvent::OpenSettings);
         }
     }
 

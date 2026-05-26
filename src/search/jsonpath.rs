@@ -115,10 +115,10 @@ impl JsonPathQuery {
 
         let mut matches = Vec::new();
         for (path, value) in current {
-            if self.matches_filter(value, match_case) {
-                if let Some(entry) = JsonPathMatch::from_value(path, value) {
-                    matches.push(entry);
-                }
+            if self.matches_filter(value, match_case)
+                && let Some(entry) = JsonPathMatch::from_value(path, value)
+            {
+                matches.push(entry);
             }
         }
         matches
@@ -386,10 +386,10 @@ impl PathSegment {
     fn apply<'a>(&self, current_path: &str, value: &'a Value, out: &mut Vec<(String, &'a Value)>) {
         match self {
             PathSegment::Field(name) => {
-                if let Value::Object(map) = value {
-                    if let Some(child) = map.get(name) {
-                        out.push((format!("{}.{}", current_path, name), child));
-                    }
+                if let Value::Object(map) = value
+                    && let Some(child) = map.get(name)
+                {
+                    out.push((format!("{}.{}", current_path, name), child));
                 }
             }
             PathSegment::FieldWildcard => {
@@ -400,10 +400,10 @@ impl PathSegment {
                 }
             }
             PathSegment::ArrayIndex(idx) => {
-                if let Value::Array(items) = value {
-                    if let Some(child) = items.get(*idx) {
-                        out.push((format!("{}[{}]", current_path, idx), child));
-                    }
+                if let Value::Array(items) = value
+                    && let Some(child) = items.get(*idx)
+                {
+                    out.push((format!("{}[{}]", current_path, idx), child));
                 }
             }
             PathSegment::ArrayWildcard => {

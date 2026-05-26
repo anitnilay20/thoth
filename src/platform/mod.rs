@@ -20,6 +20,7 @@ pub mod fonts;
 pub mod fs;
 #[cfg(target_os = "macos")]
 pub mod macos;
+pub mod native_menu;
 pub mod path_registry;
 
 pub use archive::get_extractor_for_file;

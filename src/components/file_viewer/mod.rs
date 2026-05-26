@@ -166,17 +166,15 @@ impl FileViewer {
         // Delegate to the viewer's navigate_to_root implementation and rebuild if needed
         if let Some(viewer) = self.viewer.as_mut() {
             let needs_rebuild = viewer.as_viewer_mut().navigate_to_root(root_index);
-            if needs_rebuild {
-                if let Some(loader) = self.loader.as_mut() {
-                    // Rebuild view immediately so rows are ready for scrolling
-                    let total_len = loader.len();
-                    viewer.as_viewer_mut().rebuild_view(
-                        &self.state.visible_roots,
-                        &mut self.cache,
-                        loader,
-                        total_len,
-                    );
-                }
+            if needs_rebuild && let Some(loader) = self.loader.as_mut() {
+                // Rebuild view immediately so rows are ready for scrolling
+                let total_len = loader.len();
+                viewer.as_viewer_mut().rebuild_view(
+                    &self.state.visible_roots,
+                    &mut self.cache,
+                    loader,
+                    total_len,
+                );
             }
             return needs_rebuild;
         }
@@ -304,17 +302,15 @@ impl FileViewer {
     pub fn expand_selected_node(&mut self) -> bool {
         if let Some(viewer) = self.viewer.as_mut() {
             let result = viewer.as_viewer_mut().expand_selected(&self.state.selected);
-            if result {
-                if let Some(loader) = self.loader.as_mut() {
-                    // Rebuild if needed
-                    let total_len = loader.len();
-                    viewer.as_viewer_mut().rebuild_view(
-                        &self.state.visible_roots,
-                        &mut self.cache,
-                        loader,
-                        total_len,
-                    );
-                }
+            if result && let Some(loader) = self.loader.as_mut() {
+                // Rebuild if needed
+                let total_len = loader.len();
+                viewer.as_viewer_mut().rebuild_view(
+                    &self.state.visible_roots,
+                    &mut self.cache,
+                    loader,
+                    total_len,
+                );
             }
             return result;
         }
@@ -328,17 +324,15 @@ impl FileViewer {
             let result = viewer
                 .as_viewer_mut()
                 .collapse_selected(&self.state.selected);
-            if result {
-                if let Some(loader) = self.loader.as_mut() {
-                    // Rebuild if needed
-                    let total_len = loader.len();
-                    viewer.as_viewer_mut().rebuild_view(
-                        &self.state.visible_roots,
-                        &mut self.cache,
-                        loader,
-                        total_len,
-                    );
-                }
+            if result && let Some(loader) = self.loader.as_mut() {
+                // Rebuild if needed
+                let total_len = loader.len();
+                viewer.as_viewer_mut().rebuild_view(
+                    &self.state.visible_roots,
+                    &mut self.cache,
+                    loader,
+                    total_len,
+                );
             }
             return result;
         }
@@ -349,17 +343,15 @@ impl FileViewer {
     pub fn expand_all_nodes(&mut self) -> bool {
         if let Some(viewer) = self.viewer.as_mut() {
             let result = viewer.as_viewer_mut().expand_all();
-            if result {
-                if let Some(loader) = self.loader.as_mut() {
-                    // Rebuild if needed
-                    let total_len = loader.len();
-                    viewer.as_viewer_mut().rebuild_view(
-                        &self.state.visible_roots,
-                        &mut self.cache,
-                        loader,
-                        total_len,
-                    );
-                }
+            if result && let Some(loader) = self.loader.as_mut() {
+                // Rebuild if needed
+                let total_len = loader.len();
+                viewer.as_viewer_mut().rebuild_view(
+                    &self.state.visible_roots,
+                    &mut self.cache,
+                    loader,
+                    total_len,
+                );
             }
             return result;
         }
@@ -370,17 +362,15 @@ impl FileViewer {
     pub fn collapse_all_nodes(&mut self) -> bool {
         if let Some(viewer) = self.viewer.as_mut() {
             let result = viewer.as_viewer_mut().collapse_all();
-            if result {
-                if let Some(loader) = self.loader.as_mut() {
-                    // Rebuild if needed
-                    let total_len = loader.len();
-                    viewer.as_viewer_mut().rebuild_view(
-                        &self.state.visible_roots,
-                        &mut self.cache,
-                        loader,
-                        total_len,
-                    );
-                }
+            if result && let Some(loader) = self.loader.as_mut() {
+                // Rebuild if needed
+                let total_len = loader.len();
+                viewer.as_viewer_mut().rebuild_view(
+                    &self.state.visible_roots,
+                    &mut self.cache,
+                    loader,
+                    total_len,
+                );
             }
             return result;
         }
@@ -389,27 +379,25 @@ impl FileViewer {
 
     /// Move selection up to previous item (for keyboard shortcuts)
     pub fn move_selection_up(&mut self) {
-        if let Some(viewer) = self.viewer.as_mut() {
-            if let Some(new_selection) = viewer
+        if let Some(viewer) = self.viewer.as_mut()
+            && let Some(new_selection) = viewer
                 .as_viewer_mut()
                 .move_selection_up(&self.state.selected)
-            {
-                self.state.selected = Some(new_selection);
-                self.state.should_scroll_to_selection = true;
-            }
+        {
+            self.state.selected = Some(new_selection);
+            self.state.should_scroll_to_selection = true;
         }
     }
 
     /// Move selection down to next item (for keyboard shortcuts)
     pub fn move_selection_down(&mut self) {
-        if let Some(viewer) = self.viewer.as_mut() {
-            if let Some(new_selection) = viewer
+        if let Some(viewer) = self.viewer.as_mut()
+            && let Some(new_selection) = viewer
                 .as_viewer_mut()
                 .move_selection_down(&self.state.selected)
-            {
-                self.state.selected = Some(new_selection);
-                self.state.should_scroll_to_selection = true;
-            }
+        {
+            self.state.selected = Some(new_selection);
+            self.state.should_scroll_to_selection = true;
         }
     }
 

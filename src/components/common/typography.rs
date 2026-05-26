@@ -9,6 +9,9 @@ pub enum TypographyVariant {
     /// Sidebar panel section titles: 11 px · semi-bold · `sidebar_header`.
     /// Use for "SEARCH", "RECENT FILES", etc.
     PanelHeader,
+    /// Content-area section divider labels: 12 px · bold · `fg`.
+    /// Use for "Start", "Recent", "Tips" and other in-page section titles.
+    SectionHeader,
     /// Settings group card labels: 11 px · semi-bold · `fg_muted`.
     /// Use for group headings above setting cards.
     GroupLabel,
@@ -72,6 +75,7 @@ impl Typography {
     ) -> (f32, egui::Color32, bool, bool) {
         match variant {
             TypographyVariant::PanelHeader => (11.0, colors.sidebar_header, true, false),
+            TypographyVariant::SectionHeader => (12.0, colors.fg, true, false),
             TypographyVariant::GroupLabel => (11.0, colors.fg_muted, true, false),
             TypographyVariant::Title => (14.0, colors.fg, true, false),
             TypographyVariant::Heading => (16.0, colors.fg, true, false),

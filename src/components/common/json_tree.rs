@@ -102,10 +102,10 @@ impl StatelessComponent for JsonTree {
                 }
             });
 
-        if let Some(path) = toggle_path {
-            if !expanded.0.remove(&path) {
-                expanded.0.insert(path);
-            }
+        if let Some(path) = toggle_path
+            && !expanded.0.remove(&path)
+        {
+            expanded.0.insert(path);
         }
 
         ui.ctx().data_mut(|d| {

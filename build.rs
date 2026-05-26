@@ -65,10 +65,10 @@ fn main() {
             }
             // icon.png is optional.
             let icon_src = plugin_dir.join("icon.png");
-            if icon_src.exists() {
-                if let Err(e) = fs::copy(&icon_src, format!("{dst_dir}/icon.png")) {
-                    println!("cargo:warning=Could not copy icon.png for '{plugin_name}': {e}");
-                }
+            if icon_src.exists()
+                && let Err(e) = fs::copy(&icon_src, format!("{dst_dir}/icon.png"))
+            {
+                println!("cargo:warning=Could not copy icon.png for '{plugin_name}': {e}");
             }
             continue;
         }
@@ -131,10 +131,10 @@ fn main() {
 
         // Copy icon.png if present — optional.
         let icon_src = plugin_dir.join("icon.png");
-        if icon_src.exists() {
-            if let Err(e) = fs::copy(&icon_src, format!("{dst_dir}/icon.png")) {
-                println!("cargo:warning=Could not copy icon.png for '{plugin_name}': {e}");
-            }
+        if icon_src.exists()
+            && let Err(e) = fs::copy(&icon_src, format!("{dst_dir}/icon.png"))
+        {
+            println!("cargo:warning=Could not copy icon.png for '{plugin_name}': {e}");
         }
     }
 }

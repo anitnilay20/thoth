@@ -41,7 +41,9 @@ fn reset() {
 /// Serialize all tests in this file to avoid races on the shared global queue.
 fn test_guard() -> std::sync::MutexGuard<'static, ()> {
     static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
-    TEST_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap()
+    let mutex = TEST_MUTEX.get_or_init(|| Mutex::new(()));
+    // Recover from a poisoned mutex so one test failure doesn't cascade.
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 // ---------------------------------------------------------------------------
@@ -150,9 +152,10 @@ fn thoth_app_picks_up_os_dispatched_file() {
     let _guard = test_guard();
     reset();
 
-    // Launch app with no file (simulates Finder-launched empty window)
+    // Launch app with no file (simulates Finder-launched empty window).
+    // Session restore may reopen previously-open tabs, so we don't assert a blank
+    // initial state — that is legitimate behaviour.
     let mut app = ThothApp::new(Settings::default(), None);
-    assert!(app.window_state.file_path.is_none());
 
     // Simulate macOS dispatching a file via Apple Event
     let path = make_temp_json_file("os_dispatch.json");
@@ -161,10 +164,13 @@ fn thoth_app_picks_up_os_dispatched_file() {
     // Drive the OS-dispatch drain (this method must exist for the fix to work)
     app.poll_os_open_requests();
 
-    assert_eq!(
-        app.window_state.file_path.as_deref(),
-        Some(path.as_path()),
-        "poll_os_open_requests must set window_state.file_path"
+    assert!(
+        app.window_state
+            .tab_manager
+            .tabs
+            .values()
+            .any(|t| t.file_path.as_deref() == Some(path.as_path())),
+        "poll_os_open_requests must open the OS-dispatched file in some tab"
     );
 }
 
@@ -173,11 +179,14 @@ fn argv_path_still_loads_on_construction() {
     let _guard = test_guard();
     // This guards against regressions: the existing CLI flow must keep working.
     let path = make_temp_json_file("argv_test.json");
-    let app = ThothApp::new(Settings::default(), Some(path.clone()));
+    let mut app = ThothApp::new(Settings::default(), Some(path.clone()));
     assert_eq!(
-        app.window_state.file_path.as_deref(),
+        app.window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|t| t.file_path.as_deref()),
         Some(path.as_path()),
-        "file_to_open passed via argv must set window_state.file_path in constructor"
+        "file_to_open passed via argv must set the active tab's file_path in constructor"
     );
 }
 
@@ -191,16 +200,25 @@ fn second_os_dispatch_replaces_current_file() {
 
     // App launched with first file via argv
     let mut app = ThothApp::new(Settings::default(), Some(p1.clone()));
-    assert_eq!(app.window_state.file_path.as_deref(), Some(p1.as_path()));
+    assert!(
+        app.window_state
+            .tab_manager
+            .tabs
+            .values()
+            .any(|t| t.file_path.as_deref() == Some(p1.as_path()))
+    );
 
-    // OS dispatches a second file (e.g. user double-clicks another .json in Finder)
+    // OS dispatches a second file — with multi-tab support it opens in a new tab.
     file_open_channel::enqueue_open_request(p2.clone());
     app.poll_os_open_requests();
 
-    assert_eq!(
-        app.window_state.file_path.as_deref(),
-        Some(p2.as_path()),
-        "OS-dispatched file must replace the currently loaded file"
+    assert!(
+        app.window_state
+            .tab_manager
+            .tabs
+            .values()
+            .any(|t| t.file_path.as_deref() == Some(p2.as_path())),
+        "OS-dispatched file must appear in some tab"
     );
 }
 
@@ -210,18 +228,29 @@ fn os_dispatch_clears_previous_error() {
     reset();
 
     let mut app = ThothApp::new(Settings::default(), None);
-    // Simulate an error state
-    app.window_state.error = Some(thoth::error::ThothError::Unknown {
-        message: "test error".to_string(),
-    });
+    // Simulate an error state on the active tab
+    if let Some(tab) = app.window_state.tab_manager.active_tab_mut() {
+        tab.error = Some(thoth::error::ThothError::Unknown {
+            message: "test error".to_string(),
+        });
+    }
 
     let path = make_temp_json_file("clear_error.json");
     file_open_channel::enqueue_open_request(path.clone());
     app.poll_os_open_requests();
 
     assert!(
-        app.window_state.error.is_none(),
-        "OS-dispatched file must clear any previous error"
+        app.window_state
+            .tab_manager
+            .active_tab_mut()
+            .is_none_or(|t| t.error.is_none()),
+        "OS-dispatched file must clear any previous error on the active tab"
     );
-    assert_eq!(app.window_state.file_path.as_deref(), Some(path.as_path()));
+    assert_eq!(
+        app.window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|t| t.file_path.as_deref()),
+        Some(path.as_path())
+    );
 }

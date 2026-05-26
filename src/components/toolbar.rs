@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 
 use crate::{
-    app::pick_file,
     components::{
         icon_button::{IconButton, IconButtonProps},
         traits::{ContextComponent, StatelessComponent},
@@ -11,6 +10,10 @@ use crate::{
     file::lazy_loader::FileKind,
     shortcuts::KeyboardShortcuts,
 };
+
+// pick_file is only used by the Linux in-window menu bar.
+#[cfg(target_os = "linux")]
+use crate::app::pick_file;
 
 #[derive(Default)]
 pub struct Toolbar {
@@ -32,7 +35,7 @@ pub struct ToolbarProps<'a> {
 /// Events emitted by the toolbar (bottom-to-top communication)
 pub enum ToolbarEvent {
     FileOpen { path: PathBuf, file_type: FileKind },
-    FileClear,
+    CloseTab,
     NewWindow,
     ToggleTheme,
     OpenSettings,
@@ -83,210 +86,165 @@ impl Toolbar {
                     bottom: 0,
                 }))
                 .show_inside(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.horizontal_centered(|ui| {
-                            // Space for macOS traffic light buttons
-                            #[cfg(target_os = "macos")]
-                            let traffic_light_space = 70.0;
-                            #[cfg(not(target_os = "macos"))]
-                            let traffic_light_space = 0.0;
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
 
+                        #[cfg(target_os = "macos")]
+                        let traffic_light_space = 70.0_f32;
+                        #[cfg(not(target_os = "macos"))]
+                        let traffic_light_space = 0.0_f32;
+
+                        // Reserve space for macOS traffic lights
+                        if traffic_light_space > 0.0 {
                             ui.add_space(traffic_light_space);
+                        }
 
-                            // Display "Thoth - filename" or just "Thoth" centered
-                            let title = if let Some(path) = props.file_path {
-                                let filename = path
-                                    .file_name()
-                                    .and_then(|n| n.to_str())
-                                    .unwrap_or("Untitled");
-                                format!("Thoth - {}", filename)
-                            } else {
-                                "Thoth".to_string()
-                            };
+                        let button_size = egui::vec2(26.0, 26.0);
 
-                            // Calculate centering: total width - traffic light space, then center within that
-                            let available_width = ui.available_width();
-                            let text_width = ui.fonts_mut(|f| {
-                                f.layout_no_wrap(
-                                    title.clone(),
-                                    egui::FontId::proportional(13.0),
-                                    ui.visuals().text_color(),
-                                )
-                                .rect
-                                .width()
-                            });
-
-                            // Center the text, accounting for the traffic light offset
-                            let center_offset =
-                                (available_width - text_width) / 2.0 - traffic_light_space / 2.0;
-                            if center_offset > 0.0 {
-                                ui.add_space(center_offset);
-                            }
-
-                            ui.label(egui::RichText::new(title).size(13.0));
+                        // Measure title text width so we can center the whole group
+                        let title = if let Some(path) = props.file_path {
+                            let filename = path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("Untitled");
+                            format!("Thoth - {}", filename)
+                        } else {
+                            "Thoth".to_string()
+                        };
+                        let title_width = ui.fonts_mut(|f| {
+                            f.layout_no_wrap(
+                                title.clone(),
+                                egui::FontId::proportional(13.0),
+                                egui::Color32::WHITE,
+                            )
+                            .rect
+                            .width()
                         });
+
+                        // Group = back(26) + gap(2) + fwd(26) + gap(8) + title
+                        let group_width = button_size.x + 2.0 + button_size.x + 8.0 + title_width;
+                        let total_width = ui.max_rect().width();
+                        // Center the group within the full panel, offset by traffic lights
+                        let lead =
+                            ((total_width - group_width) / 2.0 - traffic_light_space).max(0.0);
+                        ui.add_space(lead);
+
+                        // Navigation buttons
+                        let back_btn = IconButton::render(
+                            ui,
+                            IconButtonProps {
+                                icon: egui_phosphor::regular::CARET_LEFT,
+                                frame: false,
+                                tooltip: Some(&format!(
+                                    "Go back ({})",
+                                    props.shortcuts.nav_back.format()
+                                )),
+                                badge_color: None,
+                                size: Some(button_size),
+                                disabled: !props.can_go_back,
+                                selected: false,
+                                icon_size: None,
+                            },
+                        );
+                        if back_btn.clicked {
+                            events.push(ToolbarEvent::NavigateBack);
+                        }
+
+                        let fwd_btn = IconButton::render(
+                            ui,
+                            IconButtonProps {
+                                icon: egui_phosphor::regular::CARET_RIGHT,
+                                frame: false,
+                                tooltip: Some(&format!(
+                                    "Go forward ({})",
+                                    props.shortcuts.nav_forward.format()
+                                )),
+                                badge_color: None,
+                                size: Some(button_size),
+                                disabled: !props.can_go_forward,
+                                selected: false,
+                                icon_size: None,
+                            },
+                        );
+                        if fwd_btn.clicked {
+                            events.push(ToolbarEvent::NavigateForward);
+                        }
+
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new(title).size(13.0));
                     });
                 });
         }
 
-        // Row 2: Button toolbar (32px height)
-        egui::Panel::top("button_toolbar")
-            .exact_size(32.0)
+        // Row 2: In-window egui menu bar — only on Linux.
+        // macOS and Windows use the native menu bar set up via muda in ThothApp::new().
+        #[cfg(target_os = "linux")]
+        egui::Panel::top("menu_bar_row")
+            .exact_size(28.0)
             .frame(egui::Frame::NONE.fill(bg_color).inner_margin(egui::Margin {
-                left: 8,
-                right: 8,
+                left: 4,
+                right: 4,
                 top: 0,
                 bottom: 0,
             }))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
+                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
 
-                    // Button size to match ComboBox height
-                    let button_size = egui::vec2(28.0, 28.0);
+                    let mut pending: Option<ToolbarEvent> = None;
 
-                    // Navigation buttons (back/forward)
-                    let back_button = IconButton::render(
-                        ui,
-                        IconButtonProps {
-                            icon: egui_phosphor::regular::CARET_LEFT,
-                            frame: false,
-                            tooltip: Some(&format!(
-                                "Go back ({})",
-                                props.shortcuts.nav_back.format()
-                            )),
-                            badge_color: None,
-                            size: Some(button_size),
-                            disabled: !props.can_go_back,
-                            selected: false,
-                            icon_size: None,
-                        },
-                    );
-
-                    if back_button.clicked {
-                        events.push(ToolbarEvent::NavigateBack);
-                    }
-
-                    let forward_button = IconButton::render(
-                        ui,
-                        IconButtonProps {
-                            icon: egui_phosphor::regular::CARET_RIGHT,
-                            frame: false,
-                            tooltip: Some(&format!(
-                                "Go forward ({})",
-                                props.shortcuts.nav_forward.format()
-                            )),
-                            badge_color: None,
-                            size: Some(button_size),
-                            disabled: !props.can_go_forward,
-                            selected: false,
-                            icon_size: None,
-                        },
-                    );
-
-                    if forward_button.clicked {
-                        events.push(ToolbarEvent::NavigateForward);
-                    }
-
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // File actions (icon-only buttons)
-                    if IconButton::render(
-                        ui,
-                        IconButtonProps {
-                            icon: egui_phosphor::regular::FOLDER_OPEN,
-                            frame: false,
-                            tooltip: Some(&format!(
-                                "Open file ({})",
-                                props.shortcuts.open_file.format()
-                            )),
-                            badge_color: None,
-                            size: Some(button_size),
-                            disabled: false,
-                            icon_size: None,
-                            selected: false,
-                        },
-                    )
-                    .clicked
-                    {
-                        if let Some(path) = pick_file(props.plugins_enabled) {
-                            if let Some(file_type) = infer_file_type(&path) {
-                                self.previous_file_type = file_type;
-                                events.push(ToolbarEvent::FileOpen { path, file_type });
-                            }
-                        }
-                    }
-
-                    if IconButton::render(
-                        ui,
-                        IconButtonProps {
-                            icon: egui_phosphor::regular::X,
-                            frame: false,
-                            tooltip: Some(&format!(
-                                "Clear file ({})",
-                                props.shortcuts.clear_file.format()
-                            )),
-                            badge_color: None,
-                            size: Some(button_size),
-                            disabled: false,
-                            icon_size: None,
-                            selected: false,
-                        },
-                    )
-                    .clicked
-                    {
-                        events.push(ToolbarEvent::FileClear);
-                    }
-
-                    if IconButton::render(
-                        ui,
-                        IconButtonProps {
-                            icon: egui_phosphor::regular::SQUARES_FOUR,
-                            frame: false,
-                            tooltip: Some(&format!(
-                                "New window ({})",
-                                props.shortcuts.new_window.format()
-                            )),
-                            badge_color: None,
-                            size: Some(button_size),
-                            disabled: false,
-                            icon_size: None,
-                            selected: false,
-                        },
-                    )
-                    .clicked
-                    {
-                        events.push(ToolbarEvent::NewWindow);
-                    }
-
-                    // Spacer to push right-side items to the right
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
-
-                        // Settings button (icon-only)
-                        if IconButton::render(
-                            ui,
-                            IconButtonProps {
-                                icon: egui_phosphor::regular::GEAR,
-                                frame: false,
-                                tooltip: Some("Settings (Cmd/Ctrl+,)"),
-                                badge_color: None,
-                                size: Some(button_size),
-                                disabled: false,
-                                icon_size: None,
-                                selected: false,
-                            },
-                        )
-                        .clicked
+                    // ── Thoth menu ─────────────────────────────────────────────
+                    ui.menu_button("Thoth", |ui| {
+                        if ui
+                            .button(format!("Settings  {}", props.shortcuts.settings.format()))
+                            .clicked()
                         {
-                            events.push(ToolbarEvent::OpenSettings);
+                            pending = Some(ToolbarEvent::OpenSettings);
+                            ui.close();
                         }
                     });
+                    if let Some(e) = pending.take() {
+                        events.push(e);
+                    }
+
+                    // ── File menu ──────────────────────────────────────────────
+                    let plugins_enabled = props.plugins_enabled;
+                    let open_shortcut = props.shortcuts.open_file.format();
+                    let close_shortcut = props.shortcuts.close_tab.format();
+                    let new_win_shortcut = props.shortcuts.new_window.format();
+
+                    ui.menu_button("File", |ui| {
+                        if ui.button(format!("Open File…  {open_shortcut}")).clicked() {
+                            ui.close();
+                            if let Some(path) = pick_file(plugins_enabled)
+                                && let Some(file_type) = infer_file_type(&path)
+                            {
+                                pending = Some(ToolbarEvent::FileOpen { path, file_type });
+                            }
+                        }
+                        if ui
+                            .button(format!("New Window  {new_win_shortcut}"))
+                            .clicked()
+                        {
+                            pending = Some(ToolbarEvent::NewWindow);
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.button(format!("Close Tab  {close_shortcut}")).clicked() {
+                            pending = Some(ToolbarEvent::CloseTab);
+                            ui.close();
+                        }
+                    });
+                    if let Some(e) = pending.take() {
+                        events.push(e);
+                    }
                 });
             });
     }
+}
+
+pub fn infer_file_type_pub(path: &Path) -> Option<FileKind> {
+    infer_file_type(path)
 }
 
 fn infer_file_type(path: &Path) -> Option<FileKind> {
@@ -297,16 +255,16 @@ fn infer_file_type(path: &Path) -> Option<FileKind> {
         _ => {
             // Ask the plugin registry whether any plugin handles this extension
             // so we don't fall back to a stale file-type from the previous file.
-            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() {
-                if pm.find_loader_for_extension(&ext).is_some() {
-                    return Some(
-                        if pm.plugin_has_capability(&ext, &crate::plugin::Capability::FileViewer) {
-                            FileKind::PluginTable
-                        } else {
-                            FileKind::Plugin
-                        },
-                    );
-                }
+            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get()
+                && pm.find_loader_for_extension(&ext).is_some()
+            {
+                return Some(
+                    if pm.plugin_has_capability(&ext, &crate::plugin::Capability::FileViewer) {
+                        FileKind::PluginTable
+                    } else {
+                        FileKind::Plugin
+                    },
+                );
             }
             None
         }

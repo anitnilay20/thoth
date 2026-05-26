@@ -210,6 +210,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                     None
                 },
                 selected: is_active,
+                accent: None,
                 tags: &[],
             }
         })
@@ -223,13 +224,14 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
             shrink_to_fit: true,
             show_separators: false,
             compact: true,
+            max_height: None,
         },
     );
 
-    if let Some(idx) = cat_out.row_clicked {
-        if let Some(cat) = cat_defs.get(idx) {
-            state.selected_category = cat.id.clone();
-        }
+    if let Some(idx) = cat_out.row_clicked
+        && let Some(cat) = cat_defs.get(idx)
+    {
+        state.selected_category = cat.id.clone();
     }
 
     ui.separator();
@@ -389,6 +391,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                 badge: None,
                 postfix,
                 selected: row.is_selected,
+                accent: None,
                 tags: &row.tag_labels,
             }
         })
@@ -402,39 +405,40 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
             shrink_to_fit: false,
             show_separators: true,
             compact: false,
+            max_height: None,
         },
     );
 
-    if let Some(idx) = list_output.row_clicked {
-        if let Some(row) = rows.get(idx) {
-            state.selected_id = Some(row.id.clone());
-        }
+    if let Some(idx) = list_output.row_clicked
+        && let Some(row) = rows.get(idx)
+    {
+        state.selected_id = Some(row.id.clone());
     }
 
-    if let Some(item_idx) = list_output.postfix_clicked {
-        if let Some(row) = rows.get(item_idx) {
-            state.selected_id = Some(row.id.clone());
-            match &row.install_state {
-                InstallState::NotInstalled | InstallState::Update => {
-                    if let Some(plugin) = state.plugins.iter().find(|p| p.id == row.id) {
-                        let slot = plugin.download_and_install(ui.ctx().clone());
-                        state.install_handles.insert(row.id.clone(), slot);
-                        state
-                            .install_states
-                            .insert(row.id.clone(), InstallState::Installing(0));
-                    }
-                }
-                InstallState::Disabled => {
+    if let Some(item_idx) = list_output.postfix_clicked
+        && let Some(row) = rows.get(item_idx)
+    {
+        state.selected_id = Some(row.id.clone());
+        match &row.install_state {
+            InstallState::NotInstalled | InstallState::Update => {
+                if let Some(plugin) = state.plugins.iter().find(|p| p.id == row.id) {
+                    let slot = plugin.download_and_install(ui.ctx().clone());
+                    state.install_handles.insert(row.id.clone(), slot);
                     state
                         .install_states
-                        .insert(row.id.clone(), InstallState::Installed);
+                        .insert(row.id.clone(), InstallState::Installing(0));
                 }
-                InstallState::Failed(_) | InstallState::Installing(_) => {
-                    state.install_handles.remove(&row.id);
-                    state.install_states.remove(&row.id);
-                }
-                _ => {}
             }
+            InstallState::Disabled => {
+                state
+                    .install_states
+                    .insert(row.id.clone(), InstallState::Installed);
+            }
+            InstallState::Failed(_) | InstallState::Installing(_) => {
+                state.install_handles.remove(&row.id);
+                state.install_states.remove(&row.id);
+            }
+            _ => {}
         }
     }
 }

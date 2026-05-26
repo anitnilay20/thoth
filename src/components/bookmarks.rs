@@ -114,6 +114,7 @@ impl StatefulComponent for Bookmarks {
                             badge: None,
                             postfix: None,
                             selected: false,
+                            accent: None,
                             tags: &[],
                         }
                     })
@@ -127,16 +128,17 @@ impl StatefulComponent for Bookmarks {
                         shrink_to_fit: false,
                         show_separators: true,
                         compact: false,
+                        max_height: None,
                     },
                 );
 
-                if let Some(item_idx) = output.row_clicked {
-                    if let Some(b) = props.bookmarks.get(item_idx) {
-                        events.push(BookmarksEvent::NavigateToBookmark {
-                            file_path: b.file_path.clone(),
-                            path: b.path.clone(),
-                        });
-                    }
+                if let Some(item_idx) = output.row_clicked
+                    && let Some(b) = props.bookmarks.get(item_idx)
+                {
+                    events.push(BookmarksEvent::NavigateToBookmark {
+                        file_path: b.file_path.clone(),
+                        path: b.path.clone(),
+                    });
                 }
             });
 

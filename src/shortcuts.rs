@@ -115,8 +115,18 @@ impl Shortcut {
 pub struct KeyboardShortcuts {
     // File operations
     pub open_file: Shortcut,
-    pub clear_file: Shortcut,
     pub new_window: Shortcut,
+
+    // Tab operations — bump serde key names when defaults change to avoid stale persisted values.
+    #[serde(rename = "tab_close")]
+    pub close_tab: Shortcut,
+    #[serde(rename = "tab_new")]
+    pub new_tab: Shortcut,
+    // v3: ⌘⌥→ / ⌘⌥← (arrow keys, no composition issues, not OS-intercepted)
+    #[serde(rename = "tab_cycle_next")]
+    pub next_tab: Shortcut,
+    #[serde(rename = "tab_cycle_prev")]
+    pub prev_tab: Shortcut,
 
     // Navigation
     pub focus_search: Shortcut,
@@ -159,8 +169,14 @@ impl Default for KeyboardShortcuts {
         Self {
             // File operations - use COMMAND for cross-platform (Cmd on Mac, Ctrl elsewhere)
             open_file: Shortcut::new("O").command(),
-            clear_file: Shortcut::new("W").command(),
             new_window: Shortcut::new("N").command(),
+
+            // Tab operations
+            close_tab: Shortcut::new("W").command(),
+            new_tab: Shortcut::new("T").command(),
+            // ⌘⌥→ / ⌘⌥← — Firefox-style, arrow keys have no char-composition issues.
+            next_tab: Shortcut::new("ArrowRight").command().alt(),
+            prev_tab: Shortcut::new("ArrowLeft").command().alt(),
 
             // Navigation
             focus_search: Shortcut::new("F").command(),
@@ -363,5 +379,10 @@ mod tests {
         let shortcuts = KeyboardShortcuts::default();
         assert!(shortcuts.open_file.command);
         assert_eq!(shortcuts.open_file.key, "O");
+        assert_eq!(shortcuts.close_tab.key, "W");
+        assert!(shortcuts.close_tab.command);
+        assert_eq!(shortcuts.next_tab.key, "ArrowRight");
+        assert!(shortcuts.next_tab.command && shortcuts.next_tab.alt);
+        assert_eq!(shortcuts.prev_tab.key, "ArrowLeft");
     }
 }
