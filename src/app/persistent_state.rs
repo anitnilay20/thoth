@@ -299,8 +299,12 @@ impl PersistentState {
 
     /// Replace the full list of persisted tabs and which one was active.
     pub fn set_open_tabs(&mut self, tabs: Vec<PersistedTab>, active_index: usize) {
+        self.active_tab_index = if tabs.is_empty() {
+            0
+        } else {
+            active_index.min(tabs.len() - 1)
+        };
         self.open_tabs = tabs;
-        self.active_tab_index = active_index;
     }
 
     /// Return the tabs saved from the previous session.

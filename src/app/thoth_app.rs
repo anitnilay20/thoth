@@ -778,10 +778,13 @@ impl ThothApp {
                         tab.error = None;
                     }
                 }
-                components::toolbar::ToolbarEvent::FileClear => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        tab.file_path = None;
-                        tab.error = None;
+                components::toolbar::ToolbarEvent::CloseTab => {
+                    let was_empty = self.window_state.tab_manager.close_active_tab();
+                    let now_empty = self.window_state.tab_manager.tabs.is_empty();
+                    if was_empty && now_empty {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    } else {
+                        self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                     }
                     self.session_dirty = true;
                 }
@@ -840,9 +843,12 @@ impl ThothApp {
                 }
                 MenuAction::NewWindow => self.create_new_window(),
                 MenuAction::CloseTab => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        tab.file_path = None;
-                        tab.error = None;
+                    let was_empty = self.window_state.tab_manager.close_active_tab();
+                    let now_empty = self.window_state.tab_manager.tabs.is_empty();
+                    if was_empty && now_empty {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    } else {
+                        self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                     }
                     self.session_dirty = true;
                 }
@@ -987,7 +993,6 @@ impl ThothApp {
         if !self.session_dirty {
             return;
         }
-        self.session_dirty = false;
 
         use crate::app::persistent_state::{PersistedTab, PersistedTabKind};
 
@@ -1029,6 +1034,8 @@ impl ThothApp {
         self.persistent_state.set_open_tabs(tabs, active_tab_index);
         if let Err(e) = self.persistent_state.save() {
             eprintln!("Failed to save tab session: {e}");
+        } else {
+            self.session_dirty = false;
         }
     }
 

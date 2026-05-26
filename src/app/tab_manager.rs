@@ -50,6 +50,9 @@ impl TabState {
     }
 
     pub fn title(&self) -> String {
+        if let Some(pane) = &self.active_plugin_pane {
+            return pane.plugin_id.clone();
+        }
         self.file_path
             .as_ref()
             .and_then(|p| p.file_name())

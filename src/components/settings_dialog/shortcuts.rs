@@ -99,7 +99,17 @@ impl StatelessComponent for ShortcutsTab {
                     shortcut_row(ui, "Close tab", &sc.close_tab, badge_width, colors);
                     shortcut_row(ui, "Next tab", &sc.next_tab, badge_width, colors);
                     shortcut_row(ui, "Previous tab", &sc.prev_tab, badge_width, colors);
-                    static_shortcut_row(ui, "Switch to tab 1–9", "⌘1 – ⌘9", badge_width, colors);
+                    static_shortcut_row(
+                        ui,
+                        "Switch to tab 1–9",
+                        if cfg!(target_os = "macos") {
+                            "⌘1 – ⌘9"
+                        } else {
+                            "Ctrl+1 – Ctrl+9"
+                        },
+                        badge_width,
+                        colors,
+                    );
                 });
 
                 // ── Navigation ───────────────────────────────────────────────

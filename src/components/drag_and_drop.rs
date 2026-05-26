@@ -70,7 +70,6 @@ impl app::ThothApp {
                             }
                         }
                     }
-                    break;
                 }
             }
         }

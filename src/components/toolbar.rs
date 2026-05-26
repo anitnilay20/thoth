@@ -35,7 +35,7 @@ pub struct ToolbarProps<'a> {
 /// Events emitted by the toolbar (bottom-to-top communication)
 pub enum ToolbarEvent {
     FileOpen { path: PathBuf, file_type: FileKind },
-    FileClear,
+    CloseTab,
     NewWindow,
     ToggleTheme,
     OpenSettings,
@@ -231,7 +231,7 @@ impl Toolbar {
                         }
                         ui.separator();
                         if ui.button(format!("Close Tab  {close_shortcut}")).clicked() {
-                            pending = Some(ToolbarEvent::FileClear);
+                            pending = Some(ToolbarEvent::CloseTab);
                             ui.close();
                         }
                     });
