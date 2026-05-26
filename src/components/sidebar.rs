@@ -353,7 +353,13 @@ impl Sidebar {
                 }
             });
 
-        // Settings icon always visible at the bottom of the icon strip
+        // Push settings to the absolute bottom of the strip
+        let remaining = ui.available_height();
+        if remaining > button_size.y {
+            ui.add_space(remaining - button_size.y);
+        }
+
+        // Settings icon pinned to the bottom of the icon strip
         if IconButton::render(
             ui,
             sidebar_btn(egui_phosphor::regular::GEAR, "Settings", false),
