@@ -86,6 +86,14 @@ jobs:
       - name: Install cargo-packager
         run: cargo install cargo-packager --locked
 
+      # Install cargo-component for building WASM plugins
+      - name: Install cargo-component
+        run: cargo install cargo-component --locked
+
+      # Add WASM target required by cargo-component plugin builds
+      - name: Add wasm32-wasip1 target
+        run: rustup target add wasm32-wasip1
+
       # macOS-specific dependencies
       # Note: cargo-packager handles DMG creation natively, no extra tools needed
 
