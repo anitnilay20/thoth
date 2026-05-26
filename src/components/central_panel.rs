@@ -17,6 +17,10 @@ pub struct CentralPanelProps<'a> {
     pub syntax_highlighting: bool,
     /// When `Some`, render this interactive `UiNode` tree from the plugin instead of the file viewer.
     pub plugin_ui: Option<&'a UiOutput>,
+    /// Recent files passed down for the Welcome screen shown on empty tabs.
+    pub recent_files: &'a [String],
+    /// Current theme colors forwarded to the Welcome screen.
+    pub colors: Option<crate::theme::ThemeColors>,
 }
 
 /// Events emitted by the central panel (bottom-to-top communication)
@@ -32,6 +36,10 @@ pub enum CentralPanelEvent {
     ErrorCleared,
     /// A widget interaction from the active plugin pane — forward to the loader.
     PluginUiEvent(UiEvent),
+    /// User clicked "Open file…" on the Welcome screen.
+    OpenFilePicker,
+    /// User clicked a recent file on the Welcome screen.
+    OpenRecentFile(PathBuf),
 }
 
 pub struct CentralPanelOutput {
@@ -180,7 +188,18 @@ impl CentralPanel {
             }
 
             if self.loaded_path.is_none() {
-                ui.label("Open a JSON/NDJSON file from the top bar to begin.");
+                use crate::components::welcome::{WelcomeEvent, WelcomePanel};
+                let welcome_events = WelcomePanel::render(ui, props.recent_files, props.colors);
+                for evt in welcome_events {
+                    match evt {
+                        WelcomeEvent::OpenFilePicker => {
+                            events.push(CentralPanelEvent::OpenFilePicker)
+                        }
+                        WelcomeEvent::OpenRecentFile(path) => {
+                            events.push(CentralPanelEvent::OpenRecentFile(path))
+                        }
+                    }
+                }
                 return;
             }
 

@@ -304,6 +304,74 @@ impl ThemeColors {
             special: hex(self.error),
         }
     }
+
+    /// Build a Catppuccin-themed [`egui_dock::Style`] from these colors.
+    pub fn dock_style(&self, egui_style: &egui::Style) -> egui_dock::Style {
+        let mut style = egui_dock::Style::from_egui(egui_style);
+        let zero_rounding = egui::CornerRadius::ZERO;
+
+        // ── Tab bar ───────────────────────────────────────────────────────────
+        style.tab_bar.bg_fill = self.bg_sunken;
+        style.tab_bar.height = 28.0;
+        // Side padding on the tab bar strip itself.
+        style.tab_bar.inner_margin = egui::Margin {
+            left: 12,
+            right: 12,
+            top: 0,
+            bottom: 0,
+        };
+        style.tab_bar.hline_color = self.surface;
+
+        // ── Tab body ──────────────────────────────────────────────────────────
+        style.tab.tab_body.bg_fill = self.bg;
+        style.tab.tab_body.inner_margin = egui::Margin::ZERO;
+        style.tab.tab_body.stroke = egui::Stroke::NONE;
+
+        // ── Active / focused tab: top+side accent (bottom covered by egui_dock) ─
+        style.tab.active.bg_fill = self.bg;
+        style.tab.active.text_color = self.fg;
+        style.tab.active.outline_color = self.accent;
+        style.tab.active.corner_radius = zero_rounding;
+
+        style.tab.focused.bg_fill = self.bg;
+        style.tab.focused.text_color = self.fg;
+        style.tab.focused.outline_color = self.accent;
+        style.tab.focused.corner_radius = zero_rounding;
+
+        // ── Inactive tab: no visible border ───────────────────────────────────
+        style.tab.inactive.bg_fill = self.bg_sunken;
+        style.tab.inactive.text_color = self.fg_muted;
+        style.tab.inactive.outline_color = Color32::TRANSPARENT;
+        style.tab.inactive.corner_radius = zero_rounding;
+
+        // ── Hovered tab ───────────────────────────────────────────────────────
+        style.tab.hovered.bg_fill = self.surface;
+        style.tab.hovered.text_color = self.fg;
+        style.tab.hovered.outline_color = Color32::TRANSPARENT;
+        style.tab.hovered.corner_radius = zero_rounding;
+
+        style.tab.inactive_with_kb_focus = style.tab.inactive.clone();
+        style.tab.active_with_kb_focus = style.tab.active.clone();
+        style.tab.focused_with_kb_focus = style.tab.focused.clone();
+
+        style.tab.hline_below_active_tab_name = false;
+
+        // ── Close (×) button: invisible until cursor enters the × hit-area ───
+        // egui_dock doesn't support "show × on tab hover" — the best available
+        // approximation is keeping the × transparent until the pointer is over
+        // the × itself. The hit-target is always present for middle-click close.
+        style.buttons.close_tab_color = Color32::TRANSPARENT;
+        style.buttons.close_tab_active_color = self.fg_muted;
+        style.buttons.close_tab_bg_fill = self.surface_raised;
+
+        // ── Separator between split panes ─────────────────────────────────────
+        style.separator.width = 4.0;
+        style.separator.color_idle = self.surface;
+        style.separator.color_hovered = self.accent;
+        style.separator.color_dragged = self.accent;
+
+        style
+    }
 }
 
 // ── apply_fonts ───────────────────────────────────────────────────────────────
@@ -331,23 +399,23 @@ pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
         vec!["phosphor".into()],
     );
 
-    if let Some(family) = &settings.font_family {
-        if let Some(bytes) = crate::platform::find_font_bytes(family) {
-            fonts.font_data.insert(
-                family.clone(),
-                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
-            );
+    if let Some(family) = &settings.font_family
+        && let Some(bytes) = crate::platform::find_font_bytes(family)
+    {
+        fonts.font_data.insert(
+            family.clone(),
+            std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+        );
 
-            // Monospace-style fonts: prepend to both Proportional and Monospace stacks.
-            // Purely proportional fonts (e.g. Inter) only go into Proportional.
-            let is_mono = !matches!(family.as_str(), "Inter");
-            for target in [egui::FontFamily::Proportional]
-                .iter()
-                .chain(is_mono.then_some(&egui::FontFamily::Monospace))
-            {
-                if let Some(list) = fonts.families.get_mut(target) {
-                    list.insert(0, family.clone());
-                }
+        // Monospace-style fonts: prepend to both Proportional and Monospace stacks.
+        // Purely proportional fonts (e.g. Inter) only go into Proportional.
+        let is_mono = !matches!(family.as_str(), "Inter");
+        for target in [egui::FontFamily::Proportional]
+            .iter()
+            .chain(is_mono.then_some(&egui::FontFamily::Monospace))
+        {
+            if let Some(list) = fonts.families.get_mut(target) {
+                list.insert(0, family.clone());
             }
         }
     }

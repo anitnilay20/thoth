@@ -46,6 +46,7 @@ pub struct Notification {
     pub status: NotificationStatus,
     pub kind: NotificationKind,
     pub unread: bool,
+    pub pinned: bool,
 }
 
 pub struct NotificationManager {
@@ -66,10 +67,10 @@ impl NotificationManager {
     pub fn notify(notification: Notification) -> String {
         let id = notification.id.clone();
 
-        if let Some(mutex) = NOTIFICATION_MANAGER.get() {
-            if let Ok(mut nm) = mutex.lock() {
-                nm.add_notification(notification);
-            }
+        if let Some(mutex) = NOTIFICATION_MANAGER.get()
+            && let Ok(mut nm) = mutex.lock()
+        {
+            nm.add_notification(notification);
         }
 
         id
@@ -85,18 +86,18 @@ impl NotificationManager {
     }
 
     pub fn mark_notification_as_complete(id: &str) {
-        if let Some(mutex) = NOTIFICATION_MANAGER.get() {
-            if let Ok(mut nm) = mutex.lock() {
-                nm.move_to_notifications(id);
-            }
+        if let Some(mutex) = NOTIFICATION_MANAGER.get()
+            && let Ok(mut nm) = mutex.lock()
+        {
+            nm.move_to_notifications(id);
         }
     }
 
     pub fn remove_notification(id: &str) {
-        if let Some(mutex) = NOTIFICATION_MANAGER.get() {
-            if let Ok(mut nm) = mutex.lock() {
-                nm.notifications.remove(id);
-            }
+        if let Some(mutex) = NOTIFICATION_MANAGER.get()
+            && let Ok(mut nm) = mutex.lock()
+        {
+            nm.notifications.remove(id);
         }
     }
 
@@ -138,7 +139,7 @@ impl NotificationManager {
     }
 
     pub fn clear_notifications(&mut self) {
-        self.notifications.clear();
+        self.notifications.retain(|_, n| n.pinned);
         self.toasts.dismiss_all_toasts();
     }
 
@@ -187,6 +188,7 @@ impl Notification {
             status: NotificationStatus::Created,
             kind: NotificationKind::default(),
             unread: true,
+            pinned: false,
         }
     }
 
@@ -226,6 +228,11 @@ impl Notification {
 
     pub fn with_status(mut self, status: NotificationStatus) -> Self {
         self.status = status;
+        self
+    }
+
+    pub fn pinned(mut self) -> Self {
+        self.pinned = true;
         self
     }
 }

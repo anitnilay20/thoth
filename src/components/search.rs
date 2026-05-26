@@ -172,78 +172,80 @@ impl StatefulComponent for Search {
         ui.add_space(8.0);
 
         // Display search history if no active search and history exists
-        if props.search_state.query.is_empty() {
-            if let Some(history) = props.search_history {
-                let queries: Vec<String> = history
+        if props.search_state.query.is_empty()
+            && let Some(history) = props.search_history
+        {
+            let queries: Vec<String> = history
+                .iter()
+                .map(|e| decode_history_entry(e).1)
+                .filter(|q| !q.trim().is_empty())
+                .collect();
+
+            if !queries.is_empty() {
+                ui.separator();
+                ui.add_space(8.0);
+
+                ui.horizontal(|ui| {
+                    Typography::panel_header(ui, "RECENT SEARCHES");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let clear_output = IconButton::render(
+                            ui,
+                            IconButtonProps {
+                                icon: egui_phosphor::regular::X,
+                                frame: false,
+                                tooltip: Some("Clear search history"),
+                                badge_color: None,
+                                size: Some(egui::vec2(16.0, 16.0)),
+                                disabled: false,
+                                icon_size: None,
+                                selected: false,
+                            },
+                        );
+                        if clear_output.clicked {
+                            events.push(SearchEvent::ClearHistory);
+                        }
+                    });
+                });
+                ui.add_space(4.0);
+
+                let items: Vec<ListItem<'_>> = queries
                     .iter()
-                    .map(|e| decode_history_entry(e).1)
-                    .filter(|q| !q.trim().is_empty())
+                    .map(|q| ListItem {
+                        title: q.as_str(),
+                        description: None,
+                        prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
+                            glyph: egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE,
+                            color: None,
+                        }),
+                        badge: None,
+                        postfix: None,
+                        selected: false,
+                        accent: None,
+                        tags: &[],
+                    })
                     .collect();
 
-                if !queries.is_empty() {
-                    ui.separator();
-                    ui.add_space(8.0);
+                let output = List::render(
+                    ui,
+                    ListProps {
+                        items: &items,
+                        empty_label: None,
+                        shrink_to_fit: false,
+                        show_separators: true,
+                        compact: false,
+                        max_height: Some(300.0),
+                    },
+                );
 
-                    ui.horizontal(|ui| {
-                        Typography::panel_header(ui, "RECENT SEARCHES");
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let clear_output = IconButton::render(
-                                ui,
-                                IconButtonProps {
-                                    icon: egui_phosphor::regular::X,
-                                    frame: false,
-                                    tooltip: Some("Clear search history"),
-                                    badge_color: None,
-                                    size: Some(egui::vec2(16.0, 16.0)),
-                                    disabled: false,
-                                    icon_size: None,
-                                    selected: false,
-                                },
-                            );
-                            if clear_output.clicked {
-                                events.push(SearchEvent::ClearHistory);
-                            }
-                        });
-                    });
-                    ui.add_space(4.0);
-
-                    let items: Vec<ListItem<'_>> = queries
-                        .iter()
-                        .map(|q| ListItem {
-                            title: q.as_str(),
-                            description: None,
-                            prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
-                                glyph: egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE,
-                                color: None,
-                            }),
-                            badge: None,
-                            postfix: None,
-                            selected: false,
-                            tags: &[],
-                        })
-                        .collect();
-
-                    let output = List::render(
-                        ui,
-                        ListProps {
-                            items: &items,
-                            empty_label: None,
-                            shrink_to_fit: false,
-                            show_separators: true,
-                            compact: false,
-                        },
-                    );
-
-                    if let Some(idx) = output.row_clicked {
-                        if let Some(q) = queries.get(idx) {
-                            self.search_query = q.clone();
-                            let query_mode = detect_query_mode(q);
-                            if let Some(msg) =
-                                SearchMessage::create_search(q.clone(), self.match_case, query_mode)
-                            {
-                                events.push(SearchEvent::Search(msg));
-                            }
-                        }
+                if let Some(idx) = output.row_clicked
+                    && let Some(q) = queries.get(idx)
+                {
+                    self.search_query = q.clone();
+                    let query_mode = detect_query_mode(q);
+                    if let Some(msg) =
+                        SearchMessage::create_search(q.clone(), self.match_case, query_mode)
+                    {
+                        events.push(SearchEvent::Search(msg));
                     }
                 }
             }
@@ -296,6 +298,7 @@ impl StatefulComponent for Search {
                         badge: None,
                         postfix: None,
                         selected: false,
+                        accent: None,
                         tags: &[],
                     })
                     .collect();
@@ -312,14 +315,15 @@ impl StatefulComponent for Search {
                                 shrink_to_fit: false,
                                 show_separators: true,
                                 compact: false,
+                                max_height: Some(300.0),
                             },
                         );
-                        if let Some(idx) = output.row_clicked {
-                            if let Some(hit) = props.search_state.results.hits().get(idx) {
-                                events.push(SearchEvent::NavigateToResult {
-                                    record_index: hit.record_index,
-                                });
-                            }
+                        if let Some(idx) = output.row_clicked
+                            && let Some(hit) = props.search_state.results.hits().get(idx)
+                        {
+                            events.push(SearchEvent::NavigateToResult {
+                                record_index: hit.record_index,
+                            });
                         }
                     });
             } else {

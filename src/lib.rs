@@ -3,7 +3,7 @@
 //! This library exposes the core components and utilities of Thoth
 //! for testing and potential reuse.
 
-use std::sync::OnceLock;
+use std::sync::{OnceLock, atomic::AtomicBool};
 
 use crate::plugin::manager::PluginManager;
 
@@ -29,3 +29,7 @@ pub static NOTIFICATION_MANAGER: OnceLock<std::sync::Mutex<notification::Notific
     OnceLock::new();
 pub static CONSENT_MANAGER: OnceLock<std::sync::Mutex<consent::manager::ConsentManager>> =
     OnceLock::new();
+
+/// Set to `true` by the "Update Now" notification action callback.
+/// Polled each frame by ThothApp and cleared after opening the updates settings tab.
+pub static OPEN_UPDATES_REQUESTED: AtomicBool = AtomicBool::new(false);

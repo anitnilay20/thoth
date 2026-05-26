@@ -129,10 +129,8 @@ impl DataSourcePluginState {
                 if let Ok(tx) = retry_tx.lock() {
                     let _ = tx.send((retry_id.clone(), req.clone()));
                 }
-                if remember {
-                    if let Ok(mut list) = runtime_allowed.lock() {
-                        list.push(dom.clone());
-                    }
+                if remember && let Ok(mut list) = runtime_allowed.lock() {
+                    list.push(dom.clone());
                 }
             }),
             on_deny,
@@ -175,10 +173,8 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
                     &domain,
                     &self.plugin_id,
                     Arc::new(move |remember: bool| {
-                        if remember {
-                            if let Ok(mut list) = runtime_allowed.lock() {
-                                list.push(dom.clone());
-                            }
+                        if remember && let Ok(mut list) = runtime_allowed.lock() {
+                            list.push(dom.clone());
                         }
                     }),
                     Arc::new(|_| {}),

@@ -590,15 +590,13 @@ impl PluginsTab {
                 },
             )
             .changed
-            {
-                if let Ok(value) = rate_limit_text.parse::<u32>() {
+                && let Ok(value) = rate_limit_text.parse::<u32>() {
                     policy.rate_limit_rpm = value;
                     events.push(PluginsTabEvent::UpdateNetworkPolicy {
                         plugin_id: plugin.id.clone(),
                         policy: policy.clone(),
                     });
                 }
-            }
             ui.add_space(8.0);
 
             ui.group(|ui| {

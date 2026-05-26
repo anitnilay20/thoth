@@ -75,6 +75,7 @@ impl StatefulComponent for RecentFiles {
                                 selected: false,
                             })),
                             selected: false,
+                            accent: None,
                         }
                     })
                     .collect();
@@ -87,19 +88,20 @@ impl StatefulComponent for RecentFiles {
                         shrink_to_fit: false,
                         show_separators: true,
                         compact: false,
+                        max_height: None,
                     },
                 );
 
-                if let Some(item_idx) = output.postfix_clicked {
-                    if let Some(path) = props.recent_files.get(item_idx) {
-                        events.push(RecentFilesEvent::RemoveFile(path.clone()));
-                    }
+                if let Some(item_idx) = output.postfix_clicked
+                    && let Some(path) = props.recent_files.get(item_idx)
+                {
+                    events.push(RecentFilesEvent::RemoveFile(path.clone()));
                 }
 
-                if let Some(item_idx) = output.row_clicked {
-                    if let Some(path) = props.recent_files.get(item_idx) {
-                        events.push(RecentFilesEvent::OpenFile(path.clone()));
-                    }
+                if let Some(item_idx) = output.row_clicked
+                    && let Some(path) = props.recent_files.get(item_idx)
+                {
+                    events.push(RecentFilesEvent::OpenFile(path.clone()));
                 }
                 ui.add_space(8.0);
 

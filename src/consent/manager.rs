@@ -87,19 +87,19 @@ impl ConsentManager {
 
     /// Enqueue any consent request.
     pub fn push(consent: PendingConsent) {
-        if let Some(mutex) = crate::CONSENT_MANAGER.get() {
-            if let Ok(mut cm) = mutex.lock() {
-                cm.queue.push_back(consent);
-            }
+        if let Some(mutex) = crate::CONSENT_MANAGER.get()
+            && let Ok(mut cm) = mutex.lock()
+        {
+            cm.queue.push_back(consent);
         }
     }
 
     /// Remove the consent with the given id (call after the user decides).
     pub fn resolve(id: &str) {
-        if let Some(mutex) = crate::CONSENT_MANAGER.get() {
-            if let Ok(mut cm) = mutex.lock() {
-                cm.queue.retain(|c| c.request.id != id);
-            }
+        if let Some(mutex) = crate::CONSENT_MANAGER.get()
+            && let Ok(mut cm) = mutex.lock()
+        {
+            cm.queue.retain(|c| c.request.id != id);
         }
     }
 

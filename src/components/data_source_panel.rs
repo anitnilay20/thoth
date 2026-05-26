@@ -88,10 +88,11 @@ impl StatefulComponent for DataSourcePanel {
 
         for evt in ui_events {
             // Track URL changes so QueryResult has a readable display_url.
-            if evt.widget_id == "url" && evt.kind == "change" {
-                if let Ok(url) = serde_json::from_str::<String>(&evt.value) {
-                    self.last_url = url;
-                }
+            if evt.widget_id == "url"
+                && evt.kind == "change"
+                && let Ok(url) = serde_json::from_str::<String>(&evt.value)
+            {
+                self.last_url = url;
             }
 
             // Forward event to plugin; update cached tree on success.

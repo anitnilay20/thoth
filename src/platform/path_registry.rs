@@ -55,10 +55,10 @@ fn shell_escape_single_quoted(s: &str) -> String {
 #[cfg(target_os = "macos")]
 fn try_symlink_direct(exe: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::fs::symlink;
-    if let Some(parent) = link.parent() {
-        if !parent.exists() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = link.parent()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent)?;
     }
     if link.symlink_metadata().is_ok() {
         std::fs::remove_file(link)?;
@@ -155,12 +155,12 @@ pub fn register_in_path() -> Result<()> {
     let exe_path = get_executable_path()?;
     let link_path = local_bin_link()?;
 
-    if let Some(parent) = link_path.parent() {
-        if !parent.exists() {
-            std::fs::create_dir_all(parent).map_err(|e| ThothError::PathRegistryError {
-                reason: format!("Failed to create ~/.local/bin: {}", e),
-            })?;
-        }
+    if let Some(parent) = link_path.parent()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent).map_err(|e| ThothError::PathRegistryError {
+            reason: format!("Failed to create ~/.local/bin: {}", e),
+        })?;
     }
 
     if link_path.symlink_metadata().is_ok() {
