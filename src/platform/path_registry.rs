@@ -155,12 +155,12 @@ pub fn register_in_path() -> Result<()> {
     let exe_path = get_executable_path()?;
     let link_path = local_bin_link()?;
 
-    if let Some(parent) = link_path.parent() {
-        if !parent.exists() {
-            std::fs::create_dir_all(parent).map_err(|e| ThothError::PathRegistryError {
-                reason: format!("Failed to create ~/.local/bin: {}", e),
-            })?;
-        }
+    if let Some(parent) = link_path.parent()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent).map_err(|e| ThothError::PathRegistryError {
+            reason: format!("Failed to create ~/.local/bin: {}", e),
+        })?;
     }
 
     if link_path.symlink_metadata().is_ok() {
