@@ -72,6 +72,15 @@ fn main() -> Result<()> {
 
     // Parse command-line arguments for file path
     let args: Vec<String> = std::env::args().collect();
+
+    // ── MCP server branch ────────────────────────────────────────────────
+    // Must happen BEFORE any GUI init — stdout must stay clean for JSON-RPC.
+    if args.get(1).map(|s| s.as_str()) == Some("mcp") {
+        let mcp_args: Vec<String> = args[2..].to_vec();
+        return thoth::mcp::run_mcp_command(&mcp_args)
+            .map_err(|e| format!("MCP error: {e}").into());
+    }
+
     let file_to_open = parse_file_argument(&args)?;
 
     // Load settings first

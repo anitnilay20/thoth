@@ -21,7 +21,7 @@ pub fn split_root_rel(path: &str) -> Result<(usize, &str)> {
 }
 
 /// Walk a relative path like "user.items[2].meta" starting at `value`.
-fn walk_rel(mut cur: serde_json::Value, mut rel: &str) -> Result<serde_json::Value> {
+pub fn walk_rel(mut cur: serde_json::Value, mut rel: &str) -> Result<serde_json::Value> {
     while !rel.is_empty() {
         if let Some(rem) = rel.strip_prefix('[') {
             // parse index

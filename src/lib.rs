@@ -14,6 +14,7 @@ pub mod constants;
 pub mod error;
 pub mod file;
 pub mod helpers;
+pub mod mcp;
 pub mod notification;
 pub mod platform;
 pub mod plugin;
