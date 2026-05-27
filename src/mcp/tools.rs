@@ -229,10 +229,7 @@ impl ThothMcpServer {
         name = "open_file",
         description = "Open a JSON, NDJSON, or GeoJSON file for inspection. Returns a handle for use with other tools."
     )]
-    fn open_file(
-        &self,
-        Parameters(params): Parameters<OpenFileParams>,
-    ) -> Json<OpenFileResult> {
+    fn open_file(&self, Parameters(params): Parameters<OpenFileParams>) -> Json<OpenFileResult> {
         let path = PathBuf::from(&params.path);
 
         // Canonicalize path for consistent display
@@ -261,10 +258,7 @@ impl ThothMcpServer {
         name = "close_file",
         description = "Close a previously opened file, freeing its resources. Use the handle from open_file."
     )]
-    fn close_file(
-        &self,
-        Parameters(params): Parameters<CloseFileParams>,
-    ) -> Json<CloseFileResult> {
+    fn close_file(&self, Parameters(params): Parameters<CloseFileParams>) -> Json<CloseFileResult> {
         let closed = self.state.close_file(&params.handle);
         Json(CloseFileResult { closed })
     }
@@ -297,15 +291,12 @@ impl ThothMcpServer {
         name = "get_record",
         description = "Retrieve a single JSON record by its zero-based index from an open file."
     )]
-    fn get_record(
-        &self,
-        Parameters(params): Parameters<GetRecordParams>,
-    ) -> Json<GetRecordResult> {
+    fn get_record(&self, Parameters(params): Parameters<GetRecordParams>) -> Json<GetRecordResult> {
         let result = self.state.with_file(&params.handle, |file| {
             match file.file_type.get(params.index) {
                 Ok(value) => {
-                    let record = serde_json::to_string_pretty(&value)
-                        .unwrap_or_else(|_| value.to_string());
+                    let record =
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
                     Ok(record)
                 }
                 Err(e) => Err(format!("{}", e)),
@@ -349,10 +340,7 @@ impl ThothMcpServer {
         name = "search",
         description = "Search records in an open file using text substring match or JSONPath query. Returns matching record indices with preview snippets."
     )]
-    fn search(
-        &self,
-        Parameters(params): Parameters<SearchParams>,
-    ) -> Json<SearchResult> {
+    fn search(&self, Parameters(params): Parameters<SearchParams>) -> Json<SearchResult> {
         use crate::search::{QueryMode, Search};
 
         let max_results = params.max_results.unwrap_or(50);
@@ -377,9 +365,9 @@ impl ThothMcpServer {
         };
 
         // Get the file path from state
-        let file_path = self.state.with_file(&params.handle, |file| {
-            file.path.clone()
-        });
+        let file_path = self
+            .state
+            .with_file(&params.handle, |file| file.path.clone());
 
         let file_path = match file_path {
             Some(p) => p,
@@ -394,9 +382,7 @@ impl ThothMcpServer {
         };
 
         // Get the file kind from state
-        let file_kind = self.state.with_file(&params.handle, |file| {
-            file.file_kind
-        });
+        let file_kind = self.state.with_file(&params.handle, |file| file.file_kind);
         let file_kind = file_kind.unwrap_or_default();
 
         // Use Search engine — it reopens the file internally for thread-safe parallel scanning
@@ -430,9 +416,10 @@ impl ThothMcpServer {
         let matches: Vec<SearchMatch> = capped
             .iter()
             .map(|hit| {
-                let preview = hit.preview.as_ref().map(|p| {
-                    format!("{}«{}»{}", p.before, p.highlight, p.after)
-                });
+                let preview = hit
+                    .preview
+                    .as_ref()
+                    .map(|p| format!("{}«{}»{}", p.before, p.highlight, p.after));
 
                 let match_path = hit
                     .fragments
@@ -480,8 +467,8 @@ impl ThothMcpServer {
         match result {
             Some(Ok(value)) => {
                 let value_type = json_type_name(&value).to_string();
-                let value_str = serde_json::to_string_pretty(&value)
-                    .unwrap_or_else(|_| value.to_string());
+                let value_str =
+                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
                 Json(GetValueAtPathResult {
                     value: value_str,
                     path: params.path,
@@ -583,9 +570,7 @@ impl ThothMcpServer {
                     } else if n >= total {
                         (0..total).collect()
                     } else {
-                        (0..n)
-                            .map(|i| i * (total - 1) / (n - 1).max(1))
-                            .collect()
+                        (0..n).map(|i| i * (total - 1) / (n - 1).max(1)).collect()
                     }
                 }
                 _ => (0..n).collect(), // "first"
@@ -594,8 +579,8 @@ impl ThothMcpServer {
             let mut records = Vec::with_capacity(indices.len());
             for idx in &indices {
                 if let Ok(value) = file.file_type.get(*idx) {
-                    let record_str = serde_json::to_string_pretty(&value)
-                        .unwrap_or_else(|_| value.to_string());
+                    let record_str =
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
                     records.push(SampledRecord {
                         index: *idx,
                         record: record_str,
@@ -624,10 +609,7 @@ impl ThothMcpServer {
         name = "get_schema",
         description = "Infer a JSON schema from the records in an open file by sampling records and analyzing their structure, types, and keys."
     )]
-    fn get_schema(
-        &self,
-        Parameters(params): Parameters<GetSchemaParams>,
-    ) -> Json<GetSchemaResult> {
+    fn get_schema(&self, Parameters(params): Parameters<GetSchemaParams>) -> Json<GetSchemaResult> {
         let sample_size = params.sample_size.unwrap_or(50);
 
         let result = self.state.with_file(&params.handle, |file| {
@@ -694,7 +676,7 @@ fn json_type_name(value: &serde_json::Value) -> &'static str {
 /// Produces a schema object with "type", "properties" (for objects),
 /// "items" (for arrays), and tracks which fields are required (present in all samples).
 pub fn infer_schema(samples: &[serde_json::Value]) -> serde_json::Value {
-    use serde_json::{json, Map, Value};
+    use serde_json::{Map, Value, json};
     use std::collections::{BTreeMap, BTreeSet};
 
     if samples.is_empty() {

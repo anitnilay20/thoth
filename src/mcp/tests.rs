@@ -71,10 +71,7 @@ mod tests {
 
     #[test]
     fn test_state_open_json_array() {
-        let file = create_json_array_file(&[
-            r#"{"id":1}"#,
-            r#"{"id":2}"#,
-        ]);
+        let file = create_json_array_file(&[r#"{"id":1}"#, r#"{"id":2}"#]);
 
         let state = ServerState::new();
         let (_handle, info) = state.open_file(file.path()).expect("open_file failed");
@@ -103,17 +100,12 @@ mod tests {
 
     #[test]
     fn test_state_with_file_get_record() {
-        let file = create_ndjson_file(&[
-            r#"{"name":"alice"}"#,
-            r#"{"name":"bob"}"#,
-        ]);
+        let file = create_ndjson_file(&[r#"{"name":"alice"}"#, r#"{"name":"bob"}"#]);
 
         let state = ServerState::new();
         let (handle, _) = state.open_file(file.path()).unwrap();
 
-        let value = state.with_file(&handle, |f| {
-            f.file_type.get(0).unwrap()
-        });
+        let value = state.with_file(&handle, |f| f.file_type.get(0).unwrap());
 
         assert!(value.is_some());
         let val = value.unwrap();
@@ -166,8 +158,8 @@ mod tests {
 
     #[test]
     fn test_search_text_mode() {
-        use crate::search::{QueryMode, Search};
         use crate::file::loaders::FileKind;
+        use crate::search::{QueryMode, Search};
 
         let file = create_ndjson_file(&[
             r#"{"name":"alice","city":"wonderland"}"#,
@@ -185,15 +177,19 @@ mod tests {
         let path_opt = Some(file.path().to_path_buf());
         search.start_scanning_internal(&path_opt, &FileKind::Ndjson);
 
-        assert!(search.error.is_none(), "Search had error: {:?}", search.error);
+        assert!(
+            search.error.is_none(),
+            "Search had error: {:?}",
+            search.error
+        );
         assert_eq!(search.results.len(), 2);
         assert!(!search.scanning);
     }
 
     #[test]
     fn test_search_jsonpath_mode() {
-        use crate::search::{QueryMode, Search};
         use crate::file::loaders::FileKind;
+        use crate::search::{QueryMode, Search};
 
         let file = create_ndjson_file(&[
             r#"{"user":{"name":"alice","age":30}}"#,
@@ -211,15 +207,19 @@ mod tests {
         let path_opt = Some(file.path().to_path_buf());
         search.start_scanning_internal(&path_opt, &FileKind::Ndjson);
 
-        assert!(search.error.is_none(), "Search had error: {:?}", search.error);
+        assert!(
+            search.error.is_none(),
+            "Search had error: {:?}",
+            search.error
+        );
         // All 3 records have $.user.name
         assert_eq!(search.results.len(), 3);
     }
 
     #[test]
     fn test_search_jsonpath_with_filter() {
-        use crate::search::{QueryMode, Search};
         use crate::file::loaders::FileKind;
+        use crate::search::{QueryMode, Search};
 
         let file = create_ndjson_file(&[
             r#"{"user":{"name":"alice","age":30}}"#,
@@ -237,20 +237,21 @@ mod tests {
         let path_opt = Some(file.path().to_path_buf());
         search.start_scanning_internal(&path_opt, &FileKind::Ndjson);
 
-        assert!(search.error.is_none(), "Search had error: {:?}", search.error);
+        assert!(
+            search.error.is_none(),
+            "Search had error: {:?}",
+            search.error
+        );
         assert_eq!(search.results.len(), 1);
         assert_eq!(search.results.hits()[0].record_index, 0);
     }
 
     #[test]
     fn test_search_case_sensitive() {
-        use crate::search::{QueryMode, Search};
         use crate::file::loaders::FileKind;
+        use crate::search::{QueryMode, Search};
 
-        let file = create_ndjson_file(&[
-            r#"{"name":"Alice"}"#,
-            r#"{"name":"alice"}"#,
-        ]);
+        let file = create_ndjson_file(&[r#"{"name":"Alice"}"#, r#"{"name":"alice"}"#]);
 
         // Case-sensitive: should find only lowercase
         let mut search = Search {
@@ -270,8 +271,8 @@ mod tests {
 
     #[test]
     fn test_search_empty_query() {
-        use crate::search::{QueryMode, Search};
         use crate::file::loaders::FileKind;
+        use crate::search::{QueryMode, Search};
 
         let file = create_ndjson_file(&[r#"{"name":"alice"}"#]);
 
@@ -291,13 +292,10 @@ mod tests {
 
     #[test]
     fn test_search_no_matches() {
-        use crate::search::{QueryMode, Search};
         use crate::file::loaders::FileKind;
+        use crate::search::{QueryMode, Search};
 
-        let file = create_ndjson_file(&[
-            r#"{"name":"alice"}"#,
-            r#"{"name":"bob"}"#,
-        ]);
+        let file = create_ndjson_file(&[r#"{"name":"alice"}"#, r#"{"name":"bob"}"#]);
 
         let mut search = Search {
             query: "zzz_nonexistent".to_string(),
@@ -317,10 +315,7 @@ mod tests {
 
     #[test]
     fn test_tool_open_close_roundtrip() {
-        let file = create_ndjson_file(&[
-            r#"{"a":1}"#,
-            r#"{"a":2}"#,
-        ]);
+        let file = create_ndjson_file(&[r#"{"a":1}"#, r#"{"a":2}"#]);
 
         let state = ServerState::new();
         let (handle, info) = state.open_file(file.path()).unwrap();
@@ -328,9 +323,9 @@ mod tests {
         assert_eq!(info.record_count, 2);
 
         // Get record
-        let record = state.with_file(&handle, |f| {
-            f.file_type.get(1).unwrap()
-        }).unwrap();
+        let record = state
+            .with_file(&handle, |f| f.file_type.get(1).unwrap())
+            .unwrap();
         assert_eq!(record["a"], 2);
 
         // Close
@@ -347,9 +342,7 @@ mod tests {
         let state = ServerState::new();
         let (handle, _) = state.open_file(file.path()).unwrap();
 
-        let result = state.with_file(&handle, |f| {
-            f.file_type.get(999)
-        });
+        let result = state.with_file(&handle, |f| f.file_type.get(999));
 
         assert!(result.is_some());
         assert!(result.unwrap().is_err());
@@ -371,7 +364,9 @@ mod tests {
         assert!(info.record_count > 0);
 
         // Should be able to get first record
-        let val = state.with_file(&handle, |f| f.file_type.get(0).unwrap()).unwrap();
+        let val = state
+            .with_file(&handle, |f| f.file_type.get(0).unwrap())
+            .unwrap();
         assert!(val.is_object());
     }
 
@@ -416,7 +411,9 @@ mod tests {
         assert_eq!(info.file_type, "ndjson");
 
         // Verify we can get records with nested structures
-        let val = state.with_file(&handle, |f| f.file_type.get(0).unwrap()).unwrap();
+        let val = state
+            .with_file(&handle, |f| f.file_type.get(0).unwrap())
+            .unwrap();
         assert!(val.is_object());
     }
 
@@ -441,7 +438,9 @@ mod tests {
         };
 
         let path_opt = Some(path);
-        let file_kind = state.with_file(&handle, |f| f.file_kind).unwrap_or_default();
+        let file_kind = state
+            .with_file(&handle, |f| f.file_kind)
+            .unwrap_or_default();
         search.start_scanning_internal(&path_opt, &file_kind);
 
         assert!(search.error.is_none(), "Search error: {:?}", search.error);
@@ -460,7 +459,11 @@ mod tests {
 
         let state = ServerState::new();
         let result = state.open_file(&path);
-        assert!(result.is_ok(), "Should handle unicode JSON: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should handle unicode JSON: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -472,7 +475,11 @@ mod tests {
 
         let state = ServerState::new();
         let result = state.open_file(&path);
-        assert!(result.is_ok(), "Should handle escaped JSON: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should handle escaped JSON: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -484,7 +491,11 @@ mod tests {
 
         let state = ServerState::new();
         let result = state.open_file(&path);
-        assert!(result.is_ok(), "Should handle numbers JSON: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should handle numbers JSON: {:?}",
+            result.err()
+        );
     }
 
     // ─── Phase 2: Data tool tests ───────────────────────────────────────
@@ -499,62 +510,67 @@ mod tests {
         let (handle, _) = state.open_file(file.path()).unwrap();
 
         // Get nested value
-        let result = state.with_file(&handle, |f| {
-            let record = f.file_type.get(0).unwrap();
-            crate::helpers::walk_rel(record, "user.address.city")
-        }).unwrap().unwrap();
+        let result = state
+            .with_file(&handle, |f| {
+                let record = f.file_type.get(0).unwrap();
+                crate::helpers::walk_rel(record, "user.address.city")
+            })
+            .unwrap()
+            .unwrap();
 
         assert_eq!(result, serde_json::json!("wonderland"));
     }
 
     #[test]
     fn test_get_value_at_path_array_index() {
-        let file = create_ndjson_file(&[
-            r#"{"items":[{"name":"a"},{"name":"b"},{"name":"c"}]}"#,
-        ]);
+        let file = create_ndjson_file(&[r#"{"items":[{"name":"a"},{"name":"b"},{"name":"c"}]}"#]);
 
         let state = ServerState::new();
         let (handle, _) = state.open_file(file.path()).unwrap();
 
-        let result = state.with_file(&handle, |f| {
-            let record = f.file_type.get(0).unwrap();
-            crate::helpers::walk_rel(record, "items[1].name")
-        }).unwrap().unwrap();
+        let result = state
+            .with_file(&handle, |f| {
+                let record = f.file_type.get(0).unwrap();
+                crate::helpers::walk_rel(record, "items[1].name")
+            })
+            .unwrap()
+            .unwrap();
 
         assert_eq!(result, serde_json::json!("b"));
     }
 
     #[test]
     fn test_get_value_at_path_invalid_path() {
-        let file = create_ndjson_file(&[
-            r#"{"name":"alice"}"#,
-        ]);
+        let file = create_ndjson_file(&[r#"{"name":"alice"}"#]);
 
         let state = ServerState::new();
         let (handle, _) = state.open_file(file.path()).unwrap();
 
-        let result = state.with_file(&handle, |f| {
-            let record = f.file_type.get(0).unwrap();
-            crate::helpers::walk_rel(record, "nonexistent.path")
-        }).unwrap();
+        let result = state
+            .with_file(&handle, |f| {
+                let record = f.file_type.get(0).unwrap();
+                crate::helpers::walk_rel(record, "nonexistent.path")
+            })
+            .unwrap();
 
         assert!(result.is_err());
     }
 
     #[test]
     fn test_get_value_at_path_empty_path() {
-        let file = create_ndjson_file(&[
-            r#"{"name":"alice"}"#,
-        ]);
+        let file = create_ndjson_file(&[r#"{"name":"alice"}"#]);
 
         let state = ServerState::new();
         let (handle, _) = state.open_file(file.path()).unwrap();
 
         // Empty path should return entire record
-        let result = state.with_file(&handle, |f| {
-            let record = f.file_type.get(0).unwrap();
-            crate::helpers::walk_rel(record.clone(), "")
-        }).unwrap().unwrap();
+        let result = state
+            .with_file(&handle, |f| {
+                let record = f.file_type.get(0).unwrap();
+                crate::helpers::walk_rel(record.clone(), "")
+            })
+            .unwrap()
+            .unwrap();
 
         assert_eq!(result["name"], "alice");
     }
@@ -572,19 +588,21 @@ mod tests {
         let state = ServerState::new();
         let (handle, _) = state.open_file(file.path()).unwrap();
 
-        let keys = state.with_file(&handle, |f| {
-            let mut all_keys = BTreeSet::new();
-            for i in 0..f.record_count() {
-                if let Ok(record) = f.file_type.get(i) {
-                    if let Some(obj) = record.as_object() {
-                        for key in obj.keys() {
-                            all_keys.insert(key.clone());
+        let keys = state
+            .with_file(&handle, |f| {
+                let mut all_keys = BTreeSet::new();
+                for i in 0..f.record_count() {
+                    if let Ok(record) = f.file_type.get(i) {
+                        if let Some(obj) = record.as_object() {
+                            for key in obj.keys() {
+                                all_keys.insert(key.clone());
+                            }
                         }
                     }
                 }
-            }
-            all_keys.into_iter().collect::<Vec<_>>()
-        }).unwrap();
+                all_keys.into_iter().collect::<Vec<_>>()
+            })
+            .unwrap();
 
         assert!(keys.contains(&"name".to_string()));
         assert!(keys.contains(&"age".to_string()));
@@ -604,22 +622,24 @@ mod tests {
         let state = ServerState::new();
         let (handle, _) = state.open_file(file.path()).unwrap();
 
-        let keys = state.with_file(&handle, |f| {
-            use std::collections::BTreeSet;
-            let mut all_keys = BTreeSet::new();
-            for i in 0..f.record_count() {
-                if let Ok(record) = f.file_type.get(i) {
-                    if let Ok(nested) = crate::helpers::walk_rel(record, "user") {
-                        if let Some(obj) = nested.as_object() {
-                            for key in obj.keys() {
-                                all_keys.insert(key.clone());
+        let keys = state
+            .with_file(&handle, |f| {
+                use std::collections::BTreeSet;
+                let mut all_keys = BTreeSet::new();
+                for i in 0..f.record_count() {
+                    if let Ok(record) = f.file_type.get(i) {
+                        if let Ok(nested) = crate::helpers::walk_rel(record, "user") {
+                            if let Some(obj) = nested.as_object() {
+                                for key in obj.keys() {
+                                    all_keys.insert(key.clone());
+                                }
                             }
                         }
                     }
                 }
-            }
-            all_keys.into_iter().collect::<Vec<_>>()
-        }).unwrap();
+                all_keys.into_iter().collect::<Vec<_>>()
+            })
+            .unwrap();
 
         assert!(keys.contains(&"name".to_string()));
         assert!(keys.contains(&"age".to_string()));
@@ -630,17 +650,24 @@ mod tests {
     #[test]
     fn test_sample_records_first() {
         let file = create_ndjson_file(&[
-            r#"{"id":1}"#, r#"{"id":2}"#, r#"{"id":3}"#,
-            r#"{"id":4}"#, r#"{"id":5}"#,
+            r#"{"id":1}"#,
+            r#"{"id":2}"#,
+            r#"{"id":3}"#,
+            r#"{"id":4}"#,
+            r#"{"id":5}"#,
         ]);
 
         let state = ServerState::new();
         let (handle, _) = state.open_file(file.path()).unwrap();
 
-        let records = state.with_file(&handle, |f| {
-            let n = 3.min(f.record_count());
-            (0..n).map(|i| f.file_type.get(i).unwrap()).collect::<Vec<_>>()
-        }).unwrap();
+        let records = state
+            .with_file(&handle, |f| {
+                let n = 3.min(f.record_count());
+                (0..n)
+                    .map(|i| f.file_type.get(i).unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
 
         assert_eq!(records.len(), 3);
         assert_eq!(records[0]["id"], 1);
@@ -650,8 +677,11 @@ mod tests {
     #[test]
     fn test_sample_records_last() {
         let file = create_ndjson_file(&[
-            r#"{"id":1}"#, r#"{"id":2}"#, r#"{"id":3}"#,
-            r#"{"id":4}"#, r#"{"id":5}"#,
+            r#"{"id":1}"#,
+            r#"{"id":2}"#,
+            r#"{"id":3}"#,
+            r#"{"id":4}"#,
+            r#"{"id":5}"#,
         ]);
 
         let state = ServerState::new();
@@ -660,9 +690,13 @@ mod tests {
         let total = state.with_file(&handle, |f| f.record_count()).unwrap();
         let n = 2usize;
         let start = total.saturating_sub(n);
-        let records = state.with_file(&handle, |f| {
-            (start..total).map(|i| f.file_type.get(i).unwrap()).collect::<Vec<_>>()
-        }).unwrap();
+        let records = state
+            .with_file(&handle, |f| {
+                (start..total)
+                    .map(|i| f.file_type.get(i).unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap();
 
         assert_eq!(records.len(), 2);
         assert_eq!(records[0]["id"], 4);
@@ -672,9 +706,16 @@ mod tests {
     #[test]
     fn test_sample_records_even() {
         let file = create_ndjson_file(&[
-            r#"{"id":0}"#, r#"{"id":1}"#, r#"{"id":2}"#, r#"{"id":3}"#,
-            r#"{"id":4}"#, r#"{"id":5}"#, r#"{"id":6}"#, r#"{"id":7}"#,
-            r#"{"id":8}"#, r#"{"id":9}"#,
+            r#"{"id":0}"#,
+            r#"{"id":1}"#,
+            r#"{"id":2}"#,
+            r#"{"id":3}"#,
+            r#"{"id":4}"#,
+            r#"{"id":5}"#,
+            r#"{"id":6}"#,
+            r#"{"id":7}"#,
+            r#"{"id":8}"#,
+            r#"{"id":9}"#,
         ]);
 
         let state = ServerState::new();
@@ -684,9 +725,7 @@ mod tests {
         assert_eq!(total, 10);
 
         let n = 3usize;
-        let indices: Vec<usize> = (0..n)
-            .map(|i| i * (total - 1) / (n - 1).max(1))
-            .collect();
+        let indices: Vec<usize> = (0..n).map(|i| i * (total - 1) / (n - 1).max(1)).collect();
 
         // Should give evenly spaced: 0, 4 (or 5), 9
         assert_eq!(indices[0], 0);
@@ -754,10 +793,7 @@ mod tests {
     fn test_infer_schema_array() {
         use crate::mcp::tools::infer_schema;
 
-        let samples = vec![
-            serde_json::json!([1, 2, 3]),
-            serde_json::json!([4, 5]),
-        ];
+        let samples = vec![serde_json::json!([1, 2, 3]), serde_json::json!([4, 5])];
 
         let schema = infer_schema(&samples);
         assert_eq!(schema["type"], "array");
@@ -778,19 +814,25 @@ mod tests {
         use crate::mcp::tools::infer_schema;
 
         let path = PathBuf::from("tests/fixtures/ndjson/simple.ndjson");
-        if !path.exists() { return; }
+        if !path.exists() {
+            return;
+        }
 
         let state = ServerState::new();
         let (handle, _) = state.open_file(&path).unwrap();
 
-        let schema = state.with_file(&handle, |f| {
-            let count = f.record_count().min(10);
-            let mut samples = Vec::new();
-            for i in 0..count {
-                if let Ok(v) = f.file_type.get(i) { samples.push(v); }
-            }
-            infer_schema(&samples)
-        }).unwrap();
+        let schema = state
+            .with_file(&handle, |f| {
+                let count = f.record_count().min(10);
+                let mut samples = Vec::new();
+                for i in 0..count {
+                    if let Ok(v) = f.file_type.get(i) {
+                        samples.push(v);
+                    }
+                }
+                infer_schema(&samples)
+            })
+            .unwrap();
 
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"].is_object());
@@ -802,10 +844,7 @@ mod tests {
     fn test_concurrent_state_access() {
         use std::thread;
 
-        let file = create_ndjson_file(&[
-            r#"{"name":"alice"}"#,
-            r#"{"name":"bob"}"#,
-        ]);
+        let file = create_ndjson_file(&[r#"{"name":"alice"}"#, r#"{"name":"bob"}"#]);
 
         let state = ServerState::new();
         let (handle, _) = state.open_file(file.path()).unwrap();

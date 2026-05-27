@@ -3,8 +3,8 @@
 use rmcp::{ServiceExt, transport::stdio};
 use tracing_subscriber::EnvFilter;
 
-use super::tools::ThothMcpServer;
 use super::state::ServerState;
+use super::tools::ThothMcpServer;
 
 /// Start the MCP server on stdio transport.
 ///
