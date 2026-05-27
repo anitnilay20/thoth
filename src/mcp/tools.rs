@@ -364,13 +364,13 @@ impl ThothMcpServer {
             QueryMode::JsonPath => "jsonpath",
         };
 
-        // Get the file path from state
-        let file_path = self
+        // Read file path and kind atomically to avoid race with concurrent close.
+        let file_context = self
             .state
-            .with_file(&params.handle, |file| file.path.clone());
+            .with_file_read2(&params.handle, |file| (file.path.clone(), file.file_kind));
 
-        let file_path = match file_path {
-            Some(p) => p,
+        let (file_path, file_kind) = match file_context {
+            Some((p, k)) => (p, k),
             None => {
                 return Json(SearchResult {
                     total_matches: 0,
@@ -380,10 +380,6 @@ impl ThothMcpServer {
                 });
             }
         };
-
-        // Get the file kind from state
-        let file_kind = self.state.with_file(&params.handle, |file| file.file_kind);
-        let file_kind = file_kind.unwrap_or_default();
 
         // Use Search engine — it reopens the file internally for thread-safe parallel scanning
         let mut search = Search {
@@ -745,7 +741,9 @@ pub fn infer_schema(samples: &[serde_json::Value]) -> serde_json::Value {
             }
         }
 
-        let items = if item_types.len() == 1 {
+        let items = if item_types.is_empty() {
+            json!({})
+        } else if item_types.len() == 1 {
             json!({"type": item_types.iter().next().unwrap()})
         } else {
             let types: Vec<&String> = item_types.iter().collect();

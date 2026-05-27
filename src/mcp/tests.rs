@@ -3,7 +3,7 @@
 //! Tests cover: ServerState, tool parameter types, and end-to-end tool logic.
 
 #[cfg(test)]
-mod tests {
+mod mcp_tests {
     use std::io::Write;
     use std::path::PathBuf;
     use tempfile::NamedTempFile;
@@ -445,7 +445,7 @@ mod tests {
 
         assert!(search.error.is_none(), "Search error: {:?}", search.error);
         // Should find at least one match (the word "name" appears as a key)
-        assert!(search.results.len() > 0 || info.record_count == 0);
+        assert!(!search.results.is_empty() || info.record_count == 0);
     }
 
     // ─── Edge case tests ─────────────────────────────────────────────────
@@ -592,11 +592,11 @@ mod tests {
             .with_file(&handle, |f| {
                 let mut all_keys = BTreeSet::new();
                 for i in 0..f.record_count() {
-                    if let Ok(record) = f.file_type.get(i) {
-                        if let Some(obj) = record.as_object() {
-                            for key in obj.keys() {
-                                all_keys.insert(key.clone());
-                            }
+                    if let Ok(record) = f.file_type.get(i)
+                        && let Some(obj) = record.as_object()
+                    {
+                        for key in obj.keys() {
+                            all_keys.insert(key.clone());
                         }
                     }
                 }
@@ -627,13 +627,12 @@ mod tests {
                 use std::collections::BTreeSet;
                 let mut all_keys = BTreeSet::new();
                 for i in 0..f.record_count() {
-                    if let Ok(record) = f.file_type.get(i) {
-                        if let Ok(nested) = crate::helpers::walk_rel(record, "user") {
-                            if let Some(obj) = nested.as_object() {
-                                for key in obj.keys() {
-                                    all_keys.insert(key.clone());
-                                }
-                            }
+                    if let Ok(record) = f.file_type.get(i)
+                        && let Ok(nested) = crate::helpers::walk_rel(record, "user")
+                        && let Some(obj) = nested.as_object()
+                    {
+                        for key in obj.keys() {
+                            all_keys.insert(key.clone());
                         }
                     }
                 }

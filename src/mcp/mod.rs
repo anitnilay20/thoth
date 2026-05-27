@@ -44,13 +44,11 @@ pub fn run_mcp_command(args: &[String]) -> anyhow::Result<()> {
             eprintln!("  get_schema        - Infer JSON schema from record samples");
             Ok(())
         }
-        _ => {
-            eprintln!("Usage: thoth mcp <serve|list-tools>");
-            eprintln!();
-            eprintln!("Subcommands:");
-            eprintln!("  serve       Start the MCP server (stdio transport)");
-            eprintln!("  list-tools  List available tools");
-            std::process::exit(1);
-        }
+        _ => Err(anyhow::anyhow!(
+            "Usage: thoth mcp <serve|list-tools>\n\n\
+             Subcommands:\n  \
+             serve       Start the MCP server (stdio transport)\n  \
+             list-tools  List available tools"
+        )),
     }
 }

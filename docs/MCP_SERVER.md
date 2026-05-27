@@ -91,7 +91,7 @@ Add to `~/.cursor/mcp.json`:
 
 The server uses **stdio transport** (stdin/stdout JSON-RPC), which is supported by all MCP-compatible clients. Use the same pattern:
 
-```
+```text
 command: /path/to/thoth
 args:    mcp serve
 ```
@@ -139,6 +139,7 @@ Thoth exposes **10 tools** organized into two groups:
 Opens a file and returns a handle for use with other tools. Thoth automatically detects the format.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `path` | string | ✅ | Absolute or relative path to the file |
@@ -157,6 +158,7 @@ Opens a file and returns a handle for use with other tools. Thoth automatically 
 Closes a file and frees its resources.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `handle` | string | ✅ | Handle returned by `open_file` |
@@ -168,6 +170,7 @@ Closes a file and frees its resources.
 Returns metadata about an open file.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `handle` | string | ✅ | Handle returned by `open_file` |
@@ -181,6 +184,7 @@ Returns metadata about an open file.
 Retrieves a single JSON record by index.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `handle` | string | ✅ | Handle returned by `open_file` |
@@ -195,6 +199,7 @@ Retrieves a single JSON record by index.
 Returns the total number of top-level records.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `handle` | string | ✅ | Handle returned by `open_file` |
@@ -208,6 +213,7 @@ Returns the total number of top-level records.
 Search across all records using text or JSONPath.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `handle` | string | ✅ | Handle returned by `open_file` |
@@ -219,7 +225,7 @@ Search across all records using text or JSONPath.
 **Returns:** `{ total_matches, matches: [{ record_index, preview, match_path }], query, mode }`
 
 **Examples:**
-```
+```text
 # Text search
 { "handle": "file_1", "query": "error" }
 
@@ -237,6 +243,7 @@ Search across all records using text or JSONPath.
 Extract a specific nested value from a record.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `handle` | string | ✅ | Handle returned by `open_file` |
@@ -252,6 +259,7 @@ Extract a specific nested value from a record.
 Discover all unique keys across records.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `handle` | string | ✅ | Handle returned by `open_file` |
@@ -267,6 +275,7 @@ Discover all unique keys across records.
 Return a representative sample of records.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `handle` | string | ✅ | Handle returned by `open_file` |
@@ -282,6 +291,7 @@ Return a representative sample of records.
 Infer a JSON schema from the data.
 
 **Parameters:**
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `handle` | string | ✅ | Handle returned by `open_file` |
@@ -293,7 +303,7 @@ Infer a JSON schema from the data.
 
 ## Architecture
 
-```
+```text
 ┌──────────────────────────────────────────────────────┐
 │                    AI Client                         │
 │            (Claude / Copilot / Rovo / Cursor)        │
@@ -359,7 +369,7 @@ RUST_LOG=debug thoth mcp serve
 
 **What the AI does:**
 
-```
+```text
 → Called open_file({ path: "tests/fixtures/ndjson/simple.ndjson" })
 ← { file_type: "ndjson", handle: "file_1", path: "/full/path/to/simple.ndjson", record_count: 10 }
 
@@ -380,7 +390,7 @@ RUST_LOG=debug thoth mcp serve
 
 **What the AI does** (calls tools in parallel for efficiency):
 
-```
+```text
 → Called open_file({ path: "tests/fixtures/ndjson/simple.ndjson" })
 ← { file_type: "ndjson", handle: "file_1", record_count: 10 }
 
@@ -435,7 +445,7 @@ RUST_LOG=debug thoth mcp serve
 
 **What the AI does:**
 
-```
+```text
 → Called open_file({ path: "logs.ndjson" })
 ← { handle: "file_1", file_type: "ndjson", record_count: 50000 }
 
@@ -506,7 +516,7 @@ cargo test
 
 ### Project Structure
 
-```
+```text
 src/mcp/
 ├── mod.rs       # Module entry point, CLI dispatcher
 ├── server.rs    # Async server startup, stdio transport wiring

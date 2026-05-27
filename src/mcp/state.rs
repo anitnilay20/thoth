@@ -73,7 +73,10 @@ impl ServerState {
             record_count: open.record_count(),
         };
 
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         inner.next_id += 1;
         let handle = format!("file_{}", inner.next_id);
         let info = FileInfo {
@@ -86,7 +89,10 @@ impl ServerState {
 
     /// Close a file by handle. Returns true if the file was found and removed.
     pub fn close_file(&self, handle: &str) -> bool {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         inner.files.remove(handle).is_some()
     }
 
@@ -95,13 +101,31 @@ impl ServerState {
     where
         F: FnOnce(&mut OpenFile) -> T,
     {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        inner.files.get_mut(handle).map(f)
+    }
+
+    /// Run a closure with mutable access to an open file, returning two values atomically.
+    pub fn with_file_read2<F, A, B>(&self, handle: &str, f: F) -> Option<(A, B)>
+    where
+        F: FnOnce(&mut OpenFile) -> (A, B),
+    {
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         inner.files.get_mut(handle).map(f)
     }
 
     /// Get info about an open file.
     pub fn file_info(&self, handle: &str) -> Option<FileInfo> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         inner.files.get(handle).map(|f| FileInfo {
             handle: handle.to_string(),
             path: f.path.display().to_string(),
@@ -113,7 +137,10 @@ impl ServerState {
     /// List all open file handles.
     #[allow(dead_code)]
     pub fn list_handles(&self) -> Vec<String> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         inner.files.keys().cloned().collect()
     }
 }
