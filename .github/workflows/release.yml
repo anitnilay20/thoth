@@ -89,7 +89,7 @@ jobs:
 
       # cargo-binstall downloads pre-compiled binaries — no source compilation.
       - name: Install cargo-binstall
-        run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-releases.sh | bash
+        uses: cargo-bins/cargo-binstall@v1.19.1
 
       # Install tools from pre-built binaries (~5s each vs 1–5 min from source)
       - name: Install cargo-packager
