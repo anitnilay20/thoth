@@ -51,15 +51,20 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # Use Swatinem's rust-cache action for optimized Rust caching
-      - name: Cache Rust dependencies and build artifacts
+      # sccache caches individual crate compilation units keyed on source hash —
+      # unlike Swatinem (which keys on Cargo.lock), sccache survives Cargo.lock
+      # bumps: unchanged crates like wasmtime still hit the cache even after
+      # adding/removing other dependencies.
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      # Cache cargo registry and installed binaries (cargo-packager, cargo-component).
+      # cache-targets is false because sccache handles compilation caching.
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          # Cache key includes OS and Cargo.lock hash
           shared-key: "release-${{ runner.os }}"
-          # Cache the target directory
-          cache-targets: true
-          # Also cache cargo registry
+          cache-targets: false
           cache-all-crates: true
 
       # Ensure we have the right target for cross-compilation
@@ -82,13 +87,17 @@ jobs:
           echo "Matrix Target: ${{ matrix.target }}"
           echo "Matrix OS: ${{ matrix.os }}"
 
-      # Install cargo-packager (stable cross-platform bundler)
+      # cargo-binstall downloads pre-compiled binaries — no source compilation.
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1
+
+      # Install tools from pre-built binaries (~5s each vs 1–5 min from source)
       - name: Install cargo-packager
-        run: cargo install cargo-packager --locked
+        run: cargo binstall cargo-packager --no-confirm --locked
 
       # Install cargo-component for building WASM plugins
       - name: Install cargo-component
-        run: cargo install cargo-component --locked
+        run: cargo binstall cargo-component --no-confirm
 
       # Add WASM target required by cargo-component plugin builds
       - name: Add wasm32-wasip1 target
