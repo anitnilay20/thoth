@@ -515,14 +515,4 @@ src/mcp/
 └── tests.rs     # 40 comprehensive tests
 ```
 
----
 
-## Roadmap
-
-Future MCP server enhancements planned:
-
-- **Phase 3**: Advanced tools — `filter_records`, `aggregate`, `compare_records`
-- **Plugin support**: Expose WASM plugin file loaders (CSV, etc.) through MCP
-- **Streamable HTTP transport**: For remote/cloud deployments
-- **Resource support**: Expose open files as MCP resources
-- **Prompt templates**: Pre-built analysis prompts for common workflows
