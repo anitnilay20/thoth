@@ -1,0 +1,178 @@
+/* ============================================================
+   Thoth Design System — Colors & Type
+   ------------------------------------------------------------
+   Source of truth for the visual foundations of Thoth, a fast,
+   desktop JSON/NDJSON viewer built with Rust + egui.
+
+   Palette: Catppuccin (Mocha = dark, Latte = light)
+   ============================================================ */
+
+:root {
+  /* ── COLOR — DARK (Catppuccin Mocha, default) ─────────────── */
+
+  /* UI surfaces */
+  --base:     #1e1e2e;  /* main editor background */
+  --mantle:   #181825;  /* secondary panels, sidebar */
+  --crust:    #11111b;  /* status bar / deepest surface */
+  --surface0: #313244;  /* widget backgrounds, cards */
+  --surface1: #45475a;  /* widget hover, indent guide */
+  --surface2: #585b70;  /* widget active, selected */
+
+  /* Text */
+  --text:           #cdd6f4;  /* primary text */
+  --overlay1:       #7f849c;  /* secondary text, subtitle */
+  --overlay2:       #9399b2;  /* sidebar headers, brackets */
+  --text-disabled:  #6c7086;
+
+  /* Accents — primary palette */
+  --primary:    #cba6f7;  /* mauve */
+  --secondary:  #b4befe;  /* lavender */
+  --accent:     #89b4fa;  /* blue (selection stroke, links) */
+
+  /* Syntax highlighting (JSON tokens) */
+  --syn-key:      #89b4fa;  /* blue   — "name", "id" */
+  --syn-string:   #a6e3a1;  /* green  — "John Doe" */
+  --syn-number:   #fab387;  /* peach  — 1001, 42 */
+  --syn-boolean:  #cba6f7;  /* mauve  — true, false */
+  --syn-null:     #7f849c;  /* overlay1 */
+  --syn-bracket:  #9399b2;  /* overlay2 — { } [ ] : */
+
+  /* Status / semantic */
+  --success: #a6e3a1;  /* green */
+  --warning: #f9e2af;  /* yellow */
+  --error:   #f38ba8;  /* red */
+  --info:    #74c7ec;  /* sapphire */
+
+  /* Selection / sidebar */
+  --selection-bg:    rgba(127, 132, 156, 0.30);  /* overlay1 @ 30% */
+  --selection-stroke: #89b4fa;
+  --sidebar-hover:   rgba(108, 112, 134, 0.20);
+  --sidebar-header:  #9399b2;
+  --indent-guide:    #45475a;
+
+  /* Catppuccin extended (used sparingly) */
+  --mauve:    #cba6f7;
+  --lavender: #b4befe;
+  --blue:     #89b4fa;
+  --sapphire: #74c7ec;
+  --teal:     #94e2d5;
+  --green:    #a6e3a1;
+  --yellow:   #f9e2af;
+  --peach:    #fab387;
+  --maroon:   #eba0ac;
+  --red:      #f38ba8;
+  --pink:     #f5c2e7;
+  --flamingo: #f2cdcd;
+  --rosewater:#f5e0dc;
+
+  /* ── TYPOGRAPHY ───────────────────────────────────────────── */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI",
+             "Roboto", "Ubuntu", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code",
+               "SF Mono", "Consolas", "Monaco", monospace;
+
+  /* Type scale — egui uses 13px body; UI is dense */
+  --fs-xs:   11px;  /* sidebar headers, micro labels */
+  --fs-sm:   12px;  /* status bar, captions */
+  --fs-md:   13px;  /* JSON content, body */
+  --fs-lg:   14px;  /* toolbar, section headers */
+  --fs-xl:   16px;  /* window title, card title */
+  --fs-2xl:  20px;  /* dialog headers */
+  --fs-3xl:  28px;  /* hero / marketing */
+
+  --lh-tight: 1.2;
+  --lh-body:  1.45;
+
+  --fw-regular: 400;
+  --fw-medium:  500;
+  --fw-semibold: 600;
+  --fw-bold:    700;
+
+  /* ── SPACING — 4px grid ───────────────────────────────────── */
+  --space-1: 4px;   /* xs — tight inline */
+  --space-2: 8px;   /* sm — comfortable */
+  --space-3: 12px;  /* md — section padding */
+  --space-4: 16px;  /* lg — component sep, indent */
+  --space-5: 24px;  /* xl — major break */
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Component heights */
+  --h-row:      22px;  /* JSON row, list item */
+  --h-status:   24px;  /* status bar */
+  --h-menu:     28px;  /* small button, context menu */
+  --h-titlebar: 32px;  /* title bar, normal button */
+  --h-toolbar:  40px;  /* toolbar */
+  --w-sidebar-collapsed: 48px;
+  --w-sidebar-expanded:  240px;
+
+  /* Radius */
+  --radius-sm: 4px;   /* buttons, tags */
+  --radius-md: 8px;   /* dialogs, panels */
+  --radius-lg: 12px;  /* cards */
+
+  /* Shadow */
+  --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.50);
+  --shadow-modal: 0 8px 24px rgba(0, 0, 0, 0.80);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --d-fast:  100ms;
+  --d-base:  150ms;
+  --d-slow:  200ms;
+}
+
+/* ── COLOR — LIGHT (Catppuccin Latte) ───────────────────────── */
+:root[data-theme="light"], .theme-light {
+  --base:     #eff1f5;
+  --mantle:   #e6e9ef;
+  --crust:    #dce0e8;
+  --surface0: #ccd0da;
+  --surface1: #bcc0cc;
+  --surface2: #acb0be;
+
+  --text:           #4c4f69;
+  --overlay1:       #8c8fa1;
+  --overlay2:       #7c7f93;
+  --text-disabled:  #9ca0b0;
+
+  --primary:   #8839ef;  /* mauve */
+  --secondary: #7287fd;  /* lavender */
+  --accent:    #1e66f5;  /* blue */
+
+  --syn-key:     #1e66f5;
+  --syn-string:  #40a02b;
+  --syn-number:  #fe640b;
+  --syn-boolean: #8839ef;
+  --syn-null:    #8c8fa1;
+  --syn-bracket: #7c7f93;
+
+  --success: #40a02b;
+  --warning: #df8e1d;
+  --error:   #d20f39;
+  --info:    #209fb5;
+
+  --selection-bg:    rgba(140, 143, 161, 0.25);
+  --selection-stroke: #1e66f5;
+  --sidebar-hover:   rgba(156, 160, 176, 0.20);
+  --sidebar-header:  #7c7f93;
+  --indent-guide:    #bcc0cc;
+
+  --shadow-menu: 0 4px 12px rgba(76, 79, 105, 0.18);
+  --shadow-modal: 0 8px 24px rgba(76, 79, 105, 0.30);
+}
+
+/* ── SEMANTIC TYPE TOKENS ───────────────────────────────────── */
+
+html, body { background: var(--base); color: var(--text); font-family: var(--font-ui); }
+
+.t-titlebar { font-family: var(--font-ui); font-size: var(--fs-xl); font-weight: var(--fw-semibold); color: var(--text); }
+.t-h1       { font-family: var(--font-ui); font-size: var(--fs-2xl); font-weight: var(--fw-bold); line-height: var(--lh-tight); color: var(--text); }
+.t-h2       { font-family: var(--font-ui); font-size: var(--fs-lg);  font-weight: var(--fw-bold); color: var(--text); }
+.t-section  { font-family: var(--font-ui); font-size: var(--fs-xs);  font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: 0.06em; color: var(--sidebar-header); }
+.t-toolbar  { font-family: var(--font-ui); font-size: var(--fs-lg);  font-weight: var(--fw-regular); color: var(--text); }
+.t-body     { font-family: var(--font-ui); font-size: var(--fs-md);  font-weight: var(--fw-regular); line-height: var(--lh-body); color: var(--text); }
+.t-secondary{ font-family: var(--font-ui); font-size: var(--fs-md);  color: var(--overlay1); }
+.t-status   { font-family: var(--font-ui); font-size: var(--fs-sm);  color: #ffffff; }
+.t-mono     { font-family: var(--font-mono); font-size: var(--fs-md); }
+.t-mono-row { font-family: var(--font-mono); font-size: var(--fs-md); line-height: 22px; }
