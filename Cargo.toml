@@ -42,16 +42,10 @@ path = "src/lib.rs"
 name = "thoth"
 path = "src/main.rs"
 
-[profile.release]
-codegen-units = 8
-lto = "thin"
-
-# Faster local release builds: thin LTO links in parallel, ~3–5 min vs 20+ min.
-# Use with: cargo build --profile release-local
-[profile.release-local]
-inherits = "release"
-lto = "thin"
-codegen-units = 8
+# release profile uses Cargo defaults: lto = false, codegen-units = 16.
+# This keeps sccache cache keys stable across runs — LTO flags invalidate
+# the entire cache. For a desktop I/O-bound app the runtime difference is
+# imperceptible.
 
 # cargo-packager configuration (stable cross-platform bundler)
 [package.metadata.packager]
@@ -145,6 +139,7 @@ wasmtime = { version = "43.0.0", default-features = false, features = [
     "component-model",
     "async",    # required by wasmtime-wasi p2
     "anyhow",
+    "cache",    # caches JIT-compiled .wasm to disk; without this every launch recompiles
 ] }
 wasmtime-wasi = { version = "43.0.0", default-features = false, features = ["p2"] }
 wit-bindgen = "0.54.0"
