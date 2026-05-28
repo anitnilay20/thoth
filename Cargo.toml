@@ -42,11 +42,6 @@ path = "src/lib.rs"
 name = "thoth"
 path = "src/main.rs"
 
-# release profile uses Cargo defaults: lto = false, codegen-units = 16.
-# This keeps sccache cache keys stable across runs — LTO flags invalidate
-# the entire cache. For a desktop I/O-bound app the runtime difference is
-# imperceptible.
-
 # cargo-packager configuration (stable cross-platform bundler)
 [package.metadata.packager]
 product_name = "Thoth"
@@ -133,15 +128,9 @@ zip = "0.6"
 sha2 = "0.10"
 open = "5.0"
 which = "7.0"
-wasmtime = { version = "43.0.0", default-features = false, features = [
-    "runtime",
-    "cranelift",
-    "component-model",
-    "async",    # required by wasmtime-wasi p2
-    "anyhow",
-    "cache",    # caches JIT-compiled .wasm to disk; without this every launch recompiles
-] }
-wasmtime-wasi = { version = "43.0.0", default-features = false, features = ["p2"] }
+wasmtime = { version = "43.0.0", features = ["component-model", "cache"] }
+wasmtime-wasi = "43.0.0"
+wasmtime-wasi-http = "43"
 wit-bindgen = "0.54.0"
 egui-notify = "0.22.0"
 egui_extras = "0.34.1"
