@@ -95,14 +95,6 @@ jobs:
       - name: Install cargo-packager
         run: cargo binstall cargo-packager --no-confirm --locked
 
-      # Install cargo-component for building WASM plugins
-      - name: Install cargo-component
-        run: cargo binstall cargo-component --no-confirm
-
-      # Add WASM target required by cargo-component plugin builds
-      - name: Add wasm32-wasip1 target
-        run: rustup target add wasm32-wasip1
-
       # macOS-specific dependencies
       # Note: cargo-packager handles DMG creation natively, no extra tools needed
 
@@ -126,11 +118,42 @@ jobs:
             Write-Host "WiX Toolset found at: $wixPath"
           }
 
+      # Build main app first — cargo-component is absent so build.rs skips
+      # plugin compilation. This keeps the heavy cranelift compile as the only
+      # work in this step, letting sccache cache it cleanly.
       - name: Build release binary
         env:
           RUSTC_WRAPPER: sccache
           SCCACHE_GHA_ENABLED: "true"
         run: cargo build --release
+
+      # Install cargo-component after the main build so it doesn't affect the
+      # main build's sccache keys or add noise to the build.rs subprocess chain.
+      - name: Install cargo-component
+        run: cargo binstall cargo-component --no-confirm
+
+      - name: Add wasm32-wasip1 target
+        run: rustup target add wasm32-wasip1
+
+      # Build WASM plugins explicitly with sccache so plugin crates are cached
+      # independently of the main app build.
+      - name: Build WASM plugins
+        env:
+          RUSTC_WRAPPER: sccache
+          SCCACHE_GHA_ENABLED: "true"
+        shell: bash
+        run: |
+          for plugin_dir in plugins/*/; do
+            plugin_name=$(basename "$plugin_dir")
+            cargo component build --release --target wasm32-wasip1 \
+              --manifest-path "$plugin_dir/Cargo.toml"
+            wasm_name="${plugin_name//-/_}"
+            dst="assets/plugins/$plugin_name"
+            mkdir -p "$dst"
+            cp "target/wasm32-wasip1/release/${wasm_name}.wasm" "$dst/plugin.wasm"
+            cp "$plugin_dir/plugin.toml" "$dst/plugin.toml"
+            [ -f "$plugin_dir/icon.png" ] && cp "$plugin_dir/icon.png" "$dst/icon.png" || true
+          done
 
       # Create bundles for each platform
       - name: Create Windows MSI installer
