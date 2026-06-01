@@ -144,6 +144,7 @@ jobs:
         shell: bash
         run: |
           for plugin_dir in plugins/*/; do
+            [ -f "$plugin_dir/Cargo.toml" ] || continue  # skip theme plugins
             plugin_name=$(basename "$plugin_dir")
             cargo component build --release --target wasm32-wasip1 \
               --manifest-path "$plugin_dir/Cargo.toml"
