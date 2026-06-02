@@ -404,19 +404,42 @@ impl UpdateManager {
     }
 
     fn replace_executable(new_exe: &std::path::Path, current_exe: &std::path::Path) -> Result<()> {
-        // Set executable permissions using platform abstraction
         let fs_ops = get_fs_ops();
         fs_ops.make_executable(new_exe)?;
 
-        // Create backup of current executable
-        let backup_path = current_exe.with_extension("backup");
-        if backup_path.exists() {
-            std::fs::remove_file(&backup_path)?;
+        #[cfg(target_os = "windows")]
+        {
+            // Windows won't let you write over a running .exe, but it does
+            // allow renaming one. Rename the running binary out of the way,
+            // then copy the new one into its place. The renamed .old file is
+            // cleaned up on the next update or can be left harmlessly.
+            let old_path = current_exe.with_extension("exe.old");
+            if old_path.exists() {
+                let _ = std::fs::remove_file(&old_path);
+            }
+            std::fs::rename(current_exe, &old_path).map_err(|e| {
+                crate::error::ThothError::UpdateInstallError {
+                    reason: format!("Could not rename current executable: {e}"),
+                }
+            })?;
+            std::fs::copy(new_exe, current_exe).map_err(|e| {
+                // Restore original if copy fails
+                let _ = std::fs::rename(&old_path, current_exe);
+                crate::error::ThothError::UpdateInstallError {
+                    reason: format!("Could not write new executable: {e}"),
+                }
+            })?;
         }
-        std::fs::copy(current_exe, &backup_path)?;
 
-        // Replace current executable
-        std::fs::copy(new_exe, current_exe)?;
+        #[cfg(not(target_os = "windows"))]
+        {
+            let backup_path = current_exe.with_extension("backup");
+            if backup_path.exists() {
+                std::fs::remove_file(&backup_path)?;
+            }
+            std::fs::copy(current_exe, &backup_path)?;
+            std::fs::copy(new_exe, current_exe)?;
+        }
 
         Ok(())
     }

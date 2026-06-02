@@ -11,7 +11,7 @@
 
         <!-- JSON (.json) -->
         <RegistryValue
-          Root="HKLM"
+          Root="HKCU"
           Key="Software\Classes\com.thoth.app.json\DefaultIcon"
           Value="[INSTALLDIR]thoth.exe,0"
           Type="string"
@@ -19,7 +19,7 @@
 
         <!-- NDJSON (.ndjson) -->
         <RegistryValue
-          Root="HKLM"
+          Root="HKCU"
           Key="Software\Classes\com.thoth.app.ndjson\DefaultIcon"
           Value="[INSTALLDIR]thoth.exe,0"
           Type="string"
@@ -27,7 +27,7 @@
 
         <!-- JSONL (.jsonl) -->
         <RegistryValue
-          Root="HKLM"
+          Root="HKCU"
           Key="Software\Classes\com.thoth.app.jsonl\DefaultIcon"
           Value="[INSTALLDIR]thoth.exe,0"
           Type="string"
@@ -35,7 +35,7 @@
 
         <!-- GeoJSON (.geojson) -->
         <RegistryValue
-          Root="HKLM"
+          Root="HKCU"
           Key="Software\Classes\com.thoth.app.geojson\DefaultIcon"
           Value="[INSTALLDIR]thoth.exe,0"
           Type="string"
