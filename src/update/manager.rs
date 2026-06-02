@@ -416,14 +416,14 @@ impl UpdateManager {
                 let _ = std::fs::remove_file(&old_path);
             }
             std::fs::rename(current_exe, &old_path).map_err(|e| {
-                crate::error::ThothError::UpdateInstallError {
+                ThothError::UpdateInstallError {
                     reason: format!("Could not rename current executable: {e}"),
                 }
             })?;
             std::fs::copy(new_exe, current_exe).map_err(|e| {
                 // Restore original if copy fails
                 let _ = std::fs::rename(&old_path, current_exe);
-                crate::error::ThothError::UpdateInstallError {
+                ThothError::UpdateInstallError {
                     reason: format!("Could not write new executable: {e}"),
                 }
             })?;
