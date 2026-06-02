@@ -326,9 +326,7 @@ impl UpdateManager {
             #[cfg(not(target_os = "macos"))]
             {
                 // binary sits next to assets/plugins/ on Linux/Windows
-                current_exe
-                    .parent()
-                    .map(|p| p.join("assets/plugins"))
+                current_exe.parent().map(|p| p.join("assets/plugins"))
             }
         };
 
@@ -367,10 +365,10 @@ impl UpdateManager {
             if path.file_name().and_then(|n| n.to_str()) == Some(name) {
                 return Some(path);
             }
-            if path.is_dir() {
-                if let Some(found) = Self::find_in_tree(&path, name) {
-                    return Some(found);
-                }
+            if path.is_dir()
+                && let Some(found) = Self::find_in_tree(&path, name)
+            {
+                return Some(found);
             }
         }
         None
