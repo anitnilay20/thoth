@@ -277,7 +277,84 @@ impl UpdateManager {
         // Replace the current executable
         Self::replace_executable(&new_exe, &current_exe)?;
 
+        // Sync bundled plugins from the extracted archive so OTA updates
+        // pick up new/updated plugins, not just the binary.
+        Self::sync_plugins(&temp_dir, &current_exe);
+
         Ok(())
+    }
+
+    /// Copy `assets/plugins/` from the extracted archive next to the installed
+    /// binary (macOS: `../Resources/assets/plugins/`, others: `assets/plugins/`).
+    fn sync_plugins(extracted_dir: &std::path::Path, current_exe: &std::path::Path) {
+        // Find the plugins directory inside the extracted archive.
+        let src = match Self::find_in_tree(extracted_dir, "plugins") {
+            Some(p) if p.is_dir() => p,
+            _ => return, // archive has no plugins dir — nothing to do
+        };
+
+        // Resolve destination relative to the installed binary.
+        let dst = {
+            #[cfg(target_os = "macos")]
+            {
+                // binary is at Thoth.app/Contents/MacOS/thoth
+                // plugins go to Thoth.app/Contents/Resources/assets/plugins/
+                current_exe
+                    .parent() // MacOS/
+                    .and_then(|p| p.parent()) // Contents/
+                    .map(|p| p.join("Resources/assets/plugins"))
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                // binary sits next to assets/plugins/ on Linux/Windows
+                current_exe
+                    .parent()
+                    .map(|p| p.join("assets/plugins"))
+            }
+        };
+
+        let dst = match dst {
+            Some(p) => p,
+            None => return,
+        };
+
+        if let Err(e) = Self::copy_dir_all(&src, &dst) {
+            eprintln!("Warning: could not sync plugins during update: {e}");
+        }
+    }
+
+    /// Recursively copy `src` into `dst`, creating directories as needed.
+    fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let dst_path = dst.join(entry.file_name());
+            if entry.file_type()?.is_dir() {
+                Self::copy_dir_all(&entry.path(), &dst_path)?;
+            } else {
+                std::fs::copy(entry.path(), dst_path)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Walk `dir` looking for a file or directory named `name`.
+    fn find_in_tree(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return None;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.file_name().and_then(|n| n.to_str()) == Some(name) {
+                return Some(path);
+            }
+            if path.is_dir() {
+                if let Some(found) = Self::find_in_tree(&path, name) {
+                    return Some(found);
+                }
+            }
+        }
+        None
     }
 
     fn find_executable(dir: &std::path::Path) -> Result<std::path::PathBuf> {
