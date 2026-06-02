@@ -271,6 +271,25 @@ impl UpdateManager {
         // Get current executable path
         let current_exe = std::env::current_exe()?;
 
+        // On macOS replace the entire .app bundle so Resources (plugins,
+        // assets) are updated alongside the binary — not just the binary.
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(app_bundle) = Self::find_in_tree(&temp_dir, "Thoth.app") {
+                // current_exe is …/Thoth.app/Contents/MacOS/thoth
+                // installed bundle is three levels up
+                if let Some(installed_bundle) = current_exe
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                {
+                    Self::copy_dir_all(&app_bundle, installed_bundle)?;
+                    return Ok(());
+                }
+            }
+            // Fallthrough: no .app found in archive — replace binary + sync plugins
+        }
+
         // Find the new executable in the extracted files
         let new_exe = Self::find_executable(&temp_dir)?;
 
