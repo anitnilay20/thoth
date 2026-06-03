@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 use wasmtime::component::ResourceTable;
-use wasmtime::{Config, Engine, Store};
+use wasmtime::{Cache, CacheConfig, Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 
 use crate::PLUGIN_MANAGER;
@@ -47,6 +47,9 @@ impl PluginManager {
 
         let mut config = Config::new();
         config.consume_fuel(true);
+        if let Ok(cache) = Cache::new(CacheConfig::new()) {
+            config.cache(Some(cache));
+        }
         let engine = Engine::new(&config).map_err(|e| ThothError::PluginLoadError {
             path: PathBuf::new(),
             reason: e.to_string(),

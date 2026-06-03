@@ -271,13 +271,106 @@ impl UpdateManager {
         // Get current executable path
         let current_exe = std::env::current_exe()?;
 
+        // On macOS replace the entire .app bundle so Resources (plugins,
+        // assets) are updated alongside the binary — not just the binary.
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(app_bundle) = Self::find_in_tree(&temp_dir, "Thoth.app") {
+                // current_exe is …/Thoth.app/Contents/MacOS/thoth
+                // installed bundle is three levels up
+                if let Some(installed_bundle) = current_exe
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
+                {
+                    Self::copy_dir_all(&app_bundle, installed_bundle)?;
+                    return Ok(());
+                }
+            }
+            // Fallthrough: no .app found in archive — replace binary + sync plugins
+        }
+
         // Find the new executable in the extracted files
         let new_exe = Self::find_executable(&temp_dir)?;
 
         // Replace the current executable
         Self::replace_executable(&new_exe, &current_exe)?;
 
+        // Sync bundled plugins from the extracted archive so OTA updates
+        // pick up new/updated plugins, not just the binary.
+        Self::sync_plugins(&temp_dir, &current_exe)?;
+
         Ok(())
+    }
+
+    /// Copy `assets/plugins/` from the extracted archive next to the installed
+    /// binary (macOS: `../Resources/assets/plugins/`, others: `assets/plugins/`).
+    fn sync_plugins(extracted_dir: &std::path::Path, current_exe: &std::path::Path) -> Result<()> {
+        // Find the plugins directory inside the extracted archive.
+        let src = match Self::find_in_tree(extracted_dir, "plugins") {
+            Some(p) if p.is_dir() => p,
+            _ => return Ok(()), // archive has no plugins dir — nothing to do
+        };
+
+        // Resolve destination relative to the installed binary.
+        let dst = {
+            #[cfg(target_os = "macos")]
+            {
+                // binary is at Thoth.app/Contents/MacOS/thoth
+                // plugins go to Thoth.app/Contents/Resources/assets/plugins/
+                current_exe
+                    .parent() // MacOS/
+                    .and_then(|p| p.parent()) // Contents/
+                    .map(|p| p.join("Resources/assets/plugins"))
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                // binary sits next to assets/plugins/ on Linux/Windows
+                current_exe.parent().map(|p| p.join("assets/plugins"))
+            }
+        };
+
+        let dst = dst.ok_or_else(|| ThothError::UpdateInstallError {
+            reason: "Could not resolve plugin destination directory".to_string(),
+        })?;
+
+        Self::copy_dir_all(&src, &dst).map_err(|e| ThothError::UpdateInstallError {
+            reason: format!("Failed to sync plugins: {e}"),
+        })
+    }
+
+    /// Recursively copy `src` into `dst`, creating directories as needed.
+    fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let dst_path = dst.join(entry.file_name());
+            if entry.file_type()?.is_dir() {
+                Self::copy_dir_all(&entry.path(), &dst_path)?;
+            } else {
+                std::fs::copy(entry.path(), dst_path)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Walk `dir` looking for a file or directory named `name`.
+    fn find_in_tree(dir: &std::path::Path, name: &str) -> Option<std::path::PathBuf> {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return None;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.file_name().and_then(|n| n.to_str()) == Some(name) {
+                return Some(path);
+            }
+            if path.is_dir()
+                && let Some(found) = Self::find_in_tree(&path, name)
+            {
+                return Some(found);
+            }
+        }
+        None
     }
 
     fn find_executable(dir: &std::path::Path) -> Result<std::path::PathBuf> {
@@ -308,19 +401,49 @@ impl UpdateManager {
     }
 
     fn replace_executable(new_exe: &std::path::Path, current_exe: &std::path::Path) -> Result<()> {
-        // Set executable permissions using platform abstraction
         let fs_ops = get_fs_ops();
         fs_ops.make_executable(new_exe)?;
 
-        // Create backup of current executable
-        let backup_path = current_exe.with_extension("backup");
-        if backup_path.exists() {
-            std::fs::remove_file(&backup_path)?;
+        #[cfg(target_os = "windows")]
+        {
+            // Windows won't let you write over a running .exe, but it does
+            // allow renaming one. Rename the running binary out of the way,
+            // then copy the new one into its place. The renamed .old file is
+            // cleaned up on the next update or can be left harmlessly.
+            let old_path = current_exe.with_extension("exe.old");
+            if old_path.exists() {
+                let _ = std::fs::remove_file(&old_path);
+            }
+            std::fs::rename(current_exe, &old_path).map_err(|e| {
+                ThothError::UpdateInstallError {
+                    reason: format!("Could not rename current executable: {e}"),
+                }
+            })?;
+            std::fs::copy(new_exe, current_exe).map_err(|e| {
+                // Restore original if copy fails
+                let _ = std::fs::rename(&old_path, current_exe);
+                ThothError::UpdateInstallError {
+                    reason: format!("Could not write new executable: {e}"),
+                }
+            })?;
         }
-        std::fs::copy(current_exe, &backup_path)?;
 
-        // Replace current executable
-        std::fs::copy(new_exe, current_exe)?;
+        #[cfg(not(target_os = "windows"))]
+        {
+            let backup_path = current_exe.with_extension("backup");
+            if backup_path.exists() {
+                std::fs::remove_file(&backup_path)?;
+            }
+            std::fs::copy(current_exe, &backup_path)?;
+            if let Err(e) = std::fs::copy(new_exe, current_exe) {
+                // Restore the backup so the binary is not left in a partial state.
+                let _ = std::fs::copy(&backup_path, current_exe);
+                return Err(ThothError::UpdateInstallError {
+                    reason: format!("Could not write new executable: {e}"),
+                });
+            }
+            let _ = std::fs::remove_file(&backup_path);
+        }
 
         Ok(())
     }
