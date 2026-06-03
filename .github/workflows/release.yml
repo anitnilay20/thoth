@@ -159,9 +159,11 @@ jobs:
       # Create bundles for each platform
       - name: Create Windows MSI installer
         if: runner.os == 'Windows'
+        env:
+          RUST_LOG: cargo_packager=debug
         run: |
           # Create MSI installer using cargo-packager (format is 'wix' for MSI)
-          cargo packager --release --formats wix
+          cargo packager --release --formats wix -v
           New-Item -ItemType Directory -Force -Path artifacts
 
           # cargo-packager outputs MSI to target/release/ on Windows
