@@ -1128,6 +1128,11 @@ pub struct WasmDataSourceLoader {
 
 ## Roadmap: Database Plugins via WASI Sockets
 
+> **See also:** [DATABASE_PLUGINS.md](DATABASE_PLUGINS.md) for the full design
+> exploration. The recommended path is a host-provided `tcp-client` import on the
+> current `wasip1` target (reusing `network_policy.rs`) plus sync drivers driven from
+> a per-instance owner thread — which supersedes the WASI-sockets plan below.
+
 The current `http-client` WIT import covers REST/HTTP data sources. For native database protocols (PostgreSQL wire protocol, MySQL, Redis RESP, etc.) the plan is to expose WASI socket access to `data-source-plugin` components.
 
 Wasmtime supports `wasi:sockets/tcp` in WASI Preview 2. When Thoth migrates to `wasm32-wasip2`, database plugins will be able to open their own TCP connections and implement the full wire protocol in pure Rust compiled to WASM — no host changes needed for new databases.
