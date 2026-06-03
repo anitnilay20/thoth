@@ -28,3 +28,6 @@ target
 # Plugin runtime directory (built/copied by build.rs at compile time)
 assets/plugins/
 .idea/
+
+# Design handoff documents (local only)
+design_handoff_*/
