@@ -81,7 +81,6 @@ info_plist_path = "assets/Info.plist"
 # WiX fragment that writes DefaultIcon registry entries for each file type.
 # cargo-packager generates ProgIds as "<identifier>.<extension>" (e.g. com.thoth.app.json).
 [package.metadata.packager.wix]
-template = "assets/wix/main.wxs"
 fragment_paths = ["assets/wix/file-type-icons.wxs"]
 component_group_refs = ["FileTypeIconsGroup"]
 
