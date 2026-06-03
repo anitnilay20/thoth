@@ -184,14 +184,14 @@ jobs:
           Copy-Item target\${{ matrix.target }}\release\thoth.exe artifacts\
 
       - name: Create macOS DMG installer
-        if: runner.os == 'macOS' && matrix.target == 'x86_64-apple-darwin'
+        if: runner.os == 'macOS'
         run: |
           # Build both app bundle and DMG using cargo-packager
           cargo packager --release --target ${{ matrix.target }} --formats app,dmg
           mkdir -p artifacts
 
-          # cargo-packager outputs to target/release/ directory
-          echo "Listing target/release/ contents:"
+          # cargo-packager outputs to target/${{ matrix.target }}/release/ directory
+          echo "Listing target/${{ matrix.target }}/release/ contents:"
           ls -la target/${{ matrix.target }}/release/
 
           # Copy the DMG if it exists
@@ -200,30 +200,7 @@ jobs:
           # Copy the .app bundle to artifacts/ for tar.gz creation
           if [ -d "target/${{ matrix.target }}/release/Thoth.app" ]; then
             cp -r target/${{ matrix.target }}/release/Thoth.app artifacts/
-            echo "Copied Thoth.app from target/release/"
-          else
-            echo "App bundle not found, checking for .app files:"
-            find target/${{ matrix.target }}/release -name "*.app" -type d
-          fi
-
-      - name: Create macOS ARM64 DMG installer
-        if: runner.os == 'macOS' && matrix.target == 'aarch64-apple-darwin'
-        run: |
-          # Build both app bundle and DMG using cargo-packager
-          cargo packager --release --target ${{ matrix.target }} --formats app,dmg
-          mkdir -p artifacts
-
-          # cargo-packager outputs to target/release/ directory
-          echo "Listing target/release/ contents:"
-          ls -la target/${{ matrix.target }}/release/
-
-          # Copy the DMG if it exists
-          cp target/${{ matrix.target }}/release/*.dmg artifacts/ 2>/dev/null || echo "DMG not found"
-
-          # Copy the .app bundle to artifacts/ for tar.gz creation
-          if [ -d "target/${{ matrix.target }}/release/Thoth.app" ]; then
-            cp -r target/${{ matrix.target }}/release/Thoth.app artifacts/
-            echo "Copied Thoth.app from target/release/"
+            echo "Copied Thoth.app from target/${{ matrix.target }}/release/"
           else
             echo "App bundle not found, checking for .app files:"
             find target/${{ matrix.target }}/release -name "*.app" -type d
