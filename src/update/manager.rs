@@ -298,18 +298,18 @@ impl UpdateManager {
 
         // Sync bundled plugins from the extracted archive so OTA updates
         // pick up new/updated plugins, not just the binary.
-        Self::sync_plugins(&temp_dir, &current_exe);
+        Self::sync_plugins(&temp_dir, &current_exe)?;
 
         Ok(())
     }
 
     /// Copy `assets/plugins/` from the extracted archive next to the installed
     /// binary (macOS: `../Resources/assets/plugins/`, others: `assets/plugins/`).
-    fn sync_plugins(extracted_dir: &std::path::Path, current_exe: &std::path::Path) {
+    fn sync_plugins(extracted_dir: &std::path::Path, current_exe: &std::path::Path) -> Result<()> {
         // Find the plugins directory inside the extracted archive.
         let src = match Self::find_in_tree(extracted_dir, "plugins") {
             Some(p) if p.is_dir() => p,
-            _ => return, // archive has no plugins dir — nothing to do
+            _ => return Ok(()), // archive has no plugins dir — nothing to do
         };
 
         // Resolve destination relative to the installed binary.
@@ -330,14 +330,13 @@ impl UpdateManager {
             }
         };
 
-        let dst = match dst {
-            Some(p) => p,
-            None => return,
-        };
+        let dst = dst.ok_or_else(|| ThothError::UpdateInstallError {
+            reason: "Could not resolve plugin destination directory".to_string(),
+        })?;
 
-        if let Err(e) = Self::copy_dir_all(&src, &dst) {
-            eprintln!("Warning: could not sync plugins during update: {e}");
-        }
+        Self::copy_dir_all(&src, &dst).map_err(|e| ThothError::UpdateInstallError {
+            reason: format!("Failed to sync plugins: {e}"),
+        })
     }
 
     /// Recursively copy `src` into `dst`, creating directories as needed.
@@ -436,7 +435,14 @@ impl UpdateManager {
                 std::fs::remove_file(&backup_path)?;
             }
             std::fs::copy(current_exe, &backup_path)?;
-            std::fs::copy(new_exe, current_exe)?;
+            if let Err(e) = std::fs::copy(new_exe, current_exe) {
+                // Restore the backup so the binary is not left in a partial state.
+                let _ = std::fs::copy(&backup_path, current_exe);
+                return Err(ThothError::UpdateInstallError {
+                    reason: format!("Could not write new executable: {e}"),
+                });
+            }
+            let _ = std::fs::remove_file(&backup_path);
         }
 
         Ok(())

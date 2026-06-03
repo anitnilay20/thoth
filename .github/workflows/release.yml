@@ -56,12 +56,12 @@ jobs:
       # bumps: unchanged crates like wasmtime still hit the cache even after
       # adding/removing other dependencies.
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.10
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
 
       # Cache cargo registry and installed binaries (cargo-packager, cargo-component).
       # cache-targets is false because sccache handles compilation caching.
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "release-${{ runner.os }}"
           cache-targets: false
@@ -89,7 +89,7 @@ jobs:
 
       # cargo-binstall downloads pre-compiled binaries — no source compilation.
       - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@v1.19.1
+        uses: cargo-bins/cargo-binstall@aaa84a43aec4955a42c5ffc65d258961e39f276e # v1.19.1
 
       # Install tools from pre-built binaries (~5s each vs 1–5 min from source)
       - name: Install cargo-packager
