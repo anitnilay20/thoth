@@ -47,8 +47,13 @@ impl PluginManager {
 
         let mut config = Config::new();
         config.consume_fuel(true);
-        if let Ok(cache) = Cache::new(CacheConfig::new()) {
-            config.cache(Some(cache));
+        match Cache::new(CacheConfig::new()) {
+            Ok(cache) => {
+                config.cache(Some(cache));
+            }
+            Err(e) => {
+                eprintln!("Plugin cache init failed, proceeding without compilation cache: {e}");
+            }
         }
         let engine = Engine::new(&config).map_err(|e| ThothError::PluginLoadError {
             path: PathBuf::new(),
