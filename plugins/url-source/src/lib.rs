@@ -16,6 +16,7 @@ use bindings::exports::thoth::plugin::{
     plugin_lifecycle::Guest as LifecycleGuest,
     plugin_meta::Guest as MetaGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
+    tab_host::Guest as TabHostGuest,
     ui_component::{Guest as UiComponentGuest, UiEvent, UiOutput},
 };
 use bindings::thoth::plugin::types::Capability;
@@ -27,10 +28,11 @@ use crate::{
 
 struct UrlSourcePlugin;
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
 struct State {
     // ── Saved requests ────────────────────────────────────────────────────
     request_name: String, // name input in the sidebar
+    #[serde(default)]
     saved_requests: Vec<SavedRequest>,
 
     // ── Request ───────────────────────────────────────────────────────────
@@ -53,19 +55,26 @@ struct State {
     resp_tab: String, // "pretty" | "raw" | "headers"
 
     // ── cURL export / import modals ──────────────────────────────────────
+    #[serde(skip)]
     show_export_modal: bool,
+    #[serde(skip)]
     show_import_modal: bool,
+    #[serde(skip)]
     curl_import_input: String,
 
-    // ── Async fetch state ─────────────────────────────────────────────────
+    // ── Async fetch state (transient — never persisted) ───────────────────
     /// True while a submit() request is in flight.
+    #[serde(skip)]
     loading: bool,
     /// True when loading is paused waiting for the user to approve a consent popup.
+    #[serde(skip)]
     consent_pending: bool,
     /// The request_id returned by submit(); matched against the http-response event.
+    #[serde(skip)]
     pending_request_id: Option<String>,
 
-    // ── Response cache ────────────────────────────────────────────────────
+    // ── Response cache (transient — never persisted) ──────────────────────
+    #[serde(skip)]
     response: Option<ResponseState>,
 }
 
@@ -670,9 +679,23 @@ impl UiComponentGuest for UrlSourcePlugin {
             } else if event.widget_id == "saved-requests" {
                 match event.kind.as_str() {
                     "click" => {
+                        // Open the saved request in a NEW TAB (seeded with that
+                        // request), rather than loading it into the sidebar form.
                         if let Ok(idx) = event.value.parse::<usize>() {
                             if let Some(req) = st.saved_requests.get(idx).cloned() {
-                                load_saved_request(&mut st, req);
+                                let mut seed = st.clone();
+                                load_saved_request(&mut seed, req);
+                                let title = if seed.url.is_empty() {
+                                    "URL Source".to_string()
+                                } else {
+                                    format!("{} {}", seed.method, seed.url)
+                                };
+                                let initial_state = serde_json::to_string(&seed).ok();
+                                bindings::thoth::plugin::ui_tabs::open_tab(
+                                    &title,
+                                    Some("\u{E28C}"),
+                                    initial_state.as_deref(),
+                                );
                             }
                         }
                     }
@@ -693,6 +716,19 @@ impl UiComponentGuest for UrlSourcePlugin {
                     }
                     _ => {}
                 }
+            } else if event.widget_id == "open-new-tab" {
+                // Open a fresh url-source tab seeded with this request's form.
+                let initial_state = serde_json::to_string(&st).ok();
+                let title = if st.url.is_empty() {
+                    "URL Source".to_string()
+                } else {
+                    format!("{} {}", st.method, st.url)
+                };
+                bindings::thoth::plugin::ui_tabs::open_tab(
+                    &title,
+                    Some("\u{E28C}"),
+                    initial_state.as_deref(),
+                );
             } else if event.widget_id == "consent-approved" {
                 // Host has dispatched the retry request — switch spinner text
                 // from "Waiting for consent approval" back to "Sending request".
@@ -721,6 +757,60 @@ impl UiComponentGuest for UrlSourcePlugin {
             *s.borrow_mut() = st.clone();
             Ok(ui_out(ui::build_ui(&st)))
         })
+    }
+}
+
+impl TabHostGuest for UrlSourcePlugin {
+    /// Show the active request in the tab label so two url-source tabs are
+    /// distinguishable.
+    fn tab_title() -> String {
+        STATE.with(|s| {
+            let st = s.borrow();
+            if st.url.is_empty() {
+                "URL Source".to_string()
+            } else {
+                let shown = if st.url.len() > 40 {
+                    format!("{}…", &st.url[..40])
+                } else {
+                    st.url.clone()
+                };
+                format!("{} {}", st.method, shown)
+            }
+        })
+    }
+
+    fn tab_icon() -> Option<String> {
+        Some("\u{E28C}".to_string()) // GLOBE_HEMISPHERE_WEST
+    }
+
+    /// Snapshot the per-tab request form so the host can persist it. Transient
+    /// fields (response, loading, modals) are `#[serde(skip)]` and not included.
+    fn get_state() -> Result<String, PluginError> {
+        STATE
+            .with(|s| serde_json::to_string(&*s.borrow()).map_err(|e| plugin_err(3, e.to_string())))
+    }
+
+    /// Restore the request form from a previously saved snapshot.
+    fn init_with_state(state: String) -> Result<(), PluginError> {
+        if state.is_empty() {
+            return Ok(());
+        }
+        if let Ok(restored) = serde_json::from_str::<State>(&state) {
+            STATE.with(|s| *s.borrow_mut() = restored);
+        }
+        Ok(())
+    }
+
+    fn on_tab_focused() {
+        eprintln!("[url-source] on_tab_focused");
+    }
+
+    fn on_tab_blurred() {
+        eprintln!("[url-source] on_tab_blurred");
+    }
+
+    fn on_tab_closed() {
+        eprintln!("[url-source] on_tab_closed");
     }
 }
 

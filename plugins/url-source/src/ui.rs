@@ -46,6 +46,8 @@ fn method_badge_color(method: &str) -> &'static str {
 // egui_phosphor::regular::ARROW_SQUARE_OUT = export, ARROW_SQUARE_IN = import
 const ICON_EXPORT: &str = "\u{E5DE}";
 const ICON_IMPORT: &str = "\u{E5DC}";
+// egui_phosphor::regular::PLUS
+const ICON_PLUS: &str = "\u{E3D4}";
 
 /// Rendered by the host in its sidebar panel.
 pub fn build_sidebar(st: &State) -> Value {
@@ -71,6 +73,32 @@ pub fn build_sidebar(st: &State) -> Value {
         "type": "column",
         "gap": 0,
         "children": [
+            {
+                "type": "row",
+                "padding": 6,
+                "children": [
+                    {"type": "heading", "value": "Collections", "level": 3}
+                ]
+            },
+            {
+                "type": "column",
+                "padding": 6,
+                "children": [
+                    {
+                        "type": "button",
+                        "id": "open-new-tab",
+                        "props": {
+                            "label": "New Request",
+                            "button-type": "Elevated",
+                            "color": "Primary",
+                            "enabled": true,
+                            "icon": ICON_PLUS,
+                            "full-width": true
+                        }
+                    }
+                ]
+            },
+            {"type": "separator"},
             {
                 "type": "row",
                 "gap": 4,
@@ -225,21 +253,13 @@ fn build_response_column(st: &State) -> Value {
 }
 
 fn build_url_bar(st: &State) -> Value {
-    // Method pill buttons
-    let method_btns: Vec<Value> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+    // Method dropdown
+    let method_options: Vec<Value> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
         .iter()
-        .map(|m| {
-            let id = format!("method-btn-{}", m.to_lowercase());
-            let selected = st.method == *m;
-            if selected {
-                btn_elevated(&id, m, true, "Secondary")
-            } else {
-                btn_text(&id, m, true)
-            }
-        })
+        .map(|m| json!({ "value": m, "label": m }))
         .collect();
 
-    // Visual order: [MethodButtons | URL(grow) | Send | Save]
+    // Visual order: [Method ▾ | URL(grow) | Clear | Send]
     // Fill layout: prefix items render LTR, then RTL sub-layout for suffix+grow.
     json!({
         "type":  "row",
@@ -248,9 +268,12 @@ fn build_url_bar(st: &State) -> Value {
         "padding": 4,
         "children": [
             {
-                "type": "row",
-                "gap": 2,
-                "children": method_btns
+                "type":    "select",
+                "id":      "method",
+                "label":   "",
+                "value":   st.method,
+                "options": method_options,
+                "width":   96
             },
             {
                 "type":        "text-input",
@@ -654,20 +677,6 @@ fn btn_elevated(id: &str, label: &str, enabled: bool, color: &str) -> Value {
             "label":       label,
             "button-type": "Elevated",
             "color":       color,
-            "enabled":     enabled
-        }
-    })
-}
-
-/// Text (ghost) button. Use for inactive method pill buttons.
-fn btn_text(id: &str, label: &str, enabled: bool) -> Value {
-    json!({
-        "type": "button",
-        "id":   id,
-        "props": {
-            "label":       label,
-            "button-type": "Text",
-            "color":       "Default",
             "enabled":     enabled
         }
     })

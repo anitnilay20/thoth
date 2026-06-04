@@ -506,6 +506,63 @@ interface ui-component {
 
 
 // ---------------------------------------------------------------------------
+// ui-tabs — host-provided import for plugins that render in tab windows
+//
+// Lets a plugin ask the host to open a NEW dock tab hosting a fresh instance
+// of the same plugin. Mirrors http-client.submit: the call returns an opaque
+// tab id immediately and the host actually opens the tab on its next frame.
+// The new instance is seeded with `initial-state` via tab-host.init-with-state.
+// ---------------------------------------------------------------------------
+
+interface ui-tabs {
+    /// Request the host to open a new tab hosting this plugin.
+    /// `icon` is an optional Phosphor glyph shown in the tab label.
+    /// `initial-state` is an optional JSON blob (same shape as get-state
+    /// returns) used to seed the new tab's plugin instance.
+    /// Returns a host-assigned tab id (currently informational).
+    open-tab: func(title: string, icon: option<string>, initial-state: option<string>) -> string;
+}
+
+
+// ---------------------------------------------------------------------------
+// tab-host — implement when the plugin renders in a tab window
+//
+// Provides the host with the tab's title/icon, lets the host snapshot and
+// restore the plugin's per-tab state across app restarts (like a file tab
+// remembers its path), and delivers tab lifecycle notifications.
+// ---------------------------------------------------------------------------
+
+interface tab-host {
+    use types.{plugin-error};
+
+    /// The title shown in the dock tab label. Queried after render-ui and
+    /// after each handle-event so the title can stay live.
+    tab-title: func() -> string;
+
+    /// Optional Phosphor glyph shown before the title. `none` = no icon.
+    tab-icon: func() -> option<string>;
+
+    /// Serialize the plugin's current per-tab state to a JSON blob. The host
+    /// persists it in the session and passes it back via init-with-state when
+    /// the tab is reopened on the next launch.
+    get-state: func() -> result<string, plugin-error>;
+
+    /// Restore from a previously saved blob. Called once, instead of a blank
+    /// start, when the host reopens a persisted tab.
+    init-with-state: func(state: string) -> result<_, plugin-error>;
+
+    /// This tab became the active/focused tab.
+    on-tab-focused: func();
+
+    /// This tab lost focus (another tab became active).
+    on-tab-blurred: func();
+
+    /// This tab is being closed. Release any per-tab resources.
+    on-tab-closed: func();
+}
+
+
+// ---------------------------------------------------------------------------
 // Worlds — plugin authors implement one of these
 //
 // A world declares exactly which interfaces a plugin exports. Pick the
@@ -560,9 +617,14 @@ world file-viewer-plugin {
 }
 
 /// A plugin that renders a fully interactive panel (no file-loading required).
+/// It can live in a dock tab: the host provides ui-tabs (open more tabs) and
+/// plugin-storage, and the plugin exports tab-host (title/state/lifecycle).
 world ui-component-plugin {
     include base-plugin;
+    import ui-tabs;
+    import plugin-storage;
     export ui-component;
+    export tab-host;
 }
 
 /// A plugin that connects Thoth to an external data source and draws its own
@@ -573,8 +635,10 @@ world data-source-plugin {
     include base-plugin;
     import http-client;
     import plugin-storage;
+    import ui-tabs;
     export data-source;
     export ui-component;
+    export tab-host;
 }
 
 /// A plugin that adds a new export format or destination.

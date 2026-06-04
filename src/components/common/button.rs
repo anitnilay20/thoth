@@ -57,6 +57,9 @@ pub struct ButtonProps {
     pub enabled: bool,
     #[serde(default)]
     pub icon: Option<String>,
+    /// Stretch the button to the full available width of its container.
+    #[serde(rename = "full-width", default)]
+    pub full_width: bool,
 }
 
 fn default_enabled() -> bool {
@@ -76,6 +79,7 @@ impl Default for ButtonProps {
             height: None,
             enabled: true,
             icon: None,
+            full_width: false,
         }
     }
 }
@@ -105,6 +109,12 @@ impl StatelessComponent for Button {
         let size = props.size.unwrap_or(default_font);
         let height = Some(props.height.unwrap_or(default_h));
         let icon = props.icon.as_deref();
+        // Full-width buttons stretch to the container's available width.
+        let width = if props.full_width {
+            Some(ui.available_width())
+        } else {
+            props.width
+        };
 
         let bg_color = match props.color {
             ButtonColor::Default => colors.surface_active,
@@ -122,7 +132,7 @@ impl StatelessComponent for Button {
                         ui,
                         Self::make_layout_job(icon, &props.label, size, text_color),
                         bg_color,
-                        props.width,
+                        width,
                         height,
                     )
                 }
@@ -133,7 +143,7 @@ impl StatelessComponent for Button {
                     size,
                     bg_color,
                     colors.fg,
-                    props.width,
+                    width,
                     height,
                 ),
             })

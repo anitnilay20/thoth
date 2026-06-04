@@ -14,8 +14,17 @@ const MAX_BOOKMARKS: usize = 100; // Maximum number of bookmarks
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PersistedTabKind {
-    File { path: String },
-    Plugin { plugin_id: String },
+    File {
+        path: String,
+    },
+    Plugin {
+        plugin_id: String,
+        /// Per-tab state blob from the plugin's `get-state` hook, passed back via
+        /// `init-with-state` on restore. Absent for older sessions / plugins
+        /// without a `tab-host` export.
+        #[serde(default)]
+        state: Option<String>,
+    },
 }
 
 /// A tab entry that can be restored on the next launch.

@@ -7,12 +7,14 @@ pub mod manager;
 pub mod marketplace;
 pub mod network_policy;
 pub mod plugin_registry;
+pub mod plugin_ui_host;
 pub mod render_node;
 pub mod theme_plugin;
 pub mod wasm_data_source;
 pub mod wasm_file_viewer_loader;
 pub mod wasm_loader;
 pub mod wasm_plugin_settings;
+pub mod wasm_ui_component;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NetworkDeclarations {

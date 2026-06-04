@@ -91,6 +91,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                             options: &sort_opts,
                             prefix_label: Some("Sort: "),
                             size: SelectSize::Small,
+                            width: None,
                         },
                     )
                 });

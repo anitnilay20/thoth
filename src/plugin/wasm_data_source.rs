@@ -47,17 +47,10 @@ pub struct ConsentRequest {
 
 // ── async HTTP result sent through the mpsc channel ──────────────────────────
 
-/// Raw HTTP response — plain Send-safe types, no WIT bindgen involvement.
-pub struct HttpResponseRaw {
-    pub status: u16,
-    pub headers: Vec<(String, String)>,
-    pub body: Vec<u8>,
-    pub duration_ms: u64,
-}
-
-/// Result type for async HTTP — uses std::result::Result explicitly to avoid
-/// conflicting with the crate-level `type Result<T> = Result<T, ThothError>` alias.
-pub type HttpCallResult = std::result::Result<HttpResponseRaw, String>;
+// These plain Send-safe types live in `plugin_ui_host` so they can be shared with
+// the `PluginUiHost` trait without depending on this loader's bindgen internals.
+pub use crate::plugin::plugin_ui_host::{HttpCallResult, HttpResponseRaw};
+use crate::plugin::plugin_ui_host::{PluginHttpRequest, PluginUiHost, TabOpenRequest};
 
 // ── atomic counter so callers can know when requests are in flight ────────────
 
@@ -66,6 +59,13 @@ static REQUEST_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 fn next_request_id() -> String {
     format!(
         "req-{}",
+        REQUEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
+
+fn next_tab_request_id() -> String {
+    format!(
+        "tab-{}",
         REQUEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     )
 }
@@ -87,6 +87,8 @@ struct DataSourcePluginState {
     // re-dispatch them on a background thread without needing self to be Sync.
     retry_tx:
         Arc<Mutex<std::sync::mpsc::Sender<(String, thoth::plugin::http_client::HttpRequest)>>>,
+    // Tab-open requests raised by the plugin via the `ui-tabs` import.
+    tab_tx: std::sync::mpsc::Sender<TabOpenRequest>,
 }
 
 impl WasiView for DataSourcePluginState {
@@ -274,6 +276,25 @@ impl thoth::plugin::plugin_storage::Host for DataSourcePluginState {
     }
 }
 
+impl thoth::plugin::ui_tabs::Host for DataSourcePluginState {
+    fn open_tab(
+        &mut self,
+        title: String,
+        icon: Option<String>,
+        initial_state: Option<String>,
+    ) -> String {
+        let request_id = next_tab_request_id();
+        let _ = self.tab_tx.send(TabOpenRequest {
+            request_id: request_id.clone(),
+            plugin_id: self.plugin_id.clone(),
+            title,
+            icon,
+            initial_state,
+        });
+        request_id
+    }
+}
+
 // ── reqwest bridge ────────────────────────────────────────────────────────────
 
 fn execute_http_request(
@@ -330,6 +351,8 @@ pub struct WasmDataSourceLoader {
     retry_rx: std::sync::mpsc::Receiver<(String, thoth::plugin::http_client::HttpRequest)>,
     /// Number of submitted requests that haven't been drained yet.
     pending_count: Arc<AtomicUsize>,
+    /// Receives tab-open requests raised by the plugin via the `ui-tabs` import.
+    tab_rx: std::sync::mpsc::Receiver<TabOpenRequest>,
     plugin_id: String,
 }
 
@@ -353,6 +376,7 @@ impl WasmDataSourceLoader {
         let (http_tx, http_rx) = std::sync::mpsc::channel::<(String, HttpCallResult)>();
         let (retry_tx, retry_rx) =
             std::sync::mpsc::channel::<(String, thoth::plugin::http_client::HttpRequest)>();
+        let (tab_tx, tab_rx) = std::sync::mpsc::channel::<TabOpenRequest>();
         let pending_count = Arc::new(AtomicUsize::new(0));
         let retry_tx_shared = Arc::new(Mutex::new(retry_tx));
 
@@ -365,6 +389,7 @@ impl WasmDataSourceLoader {
             http_tx,
             pending_count: Arc::clone(&pending_count),
             retry_tx: Arc::clone(&retry_tx_shared),
+            tab_tx,
         };
 
         let mut store = Store::new(engine, state);
@@ -405,6 +430,14 @@ impl WasmDataSourceLoader {
             },
         )?;
 
+        // 4. Register the ui-tabs import (plugin-initiated tab opening).
+        thoth::plugin::ui_tabs::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+
         let bindings =
             DataSourcePlugin::instantiate(&mut store, &component, &linker).map_err(|e| {
                 ThothError::PluginLoadError {
@@ -419,6 +452,7 @@ impl WasmDataSourceLoader {
             http_rx,
             retry_rx,
             pending_count,
+            tab_rx,
             plugin_id,
         };
 
@@ -451,7 +485,7 @@ impl WasmDataSourceLoader {
 
     /// Invoke the plugin's on-setting-change lifecycle hook with the updated settings.
     /// Settings are serialized as a JSON array of `{key, value}` objects.
-    pub fn on_setting_change(&mut self, settings: &[PluginSettingData]) -> Result<()> {
+    pub fn on_setting_change(&self, settings: &[PluginSettingData]) -> Result<()> {
         let settings_json = serde_json::to_string(settings).map_err(|e| ThothError::Unknown {
             message: format!("Failed to serialize plugin settings: {e}"),
         })?;
@@ -674,7 +708,170 @@ impl WasmDataSourceLoader {
         self.pending_count.load(Ordering::Relaxed) > 0
     }
 
+    // ── tab-host export ─────────────────────────────────────────────────────────
+
+    pub fn tab_title(&self) -> Option<String> {
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let WasmDataSourceInner { store, bindings } = &mut *guard;
+        refuel(store).ok()?;
+        bindings.thoth_plugin_tab_host().call_tab_title(store).ok()
+    }
+
+    pub fn tab_icon(&self) -> Option<String> {
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let WasmDataSourceInner { store, bindings } = &mut *guard;
+        refuel(store).ok()?;
+        bindings
+            .thoth_plugin_tab_host()
+            .call_tab_icon(store)
+            .ok()
+            .flatten()
+    }
+
+    pub fn get_state(&self) -> Result<Option<String>> {
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let WasmDataSourceInner { store, bindings } = &mut *guard;
+        refuel(store)?;
+        let blob = bindings
+            .thoth_plugin_tab_host()
+            .call_get_state(store)
+            .map_err(|e| ThothError::Unknown {
+                message: e.to_string(),
+            })?
+            .map_err(|e| ThothError::Unknown { message: e.message })?;
+        Ok(Some(blob))
+    }
+
+    pub fn init_with_state(&self, state: &str) -> Result<()> {
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let WasmDataSourceInner { store, bindings } = &mut *guard;
+        refuel(store)?;
+        bindings
+            .thoth_plugin_tab_host()
+            .call_init_with_state(store, state)
+            .map_err(|e| ThothError::Unknown {
+                message: e.to_string(),
+            })?
+            .map_err(|e| ThothError::Unknown { message: e.message })
+    }
+
+    fn call_tab_lifecycle(&self, which: u8) {
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let WasmDataSourceInner { store, bindings } = &mut *guard;
+        if refuel(store).is_err() {
+            return;
+        }
+        let host = bindings.thoth_plugin_tab_host();
+        let _ = match which {
+            0 => host.call_on_tab_focused(store),
+            1 => host.call_on_tab_blurred(store),
+            _ => host.call_on_tab_closed(store),
+        };
+    }
+
+    /// Non-blocking drain of tab-open requests raised during the last WASM call.
+    pub fn drain_tab_open_requests(&self) -> Vec<TabOpenRequest> {
+        let mut out = Vec::new();
+        while let Ok(req) = self.tab_rx.try_recv() {
+            out.push(req);
+        }
+        out
+    }
+
     pub fn plugin_id(&self) -> &str {
         &self.plugin_id
+    }
+}
+
+// ── PluginUiHost — lets an ActivePluginPane hold this loader as a trait object ──
+
+fn http_req_to_plugin(r: thoth::plugin::http_client::HttpRequest) -> PluginHttpRequest {
+    PluginHttpRequest {
+        url: r.url,
+        method: r.method,
+        headers: r.headers,
+        body: r.body,
+    }
+}
+
+fn plugin_req_to_http(r: PluginHttpRequest) -> thoth::plugin::http_client::HttpRequest {
+    thoth::plugin::http_client::HttpRequest {
+        url: r.url,
+        method: r.method,
+        headers: r.headers,
+        body: r.body,
+    }
+}
+
+impl PluginUiHost for WasmDataSourceLoader {
+    fn plugin_id(&self) -> &str {
+        WasmDataSourceLoader::plugin_id(self)
+    }
+
+    fn render_ui(&self) -> Result<UiOutput> {
+        WasmDataSourceLoader::render_ui(self)
+    }
+
+    fn handle_event(&self, event: UiEvent) -> Result<UiOutput> {
+        WasmDataSourceLoader::handle_event(self, event)
+    }
+
+    fn render_sidebar(&self) -> Result<Option<UiOutput>> {
+        WasmDataSourceLoader::render_sidebar(self)
+    }
+
+    fn on_setting_change(&self, settings: &[PluginSettingData]) -> Result<()> {
+        WasmDataSourceLoader::on_setting_change(self, settings)
+    }
+
+    fn tab_title(&self) -> Option<String> {
+        WasmDataSourceLoader::tab_title(self).filter(|s| !s.is_empty())
+    }
+
+    fn tab_icon(&self) -> Option<String> {
+        WasmDataSourceLoader::tab_icon(self)
+    }
+
+    fn get_state(&self) -> Result<Option<String>> {
+        WasmDataSourceLoader::get_state(self)
+    }
+
+    fn init_with_state(&self, state: &str) -> Result<()> {
+        WasmDataSourceLoader::init_with_state(self, state)
+    }
+
+    fn on_tab_focused(&self) {
+        self.call_tab_lifecycle(0);
+    }
+
+    fn on_tab_blurred(&self) {
+        self.call_tab_lifecycle(1);
+    }
+
+    fn on_tab_closed(&self) {
+        self.call_tab_lifecycle(2);
+    }
+
+    fn drain_tab_open_requests(&self) -> Vec<TabOpenRequest> {
+        WasmDataSourceLoader::drain_tab_open_requests(self)
+    }
+
+    fn drain_http_results(&self) -> Vec<(String, HttpCallResult)> {
+        WasmDataSourceLoader::drain_http_results(self)
+    }
+
+    fn drain_retry_requests(&self) -> Vec<(String, PluginHttpRequest)> {
+        WasmDataSourceLoader::drain_retry_requests(self)
+            .into_iter()
+            .map(|(id, req)| (id, http_req_to_plugin(req)))
+            .collect()
+    }
+
+    fn dispatch_approved_request(&self, request_id: String, req: PluginHttpRequest) {
+        WasmDataSourceLoader::dispatch_approved_request(self, request_id, plugin_req_to_http(req));
+    }
+
+    fn has_pending_http(&self) -> bool {
+        WasmDataSourceLoader::has_pending_http(self)
     }
 }

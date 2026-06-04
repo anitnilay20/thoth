@@ -325,6 +325,9 @@ pub enum UiNode {
         options: Vec<SelectOption>,
         #[serde(default)]
         disabled: bool,
+        /// Fixed trigger width in logical pixels. Omit to fill available width.
+        #[serde(default)]
+        width: Option<f32>,
     },
     MultiSelect {
         id: String,
@@ -1122,6 +1125,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             value,
             options,
             disabled,
+            width,
         } => {
             let buf_id = egui::Id::new(("ui:sel", id));
             let mut buf = ui.ctx().data_mut(|d| {
@@ -1147,6 +1151,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                         options: &common_opts,
                         prefix_label: None,
                         size: Default::default(),
+                        width: *width,
                     },
                 );
                 if let Some(new_val) = out.changed {

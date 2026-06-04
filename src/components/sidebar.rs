@@ -48,6 +48,9 @@ pub struct SidebarProps<'a> {
     pub search_history: Option<&'a Vec<String>>,
     /// All registered data-source plugins — one icon button is shown per plugin.
     pub data_source_plugins: &'a [&'a Plugin],
+    /// Pure ui-component plugins (new-ui-component, not data sources) — one icon
+    /// button each; clicking opens the plugin in a new tab.
+    pub ui_component_plugins: &'a [&'a Plugin],
     /// The plugin_id of the currently active data-source pane (for icon highlight).
     pub active_datasource_plugin_id: Option<&'a str>,
     /// If the active ui-component plugin rendered a sidebar, its (plugin, output) pair.
@@ -68,6 +71,8 @@ pub enum SidebarEvent {
     RemoveRecentFile(String),
     OpenFilePicker,
     SectionToggled(SidebarSection),
+    /// Open a pure ui-component plugin (by id) in a new tab.
+    OpenUiComponentTab(String),
     WidthChanged(f32),
     // Search events
     Search(SearchMessage),
@@ -349,6 +354,31 @@ impl Sidebar {
                     .clicked
                     {
                         events.push(SidebarEvent::SectionToggled(section));
+                    }
+                }
+
+                // Pure ui-component plugins — clicking opens the plugin in a new tab.
+                for plugin in props.ui_component_plugins {
+                    let icon = plugin
+                        .icon
+                        .as_deref()
+                        .unwrap_or(egui_phosphor::regular::PUZZLE_PIECE);
+                    if IconButton::render(
+                        ui,
+                        IconButtonProps {
+                            icon,
+                            tooltip: Some(plugin.name.as_str()),
+                            size: Some(button_size),
+                            icon_size: Some(20.0),
+                            selected: false,
+                            frame: false,
+                            badge_color: None,
+                            disabled: false,
+                        },
+                    )
+                    .clicked
+                    {
+                        events.push(SidebarEvent::OpenUiComponentTab(plugin.id.clone()));
                     }
                 }
             });

@@ -665,6 +665,119 @@ pub mod thoth {
                 }
             }
         }
+        /// ---------------------------------------------------------------------------
+        /// ui-tabs — host-provided import for plugins that render in tab windows
+        ///
+        /// Lets a plugin ask the host to open a NEW dock tab hosting a fresh instance
+        /// of the same plugin. Mirrors http-client.submit: the call returns an opaque
+        /// tab id immediately and the host actually opens the tab on its next frame.
+        /// The new instance is seeded with `initial-state` via tab-host.init-with-state.
+        /// ---------------------------------------------------------------------------
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod ui_tabs {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            #[allow(unused_unsafe, clippy::all)]
+            /// Request the host to open a new tab hosting this plugin.
+            /// `icon` is an optional Phosphor glyph shown in the tab label.
+            /// `initial-state` is an optional JSON blob (same shape as get-state
+            /// returns) used to seed the new tab's plugin instance.
+            /// Returns a host-assigned tab id (currently informational).
+            pub fn open_tab(
+                title: &str,
+                icon: Option<&str>,
+                initial_state: Option<&str>,
+            ) -> _rt::String {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 2 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 2
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = title;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let (result2_0, result2_1, result2_2) = match icon {
+                        Some(e) => {
+                            let vec1 = e;
+                            let ptr1 = vec1.as_ptr().cast::<u8>();
+                            let len1 = vec1.len();
+                            (1i32, ptr1.cast_mut(), len1)
+                        }
+                        None => (0i32, ::core::ptr::null_mut(), 0usize),
+                    };
+                    let (result4_0, result4_1, result4_2) = match initial_state {
+                        Some(e) => {
+                            let vec3 = e;
+                            let ptr3 = vec3.as_ptr().cast::<u8>();
+                            let len3 = vec3.len();
+                            (1i32, ptr3.cast_mut(), len3)
+                        }
+                        None => (0i32, ::core::ptr::null_mut(), 0usize),
+                    };
+                    let ptr5 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/ui-tabs@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "open-tab"]
+                        fn wit_import6(
+                            _: *mut u8,
+                            _: usize,
+                            _: i32,
+                            _: *mut u8,
+                            _: usize,
+                            _: i32,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                        );
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import6(
+                        _: *mut u8,
+                        _: usize,
+                        _: i32,
+                        _: *mut u8,
+                        _: usize,
+                        _: i32,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import6(
+                            ptr0.cast_mut(),
+                            len0,
+                            result2_0,
+                            result2_1,
+                            result2_2,
+                            result4_0,
+                            result4_1,
+                            result4_2,
+                            ptr5,
+                        )
+                    };
+                    let l7 = *ptr5.add(0).cast::<*mut u8>();
+                    let l8 = *ptr5
+                        .add(::core::mem::size_of::<*const u8>())
+                        .cast::<usize>();
+                    let len9 = l8;
+                    let bytes9 = _rt::Vec::from_raw_parts(l7.cast(), len9, len9);
+                    let result10 = _rt::string_lift(bytes9);
+                    result10
+                }
+            }
+        }
     }
 }
 #[rustfmt::skip]
@@ -1904,6 +2017,306 @@ pub mod exports {
                 );
             }
             /// ---------------------------------------------------------------------------
+            /// tab-host — implement when the plugin renders in a tab window
+            ///
+            /// Provides the host with the tab's title/icon, lets the host snapshot and
+            /// restore the plugin's per-tab state across app restarts (like a file tab
+            /// remembers its path), and delivers tab lifecycle notifications.
+            /// ---------------------------------------------------------------------------
+            #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+            pub mod tab_host {
+                #[used]
+                #[doc(hidden)]
+                static __FORCE_SECTION_REF: fn() = super::super::super::super::__link_custom_section_describing_imports;
+                use super::super::super::super::_rt;
+                pub type PluginError = super::super::super::super::thoth::plugin::types::PluginError;
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_tab_title_cabi<T: Guest>() -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let result0 = T::tab_title();
+                    let ptr1 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    let vec2 = (result0.into_bytes()).into_boxed_slice();
+                    let ptr2 = vec2.as_ptr().cast::<u8>();
+                    let len2 = vec2.len();
+                    ::core::mem::forget(vec2);
+                    *ptr1.add(::core::mem::size_of::<*const u8>()).cast::<usize>() = len2;
+                    *ptr1.add(0).cast::<*mut u8>() = ptr2.cast_mut();
+                    ptr1
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_tab_title<T: Guest>(arg0: *mut u8) {
+                    let l0 = *arg0.add(0).cast::<*mut u8>();
+                    let l1 = *arg0
+                        .add(::core::mem::size_of::<*const u8>())
+                        .cast::<usize>();
+                    _rt::cabi_dealloc(l0, l1, 1);
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_tab_icon_cabi<T: Guest>() -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let result0 = T::tab_icon();
+                    let ptr1 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result0 {
+                        Some(e) => {
+                            *ptr1.add(0).cast::<u8>() = (1i32) as u8;
+                            let vec2 = (e.into_bytes()).into_boxed_slice();
+                            let ptr2 = vec2.as_ptr().cast::<u8>();
+                            let len2 = vec2.len();
+                            ::core::mem::forget(vec2);
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len2;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr2.cast_mut();
+                        }
+                        None => {
+                            *ptr1.add(0).cast::<u8>() = (0i32) as u8;
+                        }
+                    };
+                    ptr1
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_tab_icon<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {}
+                        _ => {
+                            let l1 = *arg0
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l1, l2, 1);
+                        }
+                    }
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_get_state_cabi<T: Guest>() -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let result0 = T::get_state();
+                    let ptr1 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result0 {
+                        Ok(e) => {
+                            *ptr1.add(0).cast::<u8>() = (0i32) as u8;
+                            let vec2 = (e.into_bytes()).into_boxed_slice();
+                            let ptr2 = vec2.as_ptr().cast::<u8>();
+                            let len2 = vec2.len();
+                            ::core::mem::forget(vec2);
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len2;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr2.cast_mut();
+                        }
+                        Err(e) => {
+                            *ptr1.add(0).cast::<u8>() = (1i32) as u8;
+                            let super::super::super::super::thoth::plugin::types::PluginError {
+                                code: code3,
+                                message: message3,
+                            } = e;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(code3);
+                            let vec4 = (message3.into_bytes()).into_boxed_slice();
+                            let ptr4 = vec4.as_ptr().cast::<u8>();
+                            let len4 = vec4.len();
+                            ::core::mem::forget(vec4);
+                            *ptr1
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len4;
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr4.cast_mut();
+                        }
+                    };
+                    ptr1
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_get_state<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = *arg0
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l1, l2, 1);
+                        }
+                        _ => {
+                            let l3 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l4 = *arg0
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l3, l4, 1);
+                        }
+                    }
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_init_with_state_cabi<T: Guest>(
+                    arg0: *mut u8,
+                    arg1: usize,
+                ) -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let len0 = arg1;
+                    let bytes0 = _rt::Vec::from_raw_parts(arg0.cast(), len0, len0);
+                    let result1 = T::init_with_state(_rt::string_lift(bytes0));
+                    let ptr2 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result1 {
+                        Ok(_) => {
+                            *ptr2.add(0).cast::<u8>() = (0i32) as u8;
+                        }
+                        Err(e) => {
+                            *ptr2.add(0).cast::<u8>() = (1i32) as u8;
+                            let super::super::super::super::thoth::plugin::types::PluginError {
+                                code: code3,
+                                message: message3,
+                            } = e;
+                            *ptr2
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(code3);
+                            let vec4 = (message3.into_bytes()).into_boxed_slice();
+                            let ptr4 = vec4.as_ptr().cast::<u8>();
+                            let len4 = vec4.len();
+                            ::core::mem::forget(vec4);
+                            *ptr2
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len4;
+                            *ptr2
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr4.cast_mut();
+                        }
+                    };
+                    ptr2
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_init_with_state<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {}
+                        _ => {
+                            let l1 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l1, l2, 1);
+                        }
+                    }
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_on_tab_focused_cabi<T: Guest>() {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    T::on_tab_focused();
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_on_tab_blurred_cabi<T: Guest>() {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    T::on_tab_blurred();
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_on_tab_closed_cabi<T: Guest>() {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    T::on_tab_closed();
+                }
+                pub trait Guest {
+                    /// The title shown in the dock tab label. Queried after render-ui and
+                    /// after each handle-event so the title can stay live.
+                    fn tab_title() -> _rt::String;
+                    /// Optional Phosphor glyph shown before the title. `none` = no icon.
+                    fn tab_icon() -> Option<_rt::String>;
+                    /// Serialize the plugin's current per-tab state to a JSON blob. The host
+                    /// persists it in the session and passes it back via init-with-state when
+                    /// the tab is reopened on the next launch.
+                    fn get_state() -> Result<_rt::String, PluginError>;
+                    /// Restore from a previously saved blob. Called once, instead of a blank
+                    /// start, when the host reopens a persisted tab.
+                    fn init_with_state(state: _rt::String) -> Result<(), PluginError>;
+                    /// This tab became the active/focused tab.
+                    fn on_tab_focused() -> ();
+                    /// This tab lost focus (another tab became active).
+                    fn on_tab_blurred() -> ();
+                    /// This tab is being closed. Release any per-tab resources.
+                    fn on_tab_closed() -> ();
+                }
+                #[doc(hidden)]
+                macro_rules! __export_thoth_plugin_tab_host_0_1_0_cabi {
+                    ($ty:ident with_types_in $($path_to_types:tt)*) => {
+                        const _ : () = { #[unsafe (export_name =
+                        "thoth:plugin/tab-host@0.1.0#tab-title")] unsafe extern "C" fn
+                        export_tab_title() -> * mut u8 { unsafe { $($path_to_types)*::
+                        _export_tab_title_cabi::<$ty > () } } #[unsafe (export_name =
+                        "cabi_post_thoth:plugin/tab-host@0.1.0#tab-title")] unsafe extern
+                        "C" fn _post_return_tab_title(arg0 : * mut u8,) { unsafe {
+                        $($path_to_types)*:: __post_return_tab_title::<$ty > (arg0) } }
+                        #[unsafe (export_name = "thoth:plugin/tab-host@0.1.0#tab-icon")]
+                        unsafe extern "C" fn export_tab_icon() -> * mut u8 { unsafe {
+                        $($path_to_types)*:: _export_tab_icon_cabi::<$ty > () } }
+                        #[unsafe (export_name =
+                        "cabi_post_thoth:plugin/tab-host@0.1.0#tab-icon")] unsafe extern
+                        "C" fn _post_return_tab_icon(arg0 : * mut u8,) { unsafe {
+                        $($path_to_types)*:: __post_return_tab_icon::<$ty > (arg0) } }
+                        #[unsafe (export_name = "thoth:plugin/tab-host@0.1.0#get-state")]
+                        unsafe extern "C" fn export_get_state() -> * mut u8 { unsafe {
+                        $($path_to_types)*:: _export_get_state_cabi::<$ty > () } }
+                        #[unsafe (export_name =
+                        "cabi_post_thoth:plugin/tab-host@0.1.0#get-state")] unsafe extern
+                        "C" fn _post_return_get_state(arg0 : * mut u8,) { unsafe {
+                        $($path_to_types)*:: __post_return_get_state::<$ty > (arg0) } }
+                        #[unsafe (export_name =
+                        "thoth:plugin/tab-host@0.1.0#init-with-state")] unsafe extern "C"
+                        fn export_init_with_state(arg0 : * mut u8, arg1 : usize,) -> *
+                        mut u8 { unsafe { $($path_to_types)*::
+                        _export_init_with_state_cabi::<$ty > (arg0, arg1) } } #[unsafe
+                        (export_name =
+                        "cabi_post_thoth:plugin/tab-host@0.1.0#init-with-state")] unsafe
+                        extern "C" fn _post_return_init_with_state(arg0 : * mut u8,) {
+                        unsafe { $($path_to_types)*:: __post_return_init_with_state::<$ty
+                        > (arg0) } } #[unsafe (export_name =
+                        "thoth:plugin/tab-host@0.1.0#on-tab-focused")] unsafe extern "C"
+                        fn export_on_tab_focused() { unsafe { $($path_to_types)*::
+                        _export_on_tab_focused_cabi::<$ty > () } } #[unsafe (export_name
+                        = "thoth:plugin/tab-host@0.1.0#on-tab-blurred")] unsafe extern
+                        "C" fn export_on_tab_blurred() { unsafe { $($path_to_types)*::
+                        _export_on_tab_blurred_cabi::<$ty > () } } #[unsafe (export_name
+                        = "thoth:plugin/tab-host@0.1.0#on-tab-closed")] unsafe extern "C"
+                        fn export_on_tab_closed() { unsafe { $($path_to_types)*::
+                        _export_on_tab_closed_cabi::<$ty > () } } };
+                    };
+                }
+                #[doc(hidden)]
+                pub(crate) use __export_thoth_plugin_tab_host_0_1_0_cabi;
+                #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                struct _RetArea(
+                    [::core::mem::MaybeUninit<
+                        u8,
+                    >; 4 * ::core::mem::size_of::<*const u8>()],
+                );
+                static mut _RET_AREA: _RetArea = _RetArea(
+                    [::core::mem::MaybeUninit::uninit(); 4
+                        * ::core::mem::size_of::<*const u8>()],
+                );
+            }
+            /// ---------------------------------------------------------------------------
             /// plugin-meta — required by every plugin
             ///
             /// Maps from src/wit/mod.rs `Plugin` struct (as the return type of get-info).
@@ -2527,6 +2940,9 @@ macro_rules! __export_data_source_plugin_impl {
         exports::thoth::plugin::ui_component::__export_thoth_plugin_ui_component_0_1_0_cabi!($ty
         with_types_in $($path_to_types_root)*:: exports::thoth::plugin::ui_component);
         $($path_to_types_root)*::
+        exports::thoth::plugin::tab_host::__export_thoth_plugin_tab_host_0_1_0_cabi!($ty
+        with_types_in $($path_to_types_root)*:: exports::thoth::plugin::tab_host);
+        $($path_to_types_root)*::
         exports::thoth::plugin::plugin_meta::__export_thoth_plugin_plugin_meta_0_1_0_cabi!($ty
         with_types_in $($path_to_types_root)*:: exports::thoth::plugin::plugin_meta);
         $($path_to_types_root)*::
@@ -2545,9 +2961,9 @@ pub(crate) use __export_data_source_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1797] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xfc\x0c\x01A\x02\x01\
-A\x12\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2101] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xac\x0f\x01A\x02\x01\
+A\x16\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x0fsearch-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01\
 ks\x01r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
 uthor\x03\x08homepage\x03\x04icon\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04\
@@ -2560,32 +2976,39 @@ y\x05\x04\0\x0chttp-request\x03\0\x06\x01r\x03\x06status{\x07headers\x03\x04body
 \x0a\x04\0\x05fetch\x01\x0b\x01@\x01\x03req\x07\0s\x04\0\x06submit\x01\x0c\x03\0\
 \x1ethoth:plugin/http-client@0.1.0\x05\x02\x01B\x05\x01@\0\0s\x04\0\x04read\x01\0\
 \x01j\0\x01s\x01@\x01\x04datas\0\x01\x04\0\x05write\x01\x02\x03\0!thoth:plugin/p\
-lugin-storage@0.1.0\x05\x03\x01B\x1c\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\
-\0\0\x01r\x04\x04names\x0bdescriptions\x08required\x7f\x05values\x04\0\x0cconfig\
--entry\x03\0\x02\x01r\x03\x04names\x09type-hints\x08nullable\x7f\x04\0\x0cfield-\
-schema\x03\0\x04\x01p\x05\x01r\x02\x04names\x06fields\x06\x04\0\x0dsource-schema\
-\x03\0\x07\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0bpane-output\x03\0\x09\
-\x01p\x03\x01@\0\0\x0b\x04\0\x0frequired-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\
-\x06config\x0b\0\x0d\x04\0\x07connect\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\
-\x01\x06handles\0\x10\x04\0\x06schema\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\
-\0\x05query\x01\x12\x01@\x01\x06handles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\
-\x01\x01\x01@\x01\x06handles\0\x14\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:p\
-lugin/data-source@0.1.0\x05\x04\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-err\
-or\x03\0\0\x01r\x03\x09widget-ids\x04kinds\x05values\x04\0\x08ui-event\x03\0\x02\
-\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\
-\x01\x01\x01@\0\0\x06\x04\0\x09render-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\
-\0\x0chandle-event\x01\x08\x01k\x05\x01j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0er\
-ender-sidebar\x01\x0b\x04\0\x1fthoth:plugin/ui-component@0.1.0\x05\x05\x02\x03\0\
-\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x06\x04\0\x0bplugin-info\x03\0\0\x01@\
-\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x07\
-\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08\
-on-close\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-life\
-cycle@0.1.0\x05\x08\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01\
-r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\
-\x01\x01\x01@\0\0\x04\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugi\
-n-settings@0.1.0\x05\x09\x04\0%thoth:plugin/data-source-plugin@0.1.0\x04\0\x0b\x18\
-\x01\0\x12data-source-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0d\
-wit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+lugin-storage@0.1.0\x05\x03\x01B\x03\x01ks\x01@\x03\x05titles\x04icon\0\x0diniti\
+al-state\0\0s\x04\0\x08open-tab\x01\x01\x03\0\x1athoth:plugin/ui-tabs@0.1.0\x05\x04\
+\x01B\x1c\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0b\
+descriptions\x08required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04\
+names\x09type-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01\
+r\x02\x04names\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-j\
+sons\x0bheight-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0f\
+required-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07\
+connect\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06\
+schema\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06\
+handles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\
+\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x05\x01\
+B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04\
+kinds\x05values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hin\
+ty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09rende\
+r-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01\
+j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:pl\
+ugin/ui-component@0.1.0\x05\x06\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-err\
+or\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-\
+icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\
+\x01\x01@\x01\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\
+\x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-close\
+d\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.0\x05\x07\x02\x03\0\0\x0bplugin-inf\
+o\x01B\x04\x02\x03\x02\x01\x08\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08\
+get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x09\x01B\x05\x01@\x01\
+\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08on-close\x01\x01\
+\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x0a\
+\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jso\
+ns\x0bheight-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\
+\0\x04\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.\
+0\x05\x0b\x04\0%thoth:plugin/data-source-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12dat\
+a-source-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\
+\x070.227.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

@@ -129,6 +129,7 @@ impl StatelessComponent for GeneralTab {
                                     options: &font_opts,
                                     prefix_label: None,
                                     size: Default::default(),
+                                    width: None,
                                 },
                             );
                             if let Some(new_val) = font_out.changed {
