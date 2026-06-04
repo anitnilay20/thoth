@@ -177,6 +177,7 @@ For a complete list of keyboard shortcuts, see the [Keyboard Shortcuts Guide](do
 - `src/file/`: File handling, lazy loading, and type detection
 - `src/search/`: Search functionality
 - `src/helpers/`: Utility functions and shared code
+- `src/mcp/`: MCP server for AI assistant integration
 - `docs/`: Documentation for architecture and design patterns
 
 ---
@@ -188,6 +189,7 @@ For a complete list of keyboard shortcuts, see the [Keyboard Shortcuts Guide](do
 - **[Keyboard Shortcuts](docs/KEYBOARD_SHORTCUTS.md)**: Complete reference of all keyboard shortcuts
 - **[Design System](docs/DESIGN_SYSTEM.md)**: UI design guidelines and patterns
 - **[Profiling](/docs/PROFILING.md)**: Performance profiling and optimization techniques used in Thoth
+- **[MCP Server](docs/MCP_SERVER.md)**: Use Thoth as an MCP server for AI assistants (Claude, Copilot, Cursor)
 
 ---
 
