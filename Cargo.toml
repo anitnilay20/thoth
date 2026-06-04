@@ -8,7 +8,7 @@ default-members = ["."]
 
 [package]
 name = "thoth"
-version = "0.3.23"
+version = "0.3.24"
 edition = "2024"
 repository = "https://github.com/anitnilay20/thoth"
 authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
