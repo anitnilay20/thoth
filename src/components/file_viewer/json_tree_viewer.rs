@@ -316,8 +316,14 @@ impl JsonTreeViewer {
                     let is_expandable = matches!(val, Value::Object(_) | Value::Array(_));
                     let is_expanded = is_expandable && self.expanded.contains(&new_path);
 
+                    // Bracket reflects the VALUE's type, not the container's.
+                    let (open, empty) = if matches!(val, Value::Array(_)) {
+                        ("[", "[]")
+                    } else {
+                        ("{", "{}")
+                    };
                     let display_text = if is_expandable {
-                        format!("\"{}\": {}", key, if is_expanded { "{" } else { "{}" })
+                        format!("\"{}\": {}", key, if is_expanded { open } else { empty })
                     } else {
                         format_simple_kv(key, val)
                     };
@@ -350,7 +356,12 @@ impl JsonTreeViewer {
                             indent,
                             is_expandable: false,
                             is_expanded: false,
-                            display_text: "}".to_string(),
+                            display_text: if matches!(val, Value::Array(_)) {
+                                "]"
+                            } else {
+                                "}"
+                            }
+                            .to_string(),
                             text_token: (TextToken::Bracket, None),
                             highlights: RowHighlights::default(),
                         });
@@ -363,8 +374,14 @@ impl JsonTreeViewer {
                     let is_expandable = matches!(val, Value::Object(_) | Value::Array(_));
                     let is_expanded = is_expandable && self.expanded.contains(&new_path);
 
+                    // Bracket reflects the VALUE's type, not the container's.
+                    let (open, empty) = if matches!(val, Value::Array(_)) {
+                        ("[", "[]")
+                    } else {
+                        ("{", "{}")
+                    };
                     let display_text = if is_expandable {
-                        format!("[{}]: {}", idx, if is_expanded { "[" } else { "[]" })
+                        format!("[{}]: {}", idx, if is_expanded { open } else { empty })
                     } else {
                         format!("[{}]: {}", idx, preview_value(val))
                     };
@@ -394,7 +411,12 @@ impl JsonTreeViewer {
                             indent,
                             is_expandable: false,
                             is_expanded: false,
-                            display_text: "]".to_string(),
+                            display_text: if matches!(val, Value::Array(_)) {
+                                "]"
+                            } else {
+                                "}"
+                            }
+                            .to_string(),
                             text_token: (TextToken::Bracket, None),
                             highlights: RowHighlights::default(),
                         });
