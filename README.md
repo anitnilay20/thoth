@@ -39,6 +39,24 @@ Thoth is a high-performance, feature-rich desktop application for viewing and ex
 
 ## Installation
 
+### Quick Install (Terminal)
+
+One command installs the latest release — re-run it anytime to update.
+
+**macOS & Linux**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anitnilay20/thoth/main/install.sh | bash
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/anitnilay20/thoth/main/install.ps1 | iex
+```
+
+Installs to `/Applications` (macOS), `~/.local/bin` (Linux, override with `THOTH_INSTALL_DIR`), or `%LOCALAPPDATA%\Programs\Thoth` (Windows). macOS/Linux is unsigned, so the script strips the Gatekeeper quarantine for you.
+
 ### Download Pre-built Binaries
 
 Download the latest release from [GitHub Releases](https://github.com/anitnilay20/thoth/releases).
