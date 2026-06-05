@@ -22,7 +22,7 @@ use bindings::exports::thoth::plugin::{
 use bindings::thoth::plugin::types::Capability;
 
 use crate::{
-    helper::{ce, normalise_array, plugin_err, type_hint, ui_out},
+    helper::{ce, normalise_array, plugin_err, request_is_non_empty, type_hint, ui_out},
     http::http_fetch,
 };
 
@@ -106,10 +106,28 @@ struct ResponseState {
     size_bytes: usize,
 }
 
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 struct KvPair {
     key: String,
     value: String,
+    /// Whether this row is sent. Disabled rows are kept (so the user can re-enable
+    /// them) but skipped when building the request / cURL. Defaults to true.
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for KvPair {
+    fn default() -> Self {
+        Self {
+            key: String::new(),
+            value: String::new(),
+            enabled: true,
+        }
+    }
 }
 
 /// A single saved request entry.
@@ -225,6 +243,7 @@ impl DataSourceGuest for UrlSourcePlugin {
                                     .map(|(k, v)| KvPair {
                                         key: k.clone(),
                                         value: v.as_str().unwrap_or("").to_string(),
+                                        enabled: true,
                                     })
                                     .collect();
                             }
@@ -411,7 +430,11 @@ fn build_curl_command(st: &State) -> String {
 
     // Build URL with query params
     let url = {
-        let active: Vec<&KvPair> = st.params.iter().filter(|p| !p.key.is_empty()).collect();
+        let active: Vec<&KvPair> = st
+            .params
+            .iter()
+            .filter(|p| p.enabled && !p.key.is_empty())
+            .collect();
         if active.is_empty() {
             st.url.clone()
         } else {
@@ -445,7 +468,7 @@ fn build_curl_command(st: &State) -> String {
 
     // Custom headers
     for h in &st.req_headers {
-        if !h.key.is_empty() {
+        if h.enabled && !h.key.is_empty() {
             parts.push(format!("-H '{}: {}'", h.key, h.value));
         }
     }
@@ -589,7 +612,11 @@ fn apply_curl_import(st: &mut State, curl: &str) {
                                 }
                             }
                         } else if !k.eq_ignore_ascii_case("content-type") {
-                            st.req_headers.push(crate::KvPair { key: k, value: v });
+                            st.req_headers.push(crate::KvPair {
+                                key: k,
+                                value: v,
+                                enabled: true,
+                            });
                         }
                     }
                     i += 2;
@@ -601,6 +628,7 @@ fn apply_curl_import(st: &mut State, curl: &str) {
                     st.req_headers.push(crate::KvPair {
                         key: "Cookie".to_string(),
                         value: cookie.clone(),
+                        enabled: true,
                     });
                     i += 2;
                     continue;
@@ -610,12 +638,14 @@ fn apply_curl_import(st: &mut State, curl: &str) {
                 st.req_headers.push(crate::KvPair {
                     key: "Cookie".to_string(),
                     value: t["--cookie=".len()..].to_string(),
+                    enabled: true,
                 });
             }
             t if t.starts_with("-b") && t.len() > 2 => {
                 st.req_headers.push(crate::KvPair {
                     key: "Cookie".to_string(),
                     value: t[2..].to_string(),
+                    enabled: true,
                 });
             }
             "-d" | "--data" | "--data-raw" => {
@@ -638,6 +668,7 @@ fn apply_curl_import(st: &mut State, curl: &str) {
                             Some(crate::KvPair {
                                 key: percent_decode(k),
                                 value: percent_decode(v),
+                                enabled: true,
                             })
                         })
                         .collect();
@@ -685,11 +716,7 @@ impl UiComponentGuest for UrlSourcePlugin {
                             if let Some(req) = st.saved_requests.get(idx).cloned() {
                                 let mut seed = st.clone();
                                 load_saved_request(&mut seed, req);
-                                let title = if seed.url.is_empty() {
-                                    "URL Source".to_string()
-                                } else {
-                                    format!("{} {}", seed.method, seed.url)
-                                };
+                                let title = tab_title_for(&seed);
                                 let initial_state = serde_json::to_string(&seed).ok();
                                 bindings::thoth::plugin::ui_tabs::open_tab(
                                     &title,
@@ -719,11 +746,7 @@ impl UiComponentGuest for UrlSourcePlugin {
             } else if event.widget_id == "open-new-tab" {
                 // Open a fresh url-source tab seeded with this request's form.
                 let initial_state = serde_json::to_string(&st).ok();
-                let title = if st.url.is_empty() {
-                    "URL Source".to_string()
-                } else {
-                    format!("{} {}", st.method, st.url)
-                };
+                let title = tab_title_for(&st);
                 bindings::thoth::plugin::ui_tabs::open_tab(
                     &title,
                     Some("\u{E28C}"),
@@ -747,9 +770,24 @@ impl UiComponentGuest for UrlSourcePlugin {
                 st.curl_import_input = crate::helper::parse_str(&event.value);
             } else if event.widget_id == "curl-import-submit" {
                 let curl = st.curl_import_input.clone();
-                apply_curl_import(&mut st, &curl);
                 st.show_import_modal = false;
                 st.curl_import_input = String::new();
+                if request_is_non_empty(&st) {
+                    // Don't clobber the current request — open the imported one
+                    // in a fresh tab seeded with the parsed cURL.
+                    let mut seed = st.clone();
+                    seed.request_name = String::new();
+                    apply_curl_import(&mut seed, &curl);
+                    let title = tab_title_for(&seed);
+                    let initial_state = serde_json::to_string(&seed).ok();
+                    bindings::thoth::plugin::ui_tabs::open_tab(
+                        &title,
+                        Some("\u{E28C}"),
+                        initial_state.as_deref(),
+                    );
+                } else {
+                    apply_curl_import(&mut st, &curl);
+                }
             } else {
                 ui::apply_event(&mut st, &event);
             }
@@ -760,23 +798,23 @@ impl UiComponentGuest for UrlSourcePlugin {
     }
 }
 
+/// Title shown on the dock tab: the saved request name when set, else `method url`.
+fn tab_title_for(st: &State) -> String {
+    let name = st.request_name.trim();
+    if !name.is_empty() {
+        name.to_string()
+    } else if st.url.is_empty() {
+        "URL Source".to_string()
+    } else {
+        format!("{} {}", st.method, st.url)
+    }
+}
+
 impl TabHostGuest for UrlSourcePlugin {
-    /// Show the active request in the tab label so two url-source tabs are
+    /// Show the saved request name (or method+url) in the tab label so tabs are
     /// distinguishable.
     fn tab_title() -> String {
-        STATE.with(|s| {
-            let st = s.borrow();
-            if st.url.is_empty() {
-                "URL Source".to_string()
-            } else {
-                let shown = if st.url.len() > 40 {
-                    format!("{}…", &st.url[..40])
-                } else {
-                    st.url.clone()
-                };
-                format!("{} {}", st.method, shown)
-            }
-        })
+        STATE.with(|s| tab_title_for(&s.borrow()))
     }
 
     fn tab_icon() -> Option<String> {

@@ -25,7 +25,9 @@ pub fn build_ui(st: &State) -> Value {
                     build_request_column(st),
                     build_response_column(st)
                 ]
-            }
+            },
+            // Export cURL modal (opened by the code icon on the request tabs line).
+            curl_export_modal(st)
         ]
     })
 }
@@ -43,11 +45,10 @@ fn method_badge_color(method: &str) -> &'static str {
     }
 }
 
-// egui_phosphor::regular::ARROW_SQUARE_OUT = export, ARROW_SQUARE_IN = import
-const ICON_EXPORT: &str = "\u{E5DE}";
-const ICON_IMPORT: &str = "\u{E5DC}";
-// egui_phosphor::regular::PLUS
-const ICON_PLUS: &str = "\u{E3D4}";
+// egui_phosphor::regular glyphs
+const ICON_PLUS: &str = "\u{E3D4}"; // PLUS
+const ICON_CODE: &str = "\u{E1BC}"; // CODE (export cURL)
+const ICON_DOWNLOAD: &str = "\u{E20C}"; // DOWNLOAD_SIMPLE (import cURL)
 
 /// Rendered by the host in its sidebar panel.
 pub fn build_sidebar(st: &State) -> Value {
@@ -67,8 +68,6 @@ pub fn build_sidebar(st: &State) -> Value {
         })
         .collect();
 
-    let curl_command = crate::build_curl_command(st);
-
     json!({
         "type": "column",
         "gap": 0,
@@ -77,11 +76,13 @@ pub fn build_sidebar(st: &State) -> Value {
                 "type": "row",
                 "padding": 6,
                 "children": [
-                    {"type": "heading", "value": "Collections", "level": 3}
+                    {"type": "heading", "value": "COLLECTIONS", "panel": true}
                 ]
             },
             {
-                "type": "column",
+                "type": "row",
+                "gap": 6,
+                "align": "fill",
                 "padding": 6,
                 "children": [
                     {
@@ -95,6 +96,14 @@ pub fn build_sidebar(st: &State) -> Value {
                             "icon": ICON_PLUS,
                             "full-width": true
                         }
+                    },
+                    {
+                        "type": "icon-button",
+                        "id": "import-curl",
+                        "icon": ICON_DOWNLOAD,
+                        "tooltip": "Import cURL",
+                        "frame": true,
+                        "button-size": "Medium"
                     }
                 ]
             },
@@ -123,77 +132,69 @@ pub fn build_sidebar(st: &State) -> Value {
                 "items": list_items,
                 "empty-label": "No saved requests"
             },
-            // Export modal
+            // Import cURL modal (opened by the download icon next to New Request).
+            curl_import_modal(st),
+        ]
+    })
+}
+
+/// The "Import cURL" modal — shared shape, rendered in the sidebar.
+fn curl_import_modal(st: &State) -> Value {
+    json!({
+        "type": "modal",
+        "id": "import-modal",
+        "title": "Import cURL",
+        "open": st.show_import_modal,
+        "close-id": "close-import",
+        "width-pct": 0.7,
+        "height-pct": 0.7,
+        "children": [
             {
-                "type": "modal",
-                "id": "export-modal",
-                "title": "Export cURL",
-                "open": st.show_export_modal,
-                "close-id": "close-export",
-                "width-pct": 0.7,
-                "height-pct": 0.7,
-                "children": [
-                    {
-                        "type": "text-input",
-                        "id": "curl-output",
-                        "value": curl_command,
-                        "label": "cURL command",
-                        "placeholder": "",
-                        "multiline": true,
-                        "rows": 10
-                    },
-                    {
-                        "type": "button",
-                        "id": "",
-                        "copy": curl_command,
-                        "props": {
-                            "label": "Copy to Clipboard",
-                            "button-type": "Elevated",
-                            "color": "Default",
-                            "enabled": true
-                        }
-                    }
-                ]
+                "type": "text-input",
+                "id": "curl-import-input",
+                "value": st.curl_import_input,
+                "placeholder": "Paste cURL command here…",
+                "label": "cURL command",
+                "multiline": true,
+                "rows": 10
             },
-            // Import modal
+            btn_elevated("curl-import-submit", "Import", !st.curl_import_input.is_empty(), "Default")
+        ]
+    })
+}
+
+/// The "Export cURL" modal — rendered in the request tab (build_ui), reflecting
+/// the current request.
+fn curl_export_modal(st: &State) -> Value {
+    let curl_command = crate::build_curl_command(st);
+    json!({
+        "type": "modal",
+        "id": "export-modal",
+        "title": "Export cURL",
+        "open": st.show_export_modal,
+        "close-id": "close-export",
+        "width-pct": 0.7,
+        "height-pct": 0.7,
+        "children": [
             {
-                "type": "modal",
-                "id": "import-modal",
-                "title": "Import cURL",
-                "open": st.show_import_modal,
-                "close-id": "close-import",
-                "width-pct": 0.7,
-                "height-pct": 0.7,
-                "children": [
-                    {
-                        "type": "text-input",
-                        "id": "curl-import-input",
-                        "value": st.curl_import_input,
-                        "placeholder": "Paste cURL command here…",
-                        "label": "cURL command",
-                        "multiline": true,
-                        "rows": 10
-                    },
-                    btn_elevated("curl-import-submit", "Import", !st.curl_import_input.is_empty(), "Default")
-                ]
+                "type": "text-input",
+                "id": "curl-output",
+                "value": curl_command,
+                "label": "cURL command",
+                "placeholder": "",
+                "multiline": true,
+                "rows": 10
             },
-            // Footer pinned at bottom
             {
-                "type": "footer",
-                "padding": 8,
-                "gap": 0,
-                "children": [
-                    {"type": "separator"},
-                    {
-                        "type": "row",
-                        "gap": 4,
-                        "padding": 4,
-                        "children": [
-                            btn_text_icon("export-curl", "Export cURL", ICON_EXPORT),
-                            btn_text_icon("import-curl", "Import cURL", ICON_IMPORT)
-                        ]
-                    }
-                ]
+                "type": "button",
+                "id": "",
+                "copy": curl_command,
+                "props": {
+                    "label": "Copy to Clipboard",
+                    "button-type": "Elevated",
+                    "color": "Default",
+                    "enabled": true
+                }
             }
         ]
     })
@@ -300,6 +301,9 @@ fn build_req_tabs(st: &State) -> Value {
         "type":   "tabs",
         "id":     "req-tabs",
         "header": ["Params", "Auth", "Headers", "Body"],
+        "actions": [
+            {"id": "export-curl", "icon": ICON_CODE, "tooltip": "Export cURL"}
+        ],
         "children": [
             // ── Params ──────────────────────────────────────────────────────
             {
@@ -571,6 +575,7 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
                         Some(KvPair {
                             key: a.first()?.as_str()?.to_string(),
                             value: a.get(1)?.as_str()?.to_string(),
+                            enabled: true,
                         })
                     })
                     .collect()
@@ -678,21 +683,6 @@ fn btn_elevated(id: &str, label: &str, enabled: bool, color: &str) -> Value {
             "button-type": "Elevated",
             "color":       color,
             "enabled":     enabled
-        }
-    })
-}
-
-/// Text button with a phosphor icon.
-fn btn_text_icon(id: &str, label: &str, icon: &str) -> Value {
-    json!({
-        "type": "button",
-        "id":   id,
-        "props": {
-            "label":       label,
-            "button-type": "Text",
-            "color":       "Default",
-            "enabled":     true,
-            "icon":        icon
         }
     })
 }

@@ -39,6 +39,15 @@ pub fn parse_kv_list(s: &str) -> Vec<KvPair> {
     serde_json::from_str(s).unwrap_or_default()
 }
 
+/// True when the form holds a meaningful request (so we shouldn't overwrite it
+/// in place, e.g. when importing a cURL — open a new tab instead).
+pub fn request_is_non_empty(st: &State) -> bool {
+    !st.url.is_empty()
+        || !st.body.is_empty()
+        || st.params.iter().any(|p| !p.key.is_empty())
+        || st.req_headers.iter().any(|h| !h.key.is_empty())
+}
+
 pub fn pct_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -129,11 +138,13 @@ pub fn parse_url_into_state(st: &mut State, raw: String) {
                 KvPair {
                     key: decode(&pair[..eq]),
                     value: decode(&pair[eq + 1..]),
+                    enabled: true,
                 }
             } else {
                 KvPair {
                     key: decode(pair),
                     value: String::new(),
+                    enabled: true,
                 }
             }
         })

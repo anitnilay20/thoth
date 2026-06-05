@@ -153,63 +153,76 @@ impl CentralPanel {
             }
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
-            // Show any error (either from props or open attempt)
-            if let Some(err) = props.error.as_ref().or(self.last_open_err.as_ref()) {
-                let message = ErrorHandler::get_user_message(err);
-                ui.colored_label(egui::Color32::RED, message);
-                ui.separator();
-            }
-
-            if self.searching {
-                ui.horizontal(|ui| {
-                    ui.add(egui::Spinner::new().size(16.0));
-                    ui.label("Searching…");
-                });
-                ui.add_space(6.0);
-                return;
-            }
-
-            // Plugin pane takes priority over the file viewer.
-            if let Some(output) = props.plugin_ui {
-                match serde_json::from_str::<UiNode>(&output.node_json) {
-                    Ok(node) => {
-                        let mut ui_events = Vec::new();
-                        render_ui_node(ui, &node, &mut ui_events);
-                        for evt in ui_events {
-                            events.push(CentralPanelEvent::PluginUiEvent(evt));
-                        }
-                    }
-                    Err(e) => {
-                        ui.colored_label(egui::Color32::RED, format!("Plugin UI parse error: {e}"));
-                    }
+        // Plugin panes manage their own padding, so drop the central-panel inner
+        // margin for them — but keep the panel *fill* (the dock tab viewer's
+        // clear_background is false, so this frame provides the background).
+        let panel_frame = if props.plugin_ui.is_some() {
+            egui::Frame::central_panel(ui.style()).inner_margin(0)
+        } else {
+            egui::Frame::central_panel(ui.style())
+        };
+        egui::CentralPanel::default()
+            .frame(panel_frame)
+            .show_inside(ui, |ui| {
+                // Show any error (either from props or open attempt)
+                if let Some(err) = props.error.as_ref().or(self.last_open_err.as_ref()) {
+                    let message = ErrorHandler::get_user_message(err);
+                    ui.colored_label(egui::Color32::RED, message);
+                    ui.separator();
                 }
-                return;
-            }
 
-            if self.loaded_path.is_none() {
-                use crate::components::welcome::{WelcomeEvent, WelcomePanel};
-                let welcome_events = WelcomePanel::render(ui, props.recent_files, props.colors);
-                for evt in welcome_events {
-                    match evt {
-                        WelcomeEvent::OpenFilePicker => {
-                            events.push(CentralPanelEvent::OpenFilePicker)
+                if self.searching {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Spinner::new().size(16.0));
+                        ui.label("Searching…");
+                    });
+                    ui.add_space(6.0);
+                    return;
+                }
+
+                // Plugin pane takes priority over the file viewer.
+                if let Some(output) = props.plugin_ui {
+                    match serde_json::from_str::<UiNode>(&output.node_json) {
+                        Ok(node) => {
+                            let mut ui_events = Vec::new();
+                            render_ui_node(ui, &node, &mut ui_events);
+                            for evt in ui_events {
+                                events.push(CentralPanelEvent::PluginUiEvent(evt));
+                            }
                         }
-                        WelcomeEvent::OpenRecentFile(path) => {
-                            events.push(CentralPanelEvent::OpenRecentFile(path))
+                        Err(e) => {
+                            ui.colored_label(
+                                egui::Color32::RED,
+                                format!("Plugin UI parse error: {e}"),
+                            );
                         }
                     }
+                    return;
                 }
-                return;
-            }
 
-            // Update viewer settings right before rendering (so changes apply immediately)
-            self.file_viewer
-                .set_syntax_highlighting(props.syntax_highlighting);
+                if self.loaded_path.is_none() {
+                    use crate::components::welcome::{WelcomeEvent, WelcomePanel};
+                    let welcome_events = WelcomePanel::render(ui, props.recent_files, props.colors);
+                    for evt in welcome_events {
+                        match evt {
+                            WelcomeEvent::OpenFilePicker => {
+                                events.push(CentralPanelEvent::OpenFilePicker)
+                            }
+                            WelcomeEvent::OpenRecentFile(path) => {
+                                events.push(CentralPanelEvent::OpenRecentFile(path))
+                            }
+                        }
+                    }
+                    return;
+                }
 
-            // Render the viewer (no filtering UI needed - search results shown in sidebar)
-            self.file_viewer.ui(ui);
-        });
+                // Update viewer settings right before rendering (so changes apply immediately)
+                self.file_viewer
+                    .set_syntax_highlighting(props.syntax_highlighting);
+
+                // Render the viewer (no filtering UI needed - search results shown in sidebar)
+                self.file_viewer.ui(ui);
+            });
     }
 
     // ========================================================================

@@ -20,7 +20,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         .inner_margin(egui::Margin::symmetric(0, 10))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                Typography::bold(ui, "Plugin Store");
+                Typography::panel_header(ui, "PLUGIN STORE");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         egui::RichText::new(format!("{visible_count} of {total}"))
