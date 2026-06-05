@@ -778,6 +778,530 @@ pub mod thoth {
                 }
             }
         }
+        /// ---------------------------------------------------------------------------
+        /// tcp-client — host-provided raw TCP (optionally TLS) for database / wire-
+        /// protocol plugins. The host owns the socket and enforces network policy
+        /// (host allowlist, SSRF guard, rate limit, consent) on connect; TLS is
+        /// terminated host-side so the plugin sees a plaintext byte stream.
+        ///
+        /// Handle-based: connect returns an opaque stream id used by read/write/close.
+        /// Calls block until data / EOF / timeout — drive them on a worker thread (the
+        /// host runs DB plugin calls off the UI thread).
+        /// ---------------------------------------------------------------------------
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod tcp_client {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            pub type PluginError = super::super::super::thoth::plugin::types::PluginError;
+            #[allow(unused_unsafe, clippy::all)]
+            /// Open a TCP connection to host:port. When `tls` is true the host wraps the
+            /// socket with TLS (SNI = host) and the returned stream is already decrypted.
+            /// Returns an opaque stream id.
+            pub fn connect(
+                host: &str,
+                port: u16,
+                tls: bool,
+            ) -> Result<u64, PluginError> {
+                unsafe {
+                    #[repr(align(8))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 16 + 2 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 16
+                            + 2 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = host;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/tcp-client@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "connect"]
+                        fn wit_import2(_: *mut u8, _: usize, _: i32, _: i32, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(
+                        _: *mut u8,
+                        _: usize,
+                        _: i32,
+                        _: i32,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import2(
+                            ptr0.cast_mut(),
+                            len0,
+                            _rt::as_i32(&port),
+                            match &tls {
+                                true => 1,
+                                false => 0,
+                            },
+                            ptr1,
+                        )
+                    };
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result9 = match l3 {
+                        0 => {
+                            let e = {
+                                let l4 = *ptr1.add(8).cast::<i64>();
+                                l4 as u64
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l5 = *ptr1.add(8).cast::<i32>();
+                                let l6 = *ptr1
+                                    .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l7 = *ptr1
+                                    .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len8 = l7;
+                                let bytes8 = _rt::Vec::from_raw_parts(
+                                    l6.cast(),
+                                    len8,
+                                    len8,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l5 as u32,
+                                    message: _rt::string_lift(bytes8),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result9
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Read up to `max` bytes. Blocks until at least one byte is available, EOF,
+            /// or the read timeout. An empty list means the peer closed the connection.
+            pub fn read(id: u64, max: u32) -> Result<_rt::Vec<u8>, PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let ptr0 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/tcp-client@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "read"]
+                        fn wit_import1(_: i64, _: i32, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import1(_: i64, _: i32, _: *mut u8) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import1(_rt::as_i64(&id), _rt::as_i32(&max), ptr0) };
+                    let l2 = i32::from(*ptr0.add(0).cast::<u8>());
+                    let result10 = match l2 {
+                        0 => {
+                            let e = {
+                                let l3 = *ptr0
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l4 = *ptr0
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len5 = l4;
+                                _rt::Vec::from_raw_parts(l3.cast(), len5, len5)
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l6 = *ptr0
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l7 = *ptr0
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l8 = *ptr0
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len9 = l8;
+                                let bytes9 = _rt::Vec::from_raw_parts(
+                                    l7.cast(),
+                                    len9,
+                                    len9,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l6 as u32,
+                                    message: _rt::string_lift(bytes9),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result10
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Write all of `bytes`. Returns the number of bytes written.
+            pub fn write(id: u64, bytes: &[u8]) -> Result<u32, PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = bytes;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/tcp-client@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "write"]
+                        fn wit_import2(_: i64, _: *mut u8, _: usize, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(
+                        _: i64,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import2(_rt::as_i64(&id), ptr0.cast_mut(), len0, ptr1)
+                    };
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result9 = match l3 {
+                        0 => {
+                            let e = {
+                                let l4 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                l4 as u32
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l5 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l6 = *ptr1
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l7 = *ptr1
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len8 = l7;
+                                let bytes8 = _rt::Vec::from_raw_parts(
+                                    l6.cast(),
+                                    len8,
+                                    len8,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l5 as u32,
+                                    message: _rt::string_lift(bytes8),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result9
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Close and free the stream. Idempotent.
+            pub fn close(id: u64) -> () {
+                unsafe {
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/tcp-client@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "close"]
+                        fn wit_import0(_: i64);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import0(_: i64) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import0(_rt::as_i64(&id)) };
+                }
+            }
+        }
+        /// ---------------------------------------------------------------------------
+        /// secure-storage — host-provided OS keychain access for secrets (DB passwords,
+        /// tokens). Keys are namespaced per plugin by the host, so one plugin cannot
+        /// read another's secrets. Values are stored in the OS keychain (macOS Keychain,
+        /// Windows Credential Manager, libsecret on Linux), never in plaintext on disk.
+        /// ---------------------------------------------------------------------------
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod secure_storage {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            pub type PluginError = super::super::super::thoth::plugin::types::PluginError;
+            #[allow(unused_unsafe, clippy::all)]
+            /// Store `secret` under `key` (overwrites any existing value).
+            pub fn write(key: &str, secret: &str) -> Result<(), PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = key;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let vec1 = secret;
+                    let ptr1 = vec1.as_ptr().cast::<u8>();
+                    let len1 = vec1.len();
+                    let ptr2 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/secure-storage@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "write"]
+                        fn wit_import3(
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                        );
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import3(
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import3(ptr0.cast_mut(), len0, ptr1.cast_mut(), len1, ptr2)
+                    };
+                    let l4 = i32::from(*ptr2.add(0).cast::<u8>());
+                    let result9 = match l4 {
+                        0 => {
+                            let e = ();
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l5 = *ptr2
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l6 = *ptr2
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l7 = *ptr2
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len8 = l7;
+                                let bytes8 = _rt::Vec::from_raw_parts(
+                                    l6.cast(),
+                                    len8,
+                                    len8,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l5 as u32,
+                                    message: _rt::string_lift(bytes8),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result9
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Read the secret for `key`. Returns none if no value is stored.
+            pub fn read(key: &str) -> Result<Option<_rt::String>, PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = key;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/secure-storage@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "read"]
+                        fn wit_import2(_: *mut u8, _: usize, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(_: *mut u8, _: usize, _: *mut u8) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import2(ptr0.cast_mut(), len0, ptr1) };
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result12 = match l3 {
+                        0 => {
+                            let e = {
+                                let l4 = i32::from(
+                                    *ptr1.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
+                                );
+                                match l4 {
+                                    0 => None,
+                                    1 => {
+                                        let e = {
+                                            let l5 = *ptr1
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l6 = *ptr1
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len7 = l6;
+                                            let bytes7 = _rt::Vec::from_raw_parts(
+                                                l5.cast(),
+                                                len7,
+                                                len7,
+                                            );
+                                            _rt::string_lift(bytes7)
+                                        };
+                                        Some(e)
+                                    }
+                                    _ => _rt::invalid_enum_discriminant(),
+                                }
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l8 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l9 = *ptr1
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l10 = *ptr1
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len11 = l10;
+                                let bytes11 = _rt::Vec::from_raw_parts(
+                                    l9.cast(),
+                                    len11,
+                                    len11,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l8 as u32,
+                                    message: _rt::string_lift(bytes11),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result12
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Delete the secret for `key`. Succeeds even if the key was absent.
+            pub fn delete(key: &str) -> Result<(), PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = key;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/secure-storage@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "delete"]
+                        fn wit_import2(_: *mut u8, _: usize, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(_: *mut u8, _: usize, _: *mut u8) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import2(ptr0.cast_mut(), len0, ptr1) };
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result8 = match l3 {
+                        0 => {
+                            let e = ();
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l4 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l5 = *ptr1
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l6 = *ptr1
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len7 = l6;
+                                let bytes7 = _rt::Vec::from_raw_parts(
+                                    l5.cast(),
+                                    len7,
+                                    len7,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l4 as u32,
+                                    message: _rt::string_lift(bytes7),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result8
+                }
+            }
+        }
     }
 }
 #[rustfmt::skip]
@@ -2834,21 +3358,6 @@ mod _rt {
             unsafe { core::hint::unreachable_unchecked() }
         }
     }
-    #[cfg(target_arch = "wasm32")]
-    pub fn run_ctors_once() {
-        wit_bindgen_rt::run_ctors_once();
-    }
-    pub unsafe fn bool_lift(val: u8) -> bool {
-        if cfg!(debug_assertions) {
-            match val {
-                0 => false,
-                1 => true,
-                _ => panic!("invalid bool discriminant"),
-            }
-        } else {
-            val != 0
-        }
-    }
     pub fn as_i32<T: AsI32>(t: T) -> i32 {
         t.as_i32()
     }
@@ -2908,6 +3417,44 @@ mod _rt {
             self as i32
         }
     }
+    pub fn as_i64<T: AsI64>(t: T) -> i64 {
+        t.as_i64()
+    }
+    pub trait AsI64 {
+        fn as_i64(self) -> i64;
+    }
+    impl<'a, T: Copy + AsI64> AsI64 for &'a T {
+        fn as_i64(self) -> i64 {
+            (*self).as_i64()
+        }
+    }
+    impl AsI64 for i64 {
+        #[inline]
+        fn as_i64(self) -> i64 {
+            self as i64
+        }
+    }
+    impl AsI64 for u64 {
+        #[inline]
+        fn as_i64(self) -> i64 {
+            self as i64
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    pub fn run_ctors_once() {
+        wit_bindgen_rt::run_ctors_once();
+    }
+    pub unsafe fn bool_lift(val: u8) -> bool {
+        if cfg!(debug_assertions) {
+            match val {
+                0 => false,
+                1 => true,
+                _ => panic!("invalid bool discriminant"),
+            }
+        } else {
+            val != 0
+        }
+    }
     extern crate alloc as alloc_crate;
 }
 /// Generates `#[unsafe(no_mangle)]` functions to export the specified type as
@@ -2961,9 +3508,9 @@ pub(crate) use __export_data_source_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2101] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xac\x0f\x01A\x02\x01\
-A\x16\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2430] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xf5\x11\x01A\x02\x01\
+A\x1a\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x0fsearch-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01\
 ks\x01r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
 uthor\x03\x08homepage\x03\x04icon\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04\
@@ -2978,37 +3525,46 @@ y\x05\x04\0\x0chttp-request\x03\0\x06\x01r\x03\x06status{\x07headers\x03\x04body
 \x01j\0\x01s\x01@\x01\x04datas\0\x01\x04\0\x05write\x01\x02\x03\0!thoth:plugin/p\
 lugin-storage@0.1.0\x05\x03\x01B\x03\x01ks\x01@\x03\x05titles\x04icon\0\x0diniti\
 al-state\0\0s\x04\0\x08open-tab\x01\x01\x03\0\x1athoth:plugin/ui-tabs@0.1.0\x05\x04\
-\x01B\x1c\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0b\
-descriptions\x08required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04\
-names\x09type-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01\
-r\x02\x04names\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-j\
-sons\x0bheight-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0f\
-required-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07\
-connect\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06\
-schema\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06\
-handles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\
-\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x05\x01\
-B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04\
-kinds\x05values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hin\
-ty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09rende\
-r-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01\
-j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:pl\
-ugin/ui-component@0.1.0\x05\x06\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-err\
-or\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-\
-icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\
-\x01\x01@\x01\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\
-\x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-close\
-d\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.0\x05\x07\x02\x03\0\0\x0bplugin-inf\
-o\x01B\x04\x02\x03\x02\x01\x08\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08\
-get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x09\x01B\x05\x01@\x01\
-\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08on-close\x01\x01\
-\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x0a\
-\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jso\
-ns\x0bheight-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\
-\0\x04\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.\
-0\x05\x0b\x04\0%thoth:plugin/data-source-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12dat\
-a-source-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\
-\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+\x01B\x0e\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\x01w\x01\x01\x01\
+@\x03\x04hosts\x04port{\x03tls\x7f\0\x02\x04\0\x07connect\x01\x03\x01p}\x01j\x01\
+\x04\x01\x01\x01@\x02\x02idw\x03maxy\0\x05\x04\0\x04read\x01\x06\x01j\x01y\x01\x01\
+\x01@\x02\x02idw\x05bytes\x04\0\x07\x04\0\x05write\x01\x08\x01@\x01\x02idw\x01\0\
+\x04\0\x05close\x01\x09\x03\0\x1dthoth:plugin/tcp-client@0.1.0\x05\x05\x01B\x0b\x02\
+\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\0\x01\x01\x01@\x02\x03keys\x06\
+secrets\0\x02\x04\0\x05write\x01\x03\x01ks\x01j\x01\x04\x01\x01\x01@\x01\x03keys\
+\0\x05\x04\0\x04read\x01\x06\x01@\x01\x03keys\0\x02\x04\0\x06delete\x01\x07\x03\0\
+!thoth:plugin/secure-storage@0.1.0\x05\x06\x01B\x1c\x02\x03\x02\x01\x01\x04\0\x0c\
+plugin-error\x03\0\0\x01r\x04\x04names\x0bdescriptions\x08required\x7f\x05values\
+\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04names\x09type-hints\x08nullable\x7f\
+\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\x02\x04names\x06fields\x06\x04\0\x0d\
+source-schema\x03\0\x07\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0bpane-out\
+put\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0frequired-config\x01\x0c\x01j\x01s\x01\
+\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07connect\x01\x0e\x01p\x08\x01j\x01\x0f\
+\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06schema\x01\x11\x01@\x02\x06handles\x01\
+qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06handles\x01\0\x04\0\x05close\x01\x13\
+\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\x04\0\x0brender-pane\x01\x15\x04\
+\0\x1ethoth:plugin/data-source@0.1.0\x05\x07\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0c\
+plugin-error\x03\0\0\x01r\x03\x09widget-ids\x04kinds\x05values\x04\0\x08ui-event\
+\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x09ui-output\x03\0\x04\x01\
+j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09render-ui\x01\x07\x01@\x01\x05event\x03\0\
+\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01j\x01\x09\x01\x01\x01@\0\0\x0a\x04\
+\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:plugin/ui-component@0.1.0\x05\x08\x01\
+B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01@\0\0s\x04\0\x09tab-t\
+itle\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-icon\x01\x04\x01j\x01s\x01\x01\x01@\
+\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\x01\x01@\x01\x05states\0\x07\x04\0\
+\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\x0eon-tab-focused\x01\x09\x04\0\x0e\
+on-tab-blurred\x01\x09\x04\0\x0don-tab-closed\x01\x09\x04\0\x1bthoth:plugin/tab-\
+host@0.1.0\x05\x09\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x0a\x04\0\
+\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:pl\
+ugin/plugin-meta@0.1.0\x05\x0b\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-l\
+oad\x01\0\x01@\0\x01\0\x04\0\x08on-close\x01\x01\x04\0\x11on-setting-change\x01\0\
+\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x0c\x01B\x07\x02\x03\x02\x01\x01\x04\
+\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0fsetti\
+ngs-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\0\x0frender-settings\x01\
+\x05\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x0d\x04\0%thoth:plugin/data-s\
+ource-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12data-source-plugin\x03\0\0\0G\x09produ\
+cers\x01\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x06\
+0.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

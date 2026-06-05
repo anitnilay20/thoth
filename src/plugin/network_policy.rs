@@ -147,6 +147,33 @@ impl NetworkPolicy {
         })
     }
 
+    /// Gate a raw TCP connect (the `tcp-client` import) by host. The user-supplied
+    /// host is the trust boundary: it's allowed if in the plugin's manifest
+    /// allowlist (or runtime-approved within scope), otherwise consent is required.
+    ///
+    /// Unlike [`check`] this does NOT enforce HTTPS or block private/loopback
+    /// addresses — database clients legitimately connect to `localhost` and
+    /// internal networks, so per-host allowlist + consent is the gate instead.
+    pub fn check_tcp(&mut self, host: &str) -> Result<CheckOutcome, PolicyViolation> {
+        if host.is_empty() {
+            return Err(PolicyViolation::InvalidUrl("empty host".to_string()));
+        }
+        if self.is_rate_limited() {
+            return Err(PolicyViolation::RateLimitExceeded);
+        }
+        if self.is_blocked(host) {
+            return Err(PolicyViolation::UserBlocked);
+        }
+        if self.is_allowed(host)
+            || (self.is_within_plugin_scope(host) && self.is_runtime_allowed(host))
+        {
+            return Ok(CheckOutcome::Allowed);
+        }
+        Ok(CheckOutcome::NeedsConsent {
+            domain: host.to_string(),
+        })
+    }
+
     fn is_blocked(&self, host: &str) -> bool {
         self.config
             .blocked_domains

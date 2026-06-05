@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
@@ -70,6 +74,23 @@ fn next_tab_request_id() -> String {
     )
 }
 
+// ── tcp-client (host-terminated TLS) ────────────────────────────────────────
+
+/// Connect/read/write timeouts for the `tcp-client` import. A blocking read on a
+/// hung connection consumes no fuel, so these bound it (see DATABASE_PLUGINS.md).
+const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const TCP_IO_TIMEOUT: Duration = Duration::from_secs(60);
+/// Cap a single `read` allocation so a plugin can't request a huge buffer.
+const TCP_READ_CAP: usize = 1 << 20; // 1 MiB
+
+/// A plaintext or TLS-wrapped stream the plugin reads/writes through `tcp-client`.
+/// TLS is terminated host-side so the plugin always sees decrypted bytes.
+trait ReadWrite: Read + Write + Send {}
+impl<T: Read + Write + Send> ReadWrite for T {}
+
+/// Service name used for the `secure-storage` keychain entries.
+const KEYRING_SERVICE: &str = "com.thoth.app";
+
 // ── per-store state ───────────────────────────────────────────────────────────
 
 struct DataSourcePluginState {
@@ -89,6 +110,9 @@ struct DataSourcePluginState {
         Arc<Mutex<std::sync::mpsc::Sender<(String, thoth::plugin::http_client::HttpRequest)>>>,
     // Tab-open requests raised by the plugin via the `ui-tabs` import.
     tab_tx: std::sync::mpsc::Sender<TabOpenRequest>,
+    // Open TCP/TLS streams from the `tcp-client` import, keyed by an opaque id.
+    tcp_streams: HashMap<u64, Box<dyn ReadWrite>>,
+    next_tcp_id: u64,
 }
 
 impl WasiView for DataSourcePluginState {
@@ -295,6 +319,187 @@ impl thoth::plugin::ui_tabs::Host for DataSourcePluginState {
     }
 }
 
+// ── tcp-client WIT import — host side (TLS terminated here) ──────────────────
+
+fn tcp_err(code: u32, message: impl Into<String>) -> thoth::plugin::tcp_client::PluginError {
+    thoth::plugin::tcp_client::PluginError {
+        code,
+        message: message.into(),
+    }
+}
+
+/// Open a plaintext TCP stream with connect/IO timeouts.
+fn tcp_connect(host: &str, port: u16) -> std::io::Result<TcpStream> {
+    use std::net::ToSocketAddrs;
+    let mut last_err = std::io::Error::other("no addresses resolved");
+    for addr in (host, port).to_socket_addrs()? {
+        match TcpStream::connect_timeout(&addr, TCP_CONNECT_TIMEOUT) {
+            Ok(s) => {
+                s.set_read_timeout(Some(TCP_IO_TIMEOUT)).ok();
+                s.set_write_timeout(Some(TCP_IO_TIMEOUT)).ok();
+                return Ok(s);
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
+}
+
+/// Wrap a TCP stream with host-side TLS (rustls + Mozilla roots).
+fn tcp_tls(tcp: TcpStream, host: &str) -> std::result::Result<Box<dyn ReadWrite>, String> {
+    let roots = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
+        .map_err(|e| format!("invalid TLS server name '{host}': {e}"))?;
+    let conn = rustls::ClientConnection::new(Arc::new(config), server_name)
+        .map_err(|e| format!("TLS setup failed: {e}"))?;
+    Ok(Box::new(rustls::StreamOwned::new(conn, tcp)))
+}
+
+impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
+    fn connect(
+        &mut self,
+        host: String,
+        port: u16,
+        tls: bool,
+    ) -> std::result::Result<u64, thoth::plugin::tcp_client::PluginError> {
+        // The user/connection-host is the gate: allowlist or per-host consent.
+        // Unlike the HTTP SSRF guard we do NOT block private/loopback ranges —
+        // database clients legitimately target localhost and internal networks.
+        match self.policy.check_tcp(&host) {
+            Ok(CheckOutcome::Allowed) => {}
+            Ok(CheckOutcome::NeedsConsent { domain }) => {
+                let _ = self.consent_tx.send(ConsentRequest {
+                    domain: domain.clone(),
+                    plugin_id: self.plugin_id.clone(),
+                });
+                let runtime_allowed = self.policy.runtime_allowed_handle();
+                let dom = domain.clone();
+                ConsentManager::push_http_consent(
+                    &domain,
+                    &self.plugin_id,
+                    Arc::new(move |remember: bool| {
+                        if remember && let Ok(mut list) = runtime_allowed.lock() {
+                            list.push(dom.clone());
+                        }
+                    }),
+                    Arc::new(|_| {}),
+                );
+                return Err(tcp_err(
+                    403,
+                    format!("host '{domain}' not approved — waiting for user consent"),
+                ));
+            }
+            Err(violation) => return Err(tcp_err(403, format!("blocked: {violation:?}"))),
+        }
+
+        let tcp =
+            tcp_connect(&host, port).map_err(|e| tcp_err(1, format!("connect failed: {e}")))?;
+        let stream: Box<dyn ReadWrite> = if tls {
+            tcp_tls(tcp, &host).map_err(|e| tcp_err(2, e))?
+        } else {
+            Box::new(tcp)
+        };
+        let id = self.next_tcp_id;
+        self.next_tcp_id += 1;
+        self.tcp_streams.insert(id, stream);
+        Ok(id)
+    }
+
+    fn read(
+        &mut self,
+        stream: u64,
+        max: u32,
+    ) -> std::result::Result<Vec<u8>, thoth::plugin::tcp_client::PluginError> {
+        let s = self
+            .tcp_streams
+            .get_mut(&stream)
+            .ok_or_else(|| tcp_err(4, "invalid stream id"))?;
+        let cap = (max as usize).min(TCP_READ_CAP);
+        let mut buf = vec![0u8; cap];
+        let n = s.read(&mut buf).map_err(|e| tcp_err(2, e.to_string()))?;
+        buf.truncate(n);
+        Ok(buf)
+    }
+
+    fn write(
+        &mut self,
+        stream: u64,
+        bytes: Vec<u8>,
+    ) -> std::result::Result<u32, thoth::plugin::tcp_client::PluginError> {
+        let s = self
+            .tcp_streams
+            .get_mut(&stream)
+            .ok_or_else(|| tcp_err(4, "invalid stream id"))?;
+        s.write_all(&bytes).map_err(|e| tcp_err(2, e.to_string()))?;
+        s.flush().map_err(|e| tcp_err(2, e.to_string()))?;
+        Ok(bytes.len() as u32)
+    }
+
+    fn close(&mut self, stream: u64) {
+        self.tcp_streams.remove(&stream); // drop closes the socket
+    }
+}
+
+// ── secure-storage WIT import — OS keychain via keyring ─────────────────────
+
+fn se_err(message: impl Into<String>) -> thoth::plugin::secure_storage::PluginError {
+    thoth::plugin::secure_storage::PluginError {
+        code: 1,
+        message: message.into(),
+    }
+}
+
+impl DataSourcePluginState {
+    /// Namespace keychain keys by plugin id so plugins can't read each other's secrets.
+    fn scoped_key(&self, key: &str) -> String {
+        format!("{}:{}", self.plugin_id, key)
+    }
+}
+
+impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
+    fn write(
+        &mut self,
+        key: String,
+        secret: String,
+    ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, &self.scoped_key(&key))
+            .map_err(|e| se_err(e.to_string()))?;
+        entry
+            .set_password(&secret)
+            .map_err(|e| se_err(e.to_string()))
+    }
+
+    fn read(
+        &mut self,
+        key: String,
+    ) -> std::result::Result<Option<String>, thoth::plugin::secure_storage::PluginError> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, &self.scoped_key(&key))
+            .map_err(|e| se_err(e.to_string()))?;
+        match entry.get_password() {
+            Ok(p) => Ok(Some(p)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(se_err(e.to_string())),
+        }
+    }
+
+    fn delete(
+        &mut self,
+        key: String,
+    ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, &self.scoped_key(&key))
+            .map_err(|e| se_err(e.to_string()))?;
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(se_err(e.to_string())),
+        }
+    }
+}
+
 // ── reqwest bridge ────────────────────────────────────────────────────────────
 
 fn execute_http_request(
@@ -390,6 +595,8 @@ impl WasmDataSourceLoader {
             pending_count: Arc::clone(&pending_count),
             retry_tx: Arc::clone(&retry_tx_shared),
             tab_tx,
+            tcp_streams: HashMap::new(),
+            next_tcp_id: 1,
         };
 
         let mut store = Store::new(engine, state);
@@ -432,6 +639,20 @@ impl WasmDataSourceLoader {
 
         // 4. Register the ui-tabs import (plugin-initiated tab opening).
         thoth::plugin::ui_tabs::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+
+        // 5. Register the tcp-client + secure-storage imports (DB plugins).
+        thoth::plugin::tcp_client::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+        thoth::plugin::secure_storage::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
             |e| ThothError::PluginLoadError {
                 path: wasm_path.to_path_buf(),
                 reason: e.to_string(),
