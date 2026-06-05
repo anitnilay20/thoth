@@ -16,21 +16,23 @@ use bindings::exports::thoth::plugin::{
     plugin_lifecycle::Guest as LifecycleGuest,
     plugin_meta::Guest as MetaGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
+    tab_host::Guest as TabHostGuest,
     ui_component::{Guest as UiComponentGuest, UiEvent, UiOutput},
 };
 use bindings::thoth::plugin::types::Capability;
 
 use crate::{
-    helper::{ce, normalise_array, plugin_err, type_hint, ui_out},
+    helper::{ce, normalise_array, plugin_err, request_is_non_empty, type_hint, ui_out},
     http::http_fetch,
 };
 
 struct UrlSourcePlugin;
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
 struct State {
     // ── Saved requests ────────────────────────────────────────────────────
     request_name: String, // name input in the sidebar
+    #[serde(default)]
     saved_requests: Vec<SavedRequest>,
 
     // ── Request ───────────────────────────────────────────────────────────
@@ -53,19 +55,26 @@ struct State {
     resp_tab: String, // "pretty" | "raw" | "headers"
 
     // ── cURL export / import modals ──────────────────────────────────────
+    #[serde(skip)]
     show_export_modal: bool,
+    #[serde(skip)]
     show_import_modal: bool,
+    #[serde(skip)]
     curl_import_input: String,
 
-    // ── Async fetch state ─────────────────────────────────────────────────
+    // ── Async fetch state (transient — never persisted) ───────────────────
     /// True while a submit() request is in flight.
+    #[serde(skip)]
     loading: bool,
     /// True when loading is paused waiting for the user to approve a consent popup.
+    #[serde(skip)]
     consent_pending: bool,
     /// The request_id returned by submit(); matched against the http-response event.
+    #[serde(skip)]
     pending_request_id: Option<String>,
 
-    // ── Response cache ────────────────────────────────────────────────────
+    // ── Response cache (transient — never persisted) ──────────────────────
+    #[serde(skip)]
     response: Option<ResponseState>,
 }
 
@@ -97,10 +106,28 @@ struct ResponseState {
     size_bytes: usize,
 }
 
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 struct KvPair {
     key: String,
     value: String,
+    /// Whether this row is sent. Disabled rows are kept (so the user can re-enable
+    /// them) but skipped when building the request / cURL. Defaults to true.
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for KvPair {
+    fn default() -> Self {
+        Self {
+            key: String::new(),
+            value: String::new(),
+            enabled: true,
+        }
+    }
 }
 
 /// A single saved request entry.
@@ -216,6 +243,7 @@ impl DataSourceGuest for UrlSourcePlugin {
                                     .map(|(k, v)| KvPair {
                                         key: k.clone(),
                                         value: v.as_str().unwrap_or("").to_string(),
+                                        enabled: true,
                                     })
                                     .collect();
                             }
@@ -402,7 +430,11 @@ fn build_curl_command(st: &State) -> String {
 
     // Build URL with query params
     let url = {
-        let active: Vec<&KvPair> = st.params.iter().filter(|p| !p.key.is_empty()).collect();
+        let active: Vec<&KvPair> = st
+            .params
+            .iter()
+            .filter(|p| p.enabled && !p.key.is_empty())
+            .collect();
         if active.is_empty() {
             st.url.clone()
         } else {
@@ -436,7 +468,7 @@ fn build_curl_command(st: &State) -> String {
 
     // Custom headers
     for h in &st.req_headers {
-        if !h.key.is_empty() {
+        if h.enabled && !h.key.is_empty() {
             parts.push(format!("-H '{}: {}'", h.key, h.value));
         }
     }
@@ -580,7 +612,11 @@ fn apply_curl_import(st: &mut State, curl: &str) {
                                 }
                             }
                         } else if !k.eq_ignore_ascii_case("content-type") {
-                            st.req_headers.push(crate::KvPair { key: k, value: v });
+                            st.req_headers.push(crate::KvPair {
+                                key: k,
+                                value: v,
+                                enabled: true,
+                            });
                         }
                     }
                     i += 2;
@@ -592,6 +628,7 @@ fn apply_curl_import(st: &mut State, curl: &str) {
                     st.req_headers.push(crate::KvPair {
                         key: "Cookie".to_string(),
                         value: cookie.clone(),
+                        enabled: true,
                     });
                     i += 2;
                     continue;
@@ -601,12 +638,14 @@ fn apply_curl_import(st: &mut State, curl: &str) {
                 st.req_headers.push(crate::KvPair {
                     key: "Cookie".to_string(),
                     value: t["--cookie=".len()..].to_string(),
+                    enabled: true,
                 });
             }
             t if t.starts_with("-b") && t.len() > 2 => {
                 st.req_headers.push(crate::KvPair {
                     key: "Cookie".to_string(),
                     value: t[2..].to_string(),
+                    enabled: true,
                 });
             }
             "-d" | "--data" | "--data-raw" => {
@@ -629,6 +668,7 @@ fn apply_curl_import(st: &mut State, curl: &str) {
                             Some(crate::KvPair {
                                 key: percent_decode(k),
                                 value: percent_decode(v),
+                                enabled: true,
                             })
                         })
                         .collect();
@@ -670,9 +710,19 @@ impl UiComponentGuest for UrlSourcePlugin {
             } else if event.widget_id == "saved-requests" {
                 match event.kind.as_str() {
                     "click" => {
+                        // Open the saved request in a NEW TAB (seeded with that
+                        // request), rather than loading it into the sidebar form.
                         if let Ok(idx) = event.value.parse::<usize>() {
                             if let Some(req) = st.saved_requests.get(idx).cloned() {
-                                load_saved_request(&mut st, req);
+                                let mut seed = st.clone();
+                                load_saved_request(&mut seed, req);
+                                let title = tab_title_for(&seed);
+                                let initial_state = serde_json::to_string(&seed).ok();
+                                bindings::thoth::plugin::ui_tabs::open_tab(
+                                    &title,
+                                    Some("\u{E28C}"),
+                                    initial_state.as_deref(),
+                                );
                             }
                         }
                     }
@@ -693,6 +743,15 @@ impl UiComponentGuest for UrlSourcePlugin {
                     }
                     _ => {}
                 }
+            } else if event.widget_id == "open-new-tab" {
+                // Open a fresh url-source tab seeded with this request's form.
+                let initial_state = serde_json::to_string(&st).ok();
+                let title = tab_title_for(&st);
+                bindings::thoth::plugin::ui_tabs::open_tab(
+                    &title,
+                    Some("\u{E28C}"),
+                    initial_state.as_deref(),
+                );
             } else if event.widget_id == "consent-approved" {
                 // Host has dispatched the retry request — switch spinner text
                 // from "Waiting for consent approval" back to "Sending request".
@@ -711,9 +770,24 @@ impl UiComponentGuest for UrlSourcePlugin {
                 st.curl_import_input = crate::helper::parse_str(&event.value);
             } else if event.widget_id == "curl-import-submit" {
                 let curl = st.curl_import_input.clone();
-                apply_curl_import(&mut st, &curl);
                 st.show_import_modal = false;
                 st.curl_import_input = String::new();
+                if request_is_non_empty(&st) {
+                    // Don't clobber the current request — open the imported one
+                    // in a fresh tab seeded with the parsed cURL.
+                    let mut seed = st.clone();
+                    seed.request_name = String::new();
+                    apply_curl_import(&mut seed, &curl);
+                    let title = tab_title_for(&seed);
+                    let initial_state = serde_json::to_string(&seed).ok();
+                    bindings::thoth::plugin::ui_tabs::open_tab(
+                        &title,
+                        Some("\u{E28C}"),
+                        initial_state.as_deref(),
+                    );
+                } else {
+                    apply_curl_import(&mut st, &curl);
+                }
             } else {
                 ui::apply_event(&mut st, &event);
             }
@@ -721,6 +795,61 @@ impl UiComponentGuest for UrlSourcePlugin {
             *s.borrow_mut() = st.clone();
             Ok(ui_out(ui::build_ui(&st)))
         })
+    }
+}
+
+/// Title shown on the dock tab: the saved request name when set, else `method url`.
+fn tab_title_for(st: &State) -> String {
+    let name = st.request_name.trim();
+    if !name.is_empty() {
+        name.to_string()
+    } else if st.url.is_empty() {
+        "URL Source".to_string()
+    } else {
+        format!("{} {}", st.method, st.url)
+    }
+}
+
+impl TabHostGuest for UrlSourcePlugin {
+    /// Show the saved request name (or method+url) in the tab label so tabs are
+    /// distinguishable.
+    fn tab_title() -> String {
+        STATE.with(|s| tab_title_for(&s.borrow()))
+    }
+
+    fn tab_icon() -> Option<String> {
+        Some("\u{E28C}".to_string()) // GLOBE_HEMISPHERE_WEST
+    }
+
+    /// Snapshot the per-tab request form so the host can persist it. Transient
+    /// fields (response, loading, modals) are `#[serde(skip)]` and not included.
+    fn get_state() -> Result<String, PluginError> {
+        STATE
+            .with(|s| serde_json::to_string(&*s.borrow()).map_err(|e| plugin_err(3, e.to_string())))
+    }
+
+    /// Restore the request form from a previously saved snapshot.
+    fn init_with_state(state: String) -> Result<(), PluginError> {
+        if state.is_empty() {
+            return Ok(());
+        }
+        match serde_json::from_str::<State>(&state) {
+            Ok(restored) => STATE.with(|s| *s.borrow_mut() = restored),
+            Err(e) => eprintln!("[url-source] init_with_state: invalid state blob: {e}"),
+        }
+        Ok(())
+    }
+
+    fn on_tab_focused() {
+        eprintln!("[url-source] on_tab_focused");
+    }
+
+    fn on_tab_blurred() {
+        eprintln!("[url-source] on_tab_blurred");
+    }
+
+    fn on_tab_closed() {
+        eprintln!("[url-source] on_tab_closed");
     }
 }
 

@@ -51,7 +51,14 @@ impl TabState {
 
     pub fn title(&self) -> String {
         if let Some(pane) = &self.active_plugin_pane {
-            return pane.plugin_id.clone();
+            let title = pane
+                .cached_tab_title
+                .clone()
+                .unwrap_or_else(|| pane.plugin_id.clone());
+            return match &pane.cached_tab_icon {
+                Some(icon) if !icon.is_empty() => format!("{icon}  {title}"),
+                _ => title,
+            };
         }
         self.file_path
             .as_ref()
@@ -234,6 +241,12 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
     }
 
     fn on_close(&mut self, tab_id: &mut TabId) -> OnCloseResponse {
+        // Notify the plugin BEFORE the pane (and its loader) is dropped.
+        if let Some(tab) = self.tabs.get(tab_id)
+            && let Some(pane) = tab.active_plugin_pane.as_ref()
+        {
+            pane.loader.on_tab_closed();
+        }
         self.tabs.remove(tab_id);
         self.events.push(TabEvent::TabClosed(*tab_id));
         OnCloseResponse::Close

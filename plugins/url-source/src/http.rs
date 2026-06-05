@@ -24,7 +24,11 @@ pub fn http_fetch(st: &State) -> Result<Vec<u8>, PluginError> {
 pub fn build_request(st: &State) -> HttpRequest {
     // URL + query params
     let url = {
-        let active: Vec<&KvPair> = st.params.iter().filter(|p| !p.key.is_empty()).collect();
+        let active: Vec<&KvPair> = st
+            .params
+            .iter()
+            .filter(|p| p.enabled && !p.key.is_empty())
+            .collect();
         if active.is_empty() {
             // Also handle api-key-in-query auth
             if st.auth_type == "api-key"
@@ -66,7 +70,7 @@ pub fn build_request(st: &State) -> HttpRequest {
     let mut headers: Vec<(String, String)> = st
         .req_headers
         .iter()
-        .filter(|h| !h.key.is_empty())
+        .filter(|h| h.enabled && !h.key.is_empty())
         .map(|h| (h.key.clone(), h.value.clone()))
         .collect();
 

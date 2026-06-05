@@ -24,6 +24,8 @@ pub struct SelectProps<'a> {
     /// Optional static prefix shown before the selected label, e.g. `"Sort: "`.
     pub prefix_label: Option<&'a str>,
     pub size: SelectSize,
+    /// Fixed trigger width. When `None`, the trigger fills the available width.
+    pub width: Option<f32>,
 }
 
 pub struct SelectOutput {
@@ -64,9 +66,9 @@ impl StatelessComponent for Select {
         };
 
         // ── Trigger ───────────────────────────────────────────────────────────
-        let avail_w = ui.available_width();
+        let trigger_w = props.width.unwrap_or_else(|| ui.available_width());
         let (trigger_rect, trigger_resp) =
-            ui.allocate_exact_size(egui::vec2(avail_w, trigger_h), egui::Sense::click());
+            ui.allocate_exact_size(egui::vec2(trigger_w, trigger_h), egui::Sense::click());
 
         if ui.is_rect_visible(trigger_rect) {
             let bg = if is_open || trigger_resp.hovered() {

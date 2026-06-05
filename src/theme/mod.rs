@@ -290,7 +290,9 @@ impl ThemeColors {
         ColorTheme {
             name: if is_dark { "Thoth Dark" } else { "Thoth Light" },
             dark: is_dark,
-            bg: hex(self.bg_panel),
+            // Match the surrounding panel background so the editor blends in
+            // rather than reading as a distinct sunken box.
+            bg: hex(self.bg),
             cursor: fg_hex,
             selection: hex(self.surface_raised),
             comments: hex(self.fg_muted),

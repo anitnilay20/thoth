@@ -2,13 +2,13 @@ use eframe::egui::{self, Frame};
 use egui_code_editor::CodeEditor;
 use serde::{Deserialize, Serialize};
 
-use crate::components::button::{Button, ButtonProps, ButtonType};
+use crate::components::button::{Button, ButtonProps, ButtonSize, ButtonType};
 use crate::components::common::button_group::{ButtonGroup, ButtonGroupItem, ButtonGroupProps};
 use crate::components::common::input::{Input, InputProps};
 use crate::components::common::json_tree::{JsonTree, JsonTreeProps};
 use crate::components::common::list::{List, ListItem, ListProps};
 use crate::components::common::select::{Select, SelectOption as CommonSelectOption, SelectProps};
-use crate::components::common::tabs::{TabItem, TabProps, Tabs};
+use crate::components::common::tabs::{TabAction, TabItem, TabProps, Tabs};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::table_view::{TableCell, TableView, TableViewProps};
 use crate::components::traits::StatelessComponent;
@@ -31,11 +31,25 @@ pub struct SelectOption {
     pub label: String,
 }
 
+/// A right-aligned icon action shown on a tabs node's header line.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabActionDef {
+    pub id: String,
+    pub icon: String,
+    #[serde(default)]
+    pub tooltip: Option<String>,
+}
+
 /// A single key/value pair used by the key-value-list node.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct KvEntry {
     pub key: String,
     pub value: String,
+    /// Whether this row is active. Disabled rows are dimmed and the plugin is
+    /// expected to skip them (e.g. omit from the request). Defaults to true so
+    /// older payloads without the field remain enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 /// A single option in a button-group node.
@@ -195,6 +209,10 @@ pub enum UiNode {
         value: String,
         #[serde(default = "default_heading_level")]
         level: u8,
+        /// Render as a sidebar panel header (small, uppercase-style, muted) to
+        /// match the host's built-in sidebar sections instead of a large heading.
+        #[serde(default)]
+        panel: bool,
     },
     Badge {
         label: String,
@@ -325,6 +343,9 @@ pub enum UiNode {
         options: Vec<SelectOption>,
         #[serde(default)]
         disabled: bool,
+        /// Fixed trigger width in logical pixels. Omit to fill available width.
+        #[serde(default)]
+        width: Option<f32>,
     },
     MultiSelect {
         id: String,
@@ -403,6 +424,9 @@ pub enum UiNode {
         enabled: bool,
         #[serde(default = "default_true")]
         frame: bool,
+        /// Size the (square) button to match a button height, e.g. "medium".
+        #[serde(rename = "button-size", default)]
+        button_size: Option<ButtonSize>,
     },
     #[serde(rename = "code-editor")]
     CodeEditor {
@@ -413,6 +437,9 @@ pub enum UiNode {
         id: String,
         header: Vec<String>,
         children: Vec<UiNode>,
+        /// Right-aligned icon actions on the tab-header line.
+        #[serde(default)]
+        actions: Vec<TabActionDef>,
     },
     Spinner {
         #[serde(default)]
@@ -519,9 +546,12 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                         // 3. The grow child renders last inside the RTL layout and
                         //    calls available_width(), filling exactly the middle gap.
                         Align::Fill => {
-                            let grow_idx = children
-                                .iter()
-                                .position(|c| matches!(c, UiNode::TextInput { grow: true, .. }));
+                            // The grow child fills the middle: a TextInput with
+                            // grow:true, or a full-width Button.
+                            let grow_idx = children.iter().position(|c| {
+                                matches!(c, UiNode::TextInput { grow: true, .. })
+                                    || matches!(c, UiNode::Button { props, .. } if props.full_width)
+                            });
                             ui.spacing_mut().item_spacing.x = *gap;
                             if let Some(gi) = grow_idx {
                                 for child in &children[..gi] {
@@ -743,13 +773,22 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 render_ui_node(ui, child, events);
             }
         }
-        UiNode::Heading { value, level } => {
-            let size = match level {
-                1 => 24.0_f32,
-                2 => 20.0,
-                _ => 16.0,
-            };
-            ui.label(egui::RichText::new(value).strong().size(size));
+        UiNode::Heading {
+            value,
+            level,
+            panel,
+        } => {
+            if *panel {
+                // Match the host's built-in sidebar section headers.
+                crate::components::common::typography::Typography::panel_header(ui, value);
+            } else {
+                let size = match level {
+                    1 => 24.0_f32,
+                    2 => 20.0,
+                    _ => 16.0,
+                };
+                ui.label(egui::RichText::new(value).strong().size(size));
+            }
         }
         UiNode::Badge { label, color } => {
             let c = parse_hex_color(color).unwrap_or(egui::Color32::GRAY);
@@ -1122,6 +1161,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             value,
             options,
             disabled,
+            width,
         } => {
             let buf_id = egui::Id::new(("ui:sel", id));
             let mut buf = ui.ctx().data_mut(|d| {
@@ -1147,6 +1187,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                         options: &common_opts,
                         prefix_label: None,
                         size: Default::default(),
+                        width: *width,
                     },
                 );
                 if let Some(new_val) = out.changed {
@@ -1321,9 +1362,10 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
 
             let mut changed = false;
             let mut to_remove: Option<usize> = None;
+            let toggle_col_w = 22.0;
             let delete_col_w = 24.0;
             let available = ui.available_width();
-            let input_w = ((available - delete_col_w - 8.0) / 2.0).max(40.0);
+            let input_w = ((available - toggle_col_w - delete_col_w - 12.0) / 2.0).max(40.0);
 
             // ── Header row ────────────────────────────────────────────────
             // TextEdit has ~4px internal left padding; match it so header
@@ -1335,6 +1377,8 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     ui.spacing_mut().item_spacing.x = 4.0;
                     let label_color = colors.fg_muted;
                     let font = egui::FontId::proportional(11.0);
+                    // Empty header cell above the enable/disable checkbox column.
+                    ui.allocate_exact_size(egui::vec2(toggle_col_w, 24.0), egui::Sense::hover());
                     ui.painter().text(
                         ui.cursor().min + egui::vec2(text_edit_pad, 8.0),
                         egui::Align2::LEFT_TOP,
@@ -1370,12 +1414,29 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 ui.horizontal(|ui| {
                     ui.set_width(available);
                     ui.spacing_mut().item_spacing.x = 4.0;
+                    // Enable/disable toggle.
+                    if ui
+                        .add_sized(
+                            egui::vec2(toggle_col_w, 24.0),
+                            egui::Checkbox::without_text(&mut entry.enabled),
+                        )
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                    // Dim key/value text when the row is disabled.
+                    let text_color = if entry.enabled {
+                        colors.fg
+                    } else {
+                        colors.fg_muted
+                    };
                     if ui
                         .add_sized(
                             egui::vec2(input_w, 24.0),
                             egui::TextEdit::singleline(&mut entry.key)
                                 .frame(Frame::NONE)
                                 .hint_text("key")
+                                .text_color(text_color)
                                 .background_color(egui::Color32::TRANSPARENT),
                         )
                         .changed()
@@ -1388,6 +1449,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                             egui::TextEdit::singleline(&mut entry.value)
                                 .frame(Frame::NONE)
                                 .hint_text("value")
+                                .text_color(text_color)
                                 .background_color(egui::Color32::TRANSPARENT),
                         )
                         .changed()
@@ -1444,6 +1506,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     buf.push(KvEntry {
                         key: String::new(),
                         value: String::new(),
+                        enabled: true,
                     });
                     changed = true;
                 }
@@ -1481,7 +1544,13 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             tooltip,
             enabled,
             frame,
+            button_size,
         } => {
+            // Size the (square) button to match a button height when requested.
+            let sized = button_size.map(|bs| {
+                let h = bs.metrics().1;
+                egui::vec2(h, h)
+            });
             let btn = IconButton::render(
                 ui,
                 IconButtonProps {
@@ -1490,6 +1559,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     tooltip: Some(&tooltip.clone().unwrap_or_default()),
                     disabled: !*enabled,
                     selected: false,
+                    size: sized,
                     ..Default::default()
                 },
             );
@@ -1525,6 +1595,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             id,
             header,
             children,
+            actions,
         } => {
             // Active tab index is persisted in egui memory keyed by id.
             let mem_id = egui::Id::new(("ui:tabs", id.as_str()));
@@ -1542,6 +1613,15 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 })
                 .collect();
 
+            let tab_actions: Vec<TabAction<'_>> = actions
+                .iter()
+                .map(|a| TabAction {
+                    id: a.id.as_str(),
+                    icon: a.icon.as_str(),
+                    tooltip: a.tooltip.as_deref(),
+                })
+                .collect();
+
             let active_str = active_idx.to_string();
             let output = Tabs::render(
                 ui,
@@ -1549,6 +1629,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     id: mem_id,
                     items: &tab_items,
                     active: &active_str,
+                    actions: &tab_actions,
                 },
             );
 
@@ -1561,6 +1642,11 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 if let Some(h) = header.get(active_idx) {
                     events.push(ui_event(id, "change", json_str(h)));
                 }
+            }
+
+            // A tab-line action icon (e.g. export) was clicked.
+            if let Some(action_id) = output.clicked_action {
+                events.push(ui_event(&action_id, "click", String::new()));
             }
 
             if let Some(child) = children.get(active_idx) {

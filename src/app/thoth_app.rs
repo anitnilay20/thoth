@@ -5,6 +5,7 @@ use crate::{
     NOTIFICATION_MANAGER, PLUGIN_MANAGER,
     app::{file_picker, pick_file, tab_manager::TabEvent},
     components::{self, traits::ContextComponent},
+    plugin::plugin_ui_host::PluginUiHost,
     settings, state,
 };
 
@@ -28,10 +29,60 @@ pub struct ThothApp {
     /// Plugin IDs from the persisted session that couldn't be restored yet because
     /// PLUGIN_MANAGER was still initializing on the background thread. Drained each
     /// frame once the manager becomes available.
-    pending_plugin_restores: Vec<String>,
+    pending_plugin_restores: Vec<(String, Option<String>)>,
     /// Active-tab index to switch to once all deferred session tabs are open.
     /// `None` once the switch has been applied (or when no session is being restored).
     session_restore_active_index: Option<usize>,
+    /// The plugin tab that was active last frame. Used to fire on-tab-focused /
+    /// on-tab-blurred lifecycle callbacks when the active tab changes.
+    last_active_plugin_tab: Option<crate::app::tab_manager::TabId>,
+    /// The plugin whose sidebar is currently mounted (independent of any tab).
+    sidebar_plugin: Option<SidebarPluginRuntime>,
+}
+
+/// Build the synthetic `http-response` UiEvent delivered to a plugin when an
+/// async `submit()` request completes (or fails / awaits consent).
+fn build_http_response_event(
+    request_id: String,
+    outcome: crate::plugin::plugin_ui_host::HttpCallResult,
+) -> crate::plugin::render_node::UiEvent {
+    let value = match outcome {
+        Ok(raw) => {
+            let body = String::from_utf8_lossy(&raw.body).to_string();
+            serde_json::json!({
+                "ok": {
+                    "status": raw.status,
+                    "headers": raw.headers,
+                    "body": body,
+                    "duration_ms": raw.duration_ms
+                }
+            })
+            .to_string()
+        }
+        Err(msg) => {
+            let code = if msg.contains("waiting for user consent") {
+                "consent_pending"
+            } else {
+                "error"
+            };
+            serde_json::json!({"err": {"code": code, "message": msg}}).to_string()
+        }
+    };
+    crate::plugin::render_node::UiEvent {
+        widget_id: request_id,
+        kind: "http-response".to_string(),
+        value,
+    }
+}
+
+/// A plugin's sidebar instance, independent of any dock tab. Created when the user
+/// opens the plugin's sidebar and kept alive while the sidebar is toggled, so its
+/// state survives collapse/expand and never affects (or requires) a tab. Tabs are
+/// spawned from it explicitly via the `ui-tabs` `open-tab` import.
+struct SidebarPluginRuntime {
+    plugin_id: String,
+    loader: Box<dyn PluginUiHost>,
+    output: Option<crate::plugin::render_node::UiOutput>,
 }
 
 impl ThothApp {
@@ -89,6 +140,8 @@ impl ThothApp {
             _native_menu: None,
             pending_plugin_restores,
             session_restore_active_index,
+            last_active_plugin_tab: None,
+            sidebar_plugin: None,
         }
     }
 
@@ -223,7 +276,7 @@ impl App for ThothApp {
 
         settings::Settings::store(&ctx, &self.settings);
 
-        self.poll_plugin_http_results(&ctx);
+        self.poll_plugin_panes(&ctx);
 
         if self.settings.ui.show_toolbar {
             self.render_toolbar(ui);
@@ -603,13 +656,41 @@ impl ThothApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
     }
 
-    fn dispatch_plugin_event(&mut self, event: crate::plugin::render_node::UiEvent) {
-        if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+    /// Build an `ActivePluginPane`, snapshotting the plugin's tab title/icon so the
+    /// dock label can be rendered cheaply without locking the WASM store each frame.
+    fn make_plugin_pane(
+        plugin_id: String,
+        loader: Box<dyn PluginUiHost>,
+        ui_output: crate::plugin::render_node::UiOutput,
+    ) -> crate::state::ActivePluginPane {
+        let cached_tab_title = loader.tab_title();
+        let cached_tab_icon = loader.tab_icon();
+        crate::state::ActivePluginPane {
+            plugin_id,
+            display_url: String::new(),
+            ui_output,
+            loader,
+            cached_tab_title,
+            cached_tab_icon,
+        }
+    }
+
+    /// Forward a UI event to the plugin pane on a specific tab (used so async HTTP
+    /// results land in the tab that originated them, not whichever tab is active).
+    fn dispatch_plugin_event_for(
+        &mut self,
+        tab_id: crate::app::tab_manager::TabId,
+        event: crate::plugin::render_node::UiEvent,
+    ) {
+        if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
             && let Some(pane) = tab.active_plugin_pane.as_mut()
         {
             match pane.loader.handle_event(event) {
                 Ok(new_output) => {
                     pane.ui_output = new_output;
+                    // Title/icon may change in response to the event.
+                    pane.cached_tab_title = pane.loader.tab_title();
+                    pane.cached_tab_icon = pane.loader.tab_icon();
                     if let Ok(sidebar) = pane.loader.render_sidebar() {
                         tab.plugin_sidebar_output = sidebar;
                     }
@@ -618,6 +699,163 @@ impl ThothApp {
                     tab.error = Some(crate::error::ThothError::Unknown {
                         message: e.to_string(),
                     });
+                }
+            }
+        }
+    }
+
+    /// Open a pure ui-component plugin in a tab (reusing an empty active tab or a
+    /// new one), optionally seeding it with a saved state blob.
+    /// Instantiate the right loader for a plugin based on its capabilities:
+    /// data-source plugins (which import http-client) use the data-source loader;
+    /// pure ui-component plugins use the ui-component loader.
+    fn build_plugin_loader(
+        manager: &crate::plugin::manager::PluginManager,
+        plugin_id: &str,
+        settings: &settings::Settings,
+    ) -> Option<Box<dyn PluginUiHost>> {
+        use crate::plugin::Capability;
+        let plugin = manager.registry.get_by_id(plugin_id)?;
+        if plugin.capabilities.contains(&Capability::DataSource) {
+            use crate::plugin::network_policy::NetworkPolicy;
+            let user_policy = settings
+                .plugins
+                .network_policies
+                .get(plugin_id)
+                .cloned()
+                .unwrap_or_default();
+            let policy = NetworkPolicy::from_plugin_and_settings(
+                &plugin.network.clone().unwrap_or_default(),
+                &user_policy,
+            );
+            manager
+                .open_data_source(plugin_id, policy)
+                .ok()
+                .map(|l| Box::new(l) as Box<dyn PluginUiHost>)
+        } else if plugin.capabilities.contains(&Capability::NewUIComponent) {
+            manager
+                .open_ui_component(plugin_id)
+                .ok()
+                .map(|l| Box::new(l) as Box<dyn PluginUiHost>)
+        } else {
+            None
+        }
+    }
+
+    fn open_ui_component_tab(&mut self, plugin_id: &str, initial_state: Option<&str>) {
+        let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) else {
+            return;
+        };
+        let Some(loader) = Self::build_plugin_loader(manager, plugin_id, &self.settings) else {
+            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                tab.error = Some(crate::error::ThothError::Unknown {
+                    message: format!("Failed to load plugin '{plugin_id}'"),
+                });
+            }
+            return;
+        };
+        if let Some(state) = initial_state {
+            let _ = loader.init_with_state(state);
+        }
+        let Ok(ui_output) = loader.render_ui() else {
+            return;
+        };
+        let sidebar_output = loader.render_sidebar().ok().flatten();
+        let nav_capacity = self.settings.performance.navigation_history_size;
+        let tab_id = if self
+            .window_state
+            .tab_manager
+            .active_tab_mut()
+            .is_some_and(|t| t.is_empty())
+        {
+            self.window_state.tab_manager.active_tab_id().unwrap()
+        } else {
+            self.window_state.tab_manager.open_new_tab(nav_capacity)
+        };
+        if let Some(t) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
+            t.active_plugin_pane = Some(Self::make_plugin_pane(
+                plugin_id.to_string(),
+                loader,
+                ui_output,
+            ));
+            t.plugin_sidebar_output = sidebar_output;
+        }
+        self.session_dirty = true;
+    }
+
+    /// Handle a plugin-initiated `open-tab` request: always open a fresh instance
+    /// in a new tab, seeded with the requested initial state.
+    fn open_ui_component_tab_from_request(
+        &mut self,
+        req: crate::plugin::plugin_ui_host::TabOpenRequest,
+    ) {
+        let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) else {
+            return;
+        };
+        let Some(loader) = Self::build_plugin_loader(manager, &req.plugin_id, &self.settings)
+        else {
+            return;
+        };
+        if let Some(state) = req.initial_state.as_deref() {
+            let _ = loader.init_with_state(state);
+        }
+        let Ok(ui_output) = loader.render_ui() else {
+            return;
+        };
+        let sidebar_output = loader.render_sidebar().ok().flatten();
+        let nav_capacity = self.settings.performance.navigation_history_size;
+        let tab_id = self.window_state.tab_manager.open_new_tab(nav_capacity);
+        if let Some(t) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
+            let mut pane = Self::make_plugin_pane(req.plugin_id.clone(), loader, ui_output);
+            // Prefer the title/icon the plugin passed to open-tab if it didn't
+            // override them via tab-title/tab-icon.
+            if pane.cached_tab_title.is_none() && !req.title.is_empty() {
+                pane.cached_tab_title = Some(req.title);
+            }
+            if pane.cached_tab_icon.is_none() {
+                pane.cached_tab_icon = req.icon;
+            }
+            t.active_plugin_pane = Some(pane);
+            t.plugin_sidebar_output = sidebar_output;
+        }
+        self.session_dirty = true;
+    }
+
+    /// Ensure a tab-independent sidebar runtime is mounted for `plugin_id`,
+    /// reusing the existing one if it already hosts this plugin.
+    fn ensure_sidebar_plugin(&mut self, plugin_id: &str) {
+        if self
+            .sidebar_plugin
+            .as_ref()
+            .is_some_and(|s| s.plugin_id == plugin_id)
+        {
+            return;
+        }
+        let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) else {
+            return;
+        };
+        let Some(loader) = Self::build_plugin_loader(manager, plugin_id, &self.settings) else {
+            return;
+        };
+        let output = loader.render_sidebar().ok().flatten();
+        self.sidebar_plugin = Some(SidebarPluginRuntime {
+            plugin_id: plugin_id.to_string(),
+            loader,
+            output,
+        });
+    }
+
+    /// Forward a widget event from the mounted plugin sidebar to its loader and
+    /// refresh the cached sidebar output. (Tab-open requests it raises are drained
+    /// in `poll_plugin_panes`.)
+    fn dispatch_sidebar_event(&mut self, event: crate::plugin::render_node::UiEvent) {
+        if let Some(rt) = self.sidebar_plugin.as_mut() {
+            match rt.loader.handle_event(event) {
+                Ok(_) => {
+                    rt.output = rt.loader.render_sidebar().ok().flatten();
+                }
+                Err(e) => {
+                    eprintln!("Plugin sidebar event error: {e}");
                 }
             }
         }
@@ -649,76 +887,99 @@ impl ThothApp {
         }
     }
 
-    /// Drain completed async HTTP requests from the active plugin pane and
-    /// forward each result to the plugin via `handle_event`.  Must be called
-    /// before any rendering so the updated `ui_output` is used in this frame.
-    fn poll_plugin_http_results(&mut self, ctx: &egui::Context) {
+    /// Drive every open plugin tab once per frame, before rendering:
+    ///  * deliver completed async HTTP results to the tab that originated them,
+    ///  * re-dispatch consent-approved retries,
+    ///  * open any tabs the plugins requested via `open-tab`,
+    ///  * fire on-tab-focused / on-tab-blurred when the active tab changes.
+    fn poll_plugin_panes(&mut self, ctx: &egui::Context) {
+        use crate::app::tab_manager::TabId;
+        use crate::plugin::plugin_ui_host::{PluginHttpRequest, TabOpenRequest};
         use crate::plugin::render_node::UiEvent;
 
-        let (http_events, retry_requests, needs_repaint) = {
-            let Some(tab) = self.window_state.tab_manager.active_tab_mut() else {
-                return;
+        // Collect drained items into owned vecs BEFORE mutating the tab manager
+        // (opening tabs / dispatching events borrows it mutably).
+        let ids: Vec<TabId> = self.window_state.tab_manager.tabs.keys().copied().collect();
+        let mut http_dispatch: Vec<(TabId, UiEvent)> = Vec::new();
+        let mut retry_dispatch: Vec<(TabId, String, PluginHttpRequest)> = Vec::new();
+        let mut tab_open_reqs: Vec<TabOpenRequest> = Vec::new();
+        let mut needs_repaint = false;
+
+        for id in &ids {
+            let Some(tab) = self.window_state.tab_manager.tabs.get(id) else {
+                continue;
             };
-            let Some(pane) = tab.active_plugin_pane.as_mut() else {
-                return;
+            let Some(pane) = tab.active_plugin_pane.as_ref() else {
+                continue;
             };
-
-            let http_events: Vec<UiEvent> = pane
-                .loader
-                .drain_http_results()
-                .into_iter()
-                .map(|(request_id, outcome)| {
-                    let value = match outcome {
-                        Ok(raw) => {
-                            let body = String::from_utf8_lossy(&raw.body).to_string();
-                            serde_json::json!({
-                                "ok": {
-                                    "status": raw.status,
-                                    "headers": raw.headers,
-                                    "body": body,
-                                    "duration_ms": raw.duration_ms
-                                }
-                            })
-                            .to_string()
-                        }
-                        Err(msg) => {
-                            let code = if msg.contains("waiting for user consent") {
-                                "consent_pending"
-                            } else {
-                                "error"
-                            };
-                            serde_json::json!({"err": {"code": code, "message": msg}}).to_string()
-                        }
-                    };
-                    UiEvent {
-                        widget_id: request_id,
-                        kind: "http-response".to_string(),
-                        value,
-                    }
-                })
-                .collect();
-
-            let retry_requests = pane.loader.drain_retry_requests();
-            let needs_repaint = pane.loader.has_pending_http();
-            (http_events, retry_requests, needs_repaint)
-        };
-
-        for event in http_events {
-            self.dispatch_plugin_event(event);
+            for (request_id, outcome) in pane.loader.drain_http_results() {
+                http_dispatch.push((*id, build_http_response_event(request_id, outcome)));
+            }
+            for (request_id, req) in pane.loader.drain_retry_requests() {
+                retry_dispatch.push((*id, request_id, req));
+            }
+            tab_open_reqs.extend(pane.loader.drain_tab_open_requests());
+            if pane.loader.has_pending_http() {
+                needs_repaint = true;
+            }
         }
 
-        for (request_id, req) in retry_requests {
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                && let Some(pane) = tab.active_plugin_pane.as_mut()
+        // The mounted plugin sidebar runs independently of tabs — drive it too.
+        let mut sidebar_http: Vec<UiEvent> = Vec::new();
+        if let Some(rt) = self.sidebar_plugin.as_ref() {
+            for (request_id, outcome) in rt.loader.drain_http_results() {
+                sidebar_http.push(build_http_response_event(request_id, outcome));
+            }
+            tab_open_reqs.extend(rt.loader.drain_tab_open_requests());
+            if rt.loader.has_pending_http() {
+                needs_repaint = true;
+            }
+        }
+
+        for (id, event) in http_dispatch {
+            self.dispatch_plugin_event_for(id, event);
+        }
+        for event in sidebar_http {
+            self.dispatch_sidebar_event(event);
+        }
+
+        for (id, request_id, req) in retry_dispatch {
+            if let Some(tab) = self.window_state.tab_manager.tabs.get(&id)
+                && let Some(pane) = tab.active_plugin_pane.as_ref()
             {
                 pane.loader.dispatch_approved_request(request_id, req);
             }
-            self.dispatch_plugin_event(UiEvent {
-                widget_id: "consent-approved".to_string(),
-                kind: "notify".to_string(),
-                value: String::new(),
-            });
+            self.dispatch_plugin_event_for(
+                id,
+                UiEvent {
+                    widget_id: "consent-approved".to_string(),
+                    kind: "notify".to_string(),
+                    value: String::new(),
+                },
+            );
             ctx.request_repaint();
+        }
+
+        for req in tab_open_reqs {
+            self.open_ui_component_tab_from_request(req);
+        }
+
+        // Tab focus/blur lifecycle: notify plugins when the active tab changes.
+        let active = self.window_state.tab_manager.active_tab_id();
+        if active != self.last_active_plugin_tab {
+            if let Some(prev) = self.last_active_plugin_tab
+                && let Some(tab) = self.window_state.tab_manager.tabs.get(&prev)
+                && let Some(pane) = tab.active_plugin_pane.as_ref()
+            {
+                pane.loader.on_tab_blurred();
+            }
+            if let Some(cur) = active
+                && let Some(tab) = self.window_state.tab_manager.tabs.get(&cur)
+                && let Some(pane) = tab.active_plugin_pane.as_ref()
+            {
+                pane.loader.on_tab_focused();
+            }
+            self.last_active_plugin_tab = active;
         }
 
         if needs_repaint {
@@ -875,7 +1136,7 @@ impl ThothApp {
         tab_manager: &mut crate::app::TabManager,
         persistent_state: &PersistentState,
         settings: &settings::Settings,
-    ) -> (Vec<String>, usize) {
+    ) -> (Vec<(String, Option<String>)>, usize) {
         use crate::app::persistent_state::PersistedTabKind;
 
         let nav_capacity = settings.performance.navigation_history_size;
@@ -891,18 +1152,24 @@ impl ThothApp {
                         tab_manager.open_file(p, nav_capacity);
                     }
                 }
-                PersistedTabKind::Plugin { plugin_id } => {
+                PersistedTabKind::Plugin { plugin_id, state } => {
                     // PLUGIN_MANAGER is set by a background thread; it may not be ready yet.
                     match PLUGIN_MANAGER.get() {
                         Some(manager_opt) => {
                             if let Some(manager) = manager_opt.as_ref() {
-                                Self::open_plugin_tab(tab_manager, manager, plugin_id, settings);
+                                Self::open_plugin_tab(
+                                    tab_manager,
+                                    manager,
+                                    plugin_id,
+                                    state.as_deref(),
+                                    settings,
+                                );
                             }
                             // manager_opt == None means plugins are disabled — skip silently.
                         }
                         None => {
                             // Manager not initialized yet — defer to poll loop.
-                            deferred_plugins.push(plugin_id.clone());
+                            deferred_plugins.push((plugin_id.clone(), state.clone()));
                         }
                     }
                 }
@@ -913,30 +1180,24 @@ impl ThothApp {
     }
 
     /// Try to open a single plugin tab. Shared by initial restore and the deferred poll loop.
+    /// Picks the loader by capability: data-source plugins (which need http-client) use the
+    /// data-source loader; pure ui-component plugins use the ui-component loader. `state` is
+    /// the persisted per-tab blob, replayed via `init-with-state` after instantiation.
     fn open_plugin_tab(
         tab_manager: &mut crate::app::TabManager,
         manager: &crate::plugin::manager::PluginManager,
         plugin_id: &str,
+        state: Option<&str>,
         settings: &settings::Settings,
     ) {
         let nav_capacity = settings.performance.navigation_history_size;
-        let Some(plugin) = manager.registry.get_by_id(plugin_id) else {
+        let Some(loader) = Self::build_plugin_loader(manager, plugin_id, settings) else {
             return;
         };
-        use crate::plugin::network_policy::NetworkPolicy;
-        let user_policy = settings
-            .plugins
-            .network_policies
-            .get(plugin_id)
-            .cloned()
-            .unwrap_or_default();
-        let policy = NetworkPolicy::from_plugin_and_settings(
-            &plugin.network.clone().unwrap_or_default(),
-            &user_policy,
-        );
-        let Ok(loader) = manager.open_data_source(plugin_id, policy) else {
-            return;
-        };
+
+        if let Some(s) = state {
+            let _ = loader.init_with_state(s);
+        }
         let Ok(ui_output) = loader.render_ui() else {
             return;
         };
@@ -947,12 +1208,11 @@ impl ThothApp {
             tab_manager.open_new_tab(nav_capacity)
         };
         if let Some(t) = tab_manager.tabs.get_mut(&tab_id) {
-            t.active_plugin_pane = Some(crate::state::ActivePluginPane {
-                plugin_id: plugin_id.to_string(),
-                display_url: String::new(),
-                ui_output,
+            t.active_plugin_pane = Some(Self::make_plugin_pane(
+                plugin_id.to_string(),
                 loader,
-            });
+                ui_output,
+            ));
             t.plugin_sidebar_output = sidebar_output;
         }
     }
@@ -970,11 +1230,12 @@ impl ThothApp {
         };
         let plugin_ids = std::mem::take(&mut self.pending_plugin_restores);
         if let Some(manager) = manager_opt.as_ref() {
-            for plugin_id in &plugin_ids {
+            for (plugin_id, state) in &plugin_ids {
                 Self::open_plugin_tab(
                     &mut self.window_state.tab_manager,
                     manager,
                     plugin_id,
+                    state.as_deref(),
                     &self.settings,
                 );
             }
@@ -1018,6 +1279,7 @@ impl ThothApp {
                         tab.active_plugin_pane.as_ref().map(|pane| PersistedTab {
                             kind: PersistedTabKind::Plugin {
                                 plugin_id: pane.plugin_id.clone(),
+                                state: pane.loader.get_state().ok().flatten(),
                             },
                         })
                     });
@@ -1225,8 +1487,8 @@ impl ThothApp {
                     tab.error = None;
                 }
             }
-            TabEvent::PluginUiEvent { event, .. } => {
-                self.dispatch_plugin_event(event);
+            TabEvent::PluginUiEvent { tab_id, event } => {
+                self.dispatch_plugin_event_for(tab_id, event);
             }
             TabEvent::NavigationPush { tab_id, path } => {
                 if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
@@ -1274,20 +1536,30 @@ impl ThothApp {
             .map(|m| m.get_data_source_plugins())
             .unwrap_or_default();
 
+        let ui_plugins: Vec<&crate::plugin::Plugin> = PLUGIN_MANAGER
+            .get()
+            .and_then(|m| m.as_ref())
+            .map(|m| m.get_ui_component_plugins())
+            .unwrap_or_default();
+
         // Snapshot per-tab data we need for SidebarProps (avoids complex lifetime issues).
-        let (current_file_path, search_state_clone, active_datasource_plugin_id) =
+        let (current_file_path, search_state_clone) =
             if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                 (
                     tab.file_path.clone(),
                     tab.search_engine_state.search.clone(),
-                    tab.active_plugin_pane.as_ref().map(|p| p.plugin_id.clone()),
                 )
             } else {
-                (None, crate::search::Search::default(), None)
+                (None, crate::search::Search::default())
             };
 
+        // The mounted plugin sidebar (independent of any tab) drives the sidebar
+        // panel and the icon-highlight state.
+        let sidebar_plugin_id: Option<String> =
+            self.sidebar_plugin.as_ref().map(|s| s.plugin_id.clone());
+
         let plugin_sidebar_strings: Option<(String, String, Option<String>)> =
-            active_datasource_plugin_id.as_ref().and_then(|plugin_id| {
+            sidebar_plugin_id.as_ref().and_then(|plugin_id| {
                 PLUGIN_MANAGER
                     .get()
                     .and_then(|m| m.as_ref())
@@ -1295,11 +1567,7 @@ impl ThothApp {
                     .map(|p| (p.id.clone(), p.name.clone(), p.icon.clone()))
             });
 
-        let plugin_sidebar_output = self
-            .window_state
-            .tab_manager
-            .active_tab_mut()
-            .and_then(|tab| tab.plugin_sidebar_output.clone());
+        let plugin_sidebar_output = self.sidebar_plugin.as_ref().and_then(|s| s.output.clone());
 
         let plugin_sidebar_prop: Option<components::sidebar::PluginSidebarInfo<'_>> =
             match (&plugin_sidebar_strings, &plugin_sidebar_output) {
@@ -1334,7 +1602,8 @@ impl ThothApp {
                 search_state: &search_state_clone,
                 search_history: search_history.as_ref(),
                 data_source_plugins: &ds_plugins,
-                active_datasource_plugin_id: active_datasource_plugin_id.as_deref(),
+                ui_component_plugins: &ui_plugins,
+                active_datasource_plugin_id: sidebar_plugin_id.as_deref(),
                 plugin_sidebar: plugin_sidebar_prop,
             },
         );
@@ -1375,99 +1644,32 @@ impl ThothApp {
                     if let components::sidebar::SidebarSection::DataSource { ref plugin_id } =
                         section
                     {
-                        let same_plugin_active = self
-                            .window_state
-                            .tab_manager
-                            .active_tab_mut()
-                            .is_some_and(|tab| {
-                                tab.active_plugin_pane
-                                    .as_ref()
-                                    .is_some_and(|p| &p.plugin_id == plugin_id)
-                            });
-
-                        if same_plugin_active {
-                            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                                tab.active_plugin_pane = None;
-                                tab.plugin_sidebar_output = None;
-                            }
+                        // Opening/closing a plugin's sidebar must NOT touch its tab.
+                        // Mount a tab-independent sidebar runtime and toggle only the
+                        // sidebar's visibility. Tabs are spawned from the sidebar's
+                        // own "New tab" control (the ui-tabs open-tab import).
+                        let already_showing = self.window_state.sidebar_expanded
+                            && matches!(
+                                &self.window_state.sidebar_selected_section,
+                                Some(components::sidebar::SidebarSection::PluginSidebar { plugin_id: p })
+                                    if p == plugin_id
+                            );
+                        if already_showing {
                             self.window_state.sidebar_expanded = false;
                             self.window_state.sidebar_selected_section = None;
-                            self.session_dirty = true;
                         } else {
-                            if let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref())
-                                && let Some(plugin) = manager.registry.get_by_id(plugin_id)
-                            {
-                                use crate::plugin::network_policy::NetworkPolicy;
-                                let user_policy = self
-                                    .settings
-                                    .plugins
-                                    .network_policies
-                                    .get(plugin_id)
-                                    .cloned()
-                                    .unwrap_or_default();
-                                let policy = NetworkPolicy::from_plugin_and_settings(
-                                    &plugin.network.clone().unwrap_or_default(),
-                                    &user_policy,
-                                );
-                                match manager.open_data_source(plugin_id, policy) {
-                                    Ok(loader) => match loader.render_ui() {
-                                        Ok(ui_output) => {
-                                            let sidebar_output =
-                                                loader.render_sidebar().ok().flatten();
-                                            let has_sidebar = sidebar_output.is_some();
-                                            if let Some(tab) =
-                                                self.window_state.tab_manager.active_tab_mut()
-                                            {
-                                                tab.file_path = None;
-                                                tab.plugin_sidebar_output = sidebar_output;
-                                                tab.active_plugin_pane =
-                                                    Some(crate::state::ActivePluginPane {
-                                                        plugin_id: plugin_id.clone(),
-                                                        display_url: String::new(),
-                                                        ui_output,
-                                                        loader,
-                                                    });
-                                                self.session_dirty = true;
-                                            }
-                                            if has_sidebar {
-                                                self.window_state.sidebar_expanded = true;
-                                                self.window_state.sidebar_selected_section =
-                                                        Some(components::sidebar::SidebarSection::PluginSidebar {
-                                                            plugin_id: plugin_id.clone(),
-                                                        });
-                                            } else {
-                                                self.window_state.sidebar_expanded = false;
-                                                self.window_state.sidebar_selected_section = None;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            if let Some(tab) =
-                                                self.window_state.tab_manager.active_tab_mut()
-                                            {
-                                                tab.error =
-                                                    Some(crate::error::ThothError::Unknown {
-                                                        message: format!("Plugin UI error: {e}"),
-                                                    });
-                                            }
-                                        }
-                                    },
-                                    Err(e) => {
-                                        if let Some(tab) =
-                                            self.window_state.tab_manager.active_tab_mut()
-                                        {
-                                            tab.error = Some(crate::error::ThothError::Unknown {
-                                                message: format!("Failed to load plugin: {e}"),
-                                            });
-                                        }
-                                    }
-                                }
+                            self.ensure_sidebar_plugin(plugin_id);
+                            if self.sidebar_plugin.is_some() {
+                                self.window_state.sidebar_expanded = true;
+                                self.window_state.sidebar_selected_section =
+                                    Some(components::sidebar::SidebarSection::PluginSidebar {
+                                        plugin_id: plugin_id.clone(),
+                                    });
                             }
                         }
                     } else {
-                        let is_plugin_sidebar = matches!(
-                            section,
-                            components::sidebar::SidebarSection::PluginSidebar { .. }
-                        );
+                        // Non-plugin sections: pure sidebar visibility toggle —
+                        // never disturb open plugin tabs.
                         if self.window_state.sidebar_expanded
                             && self.window_state.sidebar_selected_section == Some(section.clone())
                         {
@@ -1479,12 +1681,6 @@ impl ThothApp {
                                 self.window_state.sidebar_selected_section.clone();
                             self.window_state.sidebar_expanded = true;
                             self.window_state.sidebar_selected_section = Some(section);
-                            if !is_plugin_sidebar
-                                && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                            {
-                                tab.active_plugin_pane = None;
-                                tab.plugin_sidebar_output = None;
-                            }
                         }
                     }
 
@@ -1493,6 +1689,9 @@ impl ThothApp {
                             .set_sidebar_expanded(self.window_state.sidebar_expanded);
                         let _ = self.persistent_state.save();
                     }
+                }
+                components::sidebar::SidebarEvent::OpenUiComponentTab(plugin_id) => {
+                    self.open_ui_component_tab(&plugin_id, None);
                 }
                 components::sidebar::SidebarEvent::WidthChanged(new_width) => {
                     self.persistent_state.set_sidebar_width(new_width);
@@ -1591,7 +1790,7 @@ impl ThothApp {
                     }
                 }
                 components::sidebar::SidebarEvent::PluginSidebarEvent(evt) => {
-                    self.dispatch_plugin_event(evt);
+                    self.dispatch_sidebar_event(evt);
                 }
                 components::sidebar::SidebarEvent::OpenSettings => {
                     self.settings_dialog.open(&self.settings);

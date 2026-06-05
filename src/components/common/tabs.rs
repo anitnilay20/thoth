@@ -1,6 +1,7 @@
 use eframe::egui;
 
 use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonSize, ButtonType};
+use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
 use crate::theme::ThemeColors;
 
@@ -9,15 +10,26 @@ pub struct TabItem<'a> {
     pub label: &'a str,
 }
 
+/// A right-aligned icon action shown on the tab-header line (e.g. an export button).
+pub struct TabAction<'a> {
+    pub id: &'a str,
+    pub icon: &'a str,
+    pub tooltip: Option<&'a str>,
+}
+
 pub struct TabProps<'a> {
     pub id: egui::Id,
     pub items: &'a [TabItem<'a>],
     pub active: &'a str,
+    /// Icon buttons rendered right-aligned on the same line as the tabs.
+    pub actions: &'a [TabAction<'a>],
 }
 
 pub struct TabOutput {
     /// The `value` of the tab the user clicked, if any.
     pub selected: Option<String>,
+    /// The `id` of the action icon the user clicked, if any.
+    pub clicked_action: Option<String>,
 }
 
 pub struct Tabs;
@@ -34,6 +46,7 @@ impl StatelessComponent for Tabs {
         });
 
         let mut selected: Option<String> = None;
+        let mut clicked_action: Option<String> = None;
 
         egui::Frame::new()
             .fill(colors.bg_panel)
@@ -90,9 +103,36 @@ impl StatelessComponent for Tabs {
                             selected = Some(item.value.to_string());
                         }
                     }
+
+                    // Right-aligned action icons (e.g. export) on the tab line.
+                    // The layout is right-to-left to pin actions to the right edge,
+                    // so iterate in reverse to keep their visual order matching
+                    // `props.actions` (first entry leftmost).
+                    if !props.actions.is_empty() {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            for action in props.actions.iter().rev() {
+                                if IconButton::render(
+                                    ui,
+                                    IconButtonProps {
+                                        icon: action.icon,
+                                        tooltip: action.tooltip,
+                                        frame: false,
+                                        ..Default::default()
+                                    },
+                                )
+                                .clicked
+                                {
+                                    clicked_action = Some(action.id.to_string());
+                                }
+                            }
+                        });
+                    }
                 });
             });
 
-        TabOutput { selected }
+        TabOutput {
+            selected,
+            clicked_action,
+        }
     }
 }

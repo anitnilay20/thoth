@@ -3,19 +3,26 @@ use std::path::PathBuf;
 use crate::{
     app::tab_manager::TabManager,
     components,
-    plugin::{render_node::UiOutput, wasm_data_source::WasmDataSourceLoader},
+    plugin::{plugin_ui_host::PluginUiHost, render_node::UiOutput},
     search, update,
 };
 
-/// Holds the active plugin pane shown in the main area.
-/// Created when the user activates a data-source plugin section in the sidebar.
+/// Holds the active plugin pane shown in the main area / a dock tab.
+/// Created when the user activates a data-source plugin section in the sidebar,
+/// opens a ui-component plugin, or a plugin requests a new tab.
 pub struct ActivePluginPane {
     pub plugin_id: String,
     pub display_url: String,
     /// Current interactive UI tree (from `render_ui` / `handle_event`).
     pub ui_output: UiOutput,
     /// The loader is kept here so the central panel can forward UI events.
-    pub loader: WasmDataSourceLoader,
+    /// Boxed so a pane can hold either a data-source or a ui-component loader.
+    pub loader: Box<dyn PluginUiHost>,
+    /// Cached tab title/icon from the plugin's `tab-host` export, refreshed after
+    /// `render_ui` and each `handle_event`. Read cheaply by the dock tab label
+    /// (which is queried every frame, so it must not lock the WASM store).
+    pub cached_tab_title: Option<String>,
+    pub cached_tab_icon: Option<String>,
 }
 
 #[cfg(test)]

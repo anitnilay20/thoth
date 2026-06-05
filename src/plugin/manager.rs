@@ -230,6 +230,56 @@ impl PluginManager {
         )
     }
 
+    /// Instantiate a pure `ui-component` plugin (the `ui-component-plugin` world).
+    /// Unlike `open_data_source` there is no network policy — these plugins have
+    /// no http-client import.
+    pub fn open_ui_component(
+        &self,
+        plugin_id: &str,
+    ) -> Result<crate::plugin::wasm_ui_component::WasmUiComponentLoader> {
+        let plugin = self
+            .registry
+            .get_by_id(plugin_id)
+            .ok_or_else(|| ThothError::Unknown {
+                message: format!("Plugin '{plugin_id}' not found"),
+            })?;
+        if !plugin.capabilities.contains(&Capability::NewUIComponent) {
+            return Err(ThothError::Unknown {
+                message: format!("Plugin '{plugin_id}' does not provide a ui-component"),
+            });
+        }
+        let wasm_path = plugin
+            .location
+            .as_deref()
+            .map(std::path::Path::new)
+            .ok_or_else(|| ThothError::Unknown {
+                message: "Plugin has no wasm path".into(),
+            })?;
+        let settings = {
+            let guard = self
+                .plugin_settings
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            guard.get(plugin_id).cloned().unwrap_or_default()
+        };
+        crate::plugin::wasm_ui_component::WasmUiComponentLoader::open(
+            &self.engine,
+            wasm_path,
+            plugin_id.to_string(),
+            &settings,
+        )
+    }
+
+    /// All plugins that declare the `new-ui-component` capability but are NOT
+    /// data sources (those are listed separately in the sidebar).
+    pub fn get_ui_component_plugins(&self) -> Vec<&Plugin> {
+        self.registry
+            .get_by_capability(Capability::NewUIComponent)
+            .into_iter()
+            .filter(|p| !p.capabilities.contains(&Capability::DataSource))
+            .collect()
+    }
+
     pub fn open_plugin_settings(&self, plugin_id: &str) -> Result<WasmPluginSettings> {
         let plugin = self
             .registry

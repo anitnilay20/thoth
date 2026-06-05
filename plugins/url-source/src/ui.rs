@@ -25,7 +25,9 @@ pub fn build_ui(st: &State) -> Value {
                     build_request_column(st),
                     build_response_column(st)
                 ]
-            }
+            },
+            // Export cURL modal (opened by the code icon on the request tabs line).
+            curl_export_modal(st)
         ]
     })
 }
@@ -43,9 +45,10 @@ fn method_badge_color(method: &str) -> &'static str {
     }
 }
 
-// egui_phosphor::regular::ARROW_SQUARE_OUT = export, ARROW_SQUARE_IN = import
-const ICON_EXPORT: &str = "\u{E5DE}";
-const ICON_IMPORT: &str = "\u{E5DC}";
+// egui_phosphor::regular glyphs
+const ICON_PLUS: &str = "\u{E3D4}"; // PLUS
+const ICON_CODE: &str = "\u{E1BC}"; // CODE (export cURL)
+const ICON_DOWNLOAD: &str = "\u{E20C}"; // DOWNLOAD_SIMPLE (import cURL)
 
 /// Rendered by the host in its sidebar panel.
 pub fn build_sidebar(st: &State) -> Value {
@@ -65,12 +68,46 @@ pub fn build_sidebar(st: &State) -> Value {
         })
         .collect();
 
-    let curl_command = crate::build_curl_command(st);
-
     json!({
         "type": "column",
         "gap": 0,
         "children": [
+            {
+                "type": "row",
+                "padding": 6,
+                "children": [
+                    {"type": "heading", "value": "COLLECTIONS", "panel": true}
+                ]
+            },
+            {
+                "type": "row",
+                "gap": 6,
+                "align": "fill",
+                "padding": 6,
+                "children": [
+                    {
+                        "type": "button",
+                        "id": "open-new-tab",
+                        "props": {
+                            "label": "New Request",
+                            "button-type": "Elevated",
+                            "color": "Primary",
+                            "enabled": true,
+                            "icon": ICON_PLUS,
+                            "full-width": true
+                        }
+                    },
+                    {
+                        "type": "icon-button",
+                        "id": "import-curl",
+                        "icon": ICON_DOWNLOAD,
+                        "tooltip": "Import cURL",
+                        "frame": true,
+                        "button-size": "Medium"
+                    }
+                ]
+            },
+            {"type": "separator"},
             {
                 "type": "row",
                 "gap": 4,
@@ -95,77 +132,69 @@ pub fn build_sidebar(st: &State) -> Value {
                 "items": list_items,
                 "empty-label": "No saved requests"
             },
-            // Export modal
+            // Import cURL modal (opened by the download icon next to New Request).
+            curl_import_modal(st),
+        ]
+    })
+}
+
+/// The "Import cURL" modal — shared shape, rendered in the sidebar.
+fn curl_import_modal(st: &State) -> Value {
+    json!({
+        "type": "modal",
+        "id": "import-modal",
+        "title": "Import cURL",
+        "open": st.show_import_modal,
+        "close-id": "close-import",
+        "width-pct": 0.7,
+        "height-pct": 0.7,
+        "children": [
             {
-                "type": "modal",
-                "id": "export-modal",
-                "title": "Export cURL",
-                "open": st.show_export_modal,
-                "close-id": "close-export",
-                "width-pct": 0.7,
-                "height-pct": 0.7,
-                "children": [
-                    {
-                        "type": "text-input",
-                        "id": "curl-output",
-                        "value": curl_command,
-                        "label": "cURL command",
-                        "placeholder": "",
-                        "multiline": true,
-                        "rows": 10
-                    },
-                    {
-                        "type": "button",
-                        "id": "",
-                        "copy": curl_command,
-                        "props": {
-                            "label": "Copy to Clipboard",
-                            "button-type": "Elevated",
-                            "color": "Default",
-                            "enabled": true
-                        }
-                    }
-                ]
+                "type": "text-input",
+                "id": "curl-import-input",
+                "value": st.curl_import_input,
+                "placeholder": "Paste cURL command here…",
+                "label": "cURL command",
+                "multiline": true,
+                "rows": 10
             },
-            // Import modal
+            btn_elevated("curl-import-submit", "Import", !st.curl_import_input.is_empty(), "Default")
+        ]
+    })
+}
+
+/// The "Export cURL" modal — rendered in the request tab (build_ui), reflecting
+/// the current request.
+fn curl_export_modal(st: &State) -> Value {
+    let curl_command = crate::build_curl_command(st);
+    json!({
+        "type": "modal",
+        "id": "export-modal",
+        "title": "Export cURL",
+        "open": st.show_export_modal,
+        "close-id": "close-export",
+        "width-pct": 0.7,
+        "height-pct": 0.7,
+        "children": [
             {
-                "type": "modal",
-                "id": "import-modal",
-                "title": "Import cURL",
-                "open": st.show_import_modal,
-                "close-id": "close-import",
-                "width-pct": 0.7,
-                "height-pct": 0.7,
-                "children": [
-                    {
-                        "type": "text-input",
-                        "id": "curl-import-input",
-                        "value": st.curl_import_input,
-                        "placeholder": "Paste cURL command here…",
-                        "label": "cURL command",
-                        "multiline": true,
-                        "rows": 10
-                    },
-                    btn_elevated("curl-import-submit", "Import", !st.curl_import_input.is_empty(), "Default")
-                ]
+                "type": "text-input",
+                "id": "curl-output",
+                "value": curl_command,
+                "label": "cURL command",
+                "placeholder": "",
+                "multiline": true,
+                "rows": 10
             },
-            // Footer pinned at bottom
             {
-                "type": "footer",
-                "padding": 8,
-                "gap": 0,
-                "children": [
-                    {"type": "separator"},
-                    {
-                        "type": "row",
-                        "gap": 4,
-                        "padding": 4,
-                        "children": [
-                            btn_text_icon("export-curl", "Export cURL", ICON_EXPORT),
-                            btn_text_icon("import-curl", "Import cURL", ICON_IMPORT)
-                        ]
-                    }
-                ]
+                "type": "button",
+                "id": "",
+                "copy": curl_command,
+                "props": {
+                    "label": "Copy to Clipboard",
+                    "button-type": "Elevated",
+                    "color": "Default",
+                    "enabled": true
+                }
             }
         ]
     })
@@ -225,21 +254,13 @@ fn build_response_column(st: &State) -> Value {
 }
 
 fn build_url_bar(st: &State) -> Value {
-    // Method pill buttons
-    let method_btns: Vec<Value> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+    // Method dropdown
+    let method_options: Vec<Value> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
         .iter()
-        .map(|m| {
-            let id = format!("method-btn-{}", m.to_lowercase());
-            let selected = st.method == *m;
-            if selected {
-                btn_elevated(&id, m, true, "Secondary")
-            } else {
-                btn_text(&id, m, true)
-            }
-        })
+        .map(|m| json!({ "value": m, "label": m }))
         .collect();
 
-    // Visual order: [MethodButtons | URL(grow) | Send | Save]
+    // Visual order: [Method ▾ | URL(grow) | Clear | Send]
     // Fill layout: prefix items render LTR, then RTL sub-layout for suffix+grow.
     json!({
         "type":  "row",
@@ -248,9 +269,12 @@ fn build_url_bar(st: &State) -> Value {
         "padding": 4,
         "children": [
             {
-                "type": "row",
-                "gap": 2,
-                "children": method_btns
+                "type":    "select",
+                "id":      "method",
+                "label":   "",
+                "value":   st.method,
+                "options": method_options,
+                "width":   96
             },
             {
                 "type":        "text-input",
@@ -277,6 +301,9 @@ fn build_req_tabs(st: &State) -> Value {
         "type":   "tabs",
         "id":     "req-tabs",
         "header": ["Params", "Auth", "Headers", "Body"],
+        "actions": [
+            {"id": "export-curl", "icon": ICON_CODE, "tooltip": "Export cURL"}
+        ],
         "children": [
             // ── Params ──────────────────────────────────────────────────────
             {
@@ -548,6 +575,7 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
                         Some(KvPair {
                             key: a.first()?.as_str()?.to_string(),
                             value: a.get(1)?.as_str()?.to_string(),
+                            enabled: true,
                         })
                     })
                     .collect()
@@ -600,11 +628,6 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
     match event.widget_id.as_str() {
         "request-name" => st.request_name = parse_str(&event.value),
 
-        "method-btn-get" => st.method = "GET".to_string(),
-        "method-btn-post" => st.method = "POST".to_string(),
-        "method-btn-put" => st.method = "PUT".to_string(),
-        "method-btn-delete" => st.method = "DELETE".to_string(),
-        "method-btn-patch" => st.method = "PATCH".to_string(),
         "method" => st.method = parse_str(&event.value),
         "url" => {
             let raw = parse_str(&event.value);
@@ -655,35 +678,6 @@ fn btn_elevated(id: &str, label: &str, enabled: bool, color: &str) -> Value {
             "button-type": "Elevated",
             "color":       color,
             "enabled":     enabled
-        }
-    })
-}
-
-/// Text (ghost) button. Use for inactive method pill buttons.
-fn btn_text(id: &str, label: &str, enabled: bool) -> Value {
-    json!({
-        "type": "button",
-        "id":   id,
-        "props": {
-            "label":       label,
-            "button-type": "Text",
-            "color":       "Default",
-            "enabled":     enabled
-        }
-    })
-}
-
-/// Text button with a phosphor icon.
-fn btn_text_icon(id: &str, label: &str, icon: &str) -> Value {
-    json!({
-        "type": "button",
-        "id":   id,
-        "props": {
-            "label":       label,
-            "button-type": "Text",
-            "color":       "Default",
-            "enabled":     true,
-            "icon":        icon
         }
     })
 }

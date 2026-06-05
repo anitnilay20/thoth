@@ -24,6 +24,18 @@ pub enum ButtonSize {
     Large,
 }
 
+impl ButtonSize {
+    /// `(font_size, height)` in logical pixels — the single source of truth so
+    /// other controls (e.g. IconButton) can size to match a button.
+    pub fn metrics(self) -> (f32, f32) {
+        match self {
+            ButtonSize::Small => (11.0, 24.0),
+            ButtonSize::Medium => (13.0, 28.0),
+            ButtonSize::Large => (15.0, 32.0),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 pub enum ButtonColor {
     #[default]
@@ -57,6 +69,9 @@ pub struct ButtonProps {
     pub enabled: bool,
     #[serde(default)]
     pub icon: Option<String>,
+    /// Stretch the button to the full available width of its container.
+    #[serde(rename = "full-width", default)]
+    pub full_width: bool,
 }
 
 fn default_enabled() -> bool {
@@ -76,6 +91,7 @@ impl Default for ButtonProps {
             height: None,
             enabled: true,
             icon: None,
+            full_width: false,
         }
     }
 }
@@ -97,14 +113,16 @@ impl StatelessComponent for Button {
                 .unwrap_or_else(|| Theme::default().colors())
         });
 
-        let (default_font, default_h) = match props.button_size {
-            ButtonSize::Small => (11.0_f32, 24.0_f32),
-            ButtonSize::Medium => (13.0_f32, 28.0_f32),
-            ButtonSize::Large => (15.0_f32, 32.0_f32),
-        };
+        let (default_font, default_h) = props.button_size.metrics();
         let size = props.size.unwrap_or(default_font);
         let height = Some(props.height.unwrap_or(default_h));
         let icon = props.icon.as_deref();
+        // Full-width buttons stretch to the container's available width.
+        let width = if props.full_width {
+            Some(ui.available_width())
+        } else {
+            props.width
+        };
 
         let bg_color = match props.color {
             ButtonColor::Default => colors.surface_active,
@@ -122,7 +140,7 @@ impl StatelessComponent for Button {
                         ui,
                         Self::make_layout_job(icon, &props.label, size, text_color),
                         bg_color,
-                        props.width,
+                        width,
                         height,
                     )
                 }
@@ -133,7 +151,7 @@ impl StatelessComponent for Button {
                     size,
                     bg_color,
                     colors.fg,
-                    props.width,
+                    width,
                     height,
                 ),
             })
