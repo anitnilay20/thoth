@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/anitnilay20/thoth/main/install.sh |
 irm https://raw.githubusercontent.com/anitnilay20/thoth/main/install.ps1 | iex
 ```
 
-Installs to `/Applications` (macOS), `~/.local/bin` (Linux, override with `THOTH_INSTALL_DIR`), or `%LOCALAPPDATA%\Programs\Thoth` (Windows). macOS/Linux is unsigned, so the script strips the Gatekeeper quarantine for you.
+Installs to `/Applications` (macOS), `~/.local/bin` (Linux, override with `THOTH_INSTALL_DIR`), or `%LOCALAPPDATA%\Programs\Thoth` (Windows). On macOS the build is unsigned, so the script strips the Gatekeeper quarantine for you.
 
 ### Download Pre-built Binaries
 

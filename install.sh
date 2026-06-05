@@ -47,7 +47,7 @@ esac
 
 # ── resolve the latest release tag ────────────────────────────────────────────
 info "Finding the latest Thoth release…"
-tag="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+tag="$(curl -fsSL --connect-timeout 10 --max-time 30 "https://api.github.com/repos/$REPO/releases/latest" \
   | grep -m1 '"tag_name"' \
   | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
 [ -n "$tag" ] || die "could not determine the latest release tag."
@@ -60,7 +60,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 info "Downloading ${DIM}${asset}${RESET}"
-curl -fSL --progress-bar "$url" -o "$tmp/$asset" \
+curl -fSL --connect-timeout 10 --max-time 300 --progress-bar "$url" -o "$tmp/$asset" \
   || die "download failed: $url"
 tar -xzf "$tmp/$asset" -C "$tmp" || die "failed to extract $asset"
 

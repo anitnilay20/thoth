@@ -12,7 +12,7 @@ $InstallDir = Join-Path $env:LOCALAPPDATA 'Programs\Thoth'
 
 Write-Host '==> Finding the latest Thoth release...'
 $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
-  -Headers @{ 'User-Agent' = 'thoth-installer' }
+  -Headers @{ 'User-Agent' = 'thoth-installer' } -TimeoutSec 30
 $tag = $release.tag_name
 if (-not $tag) { throw 'Could not determine the latest release tag.' }
 Write-Host "==> Latest release: $tag"
@@ -23,7 +23,7 @@ New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 try {
   $zip = Join-Path $tmp $Asset
   Write-Host "==> Downloading $Asset"
-  Invoke-WebRequest -Uri $url -OutFile $zip
+  Invoke-WebRequest -Uri $url -OutFile $zip -TimeoutSec 300
   Expand-Archive -Path $zip -DestinationPath $tmp -Force
 
   $exe = Get-ChildItem -Path $tmp -Filter 'thoth.exe' -Recurse | Select-Object -First 1
