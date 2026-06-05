@@ -628,11 +628,6 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
     match event.widget_id.as_str() {
         "request-name" => st.request_name = parse_str(&event.value),
 
-        "method-btn-get" => st.method = "GET".to_string(),
-        "method-btn-post" => st.method = "POST".to_string(),
-        "method-btn-put" => st.method = "PUT".to_string(),
-        "method-btn-delete" => st.method = "DELETE".to_string(),
-        "method-btn-patch" => st.method = "PATCH".to_string(),
         "method" => st.method = parse_str(&event.value),
         "url" => {
             let raw = parse_str(&event.value);

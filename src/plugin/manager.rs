@@ -243,6 +243,11 @@ impl PluginManager {
             .ok_or_else(|| ThothError::Unknown {
                 message: format!("Plugin '{plugin_id}' not found"),
             })?;
+        if !plugin.capabilities.contains(&Capability::NewUIComponent) {
+            return Err(ThothError::Unknown {
+                message: format!("Plugin '{plugin_id}' does not provide a ui-component"),
+            });
+        }
         let wasm_path = plugin
             .location
             .as_deref()

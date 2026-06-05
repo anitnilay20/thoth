@@ -105,9 +105,12 @@ impl StatelessComponent for Tabs {
                     }
 
                     // Right-aligned action icons (e.g. export) on the tab line.
+                    // The layout is right-to-left to pin actions to the right edge,
+                    // so iterate in reverse to keep their visual order matching
+                    // `props.actions` (first entry leftmost).
                     if !props.actions.is_empty() {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            for action in props.actions {
+                            for action in props.actions.iter().rev() {
                                 if IconButton::render(
                                     ui,
                                     IconButtonProps {

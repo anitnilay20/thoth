@@ -8,8 +8,10 @@
 //! can drive both uniformly.
 //!
 //! The tab-state / lifecycle methods (`tab_title`, `get_state`, `on_tab_*`, …) map to
-//! the optional `tab-host` WIT export. Loaders whose world does not export it (e.g. the
-//! current data-source world) inherit the no-op defaults here.
+//! the `tab-host` WIT export, which both the `ui-component-plugin` and
+//! `data-source-plugin` worlds export. The trait provides no-op defaults so any
+//! future loader whose world omits `tab-host` still compiles; the two current
+//! loaders override them to call the export.
 
 use crate::error::Result;
 use crate::plugin::render_node::{UiEvent, UiOutput};
@@ -38,6 +40,12 @@ pub struct PluginHttpRequest {
     pub body: Option<Vec<u8>>,
 }
 
+/// Upper bound on a plugin-supplied tab title (chars beyond this are dropped).
+pub const MAX_TAB_TITLE_LEN: usize = 200;
+/// Upper bound on a plugin-supplied seed-state blob; oversized blobs are dropped
+/// (not truncated, which would corrupt the JSON).
+pub const MAX_TAB_STATE_LEN: usize = 1 << 20; // 1 MiB
+
 /// A plugin's request (via the `ui-tabs` host import) to open a new dock tab
 /// hosting a fresh instance of itself.
 #[derive(Clone, Debug)]
@@ -50,6 +58,35 @@ pub struct TabOpenRequest {
     pub icon: Option<String>,
     /// JSON blob to seed the new instance with via `init-with-state`.
     pub initial_state: Option<String>,
+}
+
+impl TabOpenRequest {
+    /// Build a request with bounded title/state so a plugin can't push arbitrarily
+    /// large payloads through the `open-tab` import.
+    pub fn sanitized(
+        request_id: String,
+        plugin_id: String,
+        mut title: String,
+        icon: Option<String>,
+        initial_state: Option<String>,
+    ) -> Self {
+        if title.len() > MAX_TAB_TITLE_LEN {
+            let mut end = MAX_TAB_TITLE_LEN;
+            while end > 0 && !title.is_char_boundary(end) {
+                end -= 1;
+            }
+            title.truncate(end);
+        }
+        // Truncating a JSON blob would corrupt it, so drop it when oversized.
+        let initial_state = initial_state.filter(|s| s.len() <= MAX_TAB_STATE_LEN);
+        Self {
+            request_id,
+            plugin_id,
+            title,
+            icon,
+            initial_state,
+        }
+    }
 }
 
 /// Common interface for plugin loaders rendered inside a dock tab.

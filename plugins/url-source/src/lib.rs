@@ -833,8 +833,9 @@ impl TabHostGuest for UrlSourcePlugin {
         if state.is_empty() {
             return Ok(());
         }
-        if let Ok(restored) = serde_json::from_str::<State>(&state) {
-            STATE.with(|s| *s.borrow_mut() = restored);
+        match serde_json::from_str::<State>(&state) {
+            Ok(restored) => STATE.with(|s| *s.borrow_mut() = restored),
+            Err(e) => eprintln!("[url-source] init_with_state: invalid state blob: {e}"),
         }
         Ok(())
     }

@@ -87,13 +87,13 @@ impl thoth::plugin::ui_tabs::Host for UiComponentPluginState {
         initial_state: Option<String>,
     ) -> String {
         let request_id = next_tab_request_id();
-        let _ = self.tab_tx.send(TabOpenRequest {
-            request_id: request_id.clone(),
-            plugin_id: self.plugin_id.clone(),
+        let _ = self.tab_tx.send(TabOpenRequest::sanitized(
+            request_id.clone(),
+            self.plugin_id.clone(),
             title,
             icon,
             initial_state,
-        });
+        ));
         request_id
     }
 }
