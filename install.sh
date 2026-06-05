@@ -73,23 +73,40 @@ if [ "$os" = "Darwin" ]; then
 
   dest="/Applications/$APP_NAME.app"
   info "Installing to ${BOLD}${dest}${RESET}"
-  if rm -rf "$dest" 2>/dev/null && mv "$src" "$dest" 2>/dev/null; then
-    :
+  # /Applications is usually writable by admins; only escalate if it isn't.
+  if [ -w /Applications ]; then
+    SUDO=""
   else
-    warn "/Applications is not writable — retrying with sudo (you may be prompted)."
-    sudo rm -rf "$dest"
-    sudo mv "$src" "$dest"
+    warn "/Applications is not writable — using sudo (you may be prompted)."
+    SUDO="sudo"
   fi
+  # Stage onto the destination volume first, then swap, so an interrupted copy
+  # across filesystems never leaves you without a working app.
+  staged="/Applications/.$APP_NAME.install.$$"
+  $SUDO rm -rf "$staged" 2>/dev/null || true
+  if ! $SUDO cp -R "$src" "$staged"; then
+    $SUDO rm -rf "$staged" 2>/dev/null || true
+    die "failed to stage $APP_NAME.app in /Applications"
+  fi
+  $SUDO rm -rf "$dest"
+  $SUDO mv "$staged" "$dest"
   printf '%s✓ Installed %s %s%s — open it from /Applications or run: %sopen -a %s%s\n' \
     "$GREEN" "$APP_NAME" "$tag" "$RESET" "$DIM" "$APP_NAME" "$RESET"
 else
   src="$tmp/$BIN_NAME"
   [ -f "$src" ] || die "archive did not contain the '$BIN_NAME' binary"
-  chmod +x "$src"
   dest_dir="${THOTH_INSTALL_DIR:-$HOME/.local/bin}"
   mkdir -p "$dest_dir"
   info "Installing to ${BOLD}${dest_dir}/${BIN_NAME}${RESET}"
-  mv "$src" "$dest_dir/$BIN_NAME"
+  # Stage inside the destination dir (same filesystem), then atomically rename
+  # so a failed copy can't clobber an existing good binary.
+  staged="$dest_dir/.$BIN_NAME.install.$$"
+  if ! cp "$src" "$staged"; then
+    rm -f "$staged" 2>/dev/null || true
+    die "failed to install the '$BIN_NAME' binary to $dest_dir"
+  fi
+  chmod +x "$staged"
+  mv -f "$staged" "$dest_dir/$BIN_NAME"
   printf '%s✓ Installed %s %s%s\n' "$GREEN" "$BIN_NAME" "$tag" "$RESET"
   case ":$PATH:" in
     *":$dest_dir:"*) ;;
