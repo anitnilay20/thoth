@@ -1207,3 +1207,111 @@ impl PluginUiHost for WasmDataSourceLoader {
         WasmDataSourceLoader::has_pending_query(self)
     }
 }
+
+#[cfg(test)]
+mod live_db_tests {
+    use super::*;
+    use crate::plugin::NetworkDeclarations;
+    use crate::plugin::render_node::UiEvent;
+    use crate::settings::PluginNetworkPolicy;
+    use wasmtime::Config;
+
+    /// A `*`-allowlisted policy (matches Seshat's plugin.toml) so the tcp-client
+    /// connect to a local DB is permitted without a consent round-trip.
+    fn wildcard_policy() -> NetworkPolicy {
+        let plugin = NetworkDeclarations {
+            allowed_domains: vec!["*".to_string()],
+            require_https: false,
+            rate_limit_rpm: 120,
+        };
+        let user = PluginNetworkPolicy {
+            allowed_domains: vec!["*".to_string()],
+            blocked_domains: vec![],
+            require_https: false,
+            rate_limit_rpm: 120,
+        };
+        NetworkPolicy::from_plugin_and_settings(&plugin, &user)
+    }
+
+    fn ev(id: &str, value: &str) -> UiEvent {
+        UiEvent {
+            widget_id: id.to_string(),
+            kind: "change".to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    /// End-to-end exercise of the real wasm path against a live Postgres:
+    /// instantiate the bundled Seshat plugin, set the connection, and run a
+    /// `SELECT *` through the data-source `query` export. This proves the
+    /// postgres-protocol codec + SCRAM auth run *inside* wasm (WASI random) and
+    /// that the host tcp-client transport connects for real.
+    ///
+    /// Ignored by default (needs a database). Configure via env and run:
+    ///   SESHAT_PG_HOST=127.0.0.1 SESHAT_PG_PORT=5432 \
+    ///   SESHAT_PG_DB=... SESHAT_PG_USER=... SESHAT_PG_PASSWORD=... \
+    ///   SESHAT_PG_SQL='SELECT * FROM some_table LIMIT 3' \
+    ///   cargo test -p thoth --lib seshat_select_star_live_postgres -- --ignored --nocapture
+    #[test]
+    #[ignore = "requires a live Postgres; configure with SESHAT_PG_* env vars"]
+    fn seshat_select_star_live_postgres() {
+        let (Ok(host), Ok(db), Ok(user), Ok(password)) = (
+            std::env::var("SESHAT_PG_HOST"),
+            std::env::var("SESHAT_PG_DB"),
+            std::env::var("SESHAT_PG_USER"),
+            std::env::var("SESHAT_PG_PASSWORD"),
+        ) else {
+            eprintln!("skipping: set SESHAT_PG_HOST/DB/USER/PASSWORD to run");
+            return;
+        };
+        let port = std::env::var("SESHAT_PG_PORT").unwrap_or_else(|_| "5432".to_string());
+        let sql = std::env::var("SESHAT_PG_SQL").unwrap_or_else(|_| {
+            "SELECT * FROM _prisma_migrations ORDER BY started_at LIMIT 3".to_string()
+        });
+
+        let wasm = Path::new("assets/plugins/seshat/plugin.wasm");
+        assert!(
+            wasm.exists(),
+            "build first (cargo build) so the plugin is bundled"
+        );
+
+        let mut config = Config::new();
+        config.consume_fuel(true);
+        let engine = Engine::new(&config).expect("engine");
+
+        let loader = WasmDataSourceLoader::open(
+            &engine,
+            wasm,
+            wildcard_policy(),
+            "com.thoth.seshat".to_string(),
+            &[],
+        )
+        .expect("open seshat plugin");
+
+        for (id, v) in [
+            ("host", host.as_str()),
+            ("port", port.as_str()),
+            ("database", db.as_str()),
+            ("user", user.as_str()),
+            ("password", password.as_str()),
+        ] {
+            loader
+                .handle_event(ev(id, v))
+                .expect("set connection field");
+        }
+
+        let json = loader.query("seshat", &sql).expect("query failed");
+        let rows: serde_json::Value = serde_json::from_str(&json).expect("rows json");
+        let arr = rows.as_array().expect("expected a JSON array of rows");
+        eprintln!(
+            "seshat live query returned {} row(s):\n{}",
+            arr.len(),
+            serde_json::to_string_pretty(&rows).unwrap()
+        );
+        assert!(!arr.is_empty(), "expected at least one row from `{sql}`");
+        assert!(
+            arr[0].is_object(),
+            "each row should be a {{column: value}} object"
+        );
+    }
+}
