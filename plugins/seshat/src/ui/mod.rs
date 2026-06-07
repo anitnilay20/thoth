@@ -1,33 +1,22 @@
-//! UiNode-DSL view builders for Seshat: the connections manager, the SQL editor,
-//! and the new-connection dialog.
+//! UiNode-DSL view builders. The connections manager, SQL editor, and
+//! new-connection dialog live here; the sidebar view is in [`sidebar`].
+
+pub(crate) mod sidebar;
+pub(crate) use sidebar::build_sidebar;
 
 use serde_json::{json, Value};
 
-use crate::{
-    engine_badge, engine_value, Connection, State, ICON_CARET_LEFT, ICON_DATABASE, ICON_PLAY,
-    ICON_PLUG, ICON_PLUS, ICON_TRASH,
-};
+use crate::state::{engine_badge, engine_value, Connection, State};
+use crate::{ICON_CARET_LEFT, ICON_DATABASE, ICON_PLAY, ICON_PLUG, ICON_PLUS, ICON_TRASH};
 
 /// Root view: connections manager or editor, with the new-connection modal on top.
-pub fn build_ui(st: &State) -> Value {
+pub(crate) fn build_ui(st: &State) -> Value {
     let main = if st.active.is_some() {
         editor_view(st)
     } else {
         connections_view(st)
     };
     json!({ "type": "column", "gap": 0, "children": [ main, dialog(st) ] })
-}
-
-/// Sidebar: a compact list of saved connections.
-pub fn build_sidebar(st: &State) -> Value {
-    json!({
-        "type": "column", "gap": 0, "children": [
-            { "type": "row", "padding": 8, "children": [
-                { "type": "heading", "value": "CONNECTIONS", "panel": true }
-            ]},
-            { "type": "scroll", "id": "sidebar-scroll", "child": connections_list(st, true) }
-        ]
-    })
 }
 
 fn connections_view(st: &State) -> Value {
@@ -40,12 +29,13 @@ fn connections_view(st: &State) -> Value {
                   "value": format!("{saved} saved connection{}", if saved == 1 { "" } else { "s" }) }
             ]},
             { "type": "separator" },
-            { "type": "scroll", "id": "conn-scroll", "child": connections_list(st, false) }
+            { "type": "scroll", "id": "conn-scroll", "child": connections_list(st) }
         ]
     })
 }
 
-fn connections_list(st: &State, _compact: bool) -> Value {
+/// The saved-connections `list` node — shared by the main view and the sidebar.
+pub(crate) fn connections_list(st: &State) -> Value {
     let items: Vec<Value> = st
         .connections
         .iter()
@@ -89,7 +79,7 @@ fn editor_view(st: &State) -> Value {
         "type": "column", "gap": 0, "children": [
             { "type": "row", "padding": 8, "gap": 8, "align": "center", "children": [
                 { "type": "icon-button", "id": "back-to-connections", "icon": ICON_CARET_LEFT,
-                  "tooltip": "Back to connections", "button-size": "medium" },
+                  "tooltip": "Back to connections", "button-size": "Medium" },
                 { "type": "heading", "value": title, "panel": true },
                 { "type": "text", "muted": true, "value": subtitle }
             ]},
@@ -123,7 +113,9 @@ fn results(st: &State) -> Value {
     }
 }
 
-fn dialog(st: &State) -> Value {
+/// The new-connection modal. Shared by the main view and the sidebar (each runs
+/// as its own wasm instance, so each carries its own copy).
+pub(crate) fn dialog(st: &State) -> Value {
     let mut form_children = vec![
         text_input("f-name", "Name", &st.form.name, false, "my-database"),
         json!({

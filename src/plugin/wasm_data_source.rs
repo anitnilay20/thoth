@@ -1371,4 +1371,98 @@ mod live_db_tests {
             "rows should be positional arrays aligned with columns"
         );
     }
+
+    /// Render the connections UI and the opened new-connection modal, and assert
+    /// the host can parse both into `UiNode`. A single bad DSL field would make
+    /// the pane render blank in the app; this catches that without a GUI or DB.
+    #[test]
+    fn seshat_connection_ui_parses() {
+        let wasm = Path::new("assets/plugins/seshat/plugin.wasm");
+        if !wasm.exists() {
+            eprintln!("skipping: build the workspace first so the plugin is bundled");
+            return;
+        }
+        let mut config = Config::new();
+        config.consume_fuel(true);
+        let engine = Engine::new(&config).expect("engine");
+        let loader = WasmDataSourceLoader::open(
+            &engine,
+            wasm,
+            wildcard_policy(),
+            "com.thoth.seshat".to_string(),
+            &[],
+        )
+        .expect("open seshat plugin");
+
+        let parse = |json: &str, what: &str| -> UiNode {
+            serde_json::from_str(json)
+                .unwrap_or_else(|e| panic!("{what} did not parse as UiNode: {e}\n{json}"))
+        };
+
+        // Initial view: connections manager with the modal closed.
+        let initial = loader.render_ui().expect("render_ui");
+        parse(&initial.node_json, "connections view");
+        assert!(
+            initial.node_json.contains("new-connection"),
+            "expected a New-connection button in the connections view"
+        );
+
+        // Sidebar view must also parse (this is where bad enum casing surfaced).
+        let sidebar = loader
+            .render_sidebar()
+            .expect("render_sidebar")
+            .expect("sidebar output");
+        parse(&sidebar.node_json, "sidebar view");
+        assert!(
+            sidebar.node_json.contains("new-connection"),
+            "sidebar should expose a New-connection button"
+        );
+
+        // Click "New connection" → the modal must open and still parse.
+        let opened = loader
+            .handle_event(UiEvent {
+                widget_id: "new-connection".to_string(),
+                kind: "click".to_string(),
+                value: String::new(),
+            })
+            .expect("handle_event(new-connection)");
+        parse(&opened.node_json, "new-connection modal");
+        assert!(
+            opened.node_json.contains("\"type\":\"modal\"")
+                && opened.node_json.contains("\"open\":true"),
+            "clicking New connection should open the modal:\n{}",
+            opened.node_json
+        );
+
+        // Cancel → the modal closes again.
+        let closed = loader
+            .handle_event(UiEvent {
+                widget_id: "dialog-cancel".to_string(),
+                kind: "click".to_string(),
+                value: String::new(),
+            })
+            .expect("handle_event(dialog-cancel)");
+        parse(&closed.node_json, "after cancel");
+        assert!(
+            closed.node_json.contains("\"open\":false"),
+            "Cancel should close the modal"
+        );
+
+        // Connecting activates a connection and switches to the editor view,
+        // which must also parse (covers the editor's icon-button sizing, etc.).
+        let editor = loader
+            .handle_event(UiEvent {
+                widget_id: "dialog-connect".to_string(),
+                kind: "click".to_string(),
+                value: String::new(),
+            })
+            .expect("handle_event(dialog-connect)");
+        parse(&editor.node_json, "editor view");
+        assert!(
+            editor.node_json.contains("code-editor")
+                && editor.node_json.contains("back-to-connections"),
+            "editor view should have a SQL editor and a back button:\n{}",
+            editor.node_json
+        );
+    }
 }
