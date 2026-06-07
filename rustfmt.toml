@@ -4,4 +4,5 @@
 ignore = [
     "plugins/url-source/src/bindings.rs",
     "plugins/csv-loader/src/bindings.rs",
+    "plugins/seshat/src/bindings.rs",
 ]

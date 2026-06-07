@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "plugins/csv-loader", "plugins/url-source"]
+members = [".", "plugins/csv-loader", "plugins/url-source", "plugins/seshat"]
 # Plugins are wasm32 crates built separately with `cargo component build`.
 # default-members restricts `cargo build` / `cargo check` at the workspace
 # root to the host application only, so plugins are not compiled for the
