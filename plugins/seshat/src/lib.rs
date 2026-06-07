@@ -1,10 +1,12 @@
 #[rustfmt::skip]
 mod bindings;
+mod db;
 mod pg;
 mod shim;
 
 use std::cell::RefCell;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use bindings::exports::thoth::plugin::{
@@ -16,6 +18,20 @@ use bindings::exports::thoth::plugin::{
     ui_component::{Guest as UiComponentGuest, UiEvent, UiOutput},
 };
 use bindings::thoth::plugin::{db_runtime, types::Capability};
+use db::Engine;
+
+/// An off-thread operation the host runs via `db-runtime::submit-query`. Encoded
+/// as JSON in the query string so introspection and SQL share one async path.
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+enum Request {
+    Query { sql: String },
+    TestConnection,
+    ListDatabases,
+    ListSchemas,
+    ListTables { schema: String },
+    ListColumns { schema: String, table: String },
+}
 
 struct Seshat;
 
@@ -24,6 +40,7 @@ struct Seshat;
 /// query worker (query), which the host serializes via the Store mutex.
 #[derive(Clone, Default)]
 struct State {
+    engine: Engine,
     host: String,
     port: String,
     database: String,
@@ -41,6 +58,7 @@ struct State {
 impl State {
     fn fresh() -> Self {
         Self {
+            engine: Engine::Postgres,
             host: "localhost".into(),
             port: "5432".into(),
             database: "postgres".into(),
@@ -50,8 +68,8 @@ impl State {
         }
     }
 
-    fn profile(&self) -> pg::Profile {
-        pg::Profile {
+    fn profile(&self) -> db::Profile {
+        db::Profile {
             host: self.host.clone(),
             port: self.port.trim().parse().unwrap_or(5432),
             database: self.database.clone(),
@@ -82,6 +100,13 @@ fn err(code: u32, message: impl Into<String>) -> PluginError {
         code,
         message: message.into(),
     }
+}
+
+/// Serialize an adapter result to a JSON string, mapping both the DB error and
+/// any serialization error into a `PluginError`.
+fn to_json<T: Serialize>(result: Result<T, String>) -> Result<String, PluginError> {
+    let value = result.map_err(|e| err(1, e))?;
+    serde_json::to_string(&value).map_err(|e| err(3, e.to_string()))
 }
 
 // ── meta / lifecycle / settings ─────────────────────────────────────────────
@@ -150,12 +175,27 @@ impl DataSourceGuest for Seshat {
         Ok(Vec::new())
     }
 
-    /// Connect with the current profile, run `q`, return rows as a JSON array.
-    /// Called by the host on a worker thread via db-runtime::submit-query.
+    /// Dispatch one [`Request`] (SQL or introspection) against the current
+    /// profile and return its JSON result. Called by the host on a worker
+    /// thread via db-runtime::submit-query, so blocking DB I/O is off the UI.
     fn query(_handle: String, q: String) -> Result<String, PluginError> {
-        let profile = STATE.with(|s| s.borrow().profile());
-        let rows = pg::run_query(&profile, &q).map_err(|e| err(1, e))?;
-        Ok(rows.to_string())
+        let (profile, engine) = STATE.with(|s| {
+            let st = s.borrow();
+            (st.profile(), st.engine)
+        });
+        let adapter = db::adapter(engine);
+        let req: Request =
+            serde_json::from_str(&q).map_err(|e| err(2, format!("bad request: {e}")))?;
+        match req {
+            Request::Query { sql } => to_json(adapter.run_query(&profile, &sql)),
+            Request::TestConnection => to_json(adapter.test_connection(&profile)),
+            Request::ListDatabases => to_json(adapter.list_databases(&profile)),
+            Request::ListSchemas => to_json(adapter.list_schemas(&profile)),
+            Request::ListTables { schema } => to_json(adapter.list_tables(&profile, &schema)),
+            Request::ListColumns { schema, table } => {
+                to_json(adapter.list_columns(&profile, &schema, &table))
+            }
+        }
     }
 
     fn close(_handle: String) {}
@@ -206,8 +246,12 @@ impl UiComponentGuest for Seshat {
                     "sql" => st.sql = parse_str(&event.value),
                     "run" => {
                         *s.borrow_mut() = st.clone(); // persist before the worker reads STATE
-                        let req = db_runtime::submit_query("seshat", &st.sql);
-                        st.pending_request_id = Some(req);
+                        let req = serde_json::to_string(&Request::Query {
+                            sql: st.sql.clone(),
+                        })
+                        .unwrap_or_default();
+                        let id = db_runtime::submit_query("seshat", &req);
+                        st.pending_request_id = Some(id);
                         st.loading = true;
                         st.result = None;
                     }

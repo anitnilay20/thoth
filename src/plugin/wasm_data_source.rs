@@ -1300,18 +1300,75 @@ mod live_db_tests {
                 .expect("set connection field");
         }
 
-        let json = loader.query("seshat", &sql).expect("query failed");
-        let rows: serde_json::Value = serde_json::from_str(&json).expect("rows json");
-        let arr = rows.as_array().expect("expected a JSON array of rows");
-        eprintln!(
-            "seshat live query returned {} row(s):\n{}",
-            arr.len(),
-            serde_json::to_string_pretty(&rows).unwrap()
-        );
-        assert!(!arr.is_empty(), "expected at least one row from `{sql}`");
+        // Helper: run a Request (the plugin's off-thread op envelope) and parse.
+        let call = |req: serde_json::Value| -> serde_json::Value {
+            let json = loader
+                .query("seshat", &req.to_string())
+                .unwrap_or_else(|e| panic!("query {req} failed: {e:?}"));
+            serde_json::from_str(&json).expect("result json")
+        };
+
+        // test_connection → server version string
+        let version = call(serde_json::json!({"op": "test_connection"}));
+        eprintln!("test_connection: {version}");
         assert!(
-            arr[0].is_object(),
-            "each row should be a {{column: value}} object"
+            version.as_str().unwrap_or_default().contains("PostgreSQL"),
+            "expected a PostgreSQL version banner"
+        );
+
+        // list_schemas → contains the default `public` schema
+        let schemas = call(serde_json::json!({"op": "list_schemas"}));
+        eprintln!("schemas: {schemas}");
+        assert!(
+            schemas
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s.as_str() == Some("public")),
+            "expected a `public` schema"
+        );
+
+        // list_tables(public) → returns {schema,name,kind} objects
+        let tables = call(serde_json::json!({"op": "list_tables", "schema": "public"}));
+        let table_count = tables.as_array().map(|a| a.len()).unwrap_or(0);
+        eprintln!("public has {table_count} table(s)");
+        assert!(table_count > 0, "expected at least one table in public");
+        let first_table = tables.as_array().unwrap()[0]["name"]
+            .as_str()
+            .expect("table name")
+            .to_string();
+
+        // list_columns(public, <first table>) → typed column metadata
+        let columns = call(serde_json::json!({
+            "op": "list_columns", "schema": "public", "table": first_table
+        }));
+        eprintln!("columns of {first_table}: {columns}");
+        assert!(
+            !columns.as_array().unwrap().is_empty(),
+            "expected columns for {first_table}"
+        );
+        assert!(
+            columns.as_array().unwrap()[0].get("data_type").is_some(),
+            "each column should carry a data_type"
+        );
+
+        // query → typed {columns:[{name,type}], rows:[[..]]}
+        let result = call(serde_json::json!({"op": "query", "sql": sql}));
+        eprintln!(
+            "query result:\n{}",
+            serde_json::to_string_pretty(&result).unwrap()
+        );
+        let cols = result["columns"].as_array().expect("columns array");
+        let rows = result["rows"].as_array().expect("rows array");
+        assert!(!cols.is_empty(), "expected typed columns from `{sql}`");
+        assert!(!rows.is_empty(), "expected at least one row from `{sql}`");
+        assert!(
+            cols[0].get("name").is_some() && cols[0].get("type").is_some(),
+            "each column should have a name and type"
+        );
+        assert!(
+            rows[0].is_array(),
+            "rows should be positional arrays aligned with columns"
         );
     }
 }

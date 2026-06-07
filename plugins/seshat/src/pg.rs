@@ -1,10 +1,10 @@
 //! Minimal Postgres client over the host `tcp-client` shim, using the
 //! `postgres-protocol` codec (no async, no std::net). Simple-query protocol
-//! only — enough for the M0 spike (`SELECT 1`) and basic SELECTs.
+//! only — enough for basic SELECTs and introspection.
 //!
 //! Auth supported: trust, cleartext, md5, SCRAM-SHA-256 (the stock `postgres`
-//! default). Values come back in text format and are surfaced as JSON strings
-//! (or null); richer typing lands in later phases.
+//! default). Values arrive in text format and are decoded to native JSON for
+//! the common scalar/json types, falling back to a string otherwise.
 
 use std::io::{Read, Write};
 
@@ -13,24 +13,134 @@ use fallible_iterator::FallibleIterator;
 use postgres_protocol::authentication;
 use postgres_protocol::authentication::sasl::{ChannelBinding, ScramSha256};
 use postgres_protocol::message::{backend, frontend};
-use serde_json::{Map, Value};
+use postgres_protocol::Oid;
+use serde_json::Value;
 
+use crate::db::{Column, ColumnInfo, DbAdapter, Profile, QueryResult, TableInfo};
 use crate::shim::TcpShim;
-
-pub struct Profile {
-    pub host: String,
-    pub port: u16,
-    pub database: String,
-    pub user: String,
-    pub password: String,
-    pub tls: bool,
-}
 
 const READ_CHUNK: usize = 16 * 1024;
 
-/// Connect, run `sql` via the simple-query protocol, return rows as a JSON array
-/// of `{column: value}` objects. Blocking — runs on the host query worker.
-pub fn run_query(p: &Profile, sql: &str) -> Result<Value, String> {
+/// Postgres implementation of [`DbAdapter`].
+pub struct Postgres;
+
+impl DbAdapter for Postgres {
+    fn test_connection(&self, p: &Profile) -> Result<String, String> {
+        let qr = run_query(p, "SELECT version()")?;
+        Ok(qr
+            .rows
+            .first()
+            .and_then(|r| r.first())
+            .and_then(|v| v.as_str())
+            .unwrap_or("connected")
+            .to_string())
+    }
+
+    fn list_databases(&self, p: &Profile) -> Result<Vec<String>, String> {
+        let qr = run_query(
+            p,
+            "SELECT datname FROM pg_database \
+             WHERE datistemplate = false ORDER BY datname",
+        )?;
+        Ok(qr.rows.iter().map(|r| str_at(r, 0)).collect())
+    }
+
+    fn list_schemas(&self, p: &Profile) -> Result<Vec<String>, String> {
+        let qr = run_query(
+            p,
+            "SELECT nspname FROM pg_namespace \
+             WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' \
+             ORDER BY nspname",
+        )?;
+        Ok(qr.rows.iter().map(|r| str_at(r, 0)).collect())
+    }
+
+    fn list_tables(&self, p: &Profile, schema: &str) -> Result<Vec<TableInfo>, String> {
+        let sql = format!(
+            "SELECT table_name, table_type FROM information_schema.tables \
+             WHERE table_schema = {} ORDER BY table_name",
+            quote_literal(schema)
+        );
+        let qr = run_query(p, &sql)?;
+        Ok(qr
+            .rows
+            .iter()
+            .map(|r| TableInfo {
+                schema: schema.to_string(),
+                name: str_at(r, 0),
+                kind: if str_at(r, 1) == "VIEW" {
+                    "view"
+                } else {
+                    "table"
+                }
+                .to_string(),
+            })
+            .collect())
+    }
+
+    fn list_columns(
+        &self,
+        p: &Profile,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<ColumnInfo>, String> {
+        // Join key_column_usage to flag primary-key columns.
+        let sql = format!(
+            "SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, \
+                    (pk.column_name IS NOT NULL) AS is_pk \
+             FROM information_schema.columns c \
+             LEFT JOIN ( \
+               SELECT kcu.column_name \
+               FROM information_schema.table_constraints tc \
+               JOIN information_schema.key_column_usage kcu \
+                 ON kcu.constraint_name = tc.constraint_name \
+                AND kcu.table_schema = tc.table_schema \
+               WHERE tc.constraint_type = 'PRIMARY KEY' \
+                 AND tc.table_schema = {schema} AND tc.table_name = {table} \
+             ) pk ON pk.column_name = c.column_name \
+             WHERE c.table_schema = {schema} AND c.table_name = {table} \
+             ORDER BY c.ordinal_position",
+            schema = quote_literal(schema),
+            table = quote_literal(table)
+        );
+        let qr = run_query(p, &sql)?;
+        Ok(qr
+            .rows
+            .iter()
+            .map(|r| ColumnInfo {
+                name: str_at(r, 0),
+                data_type: str_at(r, 1),
+                nullable: str_at(r, 2) == "YES",
+                default: r.get(3).and_then(|v| v.as_str()).map(String::from),
+                primary_key: bool_at(r, 4),
+            })
+            .collect())
+    }
+
+    fn run_query(&self, p: &Profile, sql: &str) -> Result<QueryResult, String> {
+        run_query(p, sql)
+    }
+}
+
+fn str_at(row: &[Value], i: usize) -> String {
+    row.get(i)
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_default()
+}
+
+fn bool_at(row: &[Value], i: usize) -> bool {
+    row.get(i).and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// Quote a string as a Postgres SQL literal (for `information_schema` filters).
+fn quote_literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Connect, run `sql` via the simple-query protocol, return typed columns + rows.
+/// Blocking — runs on the host query worker.
+pub fn run_query(p: &Profile, sql: &str) -> Result<QueryResult, String> {
     let mut conn = TcpShim::connect(&p.host, p.port, p.tls).map_err(|e| e.to_string())?;
     let mut out = BytesMut::new();
     let mut inbuf = BytesMut::new();
@@ -55,27 +165,38 @@ pub fn run_query(p: &Profile, sql: &str) -> Result<Value, String> {
     frontend::query(sql, &mut out).map_err(|e| e.to_string())?;
     flush(&mut conn, &mut out)?;
 
-    let mut columns: Vec<String> = Vec::new();
-    let mut rows: Vec<Value> = Vec::new();
+    let mut columns: Vec<Column> = Vec::new();
+    let mut oids: Vec<Oid> = Vec::new();
+    let mut rows: Vec<Vec<Value>> = Vec::new();
+    let mut tag: Option<String> = None;
     loop {
         match read_message(&mut conn, &mut inbuf, &mut scratch)? {
             backend::Message::RowDescription(body) => {
-                columns = body
-                    .fields()
-                    .map(|f| Ok(f.name().to_string()))
-                    .collect()
-                    .map_err(|e: std::io::Error| e.to_string())?;
+                columns.clear();
+                oids.clear();
+                let mut fields = body.fields();
+                while let Some(f) = fields.next().map_err(|e: std::io::Error| e.to_string())? {
+                    let oid = f.type_oid();
+                    columns.push(Column {
+                        name: f.name().to_string(),
+                        type_name: type_name(oid),
+                    });
+                    oids.push(oid);
+                }
             }
-            backend::Message::DataRow(body) => rows.push(row_to_json(&columns, &body)?),
+            backend::Message::DataRow(body) => rows.push(row_to_values(&oids, &body)?),
+            backend::Message::CommandComplete(body) => {
+                tag = body.tag().ok().map(|t| t.to_string());
+            }
             backend::Message::ErrorResponse(body) => return Err(error_message(&body)),
             backend::Message::ReadyForQuery(_) => break,
-            _ => {} // CommandComplete, EmptyQueryResponse, NoticeResponse, etc.
+            _ => {} // EmptyQueryResponse, NoticeResponse, ParameterStatus, …
         }
     }
 
     frontend::terminate(&mut out);
     let _ = flush(&mut conn, &mut out);
-    Ok(Value::Array(rows))
+    Ok(QueryResult { columns, rows, tag })
 }
 
 fn authenticate(
@@ -152,22 +273,83 @@ fn scram_auth(
     Ok(())
 }
 
-fn row_to_json(columns: &[String], body: &backend::DataRowBody) -> Result<Value, String> {
+fn row_to_values(oids: &[Oid], body: &backend::DataRowBody) -> Result<Vec<Value>, String> {
     let ranges: Vec<Option<std::ops::Range<usize>>> = body
         .ranges()
         .collect()
         .map_err(|e: std::io::Error| e.to_string())?;
     let buf = body.buffer();
-    let mut obj = Map::new();
+    let mut values = Vec::with_capacity(ranges.len());
     for (i, range) in ranges.into_iter().enumerate() {
-        let name = columns.get(i).cloned().unwrap_or_else(|| i.to_string());
         let value = match range {
-            Some(r) => Value::String(String::from_utf8_lossy(&buf[r]).into_owned()),
+            Some(r) => decode_value(oids.get(i).copied().unwrap_or(0), &buf[r]),
             None => Value::Null,
         };
-        obj.insert(name, value);
+        values.push(value);
     }
-    Ok(Value::Object(obj))
+    Ok(values)
+}
+
+/// Decode a text-format cell to native JSON for the common types; string otherwise.
+fn decode_value(oid: Oid, bytes: &[u8]) -> Value {
+    let text = String::from_utf8_lossy(bytes);
+    match oid {
+        16 => match text.as_ref() {
+            // bool
+            "t" => Value::Bool(true),
+            "f" => Value::Bool(false),
+            _ => Value::String(text.into_owned()),
+        },
+        20 | 21 | 23 | 26 => text // int8/int2/int4/oid
+            .parse::<i64>()
+            .map(Value::from)
+            .unwrap_or_else(|_| Value::String(text.into_owned())),
+        700 | 701 => text // float4/float8
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map(Value::Number)
+            .unwrap_or_else(|| Value::String(text.into_owned())),
+        114 | 3802 => {
+            // json / jsonb — parse so the host can show it as an interactive tree
+            serde_json::from_str(&text).unwrap_or_else(|_| Value::String(text.into_owned()))
+        }
+        _ => Value::String(text.into_owned()),
+    }
+}
+
+/// Human-readable type name for the common Postgres OIDs.
+fn type_name(oid: Oid) -> String {
+    let name = match oid {
+        16 => "bool",
+        17 => "bytea",
+        18 => "char",
+        19 => "name",
+        20 => "int8",
+        21 => "int2",
+        23 => "int4",
+        25 => "text",
+        26 => "oid",
+        114 => "json",
+        142 => "xml",
+        700 => "float4",
+        701 => "float8",
+        790 => "money",
+        869 => "inet",
+        1042 => "bpchar",
+        1043 => "varchar",
+        1082 => "date",
+        1083 => "time",
+        1114 => "timestamp",
+        1184 => "timestamptz",
+        1186 => "interval",
+        1266 => "timetz",
+        1700 => "numeric",
+        2950 => "uuid",
+        3802 => "jsonb",
+        _ => return format!("oid:{oid}"),
+    };
+    name.to_string()
 }
 
 fn error_message(body: &backend::ErrorResponseBody) -> String {
