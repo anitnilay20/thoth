@@ -87,8 +87,17 @@ pub enum ListItemPostfix<'a> {
     /// A full Button. Click is reported via `ListOutput::postfix_clicked`.
     ActionButton(ButtonProps),
     IconButton(IconButtonProps<'a>),
+    /// A row of trailing icon buttons (e.g. edit / delete). The clicked button's
+    /// index is reported via `ListOutput::action_clicked`.
+    IconActions(Vec<ListItemAction<'a>>),
     /// A thin progress bar (0–100). 80 px wide, 4 px tall, `colors.info` fill.
     ProgressBar(u8),
+}
+
+/// One trailing action icon button on a list row.
+pub struct ListItemAction<'a> {
+    pub icon: &'a str,
+    pub tooltip: &'a str,
 }
 
 // ── List item ─────────────────────────────────────────────────────────────────
@@ -129,6 +138,8 @@ pub struct ListOutput {
     pub row_clicked: Option<usize>,
     /// Index of the item whose postfix `ActionButton` was clicked.
     pub postfix_clicked: Option<usize>,
+    /// `(item index, action index)` of the clicked `IconActions` button.
+    pub action_clicked: Option<(usize, usize)>,
 }
 
 pub struct ListProps<'a> {
@@ -166,6 +177,7 @@ impl StatelessComponent for List {
 
         let mut row_clicked: Option<usize> = None;
         let mut postfix_clicked: Option<usize> = None;
+        let mut action_clicked: Option<(usize, usize)> = None;
 
         if props.items.is_empty() {
             ui.add_space(12.0);
@@ -180,6 +192,7 @@ impl StatelessComponent for List {
             return ListOutput {
                 row_clicked,
                 postfix_clicked,
+                action_clicked,
             };
         }
 
@@ -230,6 +243,7 @@ impl StatelessComponent for List {
                     .memory(|m| m.data.get_temp::<bool>(item_id).unwrap_or(false));
 
                 let mut postfix_btn_clicked = false;
+                let mut row_action_clicked: Option<usize> = None;
 
                 // Reserve a paint slot BEFORE the row content so the
                 // background is always drawn behind badges and icons.
@@ -356,6 +370,28 @@ impl StatelessComponent for List {
                                                     );
                                                     if out.clicked {
                                                         postfix_btn_clicked = true;
+                                                    }
+                                                }
+                                                ListItemPostfix::IconActions(actions) => {
+                                                    // right-to-left: iterate reversed so
+                                                    // action[0] ends up leftmost.
+                                                    for (action_idx, action) in
+                                                        actions.iter().enumerate().rev()
+                                                    {
+                                                        ui.add_space(4.0);
+                                                        let out = IconButton::render(
+                                                            ui,
+                                                            IconButtonProps {
+                                                                icon: action.icon,
+                                                                frame: false,
+                                                                tooltip: Some(action.tooltip),
+                                                                size: Some(egui::vec2(22.0, 22.0)),
+                                                                ..Default::default()
+                                                            },
+                                                        );
+                                                        if out.clicked {
+                                                            row_action_clicked = Some(action_idx);
+                                                        }
                                                     }
                                                 }
                                                 ListItemPostfix::ProgressBar(pct) => {
@@ -569,6 +605,8 @@ impl StatelessComponent for List {
 
                 if postfix_btn_clicked {
                     postfix_clicked = Some(idx);
+                } else if let Some(action_idx) = row_action_clicked {
+                    action_clicked = Some((idx, action_idx));
                 } else if is_hovered && ui.input(|i| i.pointer.primary_clicked()) {
                     row_clicked = Some(idx);
                 }
@@ -587,6 +625,7 @@ impl StatelessComponent for List {
         ListOutput {
             row_clicked,
             postfix_clicked,
+            action_clicked,
         }
     }
 }

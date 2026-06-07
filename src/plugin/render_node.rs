@@ -868,7 +868,17 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     prefix: item.icon.as_deref().map(|glyph| {
                         crate::components::common::list::ListItemPrefix::Icon { glyph, color: None }
                     }),
-                    postfix: None,
+                    postfix: (!item.actions.is_empty()).then(|| {
+                        crate::components::common::list::ListItemPostfix::IconActions(
+                            item.actions
+                                .iter()
+                                .map(|a| crate::components::common::list::ListItemAction {
+                                    icon: &a.icon,
+                                    tooltip: &a.tooltip,
+                                })
+                                .collect(),
+                        )
+                    }),
                     badge: item.badge.as_ref().map(|b| {
                         let (bg, fg) = method_badge_colors(b.color.as_str());
                         crate::components::common::list::ListItemBadge {
@@ -903,6 +913,14 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                         widget_id: id.clone(),
                         kind: "click".to_string(),
                         value: row_idx.to_string(),
+                    });
+                }
+                if let Some((row_idx, action_idx)) = output.action_clicked {
+                    events.push(UiEvent {
+                        widget_id: id.clone(),
+                        kind: "action".to_string(),
+                        value: serde_json::json!({ "item": row_idx, "action": action_idx })
+                            .to_string(),
                     });
                 }
             });
