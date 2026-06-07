@@ -127,6 +127,9 @@ struct DataSourcePluginState {
     next_tcp_id: u64,
     // Async query requests raised by the plugin via `db-runtime::submit-query`.
     query_request_tx: std::sync::mpsc::Sender<QueryRequest>,
+    // The query currently executing on the worker thread, so a tcp-client connect
+    // that hits the consent gate can re-enqueue it once the user approves the host.
+    current_query: Option<QueryRequest>,
 }
 
 impl WasiView for DataSourcePluginState {
@@ -393,12 +396,20 @@ impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
                 });
                 let runtime_allowed = self.policy.runtime_allowed_handle();
                 let dom = domain.clone();
+                // On approval, allow the host AND re-run the query that triggered
+                // this connect (same request id), so the user doesn't have to
+                // press Run again. The retry's check_tcp now returns Allowed.
+                let retry_query = self.current_query.clone();
+                let query_tx = self.query_request_tx.clone();
                 ConsentManager::push_http_consent(
                     &domain,
                     &self.plugin_id,
                     Arc::new(move |remember: bool| {
                         if remember && let Ok(mut list) = runtime_allowed.lock() {
                             list.push(dom.clone());
+                        }
+                        if let Some(q) = &retry_query {
+                            let _ = query_tx.send(q.clone());
                         }
                     }),
                     Arc::new(|_| {}),
@@ -635,6 +646,7 @@ impl WasmDataSourceLoader {
             tcp_streams: HashMap::new(),
             next_tcp_id: 1,
             query_request_tx,
+            current_query: None,
         };
 
         let mut store = Store::new(engine, state);
@@ -949,17 +961,24 @@ impl WasmDataSourceLoader {
                 let result: QueryResult = {
                     let mut guard = inner.lock().unwrap_or_else(|e| e.into_inner());
                     let WasmDataSourceInner { store, bindings } = &mut *guard;
-                    match refuel(store) {
+                    // Record the in-flight query so a consent-gated tcp connect can
+                    // re-enqueue it after the user approves the host.
+                    store.data_mut().current_query =
+                        Some((req_id.clone(), handle.clone(), sql.clone()));
+                    let out = match refuel(store) {
                         Err(e) => Err(e.to_string()),
-                        Ok(()) => match bindings
-                            .thoth_plugin_data_source()
-                            .call_query(store, &handle, &sql)
-                        {
+                        Ok(()) => match bindings.thoth_plugin_data_source().call_query(
+                            &mut *store,
+                            &handle,
+                            &sql,
+                        ) {
                             Ok(Ok(json)) => Ok(json),
                             Ok(Err(pe)) => Err(pe.message),
                             Err(e) => Err(e.to_string()),
                         },
-                    }
+                    };
+                    store.data_mut().current_query = None;
+                    out
                 };
                 let _ = tx.send((req_id, result));
             });

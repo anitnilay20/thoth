@@ -33,8 +33,13 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             }
             "action" => {
                 if let Ok(v) = serde_json::from_str::<Value>(&event.value) {
-                    if let Some(i) = v.get("item").and_then(|x| x.as_u64()) {
-                        delete_connection(st, i as usize);
+                    let item = v.get("item").and_then(|x| x.as_u64()).map(|i| i as usize);
+                    let action = v.get("action").and_then(|x| x.as_u64()).unwrap_or(0);
+                    if let Some(i) = item {
+                        match action {
+                            0 => edit_connection(st, i),   // pencil
+                            _ => delete_connection(st, i), // trash
+                        }
                     }
                 }
             }
@@ -60,12 +65,14 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         "f-tls" | "tls" => st.form.tls = serde_json::from_str(&event.value).unwrap_or(false),
 
         "new-connection" => {
+            st.editing = None;
             st.form = Form::default();
             st.test_status = None;
             st.dialog_open = true;
         }
         "dialog-close" | "dialog-cancel" => {
             st.dialog_open = false;
+            st.editing = None;
             st.test_status = None;
         }
         "dialog-test" => {
@@ -111,6 +118,30 @@ fn open_connection(st: &mut State, index: usize) {
     st.result = None;
 }
 
+/// Open the dialog pre-filled with an existing connection, in edit mode.
+fn edit_connection(st: &mut State, index: usize) {
+    let Some(conn) = st.connections.get(index).cloned() else {
+        return;
+    };
+    let password = secure_storage::read(&pw_key(&conn.id))
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    st.form = Form {
+        name: conn.name.clone(),
+        engine: conn.engine,
+        host: conn.host.clone(),
+        port: conn.port.to_string(),
+        database: conn.database.clone(),
+        user: conn.user.clone(),
+        password,
+        tls: conn.tls,
+    };
+    st.editing = Some(conn.id);
+    st.test_status = None;
+    st.dialog_open = true;
+}
+
 fn delete_connection(st: &mut State, index: usize) {
     if index >= st.connections.len() {
         return;
@@ -124,15 +155,21 @@ fn delete_connection(st: &mut State, index: usize) {
     save_state(st);
 }
 
-/// Save the dialog form as a new connection, store its password, and activate it.
+/// Save the dialog form — updating the connection being edited, or creating a
+/// new one — store its password in the keychain, and activate it.
 fn connect_from_form(st: &mut State) {
     let name = if st.form.name.trim().is_empty() {
         st.form.host.clone()
     } else {
         st.form.name.trim().to_string()
     };
-    let id = make_id(&name, &st.connections);
     let profile = st.form.profile();
+
+    // Reuse the existing id when editing; otherwise mint a fresh slug.
+    let id = st
+        .editing
+        .clone()
+        .unwrap_or_else(|| make_id(&name, &st.connections));
     let conn = Connection {
         id: id.clone(),
         name,
@@ -144,11 +181,15 @@ fn connect_from_form(st: &mut State) {
         tls: profile.tls,
     };
     let _ = secure_storage::write(&pw_key(&id), &st.form.password);
-    st.connections.push(conn);
+    match st.connections.iter_mut().find(|c| c.id == id) {
+        Some(existing) => *existing = conn,
+        None => st.connections.push(conn),
+    }
     save_state(st);
 
     st.active_profile = Some(profile);
     st.active = Some(id);
+    st.editing = None;
     st.dialog_open = false;
     st.test_status = None;
     st.result = None;
@@ -161,7 +202,6 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
     if req_id != event.widget_id {
         return;
     }
-    st.pending = None;
     let parsed: Value = serde_json::from_str(&event.value).unwrap_or_default();
     let ok = parsed.get("ok");
     let err = parsed
@@ -169,6 +209,22 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
         .and_then(|e| e.get("message"))
         .and_then(|m| m.as_str())
         .map(String::from);
+
+    // Host-gated connect: the request stays pending so the consent-approved
+    // re-run (delivered under the same request id) still matches. Just surface a
+    // "waiting" note rather than a hard error.
+    if ok.is_none() && err.as_deref().is_some_and(|m| m.contains("consent")) {
+        match kind {
+            Kind::Test => st.test_status = Some(Ok("Waiting for host approval…".to_string())),
+            Kind::Query => {
+                st.loading = false;
+                st.result = Some(Err("Waiting for host approval…".to_string()));
+            }
+        }
+        return; // keep st.pending set for the re-run
+    }
+
+    st.pending = None;
 
     match kind {
         Kind::Test => {

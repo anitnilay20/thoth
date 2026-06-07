@@ -7,7 +7,9 @@ pub(crate) use sidebar::build_sidebar;
 use serde_json::{json, Value};
 
 use crate::state::{engine_badge, engine_value, Connection, State};
-use crate::{ICON_CARET_LEFT, ICON_DATABASE, ICON_PLAY, ICON_PLUG, ICON_PLUS, ICON_TRASH};
+use crate::{
+    ICON_CARET_LEFT, ICON_DATABASE, ICON_PENCIL, ICON_PLAY, ICON_PLUG, ICON_PLUS, ICON_TRASH,
+};
 
 /// Root view: connections manager or editor, with the new-connection modal on top.
 pub(crate) fn build_ui(st: &State) -> Value {
@@ -61,7 +63,10 @@ fn connection_item(c: &Connection, active: bool) -> Value {
         "description": c.summary(),
         "icon": ICON_DATABASE,
         "badge": badge,
-        "actions": [ { "icon": ICON_TRASH, "tooltip": "Delete connection" } ]
+        "actions": [
+            { "icon": ICON_PENCIL, "tooltip": "Edit connection" },
+            { "icon": ICON_TRASH, "tooltip": "Delete connection" }
+        ]
     })
 }
 
@@ -154,16 +159,23 @@ pub(crate) fn dialog(st: &State) -> Value {
         }));
     }
 
+    let editing = st.editing.is_some();
+    let (title, connect_label) = if editing {
+        ("Edit connection", "Save")
+    } else {
+        ("New connection", "Connect")
+    };
+
     form_children.push(json!({ "type": "row", "gap": 8, "align": "center", "children": [
         button("dialog-test", "Test connection", "Text", "Default", Some(ICON_PLUG), true, false),
         button("dialog-cancel", "Cancel", "Text", "Default", None, true, false),
-        button("dialog-connect", "Connect", "Elevated", "Primary", Some(ICON_PLUG), true, false)
+        button("dialog-connect", connect_label, "Elevated", "Primary", Some(ICON_PLUG), true, false)
     ]}));
 
     json!({
         "type": "modal",
         "id": "new-connection-dialog",
-        "title": "New connection",
+        "title": title,
         "open": st.dialog_open,
         "close-id": "dialog-close",
         "width-pct": 0.5,

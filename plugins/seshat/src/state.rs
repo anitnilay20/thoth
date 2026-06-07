@@ -106,8 +106,10 @@ pub(crate) struct State {
     /// In-memory profile (incl. password) used by `query`. Falls back to `form`.
     pub active_profile: Option<db::Profile>,
 
-    // new-connection dialog
+    // new/edit-connection dialog
     pub dialog_open: bool,
+    /// `Some(id)` while editing an existing connection; `None` while creating.
+    pub editing: Option<String>,
     pub form: Form,
     pub test_status: Option<Result<String, String>>,
 
