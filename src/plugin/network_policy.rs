@@ -158,9 +158,10 @@ impl NetworkPolicy {
         if host.is_empty() {
             return Err(PolicyViolation::InvalidUrl("empty host".to_string()));
         }
-        if self.is_rate_limited() {
-            return Err(PolicyViolation::RateLimitExceeded);
-        }
+        // No rate limiting for TCP: a database client opens a fresh connection
+        // per operation (every query, plus each schema-introspection call), so a
+        // per-minute connect cap would reject ordinary use. The security boundary
+        // for TCP is the host allowlist + per-host consent below, not a rate cap.
         if self.is_blocked(host) {
             return Err(PolicyViolation::UserBlocked);
         }
