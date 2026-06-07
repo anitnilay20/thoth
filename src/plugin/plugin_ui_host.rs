@@ -142,4 +142,16 @@ pub trait PluginUiHost: Send {
     fn has_pending_http(&self) -> bool {
         false
     }
+
+    // ── async DB queries (only data-source implements; defaults are no-ops) ──────
+
+    /// Drain queued `submit-query` requests and run each on a worker thread.
+    fn pump_queries(&self) {}
+    /// Drain completed query results: `(request_id, Ok(rows-json) | Err(message))`.
+    fn drain_query_results(&self) -> Vec<(String, std::result::Result<String, String>)> {
+        Vec::new()
+    }
+    fn has_pending_query(&self) -> bool {
+        false
+    }
 }

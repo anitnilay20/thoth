@@ -74,6 +74,18 @@ fn next_tab_request_id() -> String {
     )
 }
 
+fn next_query_request_id() -> String {
+    format!(
+        "q-{}",
+        REQUEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
+
+/// A query the plugin asked the host to run async: (request-id, handle, sql).
+type QueryRequest = (String, String, String);
+/// Result of an async query: rows-JSON on success, message on failure.
+pub type QueryResult = std::result::Result<String, String>;
+
 // ── tcp-client (host-terminated TLS) ────────────────────────────────────────
 
 /// Connect/read/write timeouts for the `tcp-client` import. A blocking read on a
@@ -113,6 +125,8 @@ struct DataSourcePluginState {
     // Open TCP/TLS streams from the `tcp-client` import, keyed by an opaque id.
     tcp_streams: HashMap<u64, Box<dyn ReadWrite>>,
     next_tcp_id: u64,
+    // Async query requests raised by the plugin via `db-runtime::submit-query`.
+    query_request_tx: std::sync::mpsc::Sender<QueryRequest>,
 }
 
 impl WasiView for DataSourcePluginState {
@@ -500,6 +514,16 @@ impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
     }
 }
 
+// ── db-runtime WIT import — schedule async queries ──────────────────────────
+
+impl thoth::plugin::db_runtime::Host for DataSourcePluginState {
+    fn submit_query(&mut self, handle: String, q: String) -> String {
+        let req_id = next_query_request_id();
+        let _ = self.query_request_tx.send((req_id.clone(), handle, q));
+        req_id
+    }
+}
+
 // ── reqwest bridge ────────────────────────────────────────────────────────────
 
 fn execute_http_request(
@@ -548,7 +572,8 @@ struct WasmDataSourceInner {
 }
 
 pub struct WasmDataSourceLoader {
-    inner: Mutex<WasmDataSourceInner>,
+    /// `Arc<Mutex>` so async query workers can own the Store off the UI thread.
+    inner: Arc<Mutex<WasmDataSourceInner>>,
     consent_rx: std::sync::mpsc::Receiver<ConsentRequest>,
     /// Receives completed async HTTP results submitted via `submit()`.
     http_rx: std::sync::mpsc::Receiver<(String, HttpCallResult)>,
@@ -558,6 +583,14 @@ pub struct WasmDataSourceLoader {
     pending_count: Arc<AtomicUsize>,
     /// Receives tab-open requests raised by the plugin via the `ui-tabs` import.
     tab_rx: std::sync::mpsc::Receiver<TabOpenRequest>,
+    /// Receives async query requests from `db-runtime::submit-query`.
+    query_request_rx: std::sync::mpsc::Receiver<QueryRequest>,
+    /// Cloned into each spawned query worker to deliver its result.
+    query_result_tx: std::sync::mpsc::Sender<(String, QueryResult)>,
+    /// Receives completed async query results.
+    query_result_rx: std::sync::mpsc::Receiver<(String, QueryResult)>,
+    /// In-flight async queries (for repaint-while-pending).
+    query_pending: Arc<AtomicUsize>,
     plugin_id: String,
 }
 
@@ -582,7 +615,11 @@ impl WasmDataSourceLoader {
         let (retry_tx, retry_rx) =
             std::sync::mpsc::channel::<(String, thoth::plugin::http_client::HttpRequest)>();
         let (tab_tx, tab_rx) = std::sync::mpsc::channel::<TabOpenRequest>();
+        let (query_request_tx, query_request_rx) = std::sync::mpsc::channel::<QueryRequest>();
+        let (query_result_tx, query_result_rx) =
+            std::sync::mpsc::channel::<(String, QueryResult)>();
         let pending_count = Arc::new(AtomicUsize::new(0));
+        let query_pending = Arc::new(AtomicUsize::new(0));
         let retry_tx_shared = Arc::new(Mutex::new(retry_tx));
 
         let state = DataSourcePluginState {
@@ -597,6 +634,7 @@ impl WasmDataSourceLoader {
             tab_tx,
             tcp_streams: HashMap::new(),
             next_tcp_id: 1,
+            query_request_tx,
         };
 
         let mut store = Store::new(engine, state);
@@ -659,6 +697,14 @@ impl WasmDataSourceLoader {
             },
         )?;
 
+        // 6. Register the db-runtime import (async query scheduling).
+        thoth::plugin::db_runtime::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+
         let bindings =
             DataSourcePlugin::instantiate(&mut store, &component, &linker).map_err(|e| {
                 ThothError::PluginLoadError {
@@ -668,12 +714,16 @@ impl WasmDataSourceLoader {
             })?;
 
         let mut loader = Self {
-            inner: Mutex::new(WasmDataSourceInner { store, bindings }),
+            inner: Arc::new(Mutex::new(WasmDataSourceInner { store, bindings })),
             consent_rx,
             http_rx,
             retry_rx,
             pending_count,
             tab_rx,
+            query_request_rx,
+            query_result_tx,
+            query_result_rx,
+            query_pending,
             plugin_id,
         };
 
@@ -886,6 +936,51 @@ impl WasmDataSourceLoader {
         out
     }
 
+    /// Drain queued `submit-query` requests and run each on its own worker thread,
+    /// which owns the Store (via the shared `Arc<Mutex>`) for the query's duration —
+    /// so a blocking DB query runs off the UI thread. Results are delivered via
+    /// `drain_query_results`. Call once per poll.
+    pub fn pump_queries(&self) {
+        while let Ok((req_id, handle, sql)) = self.query_request_rx.try_recv() {
+            let inner = Arc::clone(&self.inner);
+            let tx = self.query_result_tx.clone();
+            self.query_pending.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                let result: QueryResult = {
+                    let mut guard = inner.lock().unwrap_or_else(|e| e.into_inner());
+                    let WasmDataSourceInner { store, bindings } = &mut *guard;
+                    match refuel(store) {
+                        Err(e) => Err(e.to_string()),
+                        Ok(()) => match bindings
+                            .thoth_plugin_data_source()
+                            .call_query(store, &handle, &sql)
+                        {
+                            Ok(Ok(json)) => Ok(json),
+                            Ok(Err(pe)) => Err(pe.message),
+                            Err(e) => Err(e.to_string()),
+                        },
+                    }
+                };
+                let _ = tx.send((req_id, result));
+            });
+        }
+    }
+
+    /// Non-blocking drain of completed async query results: `(request_id, result)`.
+    pub fn drain_query_results(&self) -> Vec<(String, QueryResult)> {
+        let mut out = Vec::new();
+        while let Ok(item) = self.query_result_rx.try_recv() {
+            self.query_pending.fetch_sub(1, Ordering::Relaxed);
+            out.push(item);
+        }
+        out
+    }
+
+    /// True while at least one async query is still running.
+    pub fn has_pending_query(&self) -> bool {
+        self.query_pending.load(Ordering::Relaxed) > 0
+    }
+
     /// Non-blocking drain of retry requests enqueued by consent callbacks.
     /// Each entry is `(original_request_id, request)`. The host should re-dispatch
     /// these on a background thread (bypassing the policy check since user approved)
@@ -977,7 +1072,11 @@ impl WasmDataSourceLoader {
     }
 
     fn call_tab_lifecycle(&self, which: u8) {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        // Best-effort: skip if a query worker currently owns the Store, so e.g.
+        // switching tabs during a running query never blocks the UI thread.
+        let Ok(mut guard) = self.inner.try_lock() else {
+            return;
+        };
         let WasmDataSourceInner { store, bindings } = &mut *guard;
         if refuel(store).is_err() {
             return;
@@ -1094,5 +1193,17 @@ impl PluginUiHost for WasmDataSourceLoader {
 
     fn has_pending_http(&self) -> bool {
         WasmDataSourceLoader::has_pending_http(self)
+    }
+
+    fn pump_queries(&self) {
+        WasmDataSourceLoader::pump_queries(self)
+    }
+
+    fn drain_query_results(&self) -> Vec<(String, QueryResult)> {
+        WasmDataSourceLoader::drain_query_results(self)
+    }
+
+    fn has_pending_query(&self) -> bool {
+        WasmDataSourceLoader::has_pending_query(self)
     }
 }

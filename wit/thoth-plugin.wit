@@ -337,6 +337,29 @@ interface secure-storage {
 
 
 // ---------------------------------------------------------------------------
+// db-runtime — host-provided async executor for blocking database queries.
+//
+// A DB driver in the plugin blocks on tcp-client reads while a query runs. If
+// that ran inline in handle-event it would block the UI thread. Instead the
+// plugin calls submit-query, which returns immediately; the host runs the
+// plugin's own data-source `query(handle, q)` export on a worker thread (off the
+// UI thread) and delivers the result asynchronously via handle-event:
+//   widget-id = <request-id>
+//   kind      = "query-result"
+//   value     = JSON {"ok": <rows-json-string>} or {"err": {"message": "..."}}
+//
+// Mirrors http-client.submit. Keep the UI responsive: store the request-id, set
+// a loading flag, return a spinner UI; render the result when the event fires.
+// ---------------------------------------------------------------------------
+
+interface db-runtime {
+    /// Schedule `query(handle, q)` to run on a host worker thread. Returns a
+    /// request-id used to correlate the later "query-result" handle-event.
+    submit-query: func(handle: string, q: string) -> string;
+}
+
+
+// ---------------------------------------------------------------------------
 // data-source — implement when capability = data-source
 //
 // Connects Thoth to an external system: REST API, database, message queue,
@@ -690,6 +713,7 @@ world data-source-plugin {
     import ui-tabs;
     import tcp-client;
     import secure-storage;
+    import db-runtime;
     export data-source;
     export ui-component;
     export tab-host;
