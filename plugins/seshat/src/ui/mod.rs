@@ -6,9 +6,10 @@ pub(crate) use sidebar::build_sidebar;
 
 use serde_json::{json, Value};
 
-use crate::state::{engine_badge, engine_value, Connection, State};
+use crate::state::{engine_badge, engine_value, Connection, SchemaNode, State};
 use crate::{
-    ICON_CARET_LEFT, ICON_DATABASE, ICON_PENCIL, ICON_PLAY, ICON_PLUG, ICON_PLUS, ICON_TRASH,
+    ICON_CARET_DOWN, ICON_CARET_LEFT, ICON_CARET_RIGHT, ICON_DATABASE, ICON_PENCIL, ICON_PLAY,
+    ICON_PLUG, ICON_PLUS, ICON_TRASH,
 };
 
 /// Root view: connections manager or editor, with the new-connection modal on top.
@@ -89,14 +90,112 @@ fn editor_view(st: &State) -> Value {
                 { "type": "text", "muted": true, "value": subtitle }
             ]},
             { "type": "separator" },
-            { "type": "code-editor", "id": "sql", "value": st.sql },
-            { "type": "row", "padding": 8, "gap": 8, "children": [
-                button("run", "Run", "Elevated", "Primary", Some(ICON_PLAY), !st.loading, false)
-            ]},
-            { "type": "separator" },
-            { "type": "scroll", "id": "results-scroll", "child": results(st) }
+            { "type": "split", "widths": [1.0, 3.0], "separator": true, "children": [
+                { "type": "scroll", "id": "schema-scroll", "child": schema_panel(st) },
+                { "type": "column", "gap": 0, "children": [
+                    { "type": "code-editor", "id": "sql", "value": st.sql },
+                    { "type": "row", "padding": 8, "gap": 8, "children": [
+                        button("run", "Run", "Elevated", "Primary", Some(ICON_PLAY), !st.loading, false)
+                    ]},
+                    { "type": "separator" },
+                    { "type": "scroll", "id": "results-scroll", "child": results(st) }
+                ]}
+            ]}
         ]
     })
+}
+
+// ── schema browser tree ───────────────────────────────────────────────────────
+
+fn schema_panel(st: &State) -> Value {
+    let mut nodes = vec![json!({ "type": "row", "padding": 4, "children": [
+        { "type": "heading", "value": "SCHEMA", "panel": true }
+    ]})];
+
+    if let Some(e) = &st.schema_error {
+        nodes.push(json!({ "type": "colored", "color": "#f38ba8",
+            "child": { "type": "text", "value": e, "size": "sm" } }));
+    }
+    if st.schemas.is_empty() && st.schema_error.is_none() {
+        nodes.push(muted("Loading schemas…"));
+    }
+
+    for (i, sch) in st.schemas.iter().enumerate() {
+        nodes.push(
+            json!({ "type": "row", "gap": 4, "align": "center", "children": [
+                caret(&format!("sch:{i}"), sch.expanded),
+                { "type": "text", "value": sch.name }
+            ]}),
+        );
+        if sch.expanded {
+            nodes.push(indent(schema_children(i, sch)));
+        }
+    }
+
+    json!({ "type": "column", "gap": 2, "children": nodes })
+}
+
+fn schema_children(i: usize, sch: &SchemaNode) -> Vec<Value> {
+    let Some(tables) = &sch.tables else {
+        return vec![muted("Loading…")];
+    };
+    if tables.is_empty() {
+        return vec![muted("(no tables)")];
+    }
+    let mut rows = Vec::new();
+    for (j, tbl) in tables.iter().enumerate() {
+        // caret toggles columns; clicking the name prefills a SELECT.
+        let mut row_children = vec![
+            caret(&format!("tbl:{i}:{j}"), tbl.expanded),
+            button(
+                &format!("use:{i}:{j}"),
+                &tbl.name,
+                "Text",
+                "Default",
+                None,
+                true,
+                false,
+            ),
+        ];
+        if tbl.kind == "view" {
+            row_children.push(muted("view"));
+        }
+        rows.push(json!({ "type": "row", "gap": 4, "align": "center", "children": row_children }));
+        if tbl.expanded {
+            let cols = match &tbl.columns {
+                None => vec![muted("Loading…")],
+                Some(cols) if cols.is_empty() => vec![muted("(no columns)")],
+                Some(cols) => cols
+                    .iter()
+                    .map(|c| {
+                        let pk = if c.primary_key { "  ·  PK" } else { "" };
+                        muted(&format!("{}  {}{}", c.name, c.data_type, pk))
+                    })
+                    .collect(),
+            };
+            rows.push(indent(cols));
+        }
+    }
+    rows
+}
+
+fn caret(id: &str, expanded: bool) -> Value {
+    json!({
+        "type": "icon-button", "id": id,
+        "icon": if expanded { ICON_CARET_DOWN } else { ICON_CARET_RIGHT },
+        "frame": false, "button-size": "Small"
+    })
+}
+
+/// Indent a block of tree rows by wrapping them in a small left-padded column.
+fn indent(children: Vec<Value>) -> Value {
+    json!({ "type": "row", "padding": 8, "children": [
+        { "type": "column", "gap": 2, "children": children }
+    ]})
+}
+
+fn muted(text: &str) -> Value {
+    json!({ "type": "text", "value": text, "muted": true, "size": "sm" })
 }
 
 fn results(st: &State) -> Value {

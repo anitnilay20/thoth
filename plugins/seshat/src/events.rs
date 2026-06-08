@@ -5,10 +5,10 @@ use serde_json::Value;
 
 use crate::bindings::exports::thoth::plugin::ui_component::UiEvent;
 use crate::bindings::thoth::plugin::{secure_storage, ui_tabs};
-use crate::db;
+use crate::db::{self, ColumnInfo, TableInfo};
 use crate::state::{
     default_port, engine_from_value, make_id, pw_key, save_state, submit, Connection, Form, Kind,
-    Request, State,
+    Request, SchemaNode, State, TableNode,
 };
 
 /// Parse a widget value that may be a JSON-encoded string or a bare string.
@@ -88,6 +88,26 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             st.active = None;
             st.active_profile = None;
             st.result = None;
+            st.schemas.clear();
+            st.schema_loaded = false;
+            st.schema_error = None;
+        }
+        // Schema-tree rows: "sch:<i>" toggles a schema, "tbl:<i>:<j>" a table,
+        // "use:<i>:<j>" prefills a SELECT for that table.
+        id if id.starts_with("sch:") => {
+            if let Ok(i) = id[4..].parse::<usize>() {
+                toggle_schema(st, i);
+            }
+        }
+        id if id.starts_with("tbl:") => {
+            if let Some((i, j)) = parse_pair(&id[4..]) {
+                toggle_table(st, i, j);
+            }
+        }
+        id if id.starts_with("use:") => {
+            if let Some((i, j)) = parse_pair(&id[4..]) {
+                use_table(st, i, j);
+            }
         }
         "sql" => st.sql = parse_str(&event.value),
         "run" if !st.loading => {
@@ -124,6 +144,81 @@ fn activate_connection(st: &mut State, conn: &Connection) {
     });
     st.active = Some(conn.id.clone());
     st.result = None;
+    st.schemas.clear();
+    st.schema_loaded = false;
+    st.schema_error = None;
+    load_schemas(st);
+}
+
+// ── schema browser ────────────────────────────────────────────────────────────
+
+fn parse_pair(s: &str) -> Option<(usize, usize)> {
+    let (a, b) = s.split_once(':')?;
+    Some((a.parse().ok()?, b.parse().ok()?))
+}
+
+/// Kick off the schema list for the active connection (once).
+fn load_schemas(st: &mut State) {
+    if st.schema_loaded {
+        return;
+    }
+    st.schema_loaded = true;
+    st.schema_error = None;
+    submit(&Request::ListSchemas, Kind::Schemas, st);
+}
+
+fn toggle_schema(st: &mut State, i: usize) {
+    let Some(sch) = st.schemas.get_mut(i) else {
+        return;
+    };
+    sch.expanded = !sch.expanded;
+    let need_load = sch.expanded && sch.tables.is_none();
+    let schema = sch.name.clone();
+    if need_load {
+        submit(
+            &Request::ListTables {
+                schema: schema.clone(),
+            },
+            Kind::Tables { schema },
+            st,
+        );
+    }
+}
+
+fn toggle_table(st: &mut State, i: usize, j: usize) {
+    let Some(sch) = st.schemas.get_mut(i) else {
+        return;
+    };
+    let schema = sch.name.clone();
+    let Some(tbl) = sch.tables.as_mut().and_then(|t| t.get_mut(j)) else {
+        return;
+    };
+    tbl.expanded = !tbl.expanded;
+    let need_load = tbl.expanded && tbl.columns.is_none();
+    let table = tbl.name.clone();
+    if need_load {
+        submit(
+            &Request::ListColumns {
+                schema: schema.clone(),
+                table: table.clone(),
+            },
+            Kind::Columns { schema, table },
+            st,
+        );
+    }
+}
+
+/// Prefill the editor with a `SELECT *` for the chosen table.
+fn use_table(st: &mut State, i: usize, j: usize) {
+    let target = st.schemas.get(i).and_then(|sch| {
+        sch.tables
+            .as_ref()
+            .and_then(|t| t.get(j))
+            .map(|tbl| (sch.name.clone(), tbl.name.clone()))
+    });
+    if let Some((schema, table)) = target {
+        st.sql = format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;");
+    }
 }
 
 /// Seed this instance from a tab's initial-state blob (`{connection, sql?}`).
@@ -222,12 +317,10 @@ fn connect_from_form(st: &mut State) {
 }
 
 fn handle_query_result(st: &mut State, event: &UiEvent) {
-    let Some((req_id, kind)) = st.pending.clone() else {
+    let Some(pos) = st.pending.iter().position(|(id, _)| id == &event.widget_id) else {
         return;
     };
-    if req_id != event.widget_id {
-        return;
-    }
+    let kind = st.pending[pos].1.clone();
     let parsed: Value = serde_json::from_str(&event.value).unwrap_or_default();
     let ok = parsed.get("ok");
     let err = parsed
@@ -240,17 +333,18 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
     // re-run (delivered under the same request id) still matches. Just surface a
     // "waiting" note rather than a hard error.
     if ok.is_none() && err.as_deref().is_some_and(|m| m.contains("consent")) {
-        match kind {
+        match &kind {
             Kind::Test => st.test_status = Some(Ok("Waiting for host approval…".to_string())),
             Kind::Query => {
                 st.loading = false;
                 st.result = Some(Err("Waiting for host approval…".to_string()));
             }
+            _ => {} // schema introspection: wait silently for approval
         }
-        return; // keep st.pending set for the re-run
+        return; // keep the request pending for the re-run
     }
 
-    st.pending = None;
+    st.pending.remove(pos);
 
     match kind {
         Kind::Test => {
@@ -268,6 +362,65 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                 (None, Some(m)) => Err(m),
                 _ => Err("query failed".into()),
             });
+        }
+        Kind::Schemas => match (ok, err) {
+            (Some(v), _) => {
+                let names: Vec<String> = decode_inner(v)
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                st.schemas = names
+                    .into_iter()
+                    .map(|name| SchemaNode {
+                        name,
+                        expanded: false,
+                        tables: None,
+                    })
+                    .collect();
+                st.schema_error = None;
+            }
+            (None, m) => {
+                st.schema_error = Some(m.unwrap_or_else(|| "failed to list schemas".into()))
+            }
+        },
+        Kind::Tables { schema } => {
+            let tables: Vec<TableInfo> = ok
+                .map(|v| serde_json::from_value(decode_inner(v)).unwrap_or_default())
+                .unwrap_or_default();
+            if let Some(node) = st.schemas.iter_mut().find(|s| s.name == schema) {
+                node.tables = Some(
+                    tables
+                        .into_iter()
+                        .map(|t| TableNode {
+                            name: t.name,
+                            kind: t.kind,
+                            expanded: false,
+                            columns: None,
+                        })
+                        .collect(),
+                );
+            }
+            if let Some(m) = err {
+                st.schema_error = Some(m);
+            }
+        }
+        Kind::Columns { schema, table } => {
+            let cols: Vec<ColumnInfo> = ok
+                .map(|v| serde_json::from_value(decode_inner(v)).unwrap_or_default())
+                .unwrap_or_default();
+            if let Some(node) = st
+                .schemas
+                .iter_mut()
+                .find(|s| s.name == schema)
+                .and_then(|s| s.tables.as_mut())
+                .and_then(|ts| ts.iter_mut().find(|t| t.name == table))
+            {
+                node.columns = Some(cols);
+            }
         }
     }
 }

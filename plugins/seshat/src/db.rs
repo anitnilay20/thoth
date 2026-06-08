@@ -49,7 +49,7 @@ pub struct QueryResult {
 }
 
 /// A table or view within a schema.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TableInfo {
     pub schema: String,
     pub name: String,
@@ -58,12 +58,12 @@ pub struct TableInfo {
 }
 
 /// One column of a table (schema introspection — distinct from a result [`Column`]).
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
     pub nullable: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
     pub primary_key: bool,
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::bindings::thoth::plugin::{db_runtime, plugin_storage};
-use crate::db::{self, Engine};
+use crate::db::{self, ColumnInfo, Engine};
 
 // ── connection + form models ──────────────────────────────────────────────────
 
@@ -89,10 +89,31 @@ impl Form {
 }
 
 /// What a pending async request will produce, so `query-result` can be routed.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub(crate) enum Kind {
     Query,
     Test,
+    Schemas,
+    Tables { schema: String },
+    Columns { schema: String, table: String },
+}
+
+/// A schema node in the browser tree (tables loaded lazily on expand).
+#[derive(Clone)]
+pub(crate) struct SchemaNode {
+    pub name: String,
+    pub expanded: bool,
+    /// `None` until the tables have been fetched.
+    pub tables: Option<Vec<TableNode>>,
+}
+
+/// A table/view node (columns loaded lazily on expand).
+#[derive(Clone)]
+pub(crate) struct TableNode {
+    pub name: String,
+    pub kind: String,
+    pub expanded: bool,
+    pub columns: Option<Vec<ColumnInfo>>,
 }
 
 // ── runtime state ─────────────────────────────────────────────────────────────
@@ -116,8 +137,15 @@ pub(crate) struct State {
     // SQL editor / results
     pub sql: String,
     pub loading: bool,
-    pub pending: Option<(String, Kind)>,
+    /// In-flight async requests: `(request-id, kind)`. A Vec because schema
+    /// introspection can run concurrently with (and alongside) a query.
+    pub pending: Vec<(String, Kind)>,
     pub result: Option<Result<Value, String>>,
+
+    // schema browser (editor-tab instance)
+    pub schema_loaded: bool,
+    pub schema_error: Option<String>,
+    pub schemas: Vec<SchemaNode>,
 }
 
 impl State {
@@ -256,5 +284,5 @@ pub(crate) enum Request {
 pub(crate) fn submit(req: &Request, kind: Kind, st: &mut State) {
     let payload = serde_json::to_string(req).unwrap_or_default();
     let id = db_runtime::submit_query("seshat", &payload);
-    st.pending = Some((id, kind));
+    st.pending.push((id, kind));
 }
