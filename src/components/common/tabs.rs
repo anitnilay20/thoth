@@ -85,6 +85,8 @@ impl StatelessComponent for Tabs {
                                     tooltip: Some(item.label),
                                     selected: is_active,
                                     frame: false,
+                                    size: Some(egui::vec2(34.0, 30.0)),
+                                    icon_size: Some(18.0),
                                     ..Default::default()
                                 },
                             );

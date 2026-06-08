@@ -25,12 +25,23 @@ pub(crate) fn build_sidebar(st: &State) -> Value {
                     { "id": "new-connection", "icon": ICON_PLUS, "tooltip": "New connection" }
                 ],
                 "children": [
-                    connections_list(st),
-                    schema_panel(st),
-                    history_list(st)
+                    section("CONNECTIONS", connections_list(st)),
+                    section("SCHEMA", schema_panel(st)),
+                    section("HISTORY", history_list(st))
                 ]
             },
             dialog(st)
         ]
     })
+}
+
+/// Wrap a tab's body with a sidebar panel header and a divider.
+fn section(title: &str, body: Value) -> Value {
+    json!({ "type": "column", "gap": 0, "children": [
+        { "type": "row", "padding": 6, "children": [
+            { "type": "heading", "value": title, "panel": true }
+        ]},
+        { "type": "separator" },
+        body
+    ]})
 }
