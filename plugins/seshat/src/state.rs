@@ -116,6 +116,13 @@ pub(crate) struct TableNode {
     pub columns: Option<Vec<ColumnInfo>>,
 }
 
+/// One past query, shown in the History tab.
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct HistoryEntry {
+    pub connection: String,
+    pub sql: String,
+}
+
 // ── runtime state ─────────────────────────────────────────────────────────────
 
 #[derive(Default)]
@@ -142,10 +149,13 @@ pub(crate) struct State {
     pub pending: Vec<(String, Kind)>,
     pub result: Option<Result<Value, String>>,
 
-    // schema browser (editor-tab instance)
+    // schema browser
     pub schema_loaded: bool,
     pub schema_error: Option<String>,
     pub schemas: Vec<SchemaNode>,
+
+    // query history (persisted; newest last)
+    pub history: Vec<HistoryEntry>,
 }
 
 impl State {
@@ -217,33 +227,74 @@ pub(crate) fn default_port(e: Engine) -> u16 {
 struct Persisted {
     #[serde(default)]
     connections: Vec<Connection>,
+    #[serde(default)]
+    history: Vec<HistoryEntry>,
 }
 
 pub(crate) fn pw_key(id: &str) -> String {
     format!("conn:{id}")
 }
 
-/// Load saved connections from plugin-storage (best-effort).
+fn read_persisted() -> Persisted {
+    let raw = plugin_storage::read();
+    if raw.is_empty() {
+        return Persisted::default();
+    }
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn write_persisted(p: &Persisted) {
+    if let Ok(data) = serde_json::to_string(p) {
+        let _ = plugin_storage::write(&data);
+    }
+}
+
+/// Load saved connections + history from plugin-storage, once per instance.
 pub(crate) fn load_state(st: &mut State) {
     if st.loaded {
         return;
     }
-    st.loaded = true;
-    let raw = plugin_storage::read();
-    if !raw.is_empty() {
-        if let Ok(p) = serde_json::from_str::<Persisted>(&raw) {
-            st.connections = p.connections;
-        }
-    }
+    reload_persisted(st);
 }
 
-/// Persist the connections list (metadata only — never the password).
-pub(crate) fn save_state(st: &State) {
-    let data = serde_json::to_string(&Persisted {
-        connections: st.connections.clone(),
-    })
-    .unwrap_or_default();
-    let _ = plugin_storage::write(&data);
+/// Re-read connections + history from storage (keeps the always-visible sidebar
+/// fresh when an editor-tab instance writes history).
+pub(crate) fn reload_persisted(st: &mut State) {
+    st.loaded = true;
+    let p = read_persisted();
+    st.connections = p.connections;
+    st.history = p.history;
+}
+
+/// Persist the connections list (passwords stay in the keychain), preserving
+/// stored history.
+pub(crate) fn save_connections(st: &State) {
+    let mut p = read_persisted();
+    p.connections = st.connections.clone();
+    write_persisted(&p);
+}
+
+/// Append a query to history (preserving stored connections); deduped against the
+/// previous entry and capped. Read-modify-write so concurrent editor tabs don't
+/// clobber each other's history.
+pub(crate) fn record_history(connection: &str, sql: &str) {
+    let sql = sql.trim();
+    if sql.is_empty() {
+        return;
+    }
+    let mut p = read_persisted();
+    if p.history.last().map(|h| h.sql.as_str()) == Some(sql) {
+        return;
+    }
+    p.history.push(HistoryEntry {
+        connection: connection.to_string(),
+        sql: sql.to_string(),
+    });
+    let len = p.history.len();
+    if len > 100 {
+        p.history.drain(0..len - 100);
+    }
+    write_persisted(&p);
 }
 
 /// A unique, slugified connection id derived from `name`.

@@ -8,6 +8,8 @@ use crate::theme::ThemeColors;
 pub struct TabItem<'a> {
     pub value: &'a str,
     pub label: &'a str,
+    /// When set, the tab is shown as an icon-only button (label becomes a tooltip).
+    pub icon: Option<&'a str>,
 }
 
 /// A right-aligned icon action shown on the tab-header line (e.g. an export button).
@@ -73,22 +75,43 @@ impl StatelessComponent for Tabs {
 
                     for item in props.items {
                         let is_active = item.value == props.active;
-                        let btn = Button::render(
-                            ui,
-                            ButtonProps {
-                                label: item.label.to_string(),
-                                button_type: ButtonType::Text,
-                                color: if is_active {
-                                    ButtonColor::Primary
-                                } else {
-                                    ButtonColor::Default
+                        // Icon-only tab (label as tooltip) when an icon is given,
+                        // otherwise the text tab.
+                        let resp = if let Some(icon) = item.icon {
+                            let out = IconButton::render(
+                                ui,
+                                IconButtonProps {
+                                    icon,
+                                    tooltip: Some(item.label),
+                                    selected: is_active,
+                                    frame: false,
+                                    ..Default::default()
                                 },
-                                button_size: ButtonSize::Medium,
-                                ..Default::default()
-                            },
-                        );
-
-                        let resp = btn.response;
+                            );
+                            if out.clicked && !is_active {
+                                selected = Some(item.value.to_string());
+                            }
+                            out.response
+                        } else {
+                            let btn = Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: item.label.to_string(),
+                                    button_type: ButtonType::Text,
+                                    color: if is_active {
+                                        ButtonColor::Primary
+                                    } else {
+                                        ButtonColor::Default
+                                    },
+                                    button_size: ButtonSize::Medium,
+                                    ..Default::default()
+                                },
+                            );
+                            if btn.response.clicked() && !is_active {
+                                selected = Some(item.value.to_string());
+                            }
+                            btn.response
+                        };
 
                         // Draw active underline pinned to frame bottom
                         if is_active {
@@ -97,10 +120,6 @@ impl StatelessComponent for Tabs {
                                 egui::pos2(resp.rect.right(), frame_bottom),
                             );
                             ui.painter().rect_filled(bar_rect, 0.0, colors.accent);
-                        }
-
-                        if resp.clicked() && !is_active {
-                            selected = Some(item.value.to_string());
                         }
                     }
 

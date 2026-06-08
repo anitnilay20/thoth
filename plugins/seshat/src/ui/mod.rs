@@ -8,8 +8,8 @@ use serde_json::{json, Value};
 
 use crate::state::{engine_badge, engine_value, Connection, SchemaNode, State};
 use crate::{
-    ICON_CARET_DOWN, ICON_CARET_LEFT, ICON_CARET_RIGHT, ICON_DATABASE, ICON_PENCIL, ICON_PLAY,
-    ICON_PLUG, ICON_PLUS, ICON_TRASH,
+    ICON_CARET_DOWN, ICON_CARET_RIGHT, ICON_DATABASE, ICON_PENCIL, ICON_PLAY, ICON_PLUG, ICON_PLUS,
+    ICON_TRASH,
 };
 
 /// Root view: connections manager or editor, with the new-connection modal on top.
@@ -84,32 +84,35 @@ fn editor_view(st: &State) -> Value {
     json!({
         "type": "column", "gap": 0, "children": [
             { "type": "row", "padding": 8, "gap": 8, "align": "center", "children": [
-                { "type": "icon-button", "id": "back-to-connections", "icon": ICON_CARET_LEFT,
-                  "tooltip": "Back to connections", "button-size": "Medium" },
                 { "type": "heading", "value": title, "panel": true },
                 { "type": "text", "muted": true, "value": subtitle }
             ]},
             { "type": "separator" },
-            { "type": "split", "widths": [1.0, 3.0], "separator": true, "children": [
-                { "type": "scroll", "id": "schema-scroll", "child": schema_panel(st) },
-                { "type": "column", "gap": 0, "children": [
-                    { "type": "code-editor", "id": "sql", "value": st.sql },
-                    { "type": "row", "padding": 8, "gap": 8, "children": [
-                        button("run", "Run", "Elevated", "Primary", Some(ICON_PLAY), !st.loading, false)
-                    ]},
-                    { "type": "separator" },
-                    { "type": "scroll", "id": "results-scroll", "child": results(st) }
-                ]}
-            ]}
+            { "type": "code-editor", "id": "sql", "value": st.sql },
+            { "type": "row", "padding": 8, "gap": 8, "children": [
+                button("run", "Run", "Elevated", "Primary", Some(ICON_PLAY), !st.loading, false)
+            ]},
+            { "type": "separator" },
+            { "type": "scroll", "id": "results-scroll", "child": results(st) }
         ]
     })
 }
 
 // ── schema browser tree ───────────────────────────────────────────────────────
 
-fn schema_panel(st: &State) -> Value {
+pub(crate) fn schema_panel(st: &State) -> Value {
+    let active = st
+        .active
+        .as_deref()
+        .and_then(|id| st.connections.iter().find(|c| c.id == id));
+    let Some(conn) = active else {
+        return json!({ "type": "row", "padding": 8, "children": [
+            muted("Select a connection to browse its schema.")
+        ]});
+    };
+
     let mut nodes = vec![json!({ "type": "row", "padding": 4, "children": [
-        { "type": "heading", "value": "SCHEMA", "panel": true }
+        { "type": "text", "value": conn.name, "muted": true }
     ]})];
 
     if let Some(e) = &st.schema_error {
@@ -177,6 +180,33 @@ fn schema_children(i: usize, sch: &SchemaNode) -> Vec<Value> {
         }
     }
     rows
+}
+
+/// The History tab: past queries, newest first; click to reopen in an editor tab.
+pub(crate) fn history_list(st: &State) -> Value {
+    let items: Vec<Value> = st
+        .history
+        .iter()
+        .rev()
+        .map(|h| {
+            let conn = st
+                .connections
+                .iter()
+                .find(|c| c.id == h.connection)
+                .map(|c| c.name.as_str())
+                .unwrap_or(h.connection.as_str());
+            json!({ "title": one_line(&h.sql), "description": conn })
+        })
+        .collect();
+    json!({
+        "type": "list", "id": "history-list", "items": items,
+        "empty-label": "No queries yet — run one to see it here."
+    })
+}
+
+/// Collapse a (possibly multi-line) query to a single line for list display.
+fn one_line(sql: &str) -> String {
+    sql.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn caret(id: &str, expanded: bool) -> Value {

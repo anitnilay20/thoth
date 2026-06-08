@@ -1496,9 +1496,8 @@ mod live_db_tests {
         let editor = loader.render_ui().expect("render_ui (editor)");
         parse(&editor.node_json, "editor view");
         assert!(
-            editor.node_json.contains("code-editor")
-                && editor.node_json.contains("back-to-connections"),
-            "editor view should have a SQL editor and a back button:\n{}",
+            editor.node_json.contains("code-editor"),
+            "editor view should have a SQL editor:\n{}",
             editor.node_json
         );
     }

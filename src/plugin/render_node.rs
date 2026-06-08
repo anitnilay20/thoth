@@ -436,6 +436,10 @@ pub enum UiNode {
     Tabs {
         id: String,
         header: Vec<String>,
+        /// Optional per-tab icon glyphs (parallel to `header`). When a tab's icon
+        /// is set, it renders as an icon-only tab with the header text as tooltip.
+        #[serde(default)]
+        icons: Vec<String>,
         children: Vec<UiNode>,
         /// Right-aligned icon actions on the tab-header line.
         #[serde(default)]
@@ -1622,6 +1626,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
         UiNode::Tabs {
             id,
             header,
+            icons,
             children,
             actions,
         } => {
@@ -1635,9 +1640,11 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             let tab_items: Vec<TabItem<'_>> = header
                 .iter()
                 .zip(index_strs.iter())
-                .map(|(h, idx)| TabItem {
+                .enumerate()
+                .map(|(i, (h, idx))| TabItem {
                     value: idx.as_str(),
                     label: h.as_str(),
+                    icon: icons.get(i).map(String::as_str).filter(|s| !s.is_empty()),
                 })
                 .collect();
 

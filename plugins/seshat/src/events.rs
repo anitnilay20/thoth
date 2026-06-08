@@ -7,8 +7,8 @@ use crate::bindings::exports::thoth::plugin::ui_component::UiEvent;
 use crate::bindings::thoth::plugin::{secure_storage, ui_tabs};
 use crate::db::{self, ColumnInfo, TableInfo};
 use crate::state::{
-    default_port, engine_from_value, make_id, pw_key, save_state, submit, Connection, Form, Kind,
-    Request, SchemaNode, State, TableNode,
+    default_port, engine_from_value, make_id, pw_key, record_history, save_connections, submit,
+    Connection, Form, Kind, Request, SchemaNode, State, TableNode,
 };
 
 /// Parse a widget value that may be a JSON-encoded string or a bare string.
@@ -23,12 +23,24 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         return;
     }
 
+    // History list: click an entry to reopen it in a fresh editor tab.
+    if event.widget_id == "history-list" {
+        if event.kind == "click" {
+            if let Ok(i) = event.value.parse::<usize>() {
+                open_history_entry(st, i);
+            }
+        }
+        return;
+    }
+
     // List events: a row click opens, an action (trash) deletes.
     if event.widget_id == "connections-list" {
         match event.kind.as_str() {
             "click" => {
                 if let Ok(i) = event.value.parse::<usize>() {
                     if let Some(conn) = st.connections.get(i).cloned() {
+                        // Activate for the sidebar Schema tab AND open an editor tab.
+                        activate_connection(st, &conn);
                         open_editor_tab(&conn);
                     }
                 }
@@ -114,6 +126,9 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             st.loading = true;
             st.result = None;
             let sql = st.sql.clone();
+            if let Some(id) = st.active.clone() {
+                record_history(&id, &sql);
+            }
             submit(&Request::Query { sql }, Kind::Query, st);
         }
         _ => {}
@@ -208,8 +223,8 @@ fn toggle_table(st: &mut State, i: usize, j: usize) {
     }
 }
 
-/// Prefill the editor with a `SELECT *` for the chosen table.
-fn use_table(st: &mut State, i: usize, j: usize) {
+/// Open an editor tab for the chosen table, prefilled with a `SELECT *`.
+fn use_table(st: &State, i: usize, j: usize) {
     let target = st.schemas.get(i).and_then(|sch| {
         sch.tables
             .as_ref()
@@ -217,8 +232,37 @@ fn use_table(st: &mut State, i: usize, j: usize) {
             .map(|tbl| (sch.name.clone(), tbl.name.clone()))
     });
     if let Some((schema, table)) = target {
-        st.sql = format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;");
+        let sql = format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;");
+        open_editor_tab_with_sql(st, &sql);
     }
+}
+
+/// Open an editor tab for the active connection, seeded with `sql`.
+fn open_editor_tab_with_sql(st: &State, sql: &str) {
+    let Some(conn) = st
+        .active
+        .as_deref()
+        .and_then(|id| st.connections.iter().find(|c| c.id == id))
+    else {
+        return;
+    };
+    let state = serde_json::json!({ "connection": conn.id, "sql": sql }).to_string();
+    ui_tabs::open_tab(&conn.name, Some(crate::ICON_DATABASE), Some(&state));
+}
+
+/// Reopen a history entry (shown newest-first) in a fresh editor tab.
+fn open_history_entry(st: &State, display_index: usize) {
+    let Some(entry) = st.history.iter().rev().nth(display_index) else {
+        return;
+    };
+    let title = st
+        .connections
+        .iter()
+        .find(|c| c.id == entry.connection)
+        .map(|c| c.name.clone())
+        .unwrap_or_else(|| entry.connection.clone());
+    let state = serde_json::json!({ "connection": entry.connection, "sql": entry.sql }).to_string();
+    ui_tabs::open_tab(&title, Some(crate::ICON_DATABASE), Some(&state));
 }
 
 /// Seed this instance from a tab's initial-state blob (`{connection, sql?}`).
@@ -275,7 +319,7 @@ fn delete_connection(st: &mut State, index: usize) {
         st.active = None;
         st.active_profile = None;
     }
-    save_state(st);
+    save_connections(st);
 }
 
 /// Save the dialog form — updating the connection being edited, or creating a
@@ -309,7 +353,7 @@ fn connect_from_form(st: &mut State) {
         Some(existing) => *existing = conn,
         None => st.connections.push(conn),
     }
-    save_state(st);
+    save_connections(st);
 
     st.editing = None;
     st.dialog_open = false;

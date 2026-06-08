@@ -21,19 +21,21 @@ use bindings::exports::thoth::plugin::{
 use bindings::thoth::plugin::types::Capability;
 
 use events::apply_event;
-use state::{load_state, Request, STATE};
+use state::{load_state, reload_persisted, Request, STATE};
 use ui::{build_sidebar, build_ui};
 
 /// Phosphor (regular) glyphs, shared across the view modules.
 pub(crate) const ICON_DATABASE: &str = "\u{E1DE}";
 pub(crate) const ICON_PLUS: &str = "\u{E3D4}";
-pub(crate) const ICON_CARET_LEFT: &str = "\u{E138}";
 pub(crate) const ICON_CARET_RIGHT: &str = "\u{E13A}";
 pub(crate) const ICON_CARET_DOWN: &str = "\u{E136}";
 pub(crate) const ICON_PENCIL: &str = "\u{E3B4}";
 pub(crate) const ICON_TRASH: &str = "\u{E4A6}";
 pub(crate) const ICON_PLUG: &str = "\u{E946}";
 pub(crate) const ICON_PLAY: &str = "\u{E3D0}";
+pub(crate) const ICON_PLUGS_CONNECTED: &str = "\u{EB5A}";
+pub(crate) const ICON_TREE_STRUCTURE: &str = "\u{E67C}";
+pub(crate) const ICON_HISTORY: &str = "\u{E1A0}";
 
 struct Seshat;
 
@@ -179,7 +181,9 @@ impl UiComponentGuest for Seshat {
     fn render_sidebar() -> Result<Option<UiOutput>, PluginError> {
         STATE.with(|s| {
             let mut st = s.borrow_mut();
-            load_state(&mut st);
+            // Re-read persisted connections + history so entries written by editor
+            // tabs (a separate instance) show up in the always-visible sidebar.
+            reload_persisted(&mut st);
             Ok(Some(ui_out(build_sidebar(&st))))
         })
     }
