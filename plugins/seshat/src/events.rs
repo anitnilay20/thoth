@@ -89,6 +89,7 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             st.editing = None;
             st.test_status = None;
         }
+        "error-close" => st.error = None,
         "dialog-test" => {
             st.active_profile = Some(st.form.profile());
             st.test_status = Some(Ok("testing…".to_string()));
@@ -426,9 +427,14 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                     })
                     .collect();
                 st.schema_error = None;
+                st.error = None;
             }
             (None, m) => {
-                st.schema_error = Some(m.unwrap_or_else(|| "failed to list schemas".into()))
+                // Listing schemas is our connection probe on select — surface the
+                // failure in the error modal (and inline in the schema panel).
+                let msg = m.unwrap_or_else(|| "failed to connect".into());
+                st.schema_error = Some(msg.clone());
+                st.error = Some(msg);
             }
         },
         Kind::Tables { schema } => {

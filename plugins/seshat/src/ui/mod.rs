@@ -5,6 +5,7 @@
 pub(crate) mod connections;
 pub(crate) mod dialog;
 pub(crate) mod editor;
+pub(crate) mod error;
 pub(crate) mod history;
 pub(crate) mod schema;
 pub(crate) mod sidebar;
@@ -24,5 +25,9 @@ pub(crate) fn build_ui(st: &State) -> Value {
     } else {
         connections::connections_view(st)
     };
-    json!({ "type": "column", "gap": 0, "children": [ main, dialog::dialog(st) ] })
+    json!({ "type": "column", "gap": 0, "children": [
+        main,
+        dialog::dialog(st),
+        error::error_modal(st)
+    ]})
 }

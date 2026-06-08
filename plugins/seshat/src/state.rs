@@ -156,6 +156,9 @@ pub(crate) struct State {
 
     // query history (persisted; newest last)
     pub history: Vec<HistoryEntry>,
+
+    /// A message shown in the error modal; `None` hides it.
+    pub error: Option<String>,
 }
 
 impl State {
