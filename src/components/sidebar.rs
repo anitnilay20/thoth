@@ -509,14 +509,23 @@ impl ContextComponent for Sidebar {
                             .layout(egui::Layout::top_down(egui::Align::Min)),
                     );
 
-                    // Add frame with inner padding
-                    egui::Frame::NONE.inner_margin(egui::Margin::same(8)).show(
-                        &mut content_ui,
-                        |ui| {
+                    // Plugin sidebars render their own UI and control their own
+                    // padding, so they get no host inner margin; built-in sections
+                    // keep the 8px inset.
+                    let inner_margin = if matches!(
+                        props.selected_section,
+                        Some(SidebarSection::PluginSidebar { .. })
+                    ) {
+                        egui::Margin::ZERO
+                    } else {
+                        egui::Margin::same(8)
+                    };
+                    egui::Frame::NONE
+                        .inner_margin(inner_margin)
+                        .show(&mut content_ui, |ui| {
                             egui::ScrollArea::both()
                                 .show(ui, |ui| self.render_content(ui, &props, &mut events));
-                        },
-                    );
+                        });
 
                     // Advance the cursor to consume the full area
                     ui.allocate_rect(available_rect, egui::Sense::hover());
