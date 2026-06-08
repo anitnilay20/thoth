@@ -404,8 +404,15 @@ impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
                 ConsentManager::push_http_consent(
                     &domain,
                     &self.plugin_id,
-                    Arc::new(move |remember: bool| {
-                        if remember && let Ok(mut list) = runtime_allowed.lock() {
+                    Arc::new(move |_remember: bool| {
+                        // Always allow the host for the rest of the session: a DB
+                        // client opens a fresh connection per query, so unless the
+                        // approval is recorded the re-run (and every later query)
+                        // would just hit the consent gate again. Unlike the HTTP
+                        // retry path, the re-enqueued query re-checks the policy.
+                        if let Ok(mut list) = runtime_allowed.lock()
+                            && !list.iter().any(|d| d == &dom)
+                        {
                             list.push(dom.clone());
                         }
                         if let Some(q) = &retry_query {
