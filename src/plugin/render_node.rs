@@ -551,6 +551,9 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                             let grow_idx = children.iter().position(|c| {
                                 matches!(c, UiNode::TextInput { grow: true, .. })
                                     || matches!(c, UiNode::Button { props, .. } if props.full_width)
+                                    // A bare Spacer acts as a horizontal "push" so
+                                    // fixed items split to the left and right edges.
+                                    || matches!(c, UiNode::Spacer { .. })
                             });
                             ui.spacing_mut().item_spacing.x = *gap;
                             if let Some(gi) = grow_idx {
@@ -564,7 +567,14 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                                         for child in children[gi + 1..].iter() {
                                             render_ui_node(ui, child, events);
                                         }
-                                        render_ui_node(ui, &children[gi], events);
+                                        // A Spacer grow consumes the remaining width
+                                        // (pushing the two sides apart); a real grow
+                                        // widget fills it by rendering normally.
+                                        if matches!(&children[gi], UiNode::Spacer { .. }) {
+                                            ui.add_space(ui.available_width());
+                                        } else {
+                                            render_ui_node(ui, &children[gi], events);
+                                        }
                                     },
                                 );
                             } else {

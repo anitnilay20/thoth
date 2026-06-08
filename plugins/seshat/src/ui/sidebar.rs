@@ -11,12 +11,16 @@ use crate::ui::{connections_list, dialog};
 use crate::ICON_PLUS;
 
 pub(crate) fn build_sidebar(st: &State) -> Value {
+    // The host already wraps sidebar content in an 8px margin and built-in
+    // section headers sit flush against it — so add no extra padding here, or the
+    // "CONNECTIONS" header sits lower than every other section's header.
     json!({
         "type": "column", "gap": 0, "children": [
-            { "type": "row", "padding": 8, "gap": 8, "align": "center", "children": [
+            { "type": "row", "gap": 8, "align": "fill", "children": [
                 { "type": "heading", "value": "CONNECTIONS", "panel": true },
+                { "type": "spacer" },
                 { "type": "icon-button", "id": "new-connection", "icon": ICON_PLUS,
-                  "tooltip": "New connection", "button-size": "Small" }
+                  "tooltip": "New connection", "frame": false, "button-size": "Small" }
             ]},
             { "type": "scroll", "id": "sidebar-scroll", "child": connections_list(st) },
             dialog(st)
