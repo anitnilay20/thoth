@@ -94,15 +94,32 @@ impl SettingsGuest for Seshat {
 
 impl TabHostGuest for Seshat {
     fn tab_title() -> String {
-        "Seshat".to_string()
+        STATE.with(|s| {
+            let st = s.borrow();
+            st.active
+                .as_deref()
+                .and_then(|id| st.connections.iter().find(|c| c.id == id))
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| "Seshat".to_string())
+        })
     }
     fn tab_icon() -> Option<String> {
         Some(ICON_DATABASE.to_string())
     }
+    /// Snapshot the editor tab so the host can restore it across restarts.
     fn get_state() -> Result<String, PluginError> {
-        Ok(String::new())
+        Ok(STATE.with(|s| {
+            let st = s.borrow();
+            json!({ "connection": st.active, "sql": st.sql }).to_string()
+        }))
     }
-    fn init_with_state(_state: String) -> Result<(), PluginError> {
+    /// Seed a freshly-opened editor tab with its connection (and SQL).
+    fn init_with_state(state: String) -> Result<(), PluginError> {
+        STATE.with(|s| {
+            let mut st = s.borrow_mut();
+            load_state(&mut st);
+            events::activate_from_state(&mut st, &state);
+        });
         Ok(())
     }
     fn on_tab_focused() {}

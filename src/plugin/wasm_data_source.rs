@@ -1474,15 +1474,26 @@ mod live_db_tests {
             "Cancel should close the modal"
         );
 
-        // Connecting activates a connection and switches to the editor view,
-        // which must also parse (covers the editor's icon-button sizing, etc.).
-        let editor = loader
+        // Connecting saves the connection and requests an editor *tab* (it does
+        // not switch the current instance). Verify the tab-open request carries
+        // seed state…
+        loader
             .handle_event(UiEvent {
                 widget_id: "dialog-connect".to_string(),
                 kind: "click".to_string(),
                 value: String::new(),
             })
             .expect("handle_event(dialog-connect)");
+        let tabs = loader.drain_tab_open_requests();
+        assert!(!tabs.is_empty(), "Connect should open an editor tab");
+        let seed = tabs[0]
+            .initial_state
+            .clone()
+            .expect("editor tab seeded with state");
+
+        // …and that seeding an instance with it renders the editor view.
+        loader.init_with_state(&seed).expect("init_with_state");
+        let editor = loader.render_ui().expect("render_ui (editor)");
         parse(&editor.node_json, "editor view");
         assert!(
             editor.node_json.contains("code-editor")

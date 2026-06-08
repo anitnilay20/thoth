@@ -4,7 +4,7 @@
 use serde_json::Value;
 
 use crate::bindings::exports::thoth::plugin::ui_component::UiEvent;
-use crate::bindings::thoth::plugin::secure_storage;
+use crate::bindings::thoth::plugin::{secure_storage, ui_tabs};
 use crate::db;
 use crate::state::{
     default_port, engine_from_value, make_id, pw_key, save_state, submit, Connection, Form, Kind,
@@ -28,7 +28,9 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         match event.kind.as_str() {
             "click" => {
                 if let Ok(i) = event.value.parse::<usize>() {
-                    open_connection(st, i);
+                    if let Some(conn) = st.connections.get(i).cloned() {
+                        open_editor_tab(&conn);
+                    }
                 }
             }
             "action" => {
@@ -98,10 +100,16 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
     }
 }
 
-fn open_connection(st: &mut State, index: usize) {
-    let Some(conn) = st.connections.get(index).cloned() else {
-        return;
-    };
+/// Open a new editor tab seeded with `conn`. The host builds a fresh plugin
+/// instance and calls `init_with_state`, which activates the connection.
+fn open_editor_tab(conn: &Connection) {
+    let state = serde_json::json!({ "connection": conn.id }).to_string();
+    ui_tabs::open_tab(&conn.name, Some(crate::ICON_DATABASE), Some(&state));
+}
+
+/// Activate a connection in *this* instance: load its password from the keychain
+/// into the session profile and mark it active (so render_ui shows the editor).
+fn activate_connection(st: &mut State, conn: &Connection) {
     let password = secure_storage::read(&pw_key(&conn.id))
         .ok()
         .flatten()
@@ -114,8 +122,28 @@ fn open_connection(st: &mut State, index: usize) {
         password,
         tls: conn.tls,
     });
-    st.active = Some(conn.id);
+    st.active = Some(conn.id.clone());
     st.result = None;
+}
+
+/// Seed this instance from a tab's initial-state blob (`{connection, sql?}`).
+/// Called by `tab-host::init_with_state` when a Seshat editor tab opens.
+pub(crate) fn activate_from_state(st: &mut State, state: &str) {
+    let Ok(v) = serde_json::from_str::<Value>(state) else {
+        return;
+    };
+    if let Some(conn) = v
+        .get("connection")
+        .and_then(|c| c.as_str())
+        .and_then(|id| st.connections.iter().find(|c| c.id == id).cloned())
+    {
+        activate_connection(st, &conn);
+    }
+    if let Some(sql) = v.get("sql").and_then(|s| s.as_str()) {
+        if !sql.is_empty() {
+            st.sql = sql.to_string();
+        }
+    }
 }
 
 /// Open the dialog pre-filled with an existing connection, in edit mode.
@@ -181,18 +209,16 @@ fn connect_from_form(st: &mut State) {
         tls: profile.tls,
     };
     let _ = secure_storage::write(&pw_key(&id), &st.form.password);
+    open_editor_tab(&conn);
     match st.connections.iter_mut().find(|c| c.id == id) {
         Some(existing) => *existing = conn,
         None => st.connections.push(conn),
     }
     save_state(st);
 
-    st.active_profile = Some(profile);
-    st.active = Some(id);
     st.editing = None;
     st.dialog_open = false;
     st.test_status = None;
-    st.result = None;
 }
 
 fn handle_query_result(st: &mut State, event: &UiEvent) {
