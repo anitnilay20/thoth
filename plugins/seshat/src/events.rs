@@ -163,6 +163,8 @@ fn activate_connection(st: &mut State, conn: &Connection) {
     st.schemas.clear();
     st.schema_loaded = false;
     st.schema_error = None;
+    st.failed = None;
+    st.error = None;
     load_schemas(st);
 }
 
@@ -428,11 +430,16 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                     .collect();
                 st.schema_error = None;
                 st.error = None;
+                st.failed = None;
             }
             (None, m) => {
-                // Listing schemas is our connection probe on select — surface the
-                // failure in the error modal (and inline in the schema panel).
+                // Listing schemas is our connection probe on select. On failure,
+                // surface it in the error modal and mark the connection as errored
+                // instead of leaving it active.
                 let msg = m.unwrap_or_else(|| "failed to connect".into());
+                st.failed = st.active.take();
+                st.active_profile = None;
+                st.schemas.clear();
                 st.schema_error = Some(msg.clone());
                 st.error = Some(msg);
             }

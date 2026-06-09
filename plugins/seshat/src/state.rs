@@ -159,6 +159,9 @@ pub(crate) struct State {
 
     /// A message shown in the error modal; `None` hides it.
     pub error: Option<String>,
+    /// Id of the connection whose last connect attempt failed (shown as an
+    /// "error" pill, and never left active).
+    pub failed: Option<String>,
 }
 
 impl State {

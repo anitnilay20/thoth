@@ -27,7 +27,11 @@ pub(crate) fn connections_list(st: &State) -> Value {
     let items: Vec<Value> = st
         .connections
         .iter()
-        .map(|c| connection_item(c, st.active.as_deref() == Some(&c.id)))
+        .map(|c| {
+            let active = st.active.as_deref() == Some(&c.id);
+            let failed = st.failed.as_deref() == Some(&c.id);
+            connection_item(c, active, failed)
+        })
         .collect();
     json!({
         "type": "list",
@@ -37,9 +41,11 @@ pub(crate) fn connections_list(st: &State) -> Value {
     })
 }
 
-fn connection_item(c: &Connection, active: bool) -> Value {
+fn connection_item(c: &Connection, active: bool, failed: bool) -> Value {
     let (short, color) = engine_badge(c.engine);
-    let badge = if active {
+    let badge = if failed {
+        json!({ "text": "error", "color": "red" })
+    } else if active {
         json!({ "text": "active", "color": "green" })
     } else {
         json!({ "text": short, "color": color })
