@@ -1,10 +1,10 @@
-//! The schema-browser tree (lazy schema → table → columns), styled after the
-//! design handoff: folder/table/view icons, table counts, and PK-keyed columns.
+//! The schema-browser tree (lazy schema → table → columns), built from the
+//! shared `data-row` component so it matches the file-viewer tree styling.
 
 use serde_json::{json, Value};
 
 use crate::state::{SchemaNode, State};
-use crate::ui::widgets::{button, caret, icon, icon_sized, indent, muted};
+use crate::ui::widgets::{data_row, muted};
 use crate::{ICON_CIRCLE, ICON_DATABASE, ICON_EYE, ICON_FOLDER, ICON_KEY, ICON_TABLE};
 
 pub(crate) fn schema_panel(st: &State) -> Value {
@@ -31,72 +31,69 @@ pub(crate) fn schema_panel(st: &State) -> Value {
     }
 
     for (i, sch) in st.schemas.iter().enumerate() {
-        let count = sch
-            .tables
-            .as_ref()
-            .map(|t| t.len().to_string())
-            .unwrap_or_default();
-        nodes.push(
-            json!({ "type": "row", "gap": 6, "align": "fill", "children": [
-                caret(&format!("sch:{i}"), sch.expanded),
-                icon(ICON_FOLDER, "muted"),
-                { "type": "bold", "child": { "type": "text", "value": sch.name } },
-                { "type": "spacer" },
-                { "type": "text", "value": count, "muted": true, "size": "sm" }
-            ]}),
-        );
+        let count = sch.tables.as_ref().map(|t| t.len().to_string());
+        nodes.push(data_row(
+            &format!("sch:{i}"),
+            &sch.name,
+            0,
+            Some(sch.expanded),
+            Some((ICON_FOLDER, "muted")),
+            count.as_deref(),
+        ));
         if sch.expanded {
-            nodes.push(indent(schema_children(i, sch)));
+            push_tables(&mut nodes, i, sch);
         }
     }
 
     json!({ "type": "column", "gap": 2, "children": nodes })
 }
 
-fn schema_children(i: usize, sch: &SchemaNode) -> Vec<Value> {
+fn push_tables(nodes: &mut Vec<Value>, i: usize, sch: &SchemaNode) {
     let Some(tables) = &sch.tables else {
-        return vec![muted("Loading…")];
+        nodes.push(muted("Loading…"));
+        return;
     };
     if tables.is_empty() {
-        return vec![muted("(no tables)")];
+        nodes.push(muted("(no tables)"));
+        return;
     }
-    let mut rows = Vec::new();
     for (j, tbl) in tables.iter().enumerate() {
-        let (glyph, color) = match tbl.kind.as_str() {
+        let icon = match tbl.kind.as_str() {
             "view" => (ICON_EYE, "secondary"),
             "matview" => (ICON_DATABASE, "number"),
             _ => (ICON_TABLE, "string"),
         };
-        // caret toggles columns; clicking the name opens a SELECT in an editor tab.
-        rows.push(
-            json!({ "type": "row", "gap": 6, "align": "center", "children": [
-                caret(&format!("tbl:{i}:{j}"), tbl.expanded),
-                icon(glyph, color),
-                button(&format!("use:{i}:{j}"), &tbl.name, "Text", "Default", None, true, false)
-            ]}),
-        );
+        // caret → toggle columns; row click → open a SELECT in an editor tab.
+        nodes.push(data_row(
+            &format!("tbl:{i}:{j}"),
+            &tbl.name,
+            1,
+            Some(tbl.expanded),
+            Some(icon),
+            None,
+        ));
         if tbl.expanded {
-            let cols = match &tbl.columns {
-                None => vec![muted("Loading…")],
-                Some(cols) if cols.is_empty() => vec![muted("(no columns)")],
-                Some(cols) => cols.iter().map(column_row).collect(),
-            };
-            rows.push(indent(cols));
+            match &tbl.columns {
+                None => nodes.push(muted("Loading…")),
+                Some(cols) if cols.is_empty() => nodes.push(muted("(no columns)")),
+                Some(cols) => {
+                    for (k, c) in cols.iter().enumerate() {
+                        let marker = if c.primary_key {
+                            (ICON_KEY, "warning")
+                        } else {
+                            (ICON_CIRCLE, "muted")
+                        };
+                        nodes.push(data_row(
+                            &format!("col:{i}:{j}:{k}"),
+                            &c.name,
+                            2,
+                            None,
+                            Some(marker),
+                            Some(&c.data_type),
+                        ));
+                    }
+                }
+            }
         }
     }
-    rows
-}
-
-fn column_row(c: &crate::db::ColumnInfo) -> Value {
-    let marker = if c.primary_key {
-        icon_sized(ICON_KEY, "warning", 11.0)
-    } else {
-        icon_sized(ICON_CIRCLE, "muted", 7.0)
-    };
-    json!({ "type": "row", "gap": 6, "align": "fill", "children": [
-        marker,
-        { "type": "text", "value": c.name },
-        { "type": "spacer" },
-        { "type": "text", "value": c.data_type, "muted": true, "size": "sm" }
-    ]})
 }

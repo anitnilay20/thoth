@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::components::button::{Button, ButtonProps, ButtonSize, ButtonType};
 use crate::components::common::button_group::{ButtonGroup, ButtonGroupItem, ButtonGroupProps};
+use crate::components::common::data_row::{DataRow, DataRowProps, RowHighlights};
 use crate::components::common::input::{Input, InputProps};
 use crate::components::common::json_tree::{JsonTree, JsonTreeProps};
 use crate::components::common::list::{List, ListItem, ListProps};
@@ -12,7 +13,7 @@ use crate::components::common::tabs::{TabAction, TabItem, TabProps, Tabs};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::table_view::{TableCell, TableView, TableViewProps};
 use crate::components::traits::StatelessComponent;
-use crate::theme::{BgColorOptions, ThemeColors, parse_hex_color};
+use crate::theme::{BgColorOptions, TextToken, ThemeColors, parse_hex_color};
 
 // =============================================================================
 // UiNode — unified display + interactive DSL
@@ -72,6 +73,15 @@ pub struct ListItemBadgeNode {
     pub text: String,
     /// Semantic color: "blue" | "green" | "red" | "orange" | "gray"
     pub color: String,
+}
+
+/// A leading icon for a `data-row` node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataRowIcon {
+    pub glyph: String,
+    /// Semantic token (warning/info/string/…) or hex; defaults muted.
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 /// A single item inside a `list` DSL node.
@@ -227,6 +237,24 @@ pub enum UiNode {
         color: Option<String>,
         #[serde(default)]
         size: Option<f32>,
+    },
+    /// A tree row backed by the host `DataRow` component (indent + caret + leading
+    /// icon + label + trailing). Emits `"toggle"` when the caret is clicked and
+    /// `"click"` when the row body is clicked.
+    DataRow {
+        id: String,
+        label: String,
+        #[serde(default)]
+        indent: usize,
+        /// `Some(expanded)` shows an expand caret; absent/`null` is a leaf.
+        #[serde(default)]
+        caret: Option<bool>,
+        #[serde(default)]
+        icon: Option<DataRowIcon>,
+        #[serde(default)]
+        trailing: Option<String>,
+        #[serde(default)]
+        selected: bool,
     },
     Link {
         label: String,
@@ -838,6 +866,47 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 .map(|s| resolve_icon_color(s, &colors))
                 .unwrap_or(colors.fg_muted);
             ui.label(crate::theme::icon_rich_text(glyph, sz).color(c));
+        }
+        UiNode::DataRow {
+            id,
+            label,
+            indent,
+            caret,
+            icon,
+            trailing,
+            selected,
+        } => {
+            let leading = icon.as_ref().map(|i| {
+                let c = i
+                    .color
+                    .as_deref()
+                    .map(|s| resolve_icon_color(s, &colors))
+                    .unwrap_or(colors.fg_muted);
+                (i.glyph.as_str(), c)
+            });
+            let out = DataRow::render(
+                ui,
+                DataRowProps {
+                    indent: *indent,
+                    caret: *caret,
+                    leading_icon: leading,
+                    trailing: trailing.as_deref(),
+                    selected: *selected,
+                    ..DataRowProps::new(
+                        label,
+                        (TextToken::Key, None),
+                        egui::Color32::TRANSPARENT,
+                        id,
+                        RowHighlights::default(),
+                        false,
+                    )
+                },
+            );
+            if out.caret_clicked {
+                events.push(ui_event(id, "toggle", String::new()));
+            } else if out.clicked {
+                events.push(ui_event(id, "click", String::new()));
+            }
         }
         UiNode::Link { label, url } => {
             ui.hyperlink_to(label, url);

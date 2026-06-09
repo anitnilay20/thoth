@@ -107,8 +107,9 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             st.schema_loaded = false;
             st.schema_error = None;
         }
-        // Schema-tree rows: "sch:<i>" toggles a schema, "tbl:<i>:<j>" a table,
-        // "use:<i>:<j>" prefills a SELECT for that table.
+        // Schema-tree data-rows. Schema: any interaction toggles it. Table: the
+        // caret ("toggle") expands columns, a body "click" opens a SELECT. Column
+        // (leaf, id "col:<i>:<j>:<k>"): clicking opens its table's SELECT.
         id if id.starts_with("sch:") => {
             if let Ok(i) = id[4..].parse::<usize>() {
                 toggle_schema(st, i);
@@ -116,11 +117,16 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         }
         id if id.starts_with("tbl:") => {
             if let Some((i, j)) = parse_pair(&id[4..]) {
-                toggle_table(st, i, j);
+                if event.kind == "toggle" {
+                    toggle_table(st, i, j);
+                } else {
+                    use_table(st, i, j);
+                }
             }
         }
-        id if id.starts_with("use:") => {
-            if let Some((i, j)) = parse_pair(&id[4..]) {
+        id if id.starts_with("col:") => {
+            let idx: Vec<usize> = id[4..].split(':').filter_map(|s| s.parse().ok()).collect();
+            if let [i, j, ..] = idx[..] {
                 use_table(st, i, j);
             }
         }

@@ -27,8 +27,6 @@ use ui::{build_sidebar, build_ui};
 /// Phosphor (regular) glyphs, shared across the view modules.
 pub(crate) const ICON_DATABASE: &str = "\u{E1DE}";
 pub(crate) const ICON_PLUS: &str = "\u{E3D4}";
-pub(crate) const ICON_CARET_RIGHT: &str = "\u{E13A}";
-pub(crate) const ICON_CARET_DOWN: &str = "\u{E136}";
 pub(crate) const ICON_PENCIL: &str = "\u{E3B4}";
 pub(crate) const ICON_TRASH: &str = "\u{E4A6}";
 pub(crate) const ICON_PLUG: &str = "\u{E946}";

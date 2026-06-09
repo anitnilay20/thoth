@@ -2,8 +2,6 @@
 
 use serde_json::{json, Value};
 
-use crate::{ICON_CARET_DOWN, ICON_CARET_RIGHT};
-
 /// A single- or multi-line text input. `grow` makes it fill remaining row width.
 pub(crate) fn text_input(
     id: &str,
@@ -47,29 +45,27 @@ pub(crate) fn muted(text: &str) -> Value {
     json!({ "type": "text", "value": text, "muted": true, "size": "sm" })
 }
 
-/// A display-only icon glyph. `color` is a semantic token (warning/info/string/
-/// number/secondary/muted/…) or a hex; defaults muted.
-pub(crate) fn icon(glyph: &str, color: &str) -> Value {
-    json!({ "type": "icon", "glyph": glyph, "color": color })
-}
-
-/// A display-only icon glyph at a specific point size.
-pub(crate) fn icon_sized(glyph: &str, color: &str, size: f32) -> Value {
-    json!({ "type": "icon", "glyph": glyph, "color": color, "size": size })
-}
-
-/// An expand/collapse caret icon-button for tree rows.
-pub(crate) fn caret(id: &str, expanded: bool) -> Value {
-    json!({
-        "type": "icon-button", "id": id,
-        "icon": if expanded { ICON_CARET_DOWN } else { ICON_CARET_RIGHT },
-        "frame": false, "button-size": "Small"
-    })
-}
-
-/// Indent a block of tree rows by wrapping them in a small left-padded column.
-pub(crate) fn indent(children: Vec<Value>) -> Value {
-    json!({ "type": "row", "padding": 8, "children": [
-        { "type": "column", "gap": 2, "children": children }
-    ]})
+/// A tree row backed by the host `DataRow` component: indent + optional caret +
+/// optional leading icon + label + optional trailing. Emits `"toggle"` (caret)
+/// and `"click"` (row body). `caret` is `Some(expanded)` for an expandable node,
+/// `None` for a leaf; `icon` is `(glyph, semantic-color)`.
+pub(crate) fn data_row(
+    id: &str,
+    label: &str,
+    indent: usize,
+    caret: Option<bool>,
+    icon: Option<(&str, &str)>,
+    trailing: Option<&str>,
+) -> Value {
+    let mut node = json!({ "type": "data-row", "id": id, "label": label, "indent": indent });
+    if let Some(expanded) = caret {
+        node["caret"] = json!(expanded);
+    }
+    if let Some((glyph, color)) = icon {
+        node["icon"] = json!({ "glyph": glyph, "color": color });
+    }
+    if let Some(t) = trailing {
+        node["trailing"] = json!(t);
+    }
+    node
 }
