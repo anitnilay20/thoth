@@ -36,6 +36,7 @@ pub(crate) const ICON_PLAY: &str = "\u{E3D0}";
 pub(crate) const ICON_PLUGS_CONNECTED: &str = "\u{EB5A}";
 pub(crate) const ICON_TREE_STRUCTURE: &str = "\u{E67C}";
 pub(crate) const ICON_HISTORY: &str = "\u{E1A0}";
+pub(crate) const ICON_TERMINAL: &str = "\u{EAE8}"; // TERMINAL_WINDOW — query editor tab
 
 struct Seshat;
 
@@ -108,7 +109,8 @@ impl TabHostGuest for Seshat {
         })
     }
     fn tab_icon() -> Option<String> {
-        Some(ICON_DATABASE.to_string())
+        // An editor tab — a terminal/SQL-editor glyph (the sidebar keeps the database icon).
+        Some(ICON_TERMINAL.to_string())
     }
     /// Snapshot the editor tab so the host can restore it across restarts.
     fn get_state() -> Result<String, PluginError> {

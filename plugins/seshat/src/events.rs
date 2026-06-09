@@ -149,7 +149,7 @@ fn open_tab(name: &str, conn_id: &str, password: Option<&str>, sql: Option<&str>
     if let Some(s) = sql {
         state["sql"] = Value::from(s);
     }
-    ui_tabs::open_tab(name, Some(crate::ICON_DATABASE), Some(&state.to_string()));
+    ui_tabs::open_tab(name, Some(crate::ICON_TERMINAL), Some(&state.to_string()));
 }
 
 /// The in-memory password for the active connection, if it matches `conn_id`
