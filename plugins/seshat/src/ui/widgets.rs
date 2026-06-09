@@ -47,6 +47,17 @@ pub(crate) fn muted(text: &str) -> Value {
     json!({ "type": "text", "value": text, "muted": true, "size": "sm" })
 }
 
+/// A display-only icon glyph. `color` is a semantic token (warning/info/string/
+/// number/secondary/muted/…) or a hex; defaults muted.
+pub(crate) fn icon(glyph: &str, color: &str) -> Value {
+    json!({ "type": "icon", "glyph": glyph, "color": color })
+}
+
+/// A display-only icon glyph at a specific point size.
+pub(crate) fn icon_sized(glyph: &str, color: &str, size: f32) -> Value {
+    json!({ "type": "icon", "glyph": glyph, "color": color, "size": size })
+}
+
 /// An expand/collapse caret icon-button for tree rows.
 pub(crate) fn caret(id: &str, expanded: bool) -> Value {
     json!({

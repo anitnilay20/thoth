@@ -12,7 +12,7 @@ use crate::components::common::tabs::{TabAction, TabItem, TabProps, Tabs};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::table_view::{TableCell, TableView, TableViewProps};
 use crate::components::traits::StatelessComponent;
-use crate::theme::{BgColorOptions, ThemeColors};
+use crate::theme::{BgColorOptions, ThemeColors, parse_hex_color};
 
 // =============================================================================
 // UiNode — unified display + interactive DSL
@@ -217,6 +217,16 @@ pub enum UiNode {
     Badge {
         label: String,
         color: String,
+    },
+    /// A standalone phosphor icon glyph (display-only). `color` accepts a hex
+    /// (`#rrggbb`) or a semantic token (warning/info/success/error/string/number/
+    /// accent/secondary/muted/fg); defaults to muted. `size` is in points.
+    Icon {
+        glyph: String,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        size: Option<f32>,
     },
     Link {
         label: String,
@@ -820,6 +830,14 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 .show(ui, |ui| {
                     ui.label(label);
                 });
+        }
+        UiNode::Icon { glyph, color, size } => {
+            let sz = size.unwrap_or(13.0);
+            let c = color
+                .as_deref()
+                .map(|s| resolve_icon_color(s, &colors))
+                .unwrap_or(colors.fg_muted);
+            ui.label(crate::theme::icon_rich_text(glyph, sz).color(c));
         }
         UiNode::Link { label, url } => {
             ui.hyperlink_to(label, url);
@@ -1764,15 +1782,20 @@ fn collect_text(node: &UiNode) -> String {
     }
 }
 
-fn parse_hex_color(s: &str) -> Option<egui::Color32> {
-    let s = s.strip_prefix('#')?;
-    if s.len() == 6 {
-        let r = u8::from_str_radix(&s[0..2], 16).ok()?;
-        let g = u8::from_str_radix(&s[2..4], 16).ok()?;
-        let b = u8::from_str_radix(&s[4..6], 16).ok()?;
-        Some(egui::Color32::from_rgb(r, g, b))
-    } else {
-        None
+/// Resolve an icon color string: a semantic token mapped to the theme, or a hex.
+fn resolve_icon_color(s: &str, colors: &ThemeColors) -> egui::Color32 {
+    match s {
+        "warning" => colors.warning,
+        "info" => colors.info,
+        "success" => colors.success,
+        "error" => colors.error,
+        "string" => colors.syntax_string,
+        "number" => colors.syntax_number,
+        "accent" => colors.accent,
+        "secondary" => colors.accent_secondary,
+        "muted" => colors.fg_muted,
+        "fg" => colors.fg,
+        _ => parse_hex_color(s).unwrap_or(colors.fg_muted),
     }
 }
 

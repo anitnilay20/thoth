@@ -37,6 +37,12 @@ pub(crate) const ICON_PLUGS_CONNECTED: &str = "\u{EB5A}";
 pub(crate) const ICON_TREE_STRUCTURE: &str = "\u{E67C}";
 pub(crate) const ICON_HISTORY: &str = "\u{E1A0}";
 pub(crate) const ICON_TERMINAL: &str = "\u{EAE8}"; // TERMINAL_WINDOW — query editor tab
+                                                   // schema-tree glyphs
+pub(crate) const ICON_FOLDER: &str = "\u{E24A}";
+pub(crate) const ICON_TABLE: &str = "\u{E476}";
+pub(crate) const ICON_EYE: &str = "\u{E220}";
+pub(crate) const ICON_KEY: &str = "\u{E2D6}";
+pub(crate) const ICON_CIRCLE: &str = "\u{E18A}";
 
 struct Seshat;
 
