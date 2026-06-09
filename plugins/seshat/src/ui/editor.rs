@@ -7,26 +7,13 @@ use crate::ui::widgets::button;
 use crate::ICON_PLAY;
 
 pub(crate) fn editor_view(st: &State) -> Value {
-    let active = st
-        .active
-        .as_deref()
-        .and_then(|id| st.connections.iter().find(|c| c.id == id));
-    let title = active
-        .map(|c| c.name.clone())
-        .unwrap_or_else(|| "Query".into());
-    let subtitle = active.map(|c| c.summary()).unwrap_or_default();
-
     json!({
         "type": "column", "gap": 0, "children": [
-            { "type": "row", "padding": 8, "gap": 8, "align": "center", "children": [
-                { "type": "heading", "value": title, "panel": true },
-                { "type": "text", "muted": true, "value": subtitle }
-            ]},
-            { "type": "separator" },
-            { "type": "code-editor", "id": "sql", "value": st.sql },
             { "type": "row", "padding": 8, "gap": 8, "children": [
                 button("run", "Run", "Elevated", "Primary", Some(ICON_PLAY), !st.loading, false)
             ]},
+            { "type": "separator" },
+            { "type": "code-editor", "id": "sql", "value": st.sql, "font-size": 12.0, "syntax": "sql" },
             { "type": "separator" },
             { "type": "scroll", "id": "results-scroll", "child": results(st) }
         ]

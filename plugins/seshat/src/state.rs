@@ -1,6 +1,7 @@
 //! Connection model, runtime + persisted state, and the async request envelope.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -162,6 +163,9 @@ pub(crate) struct State {
     /// Id of the connection whose last connect attempt failed (shown as an
     /// "error" pill, and never left active).
     pub failed: Option<String>,
+    /// Session cache of decrypted passwords (keyed by connection id) so we read
+    /// the OS keychain at most once per connection per session — fewer prompts.
+    pub password_cache: HashMap<String, String>,
 }
 
 impl State {

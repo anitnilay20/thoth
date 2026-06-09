@@ -39,9 +39,11 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             "click" => {
                 if let Ok(i) = event.value.parse::<usize>() {
                     if let Some(conn) = st.connections.get(i).cloned() {
-                        // Activate for the sidebar Schema tab AND open an editor tab.
+                        // Activate for the sidebar Schema tab AND open an editor tab,
+                        // handing it the password we just loaded (no second prompt).
                         activate_connection(st, &conn);
-                        open_editor_tab(&conn);
+                        let pw = active_password(st, &conn.id);
+                        open_tab(&conn.name, &conn.id, pw, None);
                     }
                 }
             }
@@ -136,20 +138,48 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
     }
 }
 
-/// Open a new editor tab seeded with `conn`. The host builds a fresh plugin
-/// instance and calls `init_with_state`, which activates the connection.
-fn open_editor_tab(conn: &Connection) {
-    let state = serde_json::json!({ "connection": conn.id }).to_string();
-    ui_tabs::open_tab(&conn.name, Some(crate::ICON_DATABASE), Some(&state));
+/// Open an editor tab seeded with a connection (and optionally its password +
+/// SQL). Passing the password lets the new instance skip a keychain read — and
+/// therefore the macOS keychain prompt — for tabs opened during the session.
+fn open_tab(name: &str, conn_id: &str, password: Option<&str>, sql: Option<&str>) {
+    let mut state = serde_json::json!({ "connection": conn_id });
+    if let Some(p) = password {
+        state["password"] = Value::from(p);
+    }
+    if let Some(s) = sql {
+        state["sql"] = Value::from(s);
+    }
+    ui_tabs::open_tab(name, Some(crate::ICON_DATABASE), Some(&state.to_string()));
 }
 
-/// Activate a connection in *this* instance: load its password from the keychain
-/// into the session profile and mark it active (so render_ui shows the editor).
-fn activate_connection(st: &mut State, conn: &Connection) {
-    let password = secure_storage::read(&pw_key(&conn.id))
+/// The in-memory password for the active connection, if it matches `conn_id`
+/// (so we can hand it to a new tab instead of having that tab re-read the keychain).
+fn active_password<'a>(st: &'a State, conn_id: &str) -> Option<&'a str> {
+    if st.active.as_deref() == Some(conn_id) {
+        st.active_profile.as_ref().map(|p| p.password.as_str())
+    } else {
+        None
+    }
+}
+
+/// The password for `id`: from the session cache, else read once from the
+/// keychain and cached (so repeat selects/edits don't re-prompt).
+fn load_password(st: &mut State, id: &str) -> String {
+    if let Some(p) = st.password_cache.get(id) {
+        return p.clone();
+    }
+    let p = secure_storage::read(&pw_key(id))
         .ok()
         .flatten()
         .unwrap_or_default();
+    st.password_cache.insert(id.to_string(), p.clone());
+    p
+}
+
+/// Activate a connection in *this* instance: load its password into the session
+/// profile and mark it active (so render_ui shows the editor).
+fn activate_connection(st: &mut State, conn: &Connection) {
+    let password = load_password(st, &conn.id);
     st.active_profile = Some(db::Profile {
         host: conn.host.clone(),
         port: conn.port,
@@ -234,14 +264,9 @@ fn use_table(st: &State, i: usize, j: usize) {
             .and_then(|t| t.get(j))
             .map(|tbl| (sch.name.clone(), tbl.name.clone()))
     });
-    if let Some((schema, table)) = target {
-        let sql = format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;");
-        open_editor_tab_with_sql(st, &sql);
-    }
-}
-
-/// Open an editor tab for the active connection, seeded with `sql`.
-fn open_editor_tab_with_sql(st: &State, sql: &str) {
+    let Some((schema, table)) = target else {
+        return;
+    };
     let Some(conn) = st
         .active
         .as_deref()
@@ -249,8 +274,13 @@ fn open_editor_tab_with_sql(st: &State, sql: &str) {
     else {
         return;
     };
-    let state = serde_json::json!({ "connection": conn.id, "sql": sql }).to_string();
-    ui_tabs::open_tab(&conn.name, Some(crate::ICON_DATABASE), Some(&state));
+    let sql = format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;");
+    open_tab(
+        &conn.name,
+        &conn.id,
+        active_password(st, &conn.id),
+        Some(&sql),
+    );
 }
 
 /// Reopen a history entry (shown newest-first) in a fresh editor tab.
@@ -264,12 +294,19 @@ fn open_history_entry(st: &State, display_index: usize) {
         .find(|c| c.id == entry.connection)
         .map(|c| c.name.clone())
         .unwrap_or_else(|| entry.connection.clone());
-    let state = serde_json::json!({ "connection": entry.connection, "sql": entry.sql }).to_string();
-    ui_tabs::open_tab(&title, Some(crate::ICON_DATABASE), Some(&state));
+    open_tab(
+        &title,
+        &entry.connection,
+        active_password(st, &entry.connection),
+        Some(&entry.sql),
+    );
 }
 
-/// Seed this instance from a tab's initial-state blob (`{connection, sql?}`).
-/// Called by `tab-host::init_with_state` when a Seshat editor tab opens.
+/// Seed an editor-tab instance from its initial-state blob
+/// (`{connection, password?, sql?}`). Uses a handed-in password when present to
+/// avoid a keychain read, falling back to the keychain otherwise. Does NOT load
+/// the schema — that lives in the sidebar — so opening a tab makes no connection
+/// until the user runs a query.
 pub(crate) fn activate_from_state(st: &mut State, state: &str) {
     let Ok(v) = serde_json::from_str::<Value>(state) else {
         return;
@@ -279,7 +316,25 @@ pub(crate) fn activate_from_state(st: &mut State, state: &str) {
         .and_then(|c| c.as_str())
         .and_then(|id| st.connections.iter().find(|c| c.id == id).cloned())
     {
-        activate_connection(st, &conn);
+        let password = v
+            .get("password")
+            .and_then(|p| p.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| {
+                secure_storage::read(&pw_key(&conn.id))
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default()
+            });
+        st.active_profile = Some(db::Profile {
+            host: conn.host.clone(),
+            port: conn.port,
+            database: conn.database.clone(),
+            user: conn.user.clone(),
+            password,
+            tls: conn.tls,
+        });
+        st.active = Some(conn.id);
     }
     if let Some(sql) = v.get("sql").and_then(|s| s.as_str()) {
         if !sql.is_empty() {
@@ -293,10 +348,7 @@ fn edit_connection(st: &mut State, index: usize) {
     let Some(conn) = st.connections.get(index).cloned() else {
         return;
     };
-    let password = secure_storage::read(&pw_key(&conn.id))
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    let password = load_password(st, &conn.id);
     st.form = Form {
         name: conn.name.clone(),
         engine: conn.engine,
@@ -318,6 +370,7 @@ fn delete_connection(st: &mut State, index: usize) {
     }
     let conn = st.connections.remove(index);
     let _ = secure_storage::delete(&pw_key(&conn.id));
+    st.password_cache.remove(&conn.id);
     if st.active.as_deref() == Some(&conn.id) {
         st.active = None;
         st.active_profile = None;
@@ -351,7 +404,10 @@ fn connect_from_form(st: &mut State) {
         tls: profile.tls,
     };
     let _ = secure_storage::write(&pw_key(&id), &st.form.password);
-    open_editor_tab(&conn);
+    st.password_cache
+        .insert(id.clone(), st.form.password.clone());
+    // Hand the just-entered password to the new tab so it doesn't re-read the keychain.
+    open_tab(&conn.name, &id, Some(&st.form.password), None);
     match st.connections.iter_mut().find(|c| c.id == id) {
         Some(existing) => *existing = conn,
         None => st.connections.push(conn),
