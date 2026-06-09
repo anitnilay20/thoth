@@ -91,6 +91,9 @@ impl StatelessComponent for TableView {
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                // egui_extras draws its own column separators from this stroke;
+                // silence them so they don't double the grid lines we paint.
+                ui.style_mut().visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
                 TableBuilder::new(ui)
                     .striped(true)
                     .sense(egui::Sense::click())
@@ -119,6 +122,7 @@ impl StatelessComponent for TableView {
                         for h in props.headers {
                             header_row.col(|ui| {
                                 ui.painter().rect_filled(ui.max_rect(), 0.0, header_bg);
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                 ui.add_space(CELL_PAD_X);
                                 let (name, ty) = h.split_once("  ·  ").unwrap_or((h.as_str(), ""));
                                 let r = ui.label(
@@ -176,6 +180,7 @@ impl StatelessComponent for TableView {
                             let mut row_clicked = false;
                             for cell in &cells {
                                 let (_, response) = row.col(|ui| {
+                                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                                     ui.add_space(CELL_PAD_X);
                                     if let Some(custom) = &cell.custom {
                                         custom(ui);
