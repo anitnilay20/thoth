@@ -22,6 +22,8 @@ pub(crate) fn build_sidebar(st: &State) -> Value {
                 "id": "sidebar-tabs",
                 "header": ["Connections", "Schema", "History"],
                 "icons": [ICON_PLUGS_CONNECTED, ICON_TREE_STRUCTURE, ICON_HISTORY],
+                // Contrast the strip against the panel-colored sidebar.
+                "bg-color": "bg-sunken",
                 "actions": [
                     { "id": "new-connection", "icon": ICON_PLUS, "tooltip": "New connection" }
                 ],

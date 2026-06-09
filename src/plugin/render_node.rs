@@ -432,6 +432,10 @@ pub enum UiNode {
     CodeEditor {
         id: String,
         value: String,
+
+        #[serde(default, rename = "font-size")]
+        font_size: Option<f32>,
+        syntax: Option<String>,
     },
     Tabs {
         id: String,
@@ -440,6 +444,9 @@ pub enum UiNode {
         /// is set, it renders as an icon-only tab with the header text as tooltip.
         #[serde(default)]
         icons: Vec<String>,
+        /// Background fill for the tab-header strip. Defaults to the panel color.
+        #[serde(default, rename = "bg-color")]
+        bg_color: BgColorOptions,
         children: Vec<UiNode>,
         /// Right-aligned icon actions on the tab-header line.
         #[serde(default)]
@@ -1603,7 +1610,22 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             let sz = size.unwrap_or(16.0);
             ui.add(egui::Spinner::new().color(colors.accent).size(sz));
         }
-        UiNode::CodeEditor { id, value } => {
+        UiNode::CodeEditor {
+            id,
+            value,
+            font_size,
+            syntax,
+        } => {
+            use egui_code_editor::Syntax;
+            let syntax = syntax
+                .as_deref()
+                .and_then(|s| match s {
+                    "rust" => Some(Syntax::rust()),
+                    "sql" => Some(Syntax::sql()),
+                    _ => None,
+                })
+                .unwrap_or(Syntax::rust());
+
             let buf_id = egui::Id::new(("ui:code-editor", id));
             let mut buf = ui.ctx().data_mut(|d| {
                 d.get_temp::<String>(buf_id)
@@ -1616,7 +1638,8 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             });
             let resp = CodeEditor::default()
                 .with_theme(colors.code_editor_theme())
-                .with_ui_fontsize(ui)
+                .with_fontsize(font_size.unwrap_or(14.0))
+                .with_syntax(syntax)
                 .show(ui, &mut buf);
             if resp.response.changed() {
                 events.push(ui_event(id, "change", json_str(&buf)));
@@ -1627,6 +1650,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             id,
             header,
             icons,
+            bg_color,
             children,
             actions,
         } => {
@@ -1665,6 +1689,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     items: &tab_items,
                     active: &active_str,
                     actions: &tab_actions,
+                    bg: bg_color.into_color(&colors),
                 },
             );
 

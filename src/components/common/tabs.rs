@@ -25,6 +25,8 @@ pub struct TabProps<'a> {
     pub active: &'a str,
     /// Icon buttons rendered right-aligned on the same line as the tabs.
     pub actions: &'a [TabAction<'a>],
+    /// Background fill for the tab strip. Defaults to the panel color.
+    pub bg: Option<egui::Color32>,
 }
 
 pub struct TabOutput {
@@ -51,7 +53,7 @@ impl StatelessComponent for Tabs {
         let mut clicked_action: Option<String> = None;
 
         egui::Frame::new()
-            .fill(colors.bg_panel)
+            .fill(props.bg.unwrap_or(colors.bg_panel))
             .outer_margin(egui::Margin {
                 left: 0,
                 right: 0,
