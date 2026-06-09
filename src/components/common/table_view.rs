@@ -197,6 +197,11 @@ impl StatelessComponent for TableView {
                                         .show(ui, |ui| {
                                             ui.style_mut().wrap_mode =
                                                 Some(egui::TextWrapMode::Truncate);
+                                            // Body cells render at 12px.
+                                            ui.style_mut().text_styles.insert(
+                                                egui::TextStyle::Body,
+                                                egui::FontId::proportional(12.0),
+                                            );
                                             if let Some(custom) = &cell.custom {
                                                 custom(ui);
                                             } else {
