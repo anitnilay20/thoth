@@ -1242,6 +1242,34 @@ mod live_db_tests {
     use crate::settings::PluginNetworkPolicy;
     use wasmtime::Config;
 
+    /// Snapshots a plugin's on-disk state file and restores it on drop, so tests
+    /// that write through plugin-storage don't pollute the real app data dir.
+    struct PluginStateGuard {
+        path: Option<std::path::PathBuf>,
+        original: Option<String>,
+    }
+    impl PluginStateGuard {
+        fn capture(plugin_id: &str) -> Self {
+            let path = PersistentState::plugin_state_path(plugin_id).ok();
+            let original = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
+            Self { path, original }
+        }
+    }
+    impl Drop for PluginStateGuard {
+        fn drop(&mut self) {
+            if let Some(path) = &self.path {
+                match &self.original {
+                    Some(s) => {
+                        let _ = std::fs::write(path, s);
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
+            }
+        }
+    }
+
     /// A `*`-allowlisted policy (matches Seshat's plugin.toml) so the tcp-client
     /// connect to a local DB is permitted without a consent round-trip.
     fn wildcard_policy() -> NetworkPolicy {
@@ -1408,6 +1436,11 @@ mod live_db_tests {
             eprintln!("skipping: build the workspace first so the plugin is bundled");
             return;
         }
+        // This test drives `dialog-connect`, which persists via plugin-storage to
+        // the real app data dir. Back the file up and restore it on drop so the
+        // test never leaves a phantom connection behind.
+        let _state_guard = PluginStateGuard::capture("com.thoth.seshat");
+
         let mut config = Config::new();
         config.consume_fuel(true);
         let engine = Engine::new(&config).expect("engine");
