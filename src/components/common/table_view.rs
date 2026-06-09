@@ -53,7 +53,7 @@ pub struct TableViewOutput {
 const HEADER_H: f32 = 28.0;
 const ROW_H: f32 = 30.0;
 const NUM_COL_W: f32 = 44.0;
-const CELL_PAD_X: f32 = 10.0;
+const CELL_PAD: i8 = 10;
 
 /// A reusable, horizontally-scrollable, virtually-scrolled data grid built on
 /// `egui_extras::TableBuilder`, styled after the design handoff: a sticky `#`
@@ -94,6 +94,9 @@ impl StatelessComponent for TableView {
                 // egui_extras draws its own column separators from this stroke;
                 // silence them so they don't double the grid lines we paint.
                 ui.style_mut().visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
+                // No gap between columns, so the header fill is one contiguous
+                // strip; per-cell padding comes from each cell's inner margin.
+                ui.style_mut().spacing.item_spacing.x = 0.0;
                 TableBuilder::new(ui)
                     .striped(true)
                     .sense(egui::Sense::click())
@@ -122,21 +125,30 @@ impl StatelessComponent for TableView {
                         for h in props.headers {
                             header_row.col(|ui| {
                                 ui.painter().rect_filled(ui.max_rect(), 0.0, header_bg);
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.add_space(CELL_PAD_X);
                                 let (name, ty) = h.split_once("  ·  ").unwrap_or((h.as_str(), ""));
-                                let r = ui.label(
-                                    egui::RichText::new(name)
-                                        .size(11.0)
-                                        .strong()
-                                        .color(header_fg),
-                                );
-                                if !ty.is_empty() {
-                                    ui.add_space(4.0);
-                                    ui.label(
-                                        egui::RichText::new(ty).size(9.0).monospace().color(num_fg),
-                                    );
-                                }
+                                let r = egui::Frame::NONE
+                                    .inner_margin(egui::Margin::symmetric(CELL_PAD, 0))
+                                    .show(ui, |ui| {
+                                        ui.style_mut().wrap_mode =
+                                            Some(egui::TextWrapMode::Truncate);
+                                        let r = ui.label(
+                                            egui::RichText::new(name)
+                                                .size(11.0)
+                                                .strong()
+                                                .color(header_fg),
+                                        );
+                                        if !ty.is_empty() {
+                                            ui.add_space(4.0);
+                                            ui.label(
+                                                egui::RichText::new(ty)
+                                                    .size(9.0)
+                                                    .monospace()
+                                                    .color(num_fg),
+                                            );
+                                        }
+                                        r
+                                    })
+                                    .inner;
                                 if r.hovered() {
                                     r.show_tooltip_text(h);
                                 }
@@ -180,13 +192,17 @@ impl StatelessComponent for TableView {
                             let mut row_clicked = false;
                             for cell in &cells {
                                 let (_, response) = row.col(|ui| {
-                                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                    ui.add_space(CELL_PAD_X);
-                                    if let Some(custom) = &cell.custom {
-                                        custom(ui);
-                                    } else {
-                                        ui.label(cell.text.unwrap_or(""));
-                                    }
+                                    egui::Frame::NONE
+                                        .inner_margin(egui::Margin::symmetric(CELL_PAD, 0))
+                                        .show(ui, |ui| {
+                                            ui.style_mut().wrap_mode =
+                                                Some(egui::TextWrapMode::Truncate);
+                                            if let Some(custom) = &cell.custom {
+                                                custom(ui);
+                                            } else {
+                                                ui.label(cell.text.unwrap_or(""));
+                                            }
+                                        });
                                     paint_cell_borders(ui, grid, grid);
                                 });
                                 if response.clicked() {
