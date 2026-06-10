@@ -101,6 +101,7 @@ trait ReadWrite: Read + Write + Send {}
 impl<T: Read + Write + Send> ReadWrite for T {}
 
 /// Service name used for the `secure-storage` keychain entries.
+#[cfg_attr(test, allow(dead_code))] // the test build uses an in-memory secret store
 const KEYRING_SERVICE: &str = "com.thoth.app";
 
 // ── per-store state ───────────────────────────────────────────────────────────
@@ -499,36 +500,78 @@ impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
         key: String,
         secret: String,
     ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, &self.scoped_key(&key))
-            .map_err(|e| se_err(e.to_string()))?;
-        entry
-            .set_password(&secret)
-            .map_err(|e| se_err(e.to_string()))
+        secret_store::write(&self.scoped_key(&key), &secret).map_err(se_err)
     }
 
     fn read(
         &mut self,
         key: String,
     ) -> std::result::Result<Option<String>, thoth::plugin::secure_storage::PluginError> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, &self.scoped_key(&key))
-            .map_err(|e| se_err(e.to_string()))?;
-        match entry.get_password() {
-            Ok(p) => Ok(Some(p)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(se_err(e.to_string())),
-        }
+        secret_store::read(&self.scoped_key(&key)).map_err(se_err)
     }
 
     fn delete(
         &mut self,
         key: String,
     ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, &self.scoped_key(&key))
-            .map_err(|e| se_err(e.to_string()))?;
+        secret_store::delete(&self.scoped_key(&key)).map_err(se_err)
+    }
+}
+
+/// Secret backend: the OS keychain in normal builds, an in-process map under
+/// `cfg(test)` — so unit tests never touch (or hang/prompt on) a real keychain,
+/// which keeps them reliable in CI (no D-Bus secret-service, no macOS prompt).
+#[cfg(not(test))]
+mod secret_store {
+    use super::KEYRING_SERVICE;
+
+    pub(super) fn write(account: &str, secret: &str) -> Result<(), String> {
+        keyring::Entry::new(KEYRING_SERVICE, account)
+            .and_then(|e| e.set_password(secret))
+            .map_err(|e| e.to_string())
+    }
+
+    pub(super) fn read(account: &str) -> Result<Option<String>, String> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
+        match entry.get_password() {
+            Ok(p) => Ok(Some(p)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    pub(super) fn delete(account: &str) -> Result<(), String> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(se_err(e.to_string())),
+            Err(e) => Err(e.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod secret_store {
+    use std::collections::HashMap;
+    use std::sync::{LazyLock, Mutex};
+
+    static STORE: LazyLock<Mutex<HashMap<String, String>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    pub(super) fn write(account: &str, secret: &str) -> Result<(), String> {
+        STORE
+            .lock()
+            .unwrap()
+            .insert(account.to_string(), secret.to_string());
+        Ok(())
+    }
+
+    pub(super) fn read(account: &str) -> Result<Option<String>, String> {
+        Ok(STORE.lock().unwrap().get(account).cloned())
+    }
+
+    pub(super) fn delete(account: &str) -> Result<(), String> {
+        STORE.lock().unwrap().remove(account);
+        Ok(())
     }
 }
 
