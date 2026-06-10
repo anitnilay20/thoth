@@ -1713,7 +1713,9 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 })
                 .unwrap_or(Syntax::rust());
 
-            let buf_id = egui::Id::new(("ui:code-editor", id));
+            // Scope the buffer to this ui (each plugin tab renders under a
+            // distinct egui id), so separate editor tabs don't share one buffer.
+            let buf_id = ui.id().with(("ui:code-editor", id));
             let mut buf = ui.ctx().data_mut(|d| {
                 d.get_temp::<String>(buf_id)
                     .unwrap_or_else(|| value.clone())
@@ -1741,8 +1743,9 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             children,
             actions,
         } => {
-            // Active tab index is persisted in egui memory keyed by id.
-            let mem_id = egui::Id::new(("ui:tabs", id.as_str()));
+            // Active tab index is persisted in egui memory, scoped to this ui so
+            // separate plugin instances don't share a selection.
+            let mem_id = ui.id().with(("ui:tabs", id.as_str()));
             let mut active_idx: usize = ui.ctx().data(|d| d.get_temp(mem_id).unwrap_or(0usize));
             active_idx = active_idx.min(header.len().saturating_sub(1));
 

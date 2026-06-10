@@ -89,6 +89,22 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             st.test_status = None;
         }
         "error-close" => st.error = None,
+        "new-query" => {
+            // Open a blank editor tab for the active connection.
+            if let Some(conn) = st
+                .active
+                .as_deref()
+                .and_then(|id| st.connections.iter().find(|c| c.id == id))
+            {
+                open_tab(
+                    &conn.name,
+                    &conn.id,
+                    active_password(st, &conn.id),
+                    None,
+                    false,
+                );
+            }
+        }
         "dialog-test" => {
             st.active_profile = Some(st.form.profile());
             st.test_status = Some(Ok("testing…".to_string()));
