@@ -33,6 +33,17 @@ try {
   Copy-Item $exe.FullName (Join-Path $InstallDir 'thoth.exe') -Force
   Write-Host "==> Installed to $InstallDir\thoth.exe"
 
+  # Install the bundled wasm plugins next to the exe — the app loads them from
+  # `<exe dir>\assets\plugins`. Older archives without them just skip this.
+  $pluginsSrc = Join-Path $exe.DirectoryName 'assets\plugins'
+  if (Test-Path $pluginsSrc) {
+    $pluginsDest = Join-Path $InstallDir 'assets\plugins'
+    if (Test-Path $pluginsDest) { Remove-Item -Recurse -Force $pluginsDest }
+    New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir 'assets') | Out-Null
+    Copy-Item -Recurse -Force $pluginsSrc $pluginsDest
+    Write-Host "==> Installed bundled plugins to $InstallDir\assets\plugins"
+  }
+
   # Add the install dir to the user PATH if it isn't already there.
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   if (($userPath -split ';') -notcontains $InstallDir) {

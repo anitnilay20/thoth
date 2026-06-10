@@ -107,6 +107,23 @@ else
   fi
   chmod +x "$staged"
   mv -f "$staged" "$dest_dir/$BIN_NAME"
+
+  # Install the bundled wasm plugins next to the binary — the app loads them
+  # from `<bin dir>/assets/plugins`. Stage then swap so an interrupted copy
+  # can't leave a half-written plugins dir. Older archives without them skip.
+  if [ -d "$tmp/assets/plugins" ]; then
+    info "Installing bundled plugins to ${BOLD}${dest_dir}/assets/plugins${RESET}"
+    staged_plugins="$dest_dir/.assets-plugins.install.$$"
+    rm -rf "$staged_plugins" 2>/dev/null || true
+    if ! cp -R "$tmp/assets/plugins" "$staged_plugins"; then
+      rm -rf "$staged_plugins" 2>/dev/null || true
+      die "failed to stage bundled plugins in $dest_dir"
+    fi
+    mkdir -p "$dest_dir/assets"
+    rm -rf "$dest_dir/assets/plugins"
+    mv -f "$staged_plugins" "$dest_dir/assets/plugins"
+  fi
+
   printf '%s✓ Installed %s %s%s\n' "$GREEN" "$BIN_NAME" "$tag" "$RESET"
   case ":$PATH:" in
     *":$dest_dir:"*) ;;
