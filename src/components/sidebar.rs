@@ -14,7 +14,7 @@ use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
 use crate::plugin::{Plugin, render_node::render_ui_node, wasm_data_source::ConsentRequest};
 use crate::search::SearchMessage;
-use eframe::egui;
+use eframe::egui::{self, Margin};
 
 /// Which sidebar section is currently selected
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -509,19 +509,8 @@ impl ContextComponent for Sidebar {
                             .layout(egui::Layout::top_down(egui::Align::Min)),
                     );
 
-                    // Plugin sidebars render their own UI and control their own
-                    // padding, so they get no host inner margin; built-in sections
-                    // keep the 8px inset.
-                    let inner_margin = if matches!(
-                        props.selected_section,
-                        Some(SidebarSection::PluginSidebar { .. })
-                    ) {
-                        egui::Margin::ZERO
-                    } else {
-                        egui::Margin::same(8)
-                    };
                     egui::Frame::NONE
-                        .inner_margin(inner_margin)
+                        .inner_margin(Margin::ZERO)
                         .show(&mut content_ui, |ui| {
                             egui::ScrollArea::both()
                                 .show(ui, |ui| self.render_content(ui, &props, &mut events));

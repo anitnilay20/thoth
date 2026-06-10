@@ -310,7 +310,9 @@ impl StatelessComponent for List {
                                         }
                                         ui.add_space(8.0);
                                     }
-                                    None => {}
+                                    // No leading element — still inset the content so the
+                                    // title lines up with prefixed rows (consistent left padding).
+                                    None => ui.add_space(8.0),
                                 }
 
                                 // ── Content + postfix + actions ──────────

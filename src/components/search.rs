@@ -1,5 +1,8 @@
 use crate::components::common::input::{Input, InputProps};
 use crate::components::common::list::{List, ListItem, ListProps};
+use crate::components::common::sidebar_header::{
+    SidebarHeader, SidebarHeaderAction, SidebarHeaderProps,
+};
 use crate::components::common::typography::Typography;
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
@@ -55,64 +58,47 @@ impl StatefulComponent for Search {
         let mut events = Vec::new();
 
         // Header with buttons
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            Typography::panel_header(ui, "SEARCH");
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Clear button
-                let clear_output = IconButton::render(
-                    ui,
-                    IconButtonProps {
-                        icon: egui_phosphor::regular::X,
-                        frame: false,
-                        tooltip: Some("Clear search"),
-                        badge_color: None,
-                        size: None,
-                        disabled: false,
-                        icon_size: None,
-                        selected: false,
-                    },
-                );
-                if clear_output.clicked {
-                    self.search_query.clear();
-                    let query_mode = detect_query_mode("");
-                    if let Some(msg) =
-                        SearchMessage::create_search(String::new(), self.match_case, query_mode)
-                    {
-                        events.push(SearchEvent::Search(msg));
-                    }
-                }
-
-                // Search button
-                let search_output = IconButton::render(
-                    ui,
-                    IconButtonProps {
+        let header = SidebarHeader::render(
+            ui,
+            SidebarHeaderProps {
+                title: "SEARCH",
+                trailing_text: None,
+                actions: &[
+                    SidebarHeaderAction {
                         icon: egui_phosphor::regular::MAGNIFYING_GLASS,
-                        frame: false,
-                        tooltip: Some("Search"),
-                        badge_color: None,
-                        size: None,
-                        disabled: false,
-                        icon_size: None,
-                        selected: false,
+                        tooltip: "Search",
                     },
-                );
-                if search_output.clicked && !self.search_query.is_empty() {
-                    let query_mode = detect_query_mode(&self.search_query);
-                    if let Some(msg) = SearchMessage::create_search(
-                        self.search_query.clone(),
-                        self.match_case,
-                        query_mode,
-                    ) {
-                        events.push(SearchEvent::Search(msg));
-                    }
+                    SidebarHeaderAction {
+                        icon: egui_phosphor::regular::X,
+                        tooltip: "Clear search",
+                    },
+                ],
+            },
+        );
+        match header.action_clicked {
+            // Search
+            Some(0) if !self.search_query.is_empty() => {
+                let query_mode = detect_query_mode(&self.search_query);
+                if let Some(msg) = SearchMessage::create_search(
+                    self.search_query.clone(),
+                    self.match_case,
+                    query_mode,
+                ) {
+                    events.push(SearchEvent::Search(msg));
                 }
-            });
-        });
-
-        ui.add_space(4.0);
-        ui.separator();
+            }
+            // Clear
+            Some(1) => {
+                self.search_query.clear();
+                let query_mode = detect_query_mode("");
+                if let Some(msg) =
+                    SearchMessage::create_search(String::new(), self.match_case, query_mode)
+                {
+                    events.push(SearchEvent::Search(msg));
+                }
+            }
+            _ => {}
+        }
         ui.add_space(8.0);
 
         let search_out = Input::render(

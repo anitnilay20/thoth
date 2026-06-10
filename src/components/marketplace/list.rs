@@ -4,10 +4,9 @@ use crate::components::common::button::{ButtonColor, ButtonProps, ButtonSize};
 use crate::components::common::input::{Input, InputProps};
 use crate::components::common::list::{List, ListItem, ListItemPostfix, ListItemPrefix, ListProps};
 use crate::components::common::select::{Select, SelectOption, SelectProps, SelectSize};
-use crate::components::common::separator::Separator;
+use crate::components::common::sidebar_header::{SidebarHeader, SidebarHeaderProps};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
-use crate::components::typography::Typography;
 use crate::theme::ThemeColors;
 
 use super::state::{InstallState, MarketplaceUiState, SortOrder, category_glyph, category_label};
@@ -16,22 +15,15 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
     // ── Header: title + count ──────────────────────────────────────────────
     let total = state.plugins.len();
     let visible_count = count_filtered(state);
-    egui::Frame::NONE
-        .inner_margin(egui::Margin::symmetric(0, 10))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                Typography::panel_header(ui, "PLUGIN STORE");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!("{visible_count} of {total}"))
-                            .color(colors.fg_muted)
-                            .size(10.0),
-                    );
-                });
-            });
-        });
-
-    Separator::with_margins(ui, (0.0, 10.0));
+    let count_text = format!("{visible_count} of {total}");
+    SidebarHeader::render(
+        ui,
+        SidebarHeaderProps {
+            title: "PLUGIN STORE",
+            trailing_text: Some(&count_text),
+            actions: &[],
+        },
+    );
 
     // ── Search bar + sort row ──────────────────────────────────────────────
     egui::Frame::NONE

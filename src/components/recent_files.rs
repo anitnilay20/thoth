@@ -1,6 +1,6 @@
 use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
 use crate::components::common::list::{List, ListItem, ListItemPostfix, ListProps};
-use crate::components::common::typography::Typography;
+use crate::components::common::sidebar_header::{SidebarHeader, SidebarHeaderProps};
 use crate::components::icon_button::IconButtonProps;
 use crate::components::traits::{StatefulComponent, StatelessComponent};
 use eframe::egui;
@@ -37,10 +37,7 @@ impl StatefulComponent for RecentFiles {
             return RecentFilesOutput { events };
         }
 
-        ui.add_space(8.0);
-        Typography::panel_header(ui, "RECENT FILES");
-        ui.add_space(4.0);
-        ui.separator();
+        SidebarHeader::render(ui, SidebarHeaderProps::new("RECENT FILES"));
         ui.add_space(4.0);
 
         egui::ScrollArea::vertical()

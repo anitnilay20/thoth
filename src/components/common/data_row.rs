@@ -139,6 +139,11 @@ impl StatelessComponent for DataRow {
         let muted = ui.visuals().weak_text_color();
 
         let mut caret_clicked = false;
+        // Clicks that land on the body labels (text/icon). We OR these into the
+        // row click so clicking the text acts on the row — while the labels stay
+        // selectable (drag-to-select still works) and show a pointer cursor.
+        let mut body_clicked = false;
+        let mut body_secondary = false;
 
         let _frame_response = egui::Frame::new().fill(background).show(ui, |ui| {
             ui.set_min_width(ui.available_width());
@@ -195,7 +200,13 @@ impl StatelessComponent for DataRow {
 
                 // Optional leading icon (phosphor glyph).
                 if let Some((glyph, color)) = props.leading_icon {
-                    ui.label(icon_rich_text(glyph, 13.0).color(color));
+                    body_label(
+                        ui,
+                        icon_rich_text(glyph, 13.0).color(color).into(),
+                        false,
+                        &mut body_clicked,
+                        &mut body_secondary,
+                    );
                     ui.add_space(4.0);
                 }
 
@@ -214,7 +225,7 @@ impl StatelessComponent for DataRow {
                     highlight_bg,
                     highlight_fg,
                 );
-                ui.add(egui::Label::new(key_label).sense(egui::Sense::hover()));
+                body_label(ui, key_label, true, &mut body_clicked, &mut body_secondary);
 
                 // Value part (if exists, with different token)
                 if let Some(value_token) = props.text_tokens.1 {
@@ -231,24 +242,69 @@ impl StatelessComponent for DataRow {
                         highlight_bg,
                         highlight_fg,
                     );
-                    ui.add(egui::Label::new(value_label).sense(egui::Sense::hover()));
+                    body_label(
+                        ui,
+                        value_label,
+                        true,
+                        &mut body_clicked,
+                        &mut body_secondary,
+                    );
                 }
 
                 // Optional right-aligned trailing text (count / type).
                 if let Some(trailing) = props.trailing {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new(trailing).color(muted).size(11.0));
+                        body_label(
+                            ui,
+                            RichText::new(trailing).color(muted).size(11.0).into(),
+                            false,
+                            &mut body_clicked,
+                            &mut body_secondary,
+                        );
                     });
                 }
             });
         });
 
+        // The row is clickable, so a pointer cursor over its empty areas; the
+        // labels carry their own pointer cursor (see `body_label`).
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
         DataRowOutput {
-            clicked: resp.clicked(),
-            right_clicked: resp.secondary_clicked(),
+            clicked: resp.clicked() || body_clicked,
+            right_clicked: resp.secondary_clicked() || body_secondary,
             caret_clicked,
             response: resp,
         }
+    }
+}
+
+/// Add one body label that participates in the row's click. Selectable labels
+/// (text) keep drag-to-select; a plain click reports `clicked()`, which we OR
+/// into the row. Non-selectable labels (icons) just sense clicks. Either way the
+/// cursor is a pointer, signalling the row is clickable.
+fn body_label(
+    ui: &mut Ui,
+    text: WidgetText,
+    selectable: bool,
+    clicked: &mut bool,
+    secondary: &mut bool,
+) {
+    let label = if selectable {
+        egui::Label::new(text).selectable(true)
+    } else {
+        egui::Label::new(text).sense(egui::Sense::click())
+    };
+    let resp = ui
+        .add(label)
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    if resp.clicked() {
+        *clicked = true;
+    }
+    if resp.secondary_clicked() {
+        *secondary = true;
     }
 }
 
