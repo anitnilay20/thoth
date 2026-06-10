@@ -9,6 +9,7 @@ use crate::components::common::input::{Input, InputProps};
 use crate::components::common::json_tree::{JsonTree, JsonTreeProps};
 use crate::components::common::list::{List, ListItem, ListProps};
 use crate::components::common::select::{Select, SelectOption as CommonSelectOption, SelectProps};
+use crate::components::common::separator::Separator;
 use crate::components::common::tabs::{TabAction, TabItem, TabProps, Tabs};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::table_view::{TableCell, TableView, TableViewProps};
@@ -802,7 +803,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             ui.add_space(*height);
         }
         UiNode::Separator => {
-            ui.separator();
+            Separator::plain(ui);
         }
 
         // ── Display ───────────────────────────────────────────────────────

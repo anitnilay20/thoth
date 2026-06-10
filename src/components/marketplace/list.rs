@@ -4,6 +4,7 @@ use crate::components::common::button::{ButtonColor, ButtonProps, ButtonSize};
 use crate::components::common::input::{Input, InputProps};
 use crate::components::common::list::{List, ListItem, ListItemPostfix, ListItemPrefix, ListProps};
 use crate::components::common::select::{Select, SelectOption, SelectProps, SelectSize};
+use crate::components::common::separator::Separator;
 use crate::components::common::sidebar_header::{SidebarHeader, SidebarHeaderProps};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
@@ -30,7 +31,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         .inner_margin(egui::Margin {
             left: 10,
             right: 10,
-            top: 0,
+            top: 10,
             bottom: 0,
         })
         .show(ui, |ui| {
@@ -227,7 +228,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         state.selected_category = cat.id.clone();
     }
 
-    ui.separator();
+    Separator::plain(ui);
 
     // ── Plugin list ────────────────────────────────────────────────────────
     if state.loading {

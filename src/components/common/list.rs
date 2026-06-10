@@ -5,6 +5,7 @@ use eframe::egui::{self, CornerRadius, Sense, Vec2};
 use crate::{
     components::{
         common::button::{Button, ButtonProps},
+        common::separator::Separator,
         icon_button::{IconButton, IconButtonProps},
         traits::StatelessComponent,
     },
@@ -614,7 +615,7 @@ impl StatelessComponent for List {
                 }
 
                 if show_sep && idx + 1 < n {
-                    ui.separator();
+                    Separator::plain(ui);
                 }
             }
 

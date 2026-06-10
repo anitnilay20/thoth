@@ -5,6 +5,7 @@
 
 use eframe::egui;
 
+use crate::components::common::separator::Separator;
 use crate::components::common::typography::Typography;
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
@@ -92,7 +93,7 @@ impl StatelessComponent for SidebarHeader {
             });
         });
 
-        ui.separator();
+        Separator::plain(ui);
 
         SidebarHeaderOutput { action_clicked }
     }
