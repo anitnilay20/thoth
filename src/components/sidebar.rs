@@ -131,6 +131,24 @@ impl Default for Sidebar {
     }
 }
 
+/// Render a sidebar rail icon button and, when it's the selected section, paint
+/// a 2px accent stripe down its left edge — the active-section indicator from
+/// the design (RailButton: a `--primary` bar inset top/bottom at the left edge).
+fn rail_button(ui: &mut egui::Ui, props: IconButtonProps<'_>, accent: egui::Color32) -> bool {
+    let selected = props.selected;
+    let out = IconButton::render(ui, props);
+    if selected {
+        let r = out.response.rect;
+        let half = (r.height() * 0.34).min(16.0);
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(r.min.x, r.center().y - half),
+            egui::pos2(r.min.x + 2.5, r.center().y + half),
+        );
+        ui.painter().rect_filled(bar, 1.0, accent);
+    }
+    out.clicked
+}
+
 impl Sidebar {
     /// Lazily initialise a panel for `plugin_id` with the given loader.
     /// No-op if the panel already exists and has a loader (avoids resetting an active session).
@@ -259,6 +277,15 @@ impl Sidebar {
     ) {
         let button_size = egui::vec2(48.0, 48.0);
 
+        let accent = ui
+            .ctx()
+            .memory(|mem| {
+                mem.data
+                    .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+            })
+            .map(|c| c.accent)
+            .unwrap_or_else(|| ui.visuals().selection.bg_fill);
+
         let sidebar_btn = |icon, tooltip, selected| IconButtonProps {
             icon,
             tooltip: Some(tooltip),
@@ -270,55 +297,51 @@ impl Sidebar {
             disabled: false,
         };
 
-        if IconButton::render(
+        if rail_button(
             ui,
             sidebar_btn(
                 egui_phosphor::regular::FOLDER,
                 "Recent Files",
                 props.selected_section == Some(SidebarSection::RecentFiles),
             ),
-        )
-        .clicked
-        {
+            accent,
+        ) {
             events.push(SidebarEvent::SectionToggled(SidebarSection::RecentFiles));
         }
 
-        if IconButton::render(
+        if rail_button(
             ui,
             sidebar_btn(
                 egui_phosphor::regular::MAGNIFYING_GLASS,
                 "Search",
                 props.selected_section == Some(SidebarSection::Search),
             ),
-        )
-        .clicked
-        {
+            accent,
+        ) {
             events.push(SidebarEvent::SectionToggled(SidebarSection::Search));
         }
 
-        if IconButton::render(
+        if rail_button(
             ui,
             sidebar_btn(
                 egui_phosphor::regular::BOOKMARK_SIMPLE,
                 "Bookmarks",
                 props.selected_section == Some(SidebarSection::Bookmarks),
             ),
-        )
-        .clicked
-        {
+            accent,
+        ) {
             events.push(SidebarEvent::SectionToggled(SidebarSection::Bookmarks));
         }
 
-        if IconButton::render(
+        if rail_button(
             ui,
             sidebar_btn(
                 egui_phosphor::regular::STOREFRONT,
                 "Marketplace",
                 props.selected_section == Some(SidebarSection::MarketPlace),
             ),
-        )
-        .clicked
-        {
+            accent,
+        ) {
             events.push(SidebarEvent::SectionToggled(SidebarSection::MarketPlace));
         }
 
@@ -338,7 +361,7 @@ impl Sidebar {
                         .icon
                         .as_deref()
                         .unwrap_or(egui_phosphor::regular::DATABASE);
-                    if IconButton::render(
+                    if rail_button(
                         ui,
                         IconButtonProps {
                             icon,
@@ -350,9 +373,8 @@ impl Sidebar {
                             badge_color: None,
                             disabled: false,
                         },
-                    )
-                    .clicked
-                    {
+                        accent,
+                    ) {
                         events.push(SidebarEvent::SectionToggled(section));
                     }
                 }

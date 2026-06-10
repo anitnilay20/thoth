@@ -127,7 +127,11 @@ impl StatelessComponent for DataRow {
         } else {
             props.background
         };
-        let background = if resp.hovered() {
+        // Hover must register even when the pointer is over the (interactive,
+        // occluding) body labels, so test the whole row rect rather than relying
+        // on `resp.hovered()`, which is false wherever a child widget is on top.
+        let hovered = resp.hovered() || ui.rect_contains_pointer(interact_rect);
+        let background = if hovered {
             blend_colors(base_bg, hover_row_bg(ui))
         } else {
             base_bg
@@ -268,7 +272,7 @@ impl StatelessComponent for DataRow {
 
         // The row is clickable, so a pointer cursor over its empty areas; the
         // labels carry their own pointer cursor (see `body_label`).
-        if resp.hovered() {
+        if hovered {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
 
