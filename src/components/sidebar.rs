@@ -356,10 +356,15 @@ impl Sidebar {
                     let section = SidebarSection::DataSource {
                         plugin_id: plugin.id.clone(),
                     };
-                    // Highlight only while this plugin's section is the open one —
-                    // not merely because it has an active session (otherwise the
-                    // icon stays selected after switching to another section).
-                    let selected = props.selected_section.as_ref() == Some(&section);
+                    // Highlight only while this plugin's sidebar is the open
+                    // section — not merely because it has an active session
+                    // (otherwise the icon stays selected after switching away).
+                    // A data-source plugin's open section is tracked as
+                    // `PluginSidebar { plugin_id }`, so match against that.
+                    let selected = matches!(
+                        &props.selected_section,
+                        Some(SidebarSection::PluginSidebar { plugin_id: p }) if p == &plugin.id
+                    );
                     let icon = plugin
                         .icon
                         .as_deref()
