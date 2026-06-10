@@ -1507,9 +1507,8 @@ mod live_db_tests {
             "Cancel should close the modal"
         );
 
-        // Connecting saves the connection and requests an editor *tab* (it does
-        // not switch the current instance). Verify the tab-open request carries
-        // seed state…
+        // Connecting saves the connection and activates it (no tab opened);
+        // render_ui then shows the editor view.
         loader
             .handle_event(UiEvent {
                 widget_id: "dialog-connect".to_string(),
@@ -1517,15 +1516,6 @@ mod live_db_tests {
                 value: String::new(),
             })
             .expect("handle_event(dialog-connect)");
-        let tabs = loader.drain_tab_open_requests();
-        assert!(!tabs.is_empty(), "Connect should open an editor tab");
-        let seed = tabs[0]
-            .initial_state
-            .clone()
-            .expect("editor tab seeded with state");
-
-        // …and that seeding an instance with it renders the editor view.
-        loader.init_with_state(&seed).expect("init_with_state");
         let editor = loader.render_ui().expect("render_ui (editor)");
         parse(&editor.node_json, "editor view");
         assert!(
@@ -1533,5 +1523,13 @@ mod live_db_tests {
             "editor view should have a SQL editor:\n{}",
             editor.node_json
         );
+
+        // Seeding a fresh tab via init_with_state (the table/history open path)
+        // also lands on the editor and parses.
+        loader
+            .init_with_state(r#"{"connection":"localhost","sql":"SELECT 1"}"#)
+            .expect("init_with_state");
+        let seeded = loader.render_ui().expect("render_ui (seeded)");
+        parse(&seeded.node_json, "seeded editor view");
     }
 }

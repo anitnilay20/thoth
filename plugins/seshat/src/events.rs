@@ -39,11 +39,8 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             "click" => {
                 if let Ok(i) = event.value.parse::<usize>() {
                     if let Some(conn) = st.connections.get(i).cloned() {
-                        // Activate for the sidebar Schema tab AND open an editor tab,
-                        // handing it the password we just loaded (no second prompt).
+                        // Just activate it — the Schema tab then shows its tables.
                         activate_connection(st, &conn);
-                        let pw = active_password(st, &conn.id);
-                        open_tab(&conn.name, &conn.id, pw, None);
                     }
                 }
             }
@@ -120,14 +117,14 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
                 if event.kind == "toggle" {
                     toggle_table(st, i, j);
                 } else {
-                    use_table(st, i, j);
+                    open_table_data(st, i, j);
                 }
             }
         }
         id if id.starts_with("col:") => {
             let idx: Vec<usize> = id[4..].split(':').filter_map(|s| s.parse().ok()).collect();
             if let [i, j, ..] = idx[..] {
-                use_table(st, i, j);
+                open_table_data(st, i, j);
             }
         }
         "sql" => st.sql = parse_str(&event.value),
@@ -146,14 +143,18 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
 
 /// Open an editor tab seeded with a connection (and optionally its password +
 /// SQL). Passing the password lets the new instance skip a keychain read — and
-/// therefore the macOS keychain prompt — for tabs opened during the session.
-fn open_tab(name: &str, conn_id: &str, password: Option<&str>, sql: Option<&str>) {
+/// therefore the macOS keychain prompt. When `run` is set, the tab executes the
+/// seeded SQL on open (so it lands on the results grid).
+fn open_tab(name: &str, conn_id: &str, password: Option<&str>, sql: Option<&str>, run: bool) {
     let mut state = serde_json::json!({ "connection": conn_id });
     if let Some(p) = password {
         state["password"] = Value::from(p);
     }
     if let Some(s) = sql {
         state["sql"] = Value::from(s);
+    }
+    if run {
+        state["run"] = Value::from(true);
     }
     ui_tabs::open_tab(name, Some(crate::ICON_TERMINAL), Some(&state.to_string()));
 }
@@ -262,8 +263,9 @@ fn toggle_table(st: &mut State, i: usize, j: usize) {
     }
 }
 
-/// Open an editor tab for the chosen table, prefilled with a `SELECT *`.
-fn use_table(st: &State, i: usize, j: usize) {
+/// Open a table's data in a new editor tab: `SELECT *` run immediately so the
+/// tab lands on the results grid (a "view data" action).
+fn open_table_data(st: &State, i: usize, j: usize) {
     let target = st.schemas.get(i).and_then(|sch| {
         sch.tables
             .as_ref()
@@ -286,10 +288,11 @@ fn use_table(st: &State, i: usize, j: usize) {
         &conn.id,
         active_password(st, &conn.id),
         Some(&sql),
+        true,
     );
 }
 
-/// Reopen a history entry (shown newest-first) in a fresh editor tab.
+/// Reopen a recent query in a fresh editor tab and run it.
 fn open_history_entry(st: &State, display_index: usize) {
     let Some(entry) = st.history.iter().rev().nth(display_index) else {
         return;
@@ -305,6 +308,7 @@ fn open_history_entry(st: &State, display_index: usize) {
         &entry.connection,
         active_password(st, &entry.connection),
         Some(&entry.sql),
+        true,
     );
 }
 
@@ -346,6 +350,16 @@ pub(crate) fn activate_from_state(st: &mut State, state: &str) {
         if !sql.is_empty() {
             st.sql = sql.to_string();
         }
+    }
+    // Auto-run the seeded query (table "view data" / recent-query reopen).
+    if v.get("run").and_then(|r| r.as_bool()).unwrap_or(false) && !st.sql.is_empty() {
+        st.loading = true;
+        st.result = None;
+        let sql = st.sql.clone();
+        if let Some(id) = st.active.clone() {
+            record_history(&id, &sql);
+        }
+        submit(&Request::Query { sql }, Kind::Query, st);
     }
 }
 
@@ -412,17 +426,17 @@ fn connect_from_form(st: &mut State) {
     let _ = secure_storage::write(&pw_key(&id), &st.form.password);
     st.password_cache
         .insert(id.clone(), st.form.password.clone());
-    // Hand the just-entered password to the new tab so it doesn't re-read the keychain.
-    open_tab(&conn.name, &id, Some(&st.form.password), None);
     match st.connections.iter_mut().find(|c| c.id == id) {
-        Some(existing) => *existing = conn,
-        None => st.connections.push(conn),
+        Some(existing) => *existing = conn.clone(),
+        None => st.connections.push(conn.clone()),
     }
     save_connections(st);
 
     st.editing = None;
     st.dialog_open = false;
     st.test_status = None;
+    // Make the saved connection active (loads its schema), same as clicking it.
+    activate_connection(st, &conn);
 }
 
 fn handle_query_result(st: &mut State, event: &UiEvent) {
