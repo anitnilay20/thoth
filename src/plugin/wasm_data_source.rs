@@ -100,6 +100,23 @@ const TCP_READ_CAP: usize = 1 << 20; // 1 MiB
 trait ReadWrite: Read + Write + Send {}
 impl<T: Read + Write + Send> ReadWrite for T {}
 
+/// Adapts an already-boxed stream back into a concrete `Read + Write` so it can
+/// be handed to `tcp_tls` for an in-place STARTTLS upgrade.
+struct BoxIo(Box<dyn ReadWrite>);
+impl Read for BoxIo {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+impl Write for BoxIo {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
 /// Service name used for the `secure-storage` keychain entries.
 #[cfg_attr(test, allow(dead_code))] // the test build uses an in-memory secret store
 const KEYRING_SERVICE: &str = "com.thoth.app";
@@ -368,8 +385,13 @@ fn tcp_connect(host: &str, port: u16) -> std::io::Result<TcpStream> {
     Err(last_err)
 }
 
-/// Wrap a TCP stream with host-side TLS (rustls + Mozilla roots).
-fn tcp_tls(tcp: TcpStream, host: &str) -> std::result::Result<Box<dyn ReadWrite>, String> {
+/// Wrap any byte stream with host-side TLS (rustls + Mozilla roots). Generic so
+/// it works both at connect time (a fresh `TcpStream`) and for an in-place
+/// STARTTLS upgrade of an already-open plaintext stream.
+fn tcp_tls<S: Read + Write + Send + 'static>(
+    stream: S,
+    host: &str,
+) -> std::result::Result<Box<dyn ReadWrite>, String> {
     let roots = rustls::RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };
@@ -380,7 +402,7 @@ fn tcp_tls(tcp: TcpStream, host: &str) -> std::result::Result<Box<dyn ReadWrite>
         .map_err(|e| format!("invalid TLS server name '{host}': {e}"))?;
     let conn = rustls::ClientConnection::new(Arc::new(config), server_name)
         .map_err(|e| format!("TLS setup failed: {e}"))?;
-    Ok(Box::new(rustls::StreamOwned::new(conn, tcp)))
+    Ok(Box::new(rustls::StreamOwned::new(conn, stream)))
 }
 
 impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
@@ -494,6 +516,22 @@ impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
         s.write_all(&bytes).map_err(|e| tcp_err(2, e.to_string()))?;
         s.flush().map_err(|e| tcp_err(2, e.to_string()))?;
         Ok(bytes.len() as u32)
+    }
+
+    fn start_tls(
+        &mut self,
+        stream: u64,
+        host: String,
+    ) -> std::result::Result<(), thoth::plugin::tcp_client::PluginError> {
+        // Take the plaintext stream out and replace it (same id) with a TLS
+        // wrapper around it — the protocol has already done its SSL request.
+        let plain = self
+            .tcp_streams
+            .remove(&stream)
+            .ok_or_else(|| tcp_err(4, "invalid stream id"))?;
+        let upgraded = tcp_tls(BoxIo(plain), &host).map_err(|e| tcp_err(2, e))?;
+        self.tcp_streams.insert(stream, upgraded);
+        Ok(())
     }
 
     fn close(&mut self, stream: u64) {

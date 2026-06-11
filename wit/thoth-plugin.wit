@@ -310,6 +310,13 @@ interface tcp-client {
     /// Write all of `bytes`. Returns the number of bytes written.
     write: func(id: u64, bytes: list<u8>) -> result<u32, plugin-error>;
 
+    /// Upgrade an already-open plaintext stream to TLS in place (SNI = host).
+    /// For protocols that negotiate TLS after connecting (Postgres/MySQL do a
+    /// plaintext SSL-request first, then switch): connect with `tls = false`,
+    /// perform the protocol's SSL request, then call this. Subsequent
+    /// read/write on the same id are encrypted.
+    start-tls: func(id: u64, host: string) -> result<_, plugin-error>;
+
     /// Close and free the stream. Idempotent.
     close: func(id: u64);
 }

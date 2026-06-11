@@ -1033,6 +1033,82 @@ pub mod thoth {
                 }
             }
             #[allow(unused_unsafe, clippy::all)]
+            /// Upgrade an already-open plaintext stream to TLS in place (SNI = host).
+            /// For protocols that negotiate TLS after connecting (Postgres/MySQL do a
+            /// plaintext SSL-request first, then switch): connect with `tls = false`,
+            /// perform the protocol's SSL request, then call this. Subsequent
+            /// read/write on the same id are encrypted.
+            pub fn start_tls(id: u64, host: &str) -> Result<(), PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = host;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/tcp-client@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "start-tls"]
+                        fn wit_import2(_: i64, _: *mut u8, _: usize, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(
+                        _: i64,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import2(_rt::as_i64(&id), ptr0.cast_mut(), len0, ptr1)
+                    };
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result8 = match l3 {
+                        0 => {
+                            let e = ();
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l4 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l5 = *ptr1
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l6 = *ptr1
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len7 = l6;
+                                let bytes7 = _rt::Vec::from_raw_parts(
+                                    l5.cast(),
+                                    len7,
+                                    len7,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l4 as u32,
+                                    message: _rt::string_lift(bytes7),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result8
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
             /// Close and free the stream. Idempotent.
             pub fn close(id: u64) -> () {
                 unsafe {
@@ -3588,8 +3664,8 @@ pub(crate) use __export_data_source_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2500] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xbb\x12\x01A\x02\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2534] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdd\x12\x01A\x02\x01\
 A\x1c\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x0fsearch-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01\
 ks\x01r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
@@ -3605,25 +3681,26 @@ y\x05\x04\0\x0chttp-request\x03\0\x06\x01r\x03\x06status{\x07headers\x03\x04body
 \x01j\0\x01s\x01@\x01\x04datas\0\x01\x04\0\x05write\x01\x02\x03\0!thoth:plugin/p\
 lugin-storage@0.1.0\x05\x03\x01B\x03\x01ks\x01@\x03\x05titles\x04icon\0\x0diniti\
 al-state\0\0s\x04\0\x08open-tab\x01\x01\x03\0\x1athoth:plugin/ui-tabs@0.1.0\x05\x04\
-\x01B\x0e\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\x01w\x01\x01\x01\
+\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\x01w\x01\x01\x01\
 @\x03\x04hosts\x04port{\x03tls\x7f\0\x02\x04\0\x07connect\x01\x03\x01p}\x01j\x01\
 \x04\x01\x01\x01@\x02\x02idw\x03maxy\0\x05\x04\0\x04read\x01\x06\x01j\x01y\x01\x01\
-\x01@\x02\x02idw\x05bytes\x04\0\x07\x04\0\x05write\x01\x08\x01@\x01\x02idw\x01\0\
-\x04\0\x05close\x01\x09\x03\0\x1dthoth:plugin/tcp-client@0.1.0\x05\x05\x01B\x0b\x02\
-\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\0\x01\x01\x01@\x02\x03keys\x06\
-secrets\0\x02\x04\0\x05write\x01\x03\x01ks\x01j\x01\x04\x01\x01\x01@\x01\x03keys\
-\0\x05\x04\0\x04read\x01\x06\x01@\x01\x03keys\0\x02\x04\0\x06delete\x01\x07\x03\0\
-!thoth:plugin/secure-storage@0.1.0\x05\x06\x01B\x02\x01@\x02\x06handles\x01qs\0s\
-\x04\0\x0csubmit-query\x01\0\x03\0\x1dthoth:plugin/db-runtime@0.1.0\x05\x07\x01B\
-\x1c\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0bdesc\
-riptions\x08required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04n\
-ames\x09type-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\
-\x02\x04names\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-js\
-ons\x0bheight-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0f\
-required-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07\
-connect\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06\
-schema\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06\
-handles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\
+\x01@\x02\x02idw\x05bytes\x04\0\x07\x04\0\x05write\x01\x08\x01j\0\x01\x01\x01@\x02\
+\x02idw\x04hosts\0\x09\x04\0\x09start-tls\x01\x0a\x01@\x01\x02idw\x01\0\x04\0\x05\
+close\x01\x0b\x03\0\x1dthoth:plugin/tcp-client@0.1.0\x05\x05\x01B\x0b\x02\x03\x02\
+\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\0\x01\x01\x01@\x02\x03keys\x06secret\
+s\0\x02\x04\0\x05write\x01\x03\x01ks\x01j\x01\x04\x01\x01\x01@\x01\x03keys\0\x05\
+\x04\0\x04read\x01\x06\x01@\x01\x03keys\0\x02\x04\0\x06delete\x01\x07\x03\0!thot\
+h:plugin/secure-storage@0.1.0\x05\x06\x01B\x02\x01@\x02\x06handles\x01qs\0s\x04\0\
+\x0csubmit-query\x01\0\x03\0\x1dthoth:plugin/db-runtime@0.1.0\x05\x07\x01B\x1c\x02\
+\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0bdescriptions\
+\x08required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04names\x09\
+type-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\x02\x04\
+names\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-jsons\x0bh\
+eight-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0frequir\
+ed-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07connec\
+t\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06schem\
+a\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06han\
+dles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\
 \x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x08\x01\
 B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04\
 kinds\x05values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hin\

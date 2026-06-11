@@ -17,6 +17,13 @@ impl TcpShim {
             .map_err(|e| io::Error::other(format!("tcp connect: {}", e.message)))?;
         Ok(Self { id })
     }
+
+    /// Upgrade this (plaintext) stream to TLS in place, after the wire protocol's
+    /// own SSL-request negotiation. SNI = `host`.
+    pub fn start_tls(&mut self, host: &str) -> io::Result<()> {
+        tcp_client::start_tls(self.id, host)
+            .map_err(|e| io::Error::other(format!("start_tls: {}", e.message)))
+    }
 }
 
 impl Read for TcpShim {

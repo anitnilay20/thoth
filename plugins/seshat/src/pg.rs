@@ -141,7 +141,13 @@ fn quote_literal(s: &str) -> String {
 /// Connect, run `sql` via the simple-query protocol, return typed columns + rows.
 /// Blocking — runs on the host query worker.
 pub fn run_query(p: &Profile, sql: &str) -> Result<QueryResult, String> {
-    let mut conn = TcpShim::connect(&p.host, p.port, p.tls).map_err(|e| e.to_string())?;
+    // Postgres negotiates TLS *after* connecting (SSLRequest), not on connect —
+    // so always open plaintext, then upgrade the stream in place when requested.
+    let mut conn = TcpShim::connect(&p.host, p.port, false).map_err(|e| e.to_string())?;
+    if p.tls {
+        negotiate_ssl(&mut conn)?;
+        conn.start_tls(&p.host).map_err(|e| e.to_string())?;
+    }
     let mut out = BytesMut::new();
     let mut inbuf = BytesMut::new();
     let mut scratch = vec![0u8; READ_CHUNK];
@@ -211,6 +217,24 @@ pub fn run_query(p: &Profile, sql: &str) -> Result<QueryResult, String> {
     frontend::terminate(&mut out);
     let _ = flush(&mut conn, &mut out);
     Ok(QueryResult { columns, rows, tag })
+}
+
+/// Postgres SSL negotiation: send an SSLRequest and read the server's single
+/// byte reply — `S` to proceed with TLS, `N` if the server won't do SSL.
+fn negotiate_ssl(conn: &mut TcpShim) -> Result<(), String> {
+    use bytes::BufMut;
+    let mut req = BytesMut::with_capacity(8);
+    req.put_i32(8); // total message length
+    req.put_i32(80_877_103); // SSLRequest magic code
+    conn.write_all(&req).map_err(|e| e.to_string())?;
+    conn.flush().map_err(|e| e.to_string())?;
+    let mut b = [0u8; 1];
+    conn.read_exact(&mut b).map_err(|e| e.to_string())?;
+    match b[0] {
+        b'S' => Ok(()),
+        b'N' => Err("server does not support SSL, but TLS was requested".to_string()),
+        other => Err(format!("unexpected SSL negotiation reply: 0x{other:02x}")),
+    }
 }
 
 fn authenticate(
