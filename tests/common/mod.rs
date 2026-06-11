@@ -7,9 +7,23 @@ pub mod mocks;
 
 use eframe::egui;
 
-/// Create a test egui context for component testing
+/// Create a test egui context for component testing.
+///
+/// Registers the Phosphor icon font (as the app does) so components that render
+/// glyphs — e.g. `DataRow`'s caret/leaf spacer and `IconButton` — don't panic
+/// with `FontFamily::Name("phosphor") is not bound to any fonts`.
 pub fn create_test_context() -> egui::Context {
-    egui::Context::default()
+    let ctx = egui::Context::default();
+    let mut fonts = egui::FontDefinitions::default();
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    // Bind the named `phosphor` family that `phosphor_font_id()` requests —
+    // `add_to_fonts` only registers the font data + proportional/mono fallbacks.
+    fonts.families.insert(
+        egui::FontFamily::Name("phosphor".into()),
+        vec!["phosphor".into()],
+    );
+    ctx.set_fonts(fonts);
+    ctx
 }
 
 /// Run a component test with a proper egui context and UI

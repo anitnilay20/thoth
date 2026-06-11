@@ -55,17 +55,20 @@ fn test_data_row_with_brackets() {
 fn test_data_row_with_indentation() {
     run_ui_test(|ui| {
         // Test various indentation levels
-        for level in 0..5 {
+        for level in 0..5usize {
             let output = DataRow::render(
                 ui,
-                DataRowProps::new(
-                    &format!("level{}: value", level),
-                    (TextToken::Key, Some(TextToken::Str)),
-                    ui.visuals().widgets.noninteractive.bg_fill,
-                    &format!("indent-{}", level),
-                    RowHighlights::default(),
-                    true,
-                ),
+                DataRowProps {
+                    indent: level,
+                    ..DataRowProps::new(
+                        &format!("level{}: value", level),
+                        (TextToken::Key, Some(TextToken::Str)),
+                        ui.visuals().widgets.noninteractive.bg_fill,
+                        &format!("indent-{}", level),
+                        RowHighlights::default(),
+                        true,
+                    )
+                },
             );
 
             assert!(!output.clicked);
@@ -108,14 +111,17 @@ fn test_data_row_with_selection_background() {
 
         let output = DataRow::render(
             ui,
-            DataRowProps::new(
-                "selected: item",
-                (TextToken::Key, Some(TextToken::Str)),
-                selected_bg,
-                "selected-row",
-                RowHighlights::default(),
-                true,
-            ),
+            DataRowProps {
+                selected: true,
+                ..DataRowProps::new(
+                    "selected: item",
+                    (TextToken::Key, Some(TextToken::Str)),
+                    selected_bg,
+                    "selected-row",
+                    RowHighlights::default(),
+                    true,
+                )
+            },
         );
 
         assert!(!output.clicked);

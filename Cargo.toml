@@ -166,6 +166,9 @@ muda = "0.19.2"
 [dev-dependencies]
 proptest = "1.5"
 criterion = { version = "0.5", features = ["html_reports"] }
+# Integration tests render components that use Phosphor glyphs (DataRow caret,
+# IconButton); register the font in the test egui context so they don't panic.
+egui-phosphor = "0.12"
 
 [features]
 default = []
