@@ -16,14 +16,14 @@ fn test_data_row_basic() {
     run_ui_test(|ui| {
         let output = DataRow::render(
             ui,
-            DataRowProps {
-                display_text: "key: value",
-                text_tokens: (TextToken::Key, Some(TextToken::Str)),
-                background: ui.visuals().widgets.noninteractive.bg_fill,
-                row_id: "test-row",
-                highlights: RowHighlights::default(),
-                syntax_highlighting: true,
-            },
+            DataRowProps::new(
+                "key: value",
+                (TextToken::Key, Some(TextToken::Str)),
+                ui.visuals().widgets.noninteractive.bg_fill,
+                "test-row",
+                RowHighlights::default(),
+                true,
+            ),
         );
 
         // Initially not clicked
@@ -37,14 +37,14 @@ fn test_data_row_with_brackets() {
     run_ui_test(|ui| {
         let output = DataRow::render(
             ui,
-            DataRowProps {
-                display_text: "array: []",
-                text_tokens: (TextToken::Key, Some(TextToken::Bracket)),
-                background: ui.visuals().widgets.noninteractive.bg_fill,
-                row_id: "array-row",
-                highlights: RowHighlights::default(),
-                syntax_highlighting: true,
-            },
+            DataRowProps::new(
+                "array: []",
+                (TextToken::Key, Some(TextToken::Bracket)),
+                ui.visuals().widgets.noninteractive.bg_fill,
+                "array-row",
+                RowHighlights::default(),
+                true,
+            ),
         );
 
         assert!(!output.clicked);
@@ -58,14 +58,14 @@ fn test_data_row_with_indentation() {
         for level in 0..5 {
             let output = DataRow::render(
                 ui,
-                DataRowProps {
-                    display_text: &format!("level{}: value", level),
-                    text_tokens: (TextToken::Key, Some(TextToken::Str)),
-                    background: ui.visuals().widgets.noninteractive.bg_fill,
-                    row_id: &format!("indent-{}", level),
-                    highlights: RowHighlights::default(),
-                    syntax_highlighting: true,
-                },
+                DataRowProps::new(
+                    &format!("level{}: value", level),
+                    (TextToken::Key, Some(TextToken::Str)),
+                    ui.visuals().widgets.noninteractive.bg_fill,
+                    &format!("indent-{}", level),
+                    RowHighlights::default(),
+                    true,
+                ),
             );
 
             assert!(!output.clicked);
@@ -86,14 +86,14 @@ fn test_data_row_different_text_tokens() {
         for (i, (token1, token2)) in token_pairs.iter().enumerate() {
             let output = DataRow::render(
                 ui,
-                DataRowProps {
-                    display_text: "test: value",
-                    text_tokens: (*token1, *token2),
-                    background: ui.visuals().widgets.noninteractive.bg_fill,
-                    row_id: &format!("token-{}", i),
-                    highlights: RowHighlights::default(),
-                    syntax_highlighting: true,
-                },
+                DataRowProps::new(
+                    "test: value",
+                    (*token1, *token2),
+                    ui.visuals().widgets.noninteractive.bg_fill,
+                    &format!("token-{}", i),
+                    RowHighlights::default(),
+                    true,
+                ),
             );
 
             assert!(!output.clicked);
@@ -108,14 +108,14 @@ fn test_data_row_with_selection_background() {
 
         let output = DataRow::render(
             ui,
-            DataRowProps {
-                display_text: "selected: item",
-                text_tokens: (TextToken::Key, Some(TextToken::Str)),
-                background: selected_bg,
-                row_id: "selected-row",
-                highlights: RowHighlights::default(),
-                syntax_highlighting: true,
-            },
+            DataRowProps::new(
+                "selected: item",
+                (TextToken::Key, Some(TextToken::Str)),
+                selected_bg,
+                "selected-row",
+                RowHighlights::default(),
+                true,
+            ),
         );
 
         assert!(!output.clicked);
