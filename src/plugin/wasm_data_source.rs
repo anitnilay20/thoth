@@ -392,17 +392,72 @@ fn tcp_tls<S: Read + Write + Send + 'static>(
     stream: S,
     host: &str,
 ) -> std::result::Result<Box<dyn ReadWrite>, String> {
-    let roots = rustls::RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
+    // The TLS toggle maps to libpq `sslmode=require`: encrypt the connection but
+    // do not verify the server certificate's issuer/chain. Database GUIs do this
+    // for a plain "use SSL" toggle so self-signed / internal-CA servers connect.
+    // It encrypts but does not authenticate the server (a future verify-full
+    // option would). Hostname is still required for SNI.
     let config = rustls::ClientConfig::builder()
-        .with_root_certificates(roots)
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AcceptAnyServerCert))
         .with_no_client_auth();
     let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
         .map_err(|e| format!("invalid TLS server name '{host}': {e}"))?;
     let conn = rustls::ClientConnection::new(Arc::new(config), server_name)
         .map_err(|e| format!("TLS setup failed: {e}"))?;
     Ok(Box::new(rustls::StreamOwned::new(conn, stream)))
+}
+
+/// A rustls verifier that accepts any server certificate (encryption without
+/// authentication) — the `sslmode=require` posture. See [`tcp_tls`].
+#[derive(Debug)]
+struct AcceptAnyServerCert;
+
+impl rustls::client::danger::ServerCertVerifier for AcceptAnyServerCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        use rustls::SignatureScheme::*;
+        vec![
+            RSA_PKCS1_SHA256,
+            RSA_PKCS1_SHA384,
+            RSA_PKCS1_SHA512,
+            ECDSA_NISTP256_SHA256,
+            ECDSA_NISTP384_SHA384,
+            ECDSA_NISTP521_SHA512,
+            RSA_PSS_SHA256,
+            RSA_PSS_SHA384,
+            RSA_PSS_SHA512,
+            ED25519,
+        ]
+    }
 }
 
 impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
