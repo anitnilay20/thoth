@@ -103,7 +103,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          # libdbus-1-dev + pkg-config: keyring's Linux secret-service backend links libdbus.
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev pkg-config
 
       # Windows-specific setup - Install WiX for MSI creation (required by cargo-packager)
       - name: Install Windows dependencies
