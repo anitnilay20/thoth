@@ -131,6 +131,11 @@ struct DataSourcePluginState {
     // The query currently executing on the worker thread, so a tcp-client connect
     // that hits the consent gate can re-enqueue it once the user approves the host.
     current_query: Option<QueryRequest>,
+    // Result channel + in-flight counter (shared with the loader) so the consent
+    // DENY path can deliver a terminal failure for the in-flight query instead of
+    // leaving its UI waiting forever.
+    query_result_tx: std::sync::mpsc::Sender<(String, QueryResult)>,
+    query_pending: Arc<AtomicUsize>,
 }
 
 impl WasiView for DataSourcePluginState {
@@ -402,6 +407,12 @@ impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
                 // press Run again. The retry's check_tcp now returns Allowed.
                 let retry_query = self.current_query.clone();
                 let query_tx = self.query_request_tx.clone();
+                // For the deny path: fail the in-flight query (it's kept pending
+                // for the approve-and-retry path) so its UI stops waiting.
+                let deny_query = self.current_query.clone();
+                let deny_result_tx = self.query_result_tx.clone();
+                let deny_pending = Arc::clone(&self.query_pending);
+                let deny_dom = domain.clone();
                 ConsentManager::push_http_consent(
                     &domain,
                     &self.plugin_id,
@@ -420,7 +431,19 @@ impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
                             let _ = query_tx.send(q.clone());
                         }
                     }),
-                    Arc::new(|_| {}),
+                    Arc::new(move |_| {
+                        // User declined the host. Deliver a terminal failure for
+                        // the query that triggered consent so drain_query_results
+                        // completes it (matching pump_queries' +1 / drain's -1
+                        // accounting) instead of leaving the UI pending forever.
+                        if let Some((req_id, _, _)) = &deny_query {
+                            deny_pending.fetch_add(1, Ordering::Relaxed);
+                            let _ = deny_result_tx.send((
+                                req_id.clone(),
+                                Err(format!("connection to '{deny_dom}' denied")),
+                            ));
+                        }
+                    }),
                 );
                 return Err(tcp_err(
                     403,
@@ -697,6 +720,8 @@ impl WasmDataSourceLoader {
             next_tcp_id: 1,
             query_request_tx,
             current_query: None,
+            query_result_tx: query_result_tx.clone(),
+            query_pending: Arc::clone(&query_pending),
         };
 
         let mut store = Store::new(engine, state);

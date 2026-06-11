@@ -951,6 +951,7 @@ impl ThothApp {
         // The mounted plugin sidebar runs independently of tabs — drive it too.
         let mut sidebar_http: Vec<UiEvent> = Vec::new();
         let mut sidebar_query: Vec<UiEvent> = Vec::new();
+        let mut sidebar_retry: Vec<(String, PluginHttpRequest)> = Vec::new();
         if let Some(rt) = self.sidebar_plugin.as_ref() {
             for (request_id, outcome) in rt.loader.drain_http_results() {
                 sidebar_http.push(build_http_response_event(request_id, outcome));
@@ -958,6 +959,11 @@ impl ThothApp {
             rt.loader.pump_queries();
             for (request_id, result) in rt.loader.drain_query_results() {
                 sidebar_query.push(build_query_result_event(request_id, result));
+            }
+            // Consent-approved retries must be replayed here too, or a sidebar
+            // plugin's submit()/query stalls after the user approves the host.
+            for (request_id, req) in rt.loader.drain_retry_requests() {
+                sidebar_retry.push((request_id, req));
             }
             tab_open_reqs.extend(rt.loader.drain_tab_open_requests());
             if rt.loader.has_pending_http() || rt.loader.has_pending_query() {
@@ -976,6 +982,18 @@ impl ThothApp {
         }
         for event in sidebar_query {
             self.dispatch_sidebar_event(event);
+        }
+
+        for (request_id, req) in sidebar_retry {
+            if let Some(rt) = self.sidebar_plugin.as_ref() {
+                rt.loader.dispatch_approved_request(request_id, req);
+            }
+            self.dispatch_sidebar_event(UiEvent {
+                widget_id: "consent-approved".to_string(),
+                kind: "notify".to_string(),
+                value: String::new(),
+            });
+            ctx.request_repaint();
         }
 
         for (id, request_id, req) in retry_dispatch {

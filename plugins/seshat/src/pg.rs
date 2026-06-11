@@ -169,9 +169,17 @@ pub fn run_query(p: &Profile, sql: &str) -> Result<QueryResult, String> {
     let mut oids: Vec<Oid> = Vec::new();
     let mut rows: Vec<Vec<Value>> = Vec::new();
     let mut tag: Option<String> = None;
+    const MULTI_RESULT_ERR: &str =
+        "multiple result sets are not supported; run one statement at a time";
     loop {
         match read_message(&mut conn, &mut inbuf, &mut scratch)? {
             backend::Message::RowDescription(body) => {
+                // A prior statement already completed (tag set) — this is a
+                // second result set. We return a single result, so reject it
+                // rather than mixing rows from different schemas.
+                if tag.is_some() {
+                    return Err(MULTI_RESULT_ERR.to_string());
+                }
                 columns.clear();
                 oids.clear();
                 let mut fields = body.fields();
@@ -186,6 +194,12 @@ pub fn run_query(p: &Profile, sql: &str) -> Result<QueryResult, String> {
             }
             backend::Message::DataRow(body) => rows.push(row_to_values(&oids, &body)?),
             backend::Message::CommandComplete(body) => {
+                // Same guard for back-to-back statements with no result rows
+                // (e.g. two `UPDATE`s): a second command tag means a second
+                // result set, which we don't support.
+                if tag.is_some() {
+                    return Err(MULTI_RESULT_ERR.to_string());
+                }
                 tag = body.tag().ok().map(|t| t.to_string());
             }
             backend::Message::ErrorResponse(body) => return Err(error_message(&body)),

@@ -298,6 +298,10 @@ fn open_table_data(st: &State, i: usize, j: usize) {
     else {
         return;
     };
+    // Escape any embedded double-quotes (doubling them) so identifiers can't
+    // break out of the quoted form — `tab"le` becomes `"tab""le"`.
+    let schema = schema.replace('"', "\"\"");
+    let table = table.replace('"', "\"\"");
     let sql = format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;");
     open_tab(
         &conn.name,
@@ -439,7 +443,16 @@ fn connect_from_form(st: &mut State) {
         user: profile.user.clone(),
         tls: profile.tls,
     };
-    let _ = secure_storage::write(&pw_key(&id), &st.form.password);
+    // Persist the password to the keychain first; if that fails we must NOT save
+    // the connection, or it would be unusable (no stored credential). Surface the
+    // error and bail out, leaving the connections list untouched.
+    if let Err(e) = secure_storage::write(&pw_key(&id), &st.form.password) {
+        st.error = Some(format!(
+            "Couldn't save the password to the keychain: {}",
+            e.message
+        ));
+        return;
+    }
     st.password_cache
         .insert(id.clone(), st.form.password.clone());
     match st.connections.iter_mut().find(|c| c.id == id) {

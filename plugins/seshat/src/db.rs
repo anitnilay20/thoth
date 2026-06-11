@@ -98,7 +98,45 @@ pub trait DbAdapter {
 pub fn adapter(engine: Engine) -> Box<dyn DbAdapter> {
     match engine {
         Engine::Postgres => Box::new(crate::pg::Postgres),
-        // MySQL lands in Phase 2; fall back to Postgres so the type checks.
-        Engine::Mysql => Box::new(crate::pg::Postgres),
+        // MySQL lands in Phase 2. Return an adapter that reports "unsupported"
+        // for every operation rather than speaking Postgres protocol to a MySQL
+        // server (which would fail with a confusing wire-level error).
+        Engine::Mysql => Box::new(UnsupportedEngine(Engine::Mysql)),
+    }
+}
+
+/// A stand-in for an engine that isn't implemented yet. Every operation returns
+/// a clear "not supported" error.
+struct UnsupportedEngine(Engine);
+
+impl UnsupportedEngine {
+    fn unsupported<T>(&self) -> Result<T, String> {
+        Err(format!("{:?} is not supported yet", self.0))
+    }
+}
+
+impl DbAdapter for UnsupportedEngine {
+    fn test_connection(&self, _p: &Profile) -> Result<String, String> {
+        self.unsupported()
+    }
+    fn list_databases(&self, _p: &Profile) -> Result<Vec<String>, String> {
+        self.unsupported()
+    }
+    fn list_schemas(&self, _p: &Profile) -> Result<Vec<String>, String> {
+        self.unsupported()
+    }
+    fn list_tables(&self, _p: &Profile, _schema: &str) -> Result<Vec<TableInfo>, String> {
+        self.unsupported()
+    }
+    fn list_columns(
+        &self,
+        _p: &Profile,
+        _schema: &str,
+        _table: &str,
+    ) -> Result<Vec<ColumnInfo>, String> {
+        self.unsupported()
+    }
+    fn run_query(&self, _p: &Profile, _sql: &str) -> Result<QueryResult, String> {
+        self.unsupported()
     }
 }

@@ -155,6 +155,9 @@ impl NetworkPolicy {
     /// addresses — database clients legitimately connect to `localhost` and
     /// internal networks, so per-host allowlist + consent is the gate instead.
     pub fn check_tcp(&mut self, host: &str) -> Result<CheckOutcome, PolicyViolation> {
+        // Normalize to match the allow/block lists, which `from_plugin_and_settings`
+        // stores trimmed + lowercased — otherwise `LOCALHOST` or ` db ` would miss.
+        let host = host.trim().to_ascii_lowercase();
         if host.is_empty() {
             return Err(PolicyViolation::InvalidUrl("empty host".to_string()));
         }
@@ -162,17 +165,15 @@ impl NetworkPolicy {
         // per operation (every query, plus each schema-introspection call), so a
         // per-minute connect cap would reject ordinary use. The security boundary
         // for TCP is the host allowlist + per-host consent below, not a rate cap.
-        if self.is_blocked(host) {
+        if self.is_blocked(&host) {
             return Err(PolicyViolation::UserBlocked);
         }
-        if self.is_allowed(host)
-            || (self.is_within_plugin_scope(host) && self.is_runtime_allowed(host))
+        if self.is_allowed(&host)
+            || (self.is_within_plugin_scope(&host) && self.is_runtime_allowed(&host))
         {
             return Ok(CheckOutcome::Allowed);
         }
-        Ok(CheckOutcome::NeedsConsent {
-            domain: host.to_string(),
-        })
+        Ok(CheckOutcome::NeedsConsent { domain: host })
     }
 
     fn is_blocked(&self, host: &str) -> bool {
