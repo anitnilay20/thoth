@@ -8,6 +8,8 @@ use crate::theme::ThemeColors;
 pub struct TabItem<'a> {
     pub value: &'a str,
     pub label: &'a str,
+    /// When set, the tab is shown as an icon-only button (label becomes a tooltip).
+    pub icon: Option<&'a str>,
 }
 
 /// A right-aligned icon action shown on the tab-header line (e.g. an export button).
@@ -23,6 +25,8 @@ pub struct TabProps<'a> {
     pub active: &'a str,
     /// Icon buttons rendered right-aligned on the same line as the tabs.
     pub actions: &'a [TabAction<'a>],
+    /// Background fill for the tab strip. Defaults to the panel color.
+    pub bg: Option<egui::Color32>,
 }
 
 pub struct TabOutput {
@@ -49,7 +53,7 @@ impl StatelessComponent for Tabs {
         let mut clicked_action: Option<String> = None;
 
         egui::Frame::new()
-            .fill(colors.bg_panel)
+            .fill(props.bg.unwrap_or(colors.bg_panel))
             .outer_margin(egui::Margin {
                 left: 0,
                 right: 0,
@@ -73,22 +77,45 @@ impl StatelessComponent for Tabs {
 
                     for item in props.items {
                         let is_active = item.value == props.active;
-                        let btn = Button::render(
-                            ui,
-                            ButtonProps {
-                                label: item.label.to_string(),
-                                button_type: ButtonType::Text,
-                                color: if is_active {
-                                    ButtonColor::Primary
-                                } else {
-                                    ButtonColor::Default
+                        // Icon-only tab (label as tooltip) when an icon is given,
+                        // otherwise the text tab.
+                        let resp = if let Some(icon) = item.icon {
+                            let out = IconButton::render(
+                                ui,
+                                IconButtonProps {
+                                    icon,
+                                    tooltip: Some(item.label),
+                                    selected: is_active,
+                                    frame: false,
+                                    size: Some(egui::vec2(34.0, 30.0)),
+                                    icon_size: Some(18.0),
+                                    ..Default::default()
                                 },
-                                button_size: ButtonSize::Medium,
-                                ..Default::default()
-                            },
-                        );
-
-                        let resp = btn.response;
+                            );
+                            if out.clicked && !is_active {
+                                selected = Some(item.value.to_string());
+                            }
+                            out.response
+                        } else {
+                            let btn = Button::render(
+                                ui,
+                                ButtonProps {
+                                    label: item.label.to_string(),
+                                    button_type: ButtonType::Text,
+                                    color: if is_active {
+                                        ButtonColor::Primary
+                                    } else {
+                                        ButtonColor::Default
+                                    },
+                                    button_size: ButtonSize::Medium,
+                                    ..Default::default()
+                                },
+                            );
+                            if btn.response.clicked() && !is_active {
+                                selected = Some(item.value.to_string());
+                            }
+                            btn.response
+                        };
 
                         // Draw active underline pinned to frame bottom
                         if is_active {
@@ -97,10 +124,6 @@ impl StatelessComponent for Tabs {
                                 egui::pos2(resp.rect.right(), frame_bottom),
                             );
                             ui.painter().rect_filled(bar_rect, 0.0, colors.accent);
-                        }
-
-                        if resp.clicked() && !is_active {
-                            selected = Some(item.value.to_string());
                         }
                     }
 

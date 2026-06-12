@@ -1,0 +1,26 @@
+[package]
+name = "seshat"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"] # required for WASM component output
+
+[dependencies]
+# Runtime support for cargo-component generated bindings.
+wit-bindgen-rt = "0.41"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Postgres wire-protocol codec (transport-agnostic; driven over the host
+# tcp-client shim). The high-level `postgres`/`tokio-postgres` crates open their
+# own sockets and won't compile to wasm32-wasip1 — this is just the codec.
+postgres-protocol = "0.6"
+bytes = "1"
+fallible-iterator = "0.2"
+
+[package.metadata.component]
+package = "thoth:seshat"
+
+[package.metadata.component.target]
+path = "../../wit"
+world = "data-source-plugin"

@@ -31,7 +31,8 @@ impl<'a> TableCell<'a> {
 }
 
 pub struct TableViewProps<'a> {
-    /// Column header labels.
+    /// Column header labels. A label of the form `"name  ·  type"` renders the
+    /// name in the header weight and the type as a small muted mono suffix.
     pub headers: &'a [String],
     /// Total number of rows. Only the visible subset will be rendered.
     pub row_count: usize,
@@ -48,9 +49,17 @@ pub struct TableViewOutput {
     pub clicked_row: Option<usize>,
 }
 
-/// A reusable, horizontally-scrollable, virtually-scrolled table component
-/// built on `egui_extras::TableBuilder`. `build_row` is called only for the
-/// rows currently visible in the viewport.
+// Grid metrics — tuned to the design handoff's results grid.
+const HEADER_H: f32 = 28.0;
+const ROW_H: f32 = 30.0;
+const NUM_COL_W: f32 = 44.0;
+const CELL_PAD: i8 = 10;
+
+/// A reusable, horizontally-scrollable, virtually-scrolled data grid built on
+/// `egui_extras::TableBuilder`, styled after the design handoff: a sticky `#`
+/// row-number column, a compact header (name + muted mono type), `surface`
+/// grid lines, zebra rows, and a stronger header underline. `build_row` is
+/// called only for the rows currently visible in the viewport.
 pub struct TableView;
 
 impl StatelessComponent for TableView {
@@ -66,66 +75,93 @@ impl StatelessComponent for TableView {
 
         let num_cols = props.headers.len().max(1);
         let min_col_width = props.min_col_width.unwrap_or(150.0);
-        let text_height = ui.text_style_height(&egui::TextStyle::Body);
-        let header_padding = 10.0;
-        let cell_padding = 4.0;
-        let row_height = text_height + cell_padding * 2.0;
-        let header_height = text_height + header_padding * 2.0;
+
+        // Semantic palette (maps the design tokens onto the theme).
+        let grid = colors.surface; // --surface0: cell grid lines
+        let header_border = colors.surface_raised; // --surface1: header underline
+        let header_bg = colors.bg_panel; // --mantle: header strip
+        let num_fg = colors.fg_muted; // row numbers + type suffix
+        let header_fg = colors.fg;
 
         let mut clicked_row: Option<usize> = None;
         let mut build_row = props.build_row;
-
-        let ctx = ui.ctx().clone();
-        // Per-table key so multiple tables on screen don't share scroll state.
-        let scroll_state_id = ui.id().with("table_v_scrolled");
-        // Read last frame's scroll state (one frame of lag is imperceptible).
-        let is_scrolled: bool = ctx.data(|d| d.get_temp(scroll_state_id)).unwrap_or(false);
 
         ui.set_min_width(ui.available_width());
 
         egui::ScrollArea::horizontal()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // ui.set_min_width(min_col_width * num_cols as f32);
-
-                // Capture geometry before the table borrows `ui`, so we can
-                // paint a single full-width shadow below the header afterward.
-                let header_shadow_top = ui.next_widget_position().y + header_height;
-                let header_shadow_left = ui.next_widget_position().x;
-                let header_shadow_width = ui.available_width();
-
+                // egui_extras draws its own column separators from this stroke;
+                // silence them so they don't double the grid lines we paint.
+                ui.style_mut().visuals.widgets.noninteractive.bg_stroke = egui::Stroke::NONE;
+                // No gap between columns, so the header fill is one contiguous
+                // strip; per-cell padding comes from each cell's inner margin.
+                ui.style_mut().spacing.item_spacing.x = 0.0;
                 TableBuilder::new(ui)
                     .striped(true)
                     .sense(egui::Sense::click())
-                    .resizable(true)
                     .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                    .column(Column::exact(NUM_COL_W)) // row-number gutter
                     .columns(
                         Column::auto_with_initial_suggestion(min_col_width)
                             .clip(true)
                             .resizable(true),
                         num_cols,
                     )
-                    .header(header_height, |mut header_row| {
+                    .header(HEADER_H, |mut header_row| {
+                        // `#` gutter header.
+                        header_row.col(|ui| {
+                            let rect = ui.max_rect();
+                            ui.painter().rect_filled(rect, 0.0, header_bg);
+                            ui.painter().text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "#",
+                                egui::FontId::monospace(10.0),
+                                num_fg,
+                            );
+                            paint_cell_borders(ui, grid, header_border);
+                        });
                         for h in props.headers {
                             header_row.col(|ui| {
-                                ui.add_space(header_padding);
-                                let r = ui.heading(h);
-                                ui.add_space(header_padding);
+                                ui.painter().rect_filled(ui.max_rect(), 0.0, header_bg);
+                                let (name, ty) = h.split_once("  ·  ").unwrap_or((h.as_str(), ""));
+                                let r = egui::Frame::NONE
+                                    .inner_margin(egui::Margin::symmetric(CELL_PAD, 0))
+                                    .show(ui, |ui| {
+                                        ui.style_mut().wrap_mode =
+                                            Some(egui::TextWrapMode::Truncate);
+                                        let r = ui.label(
+                                            egui::RichText::new(name)
+                                                .size(11.0)
+                                                .strong()
+                                                .color(header_fg),
+                                        );
+                                        if !ty.is_empty() {
+                                            ui.add_space(4.0);
+                                            ui.label(
+                                                egui::RichText::new(ty)
+                                                    .size(9.0)
+                                                    .monospace()
+                                                    .color(num_fg),
+                                            );
+                                        }
+                                        r
+                                    })
+                                    .inner;
                                 if r.hovered() {
                                     r.show_tooltip_text(h);
                                 }
+                                paint_cell_borders(ui, grid, header_border);
                             });
                         }
                     })
                     .body(|body| {
-                        // `body.rows` only calls the closure for visible rows —
+                        // `body.rows` only invokes the closure for visible rows —
                         // this is where virtual scrolling actually happens.
-                        let mut first_visible_row: Option<usize> = None;
-                        body.rows(row_height, props.row_count, |mut row| {
-                            if first_visible_row.is_none() {
-                                first_visible_row = Some(row.index());
-                            }
-                            let mut cells = build_row(row.index());
+                        body.rows(ROW_H, props.row_count, |mut row| {
+                            let idx = row.index();
+                            let mut cells = build_row(idx);
                             debug_assert_eq!(
                                 cells.len(),
                                 num_cols,
@@ -133,51 +169,76 @@ impl StatelessComponent for TableView {
                                 cells.len(),
                                 num_cols
                             );
-                            // Truncate extra cells or pad missing ones so
-                            // columns never mis-align in release builds.
+                            // Truncate extra cells or pad missing ones so columns
+                            // never mis-align in release builds.
                             cells.truncate(num_cols);
                             while cells.len() < num_cols {
                                 cells.push(TableCell::default());
                             }
+
+                            // `#` gutter cell.
+                            row.col(|ui| {
+                                let rect = ui.max_rect();
+                                ui.painter().text(
+                                    rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    (idx + 1).to_string(),
+                                    egui::FontId::monospace(10.0),
+                                    num_fg,
+                                );
+                                paint_cell_borders(ui, grid, grid);
+                            });
+
                             let mut row_clicked = false;
                             for cell in &cells {
                                 let (_, response) = row.col(|ui| {
-                                    ui.add_space(cell_padding);
-                                    if let Some(custom) = &cell.custom {
-                                        custom(ui);
-                                    } else {
-                                        ui.label(cell.text.unwrap_or(""));
-                                    }
-                                    ui.add_space(cell_padding);
+                                    egui::Frame::NONE
+                                        .inner_margin(egui::Margin::symmetric(CELL_PAD, 0))
+                                        .show(ui, |ui| {
+                                            ui.style_mut().wrap_mode =
+                                                Some(egui::TextWrapMode::Truncate);
+                                            // Body cells render at 12px.
+                                            ui.style_mut().text_styles.insert(
+                                                egui::TextStyle::Body,
+                                                egui::FontId::proportional(12.0),
+                                            );
+                                            if let Some(custom) = &cell.custom {
+                                                custom(ui);
+                                            } else {
+                                                ui.label(cell.text.unwrap_or(""));
+                                            }
+                                        });
+                                    paint_cell_borders(ui, grid, grid);
                                 });
                                 if response.clicked() {
                                     row_clicked = true;
                                 }
                             }
                             if row_clicked {
-                                clicked_row = Some(row.index());
+                                clicked_row = Some(idx);
                             }
                         });
-                        // Store whether we're scrolled past the first row for
-                        // the next frame to decide whether to show the shadow.
-                        let scrolled = first_visible_row.map(|i| i > 0).unwrap_or(false);
-                        ctx.data_mut(|d| d.insert_temp(scroll_state_id, scrolled));
                     });
-
-                // Shadow below the header — only shown when scrolled down.
-                if is_scrolled {
-                    let shadow_rect = egui::Rect::from_min_size(
-                        egui::pos2(header_shadow_left, header_shadow_top),
-                        egui::vec2(header_shadow_width, 3.0),
-                    );
-                    ui.painter().rect_filled(
-                        shadow_rect,
-                        0.0,
-                        colors.bg_sunken.linear_multiply(0.6),
-                    );
-                }
             });
 
         TableViewOutput { clicked_row }
     }
+}
+
+/// Paint a cell's right + bottom grid lines (inset slightly so they aren't
+/// clipped at the cell boundary). `right`/`bottom` let the header use a stronger
+/// underline than the vertical lines.
+fn paint_cell_borders(ui: &egui::Ui, right: egui::Color32, bottom: egui::Color32) {
+    let rect = ui.max_rect();
+    let painter = ui.painter();
+    painter.vline(
+        rect.right() - 0.5,
+        rect.y_range(),
+        egui::Stroke::new(1.0, right),
+    );
+    painter.hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        egui::Stroke::new(1.0, bottom),
+    );
 }

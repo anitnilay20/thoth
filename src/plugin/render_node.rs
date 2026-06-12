@@ -4,15 +4,17 @@ use serde::{Deserialize, Serialize};
 
 use crate::components::button::{Button, ButtonProps, ButtonSize, ButtonType};
 use crate::components::common::button_group::{ButtonGroup, ButtonGroupItem, ButtonGroupProps};
+use crate::components::common::data_row::{DataRow, DataRowProps, RowHighlights};
 use crate::components::common::input::{Input, InputProps};
 use crate::components::common::json_tree::{JsonTree, JsonTreeProps};
 use crate::components::common::list::{List, ListItem, ListProps};
 use crate::components::common::select::{Select, SelectOption as CommonSelectOption, SelectProps};
+use crate::components::common::separator::Separator;
 use crate::components::common::tabs::{TabAction, TabItem, TabProps, Tabs};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::table_view::{TableCell, TableView, TableViewProps};
 use crate::components::traits::StatelessComponent;
-use crate::theme::{BgColorOptions, ThemeColors};
+use crate::theme::{BgColorOptions, TextToken, ThemeColors, parse_hex_color};
 
 // =============================================================================
 // UiNode — unified display + interactive DSL
@@ -72,6 +74,15 @@ pub struct ListItemBadgeNode {
     pub text: String,
     /// Semantic color: "blue" | "green" | "red" | "orange" | "gray"
     pub color: String,
+}
+
+/// A leading icon for a `data-row` node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataRowIcon {
+    pub glyph: String,
+    /// Semantic token (warning/info/string/…) or hex; defaults muted.
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 /// A single item inside a `list` DSL node.
@@ -217,6 +228,34 @@ pub enum UiNode {
     Badge {
         label: String,
         color: String,
+    },
+    /// A standalone phosphor icon glyph (display-only). `color` accepts a hex
+    /// (`#rrggbb`) or a semantic token (warning/info/success/error/string/number/
+    /// accent/secondary/muted/fg); defaults to muted. `size` is in points.
+    Icon {
+        glyph: String,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        size: Option<f32>,
+    },
+    /// A tree row backed by the host `DataRow` component (indent + caret + leading
+    /// icon + label + trailing). Emits `"toggle"` when the caret is clicked and
+    /// `"click"` when the row body is clicked.
+    DataRow {
+        id: String,
+        label: String,
+        #[serde(default)]
+        indent: usize,
+        /// `Some(expanded)` shows an expand caret; absent/`null` is a leaf.
+        #[serde(default)]
+        caret: Option<bool>,
+        #[serde(default)]
+        icon: Option<DataRowIcon>,
+        #[serde(default)]
+        trailing: Option<String>,
+        #[serde(default)]
+        selected: bool,
     },
     Link {
         label: String,
@@ -432,10 +471,21 @@ pub enum UiNode {
     CodeEditor {
         id: String,
         value: String,
+
+        #[serde(default, rename = "font-size")]
+        font_size: Option<f32>,
+        syntax: Option<String>,
     },
     Tabs {
         id: String,
         header: Vec<String>,
+        /// Optional per-tab icon glyphs (parallel to `header`). When a tab's icon
+        /// is set, it renders as an icon-only tab with the header text as tooltip.
+        #[serde(default)]
+        icons: Vec<String>,
+        /// Background fill for the tab-header strip. Defaults to the panel color.
+        #[serde(default, rename = "bg-color")]
+        bg_color: BgColorOptions,
         children: Vec<UiNode>,
         /// Right-aligned icon actions on the tab-header line.
         #[serde(default)]
@@ -551,6 +601,9 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                             let grow_idx = children.iter().position(|c| {
                                 matches!(c, UiNode::TextInput { grow: true, .. })
                                     || matches!(c, UiNode::Button { props, .. } if props.full_width)
+                                    // A bare Spacer acts as a horizontal "push" so
+                                    // fixed items split to the left and right edges.
+                                    || matches!(c, UiNode::Spacer { .. })
                             });
                             ui.spacing_mut().item_spacing.x = *gap;
                             if let Some(gi) = grow_idx {
@@ -564,7 +617,14 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                                         for child in children[gi + 1..].iter() {
                                             render_ui_node(ui, child, events);
                                         }
-                                        render_ui_node(ui, &children[gi], events);
+                                        // A Spacer grow consumes the remaining width
+                                        // (pushing the two sides apart); a real grow
+                                        // widget fills it by rendering normally.
+                                        if matches!(&children[gi], UiNode::Spacer { .. }) {
+                                            ui.add_space(ui.available_width());
+                                        } else {
+                                            render_ui_node(ui, &children[gi], events);
+                                        }
                                     },
                                 );
                             } else {
@@ -743,7 +803,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             ui.add_space(*height);
         }
         UiNode::Separator => {
-            ui.separator();
+            Separator::plain(ui);
         }
 
         // ── Display ───────────────────────────────────────────────────────
@@ -799,6 +859,55 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                 .show(ui, |ui| {
                     ui.label(label);
                 });
+        }
+        UiNode::Icon { glyph, color, size } => {
+            let sz = size.unwrap_or(13.0);
+            let c = color
+                .as_deref()
+                .map(|s| resolve_icon_color(s, &colors))
+                .unwrap_or(colors.fg_muted);
+            ui.label(crate::theme::icon_rich_text(glyph, sz).color(c));
+        }
+        UiNode::DataRow {
+            id,
+            label,
+            indent,
+            caret,
+            icon,
+            trailing,
+            selected,
+        } => {
+            let leading = icon.as_ref().map(|i| {
+                let c = i
+                    .color
+                    .as_deref()
+                    .map(|s| resolve_icon_color(s, &colors))
+                    .unwrap_or(colors.fg_muted);
+                (i.glyph.as_str(), c)
+            });
+            let out = DataRow::render(
+                ui,
+                DataRowProps {
+                    indent: *indent,
+                    caret: *caret,
+                    leading_icon: leading,
+                    trailing: trailing.as_deref(),
+                    selected: *selected,
+                    ..DataRowProps::new(
+                        label,
+                        (TextToken::Key, None),
+                        egui::Color32::TRANSPARENT,
+                        id,
+                        RowHighlights::default(),
+                        false,
+                    )
+                },
+            );
+            if out.caret_clicked {
+                events.push(ui_event(id, "toggle", String::new()));
+            } else if out.clicked {
+                events.push(ui_event(id, "click", String::new()));
+            }
         }
         UiNode::Link { label, url } => {
             ui.hyperlink_to(label, url);
@@ -868,7 +977,17 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     prefix: item.icon.as_deref().map(|glyph| {
                         crate::components::common::list::ListItemPrefix::Icon { glyph, color: None }
                     }),
-                    postfix: None,
+                    postfix: (!item.actions.is_empty()).then(|| {
+                        crate::components::common::list::ListItemPostfix::IconActions(
+                            item.actions
+                                .iter()
+                                .map(|a| crate::components::common::list::ListItemAction {
+                                    icon: &a.icon,
+                                    tooltip: &a.tooltip,
+                                })
+                                .collect(),
+                        )
+                    }),
                     badge: item.badge.as_ref().map(|b| {
                         let (bg, fg) = method_badge_colors(b.color.as_str());
                         crate::components::common::list::ListItemBadge {
@@ -903,6 +1022,14 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                         widget_id: id.clone(),
                         kind: "click".to_string(),
                         value: row_idx.to_string(),
+                    });
+                }
+                if let Some((row_idx, action_idx)) = output.action_clicked {
+                    events.push(UiEvent {
+                        widget_id: id.clone(),
+                        kind: "action".to_string(),
+                        value: serde_json::json!({ "item": row_idx, "action": action_idx })
+                            .to_string(),
                     });
                 }
             });
@@ -1571,8 +1698,25 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             let sz = size.unwrap_or(16.0);
             ui.add(egui::Spinner::new().color(colors.accent).size(sz));
         }
-        UiNode::CodeEditor { id, value } => {
-            let buf_id = egui::Id::new(("ui:code-editor", id));
+        UiNode::CodeEditor {
+            id,
+            value,
+            font_size,
+            syntax,
+        } => {
+            use egui_code_editor::Syntax;
+            let syntax = syntax
+                .as_deref()
+                .and_then(|s| match s {
+                    "rust" => Some(Syntax::rust()),
+                    "sql" => Some(Syntax::sql()),
+                    _ => None,
+                })
+                .unwrap_or(Syntax::rust());
+
+            // Scope the buffer to this ui (each plugin tab renders under a
+            // distinct egui id), so separate editor tabs don't share one buffer.
+            let buf_id = ui.id().with(("ui:code-editor", id));
             let mut buf = ui.ctx().data_mut(|d| {
                 d.get_temp::<String>(buf_id)
                     .unwrap_or_else(|| value.clone())
@@ -1584,7 +1728,8 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             });
             let resp = CodeEditor::default()
                 .with_theme(colors.code_editor_theme())
-                .with_ui_fontsize(ui)
+                .with_fontsize(font_size.unwrap_or(14.0))
+                .with_syntax(syntax)
                 .show(ui, &mut buf);
             if resp.response.changed() {
                 events.push(ui_event(id, "change", json_str(&buf)));
@@ -1594,11 +1739,14 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
         UiNode::Tabs {
             id,
             header,
+            icons,
+            bg_color,
             children,
             actions,
         } => {
-            // Active tab index is persisted in egui memory keyed by id.
-            let mem_id = egui::Id::new(("ui:tabs", id.as_str()));
+            // Active tab index is persisted in egui memory, scoped to this ui so
+            // separate plugin instances don't share a selection.
+            let mem_id = ui.id().with(("ui:tabs", id.as_str()));
             let mut active_idx: usize = ui.ctx().data(|d| d.get_temp(mem_id).unwrap_or(0usize));
             active_idx = active_idx.min(header.len().saturating_sub(1));
 
@@ -1607,9 +1755,11 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             let tab_items: Vec<TabItem<'_>> = header
                 .iter()
                 .zip(index_strs.iter())
-                .map(|(h, idx)| TabItem {
+                .enumerate()
+                .map(|(i, (h, idx))| TabItem {
                     value: idx.as_str(),
                     label: h.as_str(),
+                    icon: icons.get(i).map(String::as_str).filter(|s| !s.is_empty()),
                 })
                 .collect();
 
@@ -1630,6 +1780,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
                     items: &tab_items,
                     active: &active_str,
                     actions: &tab_actions,
+                    bg: bg_color.into_color(&colors),
                 },
             );
 
@@ -1704,15 +1855,20 @@ fn collect_text(node: &UiNode) -> String {
     }
 }
 
-fn parse_hex_color(s: &str) -> Option<egui::Color32> {
-    let s = s.strip_prefix('#')?;
-    if s.len() == 6 {
-        let r = u8::from_str_radix(&s[0..2], 16).ok()?;
-        let g = u8::from_str_radix(&s[2..4], 16).ok()?;
-        let b = u8::from_str_radix(&s[4..6], 16).ok()?;
-        Some(egui::Color32::from_rgb(r, g, b))
-    } else {
-        None
+/// Resolve an icon color string: a semantic token mapped to the theme, or a hex.
+fn resolve_icon_color(s: &str, colors: &ThemeColors) -> egui::Color32 {
+    match s {
+        "warning" => colors.warning,
+        "info" => colors.info,
+        "success" => colors.success,
+        "error" => colors.error,
+        "string" => colors.syntax_string,
+        "number" => colors.syntax_number,
+        "accent" => colors.accent,
+        "secondary" => colors.accent_secondary,
+        "muted" => colors.fg_muted,
+        "fg" => colors.fg,
+        _ => parse_hex_color(s).unwrap_or(colors.fg_muted),
     }
 }
 

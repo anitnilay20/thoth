@@ -1,5 +1,4 @@
 use crate::components::data_row::{DataRow, DataRowProps, RowHighlights};
-use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::traits::StatelessComponent;
 use crate::file::loaders::FileType;
 use crate::helpers::{
@@ -559,98 +558,46 @@ impl JsonTreeViewer {
                         }
                     }
 
-                    // Render the row with toggle button (if expandable) and content
-                    let mut toggle_clicked = false;
-
-                    ui.horizontal(|ui| {
-                        // Indentation spacing
-                        ui.add_space(row.indent as f32 * 16.0);
-
-                        // Toggle button for expandable rows (or spacer for non-expandable)
-                        if row.is_expandable {
-                            let toggle_icon = if row.is_expanded {
-                                egui_phosphor::regular::CARET_DOWN
+                    // Render the full tree row — DataRow owns indent + caret.
+                    let output = DataRow::render(
+                        ui,
+                        DataRowProps {
+                            indent: row.indent,
+                            caret: if row.is_expandable {
+                                Some(row.is_expanded)
                             } else {
-                                egui_phosphor::regular::CARET_RIGHT
-                            };
-                            let tooltip_text = if row.is_expanded {
-                                "Collapse (Space/Enter)"
-                            } else {
-                                "Expand (Space/Enter)"
-                            };
-                            if IconButton::render(
-                                ui,
-                                IconButtonProps {
-                                    icon: toggle_icon,
-                                    frame: false,
-                                    tooltip: Some(tooltip_text),
-                                    badge_color: None,
-                                    size: None,
-                                    disabled: false,
-                                    icon_size: None,
-                                    selected: false,
-                                },
-                            )
-                            .clicked
-                            {
-                                toggle_clicked = true;
-                            }
-                        } else {
-                            // Add invisible button to maintain consistent spacing
-                            ui.add_enabled_ui(false, |ui| {
-                                ui.visuals_mut().widgets.inactive.bg_fill =
-                                    egui::Color32::TRANSPARENT;
-                                ui.visuals_mut().widgets.inactive.weak_bg_fill =
-                                    egui::Color32::TRANSPARENT;
-                                IconButton::render(
-                                    ui,
-                                    IconButtonProps {
-                                        icon: " ",
-                                        frame: false,
-                                        tooltip: None,
-                                        badge_color: None,
-                                        size: None,
-                                        disabled: false,
-                                        icon_size: None,
-                                        selected: false,
-                                    },
-                                );
-                            });
-                        }
-
-                        // Use DataRow component for the content
-                        let output = DataRow::render(
-                            ui,
-                            DataRowProps {
-                                display_text: display,
-                                text_tokens: row.text_token,
-                                background: bg,
-                                row_id: path,
-                                highlights: row.highlights.clone(),
-                                syntax_highlighting,
+                                None
                             },
-                        );
+                            ..DataRowProps::new(
+                                display,
+                                row.text_token,
+                                bg,
+                                path,
+                                row.highlights.clone(),
+                                syntax_highlighting,
+                            )
+                        },
+                    );
 
-                        if toggle_clicked {
-                            toggles.push(path.clone());
-                        } else if output.clicked || output.right_clicked {
-                            new_selected = Some(path.clone());
-                        }
+                    if output.caret_clicked {
+                        toggles.push(path.clone());
+                    } else if output.clicked || output.right_clicked {
+                        new_selected = Some(path.clone());
+                    }
 
-                        // Context menu using the response from DataRow
-                        output.response.context_menu(|ui| {
-                            let config = ContextMenuConfig::from_display(is_key_display, display2);
-                            render_context_menu(ui, &config, |action| {
-                                if let Some(text) = execute_context_menu_action(
-                                    action,
-                                    self,
-                                    &Some(path.clone()),
-                                    cache,
-                                    loader,
-                                ) {
-                                    copy_clipboard = Some(text);
-                                }
-                            });
+                    // Context menu using the response from DataRow
+                    output.response.context_menu(|ui| {
+                        let config = ContextMenuConfig::from_display(is_key_display, display2);
+                        render_context_menu(ui, &config, |action| {
+                            if let Some(text) = execute_context_menu_action(
+                                action,
+                                self,
+                                &Some(path.clone()),
+                                cache,
+                                loader,
+                            ) {
+                                copy_clipboard = Some(text);
+                            }
                         });
                     });
                 }

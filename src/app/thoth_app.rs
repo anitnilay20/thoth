@@ -75,6 +75,24 @@ fn build_http_response_event(
     }
 }
 
+/// Build the synthetic `query-result` UiEvent delivered to a plugin when an async
+/// `db-runtime::submit-query` completes. `value` is JSON `{"ok": <rows-json>}` or
+/// `{"err": {"message": "..."}}`.
+fn build_query_result_event(
+    request_id: String,
+    result: std::result::Result<String, String>,
+) -> crate::plugin::render_node::UiEvent {
+    let value = match result {
+        Ok(rows) => serde_json::json!({ "ok": rows }).to_string(),
+        Err(msg) => serde_json::json!({ "err": { "message": msg } }).to_string(),
+    };
+    crate::plugin::render_node::UiEvent {
+        widget_id: request_id,
+        kind: "query-result".to_string(),
+        value,
+    }
+}
+
 /// A plugin's sidebar instance, independent of any dock tab. Created when the user
 /// opens the plugin's sidebar and kept alive while the sidebar is toggled, so its
 /// state survives collapse/expand and never affects (or requires) a tab. Tabs are
@@ -901,6 +919,7 @@ impl ThothApp {
         // (opening tabs / dispatching events borrows it mutably).
         let ids: Vec<TabId> = self.window_state.tab_manager.tabs.keys().copied().collect();
         let mut http_dispatch: Vec<(TabId, UiEvent)> = Vec::new();
+        let mut query_dispatch: Vec<(TabId, UiEvent)> = Vec::new();
         let mut retry_dispatch: Vec<(TabId, String, PluginHttpRequest)> = Vec::new();
         let mut tab_open_reqs: Vec<TabOpenRequest> = Vec::new();
         let mut needs_repaint = false;
@@ -915,23 +934,39 @@ impl ThothApp {
             for (request_id, outcome) in pane.loader.drain_http_results() {
                 http_dispatch.push((*id, build_http_response_event(request_id, outcome)));
             }
+            // Spawn workers for newly-submitted queries, then deliver completed ones.
+            pane.loader.pump_queries();
+            for (request_id, result) in pane.loader.drain_query_results() {
+                query_dispatch.push((*id, build_query_result_event(request_id, result)));
+            }
             for (request_id, req) in pane.loader.drain_retry_requests() {
                 retry_dispatch.push((*id, request_id, req));
             }
             tab_open_reqs.extend(pane.loader.drain_tab_open_requests());
-            if pane.loader.has_pending_http() {
+            if pane.loader.has_pending_http() || pane.loader.has_pending_query() {
                 needs_repaint = true;
             }
         }
 
         // The mounted plugin sidebar runs independently of tabs — drive it too.
         let mut sidebar_http: Vec<UiEvent> = Vec::new();
+        let mut sidebar_query: Vec<UiEvent> = Vec::new();
+        let mut sidebar_retry: Vec<(String, PluginHttpRequest)> = Vec::new();
         if let Some(rt) = self.sidebar_plugin.as_ref() {
             for (request_id, outcome) in rt.loader.drain_http_results() {
                 sidebar_http.push(build_http_response_event(request_id, outcome));
             }
+            rt.loader.pump_queries();
+            for (request_id, result) in rt.loader.drain_query_results() {
+                sidebar_query.push(build_query_result_event(request_id, result));
+            }
+            // Consent-approved retries must be replayed here too, or a sidebar
+            // plugin's submit()/query stalls after the user approves the host.
+            for (request_id, req) in rt.loader.drain_retry_requests() {
+                sidebar_retry.push((request_id, req));
+            }
             tab_open_reqs.extend(rt.loader.drain_tab_open_requests());
-            if rt.loader.has_pending_http() {
+            if rt.loader.has_pending_http() || rt.loader.has_pending_query() {
                 needs_repaint = true;
             }
         }
@@ -939,8 +974,26 @@ impl ThothApp {
         for (id, event) in http_dispatch {
             self.dispatch_plugin_event_for(id, event);
         }
+        for (id, event) in query_dispatch {
+            self.dispatch_plugin_event_for(id, event);
+        }
         for event in sidebar_http {
             self.dispatch_sidebar_event(event);
+        }
+        for event in sidebar_query {
+            self.dispatch_sidebar_event(event);
+        }
+
+        for (request_id, req) in sidebar_retry {
+            if let Some(rt) = self.sidebar_plugin.as_ref() {
+                rt.loader.dispatch_approved_request(request_id, req);
+            }
+            self.dispatch_sidebar_event(UiEvent {
+                widget_id: "consent-approved".to_string(),
+                kind: "notify".to_string(),
+                value: String::new(),
+            });
+            ctx.request_repaint();
         }
 
         for (id, request_id, req) in retry_dispatch {

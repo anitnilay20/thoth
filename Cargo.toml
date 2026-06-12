@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "plugins/csv-loader", "plugins/url-source"]
+members = [".", "plugins/csv-loader", "plugins/url-source", "plugins/seshat"]
 # Plugins are wasm32 crates built separately with `cargo component build`.
 # default-members restricts `cargo build` / `cargo check` at the workspace
 # root to the host application only, so plugins are not compiled for the
@@ -131,6 +131,11 @@ which = "7.0"
 wasmtime = { version = "43.0.0", features = ["component-model", "cache"] }
 wasmtime-wasi = "43.0.0"
 wasmtime-wasi-http = "43"
+# Host-terminated TLS for the plugin tcp-client import.
+rustls = "0.23"
+webpki-roots = "0.26"
+# OS keychain for the plugin secure-storage import.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 wit-bindgen = "0.54.0"
 egui-notify = "0.22.0"
 egui_extras = "0.34.1"
@@ -161,6 +166,9 @@ muda = "0.19.2"
 [dev-dependencies]
 proptest = "1.5"
 criterion = { version = "0.5", features = ["html_reports"] }
+# Integration tests render components that use Phosphor glyphs (DataRow caret,
+# IconButton); register the font in the test egui context so they don't panic.
+egui-phosphor = "0.12"
 
 [features]
 default = []

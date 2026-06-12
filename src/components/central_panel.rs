@@ -1,3 +1,4 @@
+use crate::components::common::separator::Separator;
 use crate::components::file_viewer::FileViewer;
 use crate::components::traits::ContextComponent;
 use crate::error::{ErrorHandler, ThothError};
@@ -168,7 +169,7 @@ impl CentralPanel {
                 if let Some(err) = props.error.as_ref().or(self.last_open_err.as_ref()) {
                     let message = ErrorHandler::get_user_message(err);
                     ui.colored_label(egui::Color32::RED, message);
-                    ui.separator();
+                    Separator::plain(ui);
                 }
 
                 if self.searching {

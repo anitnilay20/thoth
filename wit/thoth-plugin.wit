@@ -285,6 +285,88 @@ interface plugin-storage {
 
 
 // ---------------------------------------------------------------------------
+// tcp-client — host-provided raw TCP (optionally TLS) for database / wire-
+// protocol plugins. The host owns the socket and enforces network policy
+// (host allowlist, SSRF guard, rate limit, consent) on connect; TLS is
+// terminated host-side so the plugin sees a plaintext byte stream.
+//
+// Handle-based: connect returns an opaque stream id used by read/write/close.
+// Calls block until data / EOF / timeout — drive them on a worker thread (the
+// host runs DB plugin calls off the UI thread).
+// ---------------------------------------------------------------------------
+
+interface tcp-client {
+    use types.{plugin-error};
+
+    /// Open a TCP connection to host:port. When `tls` is true the host wraps the
+    /// socket with TLS (SNI = host) and the returned stream is already decrypted.
+    /// Returns an opaque stream id.
+    connect: func(host: string, port: u16, tls: bool) -> result<u64, plugin-error>;
+
+    /// Read up to `max` bytes. Blocks until at least one byte is available, EOF,
+    /// or the read timeout. An empty list means the peer closed the connection.
+    read: func(id: u64, max: u32) -> result<list<u8>, plugin-error>;
+
+    /// Write all of `bytes`. Returns the number of bytes written.
+    write: func(id: u64, bytes: list<u8>) -> result<u32, plugin-error>;
+
+    /// Upgrade an already-open plaintext stream to TLS in place (SNI = host).
+    /// For protocols that negotiate TLS after connecting (Postgres/MySQL do a
+    /// plaintext SSL-request first, then switch): connect with `tls = false`,
+    /// perform the protocol's SSL request, then call this. Subsequent
+    /// read/write on the same id are encrypted.
+    start-tls: func(id: u64, host: string) -> result<_, plugin-error>;
+
+    /// Close and free the stream. Idempotent.
+    close: func(id: u64);
+}
+
+
+// ---------------------------------------------------------------------------
+// secure-storage — host-provided OS keychain access for secrets (DB passwords,
+// tokens). Keys are namespaced per plugin by the host, so one plugin cannot
+// read another's secrets. Values are stored in the OS keychain (macOS Keychain,
+// Windows Credential Manager, libsecret on Linux), never in plaintext on disk.
+// ---------------------------------------------------------------------------
+
+interface secure-storage {
+    use types.{plugin-error};
+
+    /// Store `secret` under `key` (overwrites any existing value).
+    write: func(key: string, secret: string) -> result<_, plugin-error>;
+
+    /// Read the secret for `key`. Returns none if no value is stored.
+    read: func(key: string) -> result<option<string>, plugin-error>;
+
+    /// Delete the secret for `key`. Succeeds even if the key was absent.
+    delete: func(key: string) -> result<_, plugin-error>;
+}
+
+
+// ---------------------------------------------------------------------------
+// db-runtime — host-provided async executor for blocking database queries.
+//
+// A DB driver in the plugin blocks on tcp-client reads while a query runs. If
+// that ran inline in handle-event it would block the UI thread. Instead the
+// plugin calls submit-query, which returns immediately; the host runs the
+// plugin's own data-source `query(handle, q)` export on a worker thread (off the
+// UI thread) and delivers the result asynchronously via handle-event:
+//   widget-id = <request-id>
+//   kind      = "query-result"
+//   value     = JSON {"ok": <rows-json-string>} or {"err": {"message": "..."}}
+//
+// Mirrors http-client.submit. Keep the UI responsive: store the request-id, set
+// a loading flag, return a spinner UI; render the result when the event fires.
+// ---------------------------------------------------------------------------
+
+interface db-runtime {
+    /// Schedule `query(handle, q)` to run on a host worker thread. Returns a
+    /// request-id used to correlate the later "query-result" handle-event.
+    submit-query: func(handle: string, q: string) -> string;
+}
+
+
+// ---------------------------------------------------------------------------
 // data-source — implement when capability = data-source
 //
 // Connects Thoth to an external system: REST API, database, message queue,
@@ -636,6 +718,9 @@ world data-source-plugin {
     import http-client;
     import plugin-storage;
     import ui-tabs;
+    import tcp-client;
+    import secure-storage;
+    import db-runtime;
     export data-source;
     export ui-component;
     export tab-host;

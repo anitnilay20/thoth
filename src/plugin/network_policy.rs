@@ -147,6 +147,35 @@ impl NetworkPolicy {
         })
     }
 
+    /// Gate a raw TCP connect (the `tcp-client` import) by host. The user-supplied
+    /// host is the trust boundary: it's allowed if in the plugin's manifest
+    /// allowlist (or runtime-approved within scope), otherwise consent is required.
+    ///
+    /// Unlike [`check`] this does NOT enforce HTTPS or block private/loopback
+    /// addresses — database clients legitimately connect to `localhost` and
+    /// internal networks, so per-host allowlist + consent is the gate instead.
+    pub fn check_tcp(&mut self, host: &str) -> Result<CheckOutcome, PolicyViolation> {
+        // Normalize to match the allow/block lists, which `from_plugin_and_settings`
+        // stores trimmed + lowercased — otherwise `LOCALHOST` or ` db ` would miss.
+        let host = host.trim().to_ascii_lowercase();
+        if host.is_empty() {
+            return Err(PolicyViolation::InvalidUrl("empty host".to_string()));
+        }
+        // No rate limiting for TCP: a database client opens a fresh connection
+        // per operation (every query, plus each schema-introspection call), so a
+        // per-minute connect cap would reject ordinary use. The security boundary
+        // for TCP is the host allowlist + per-host consent below, not a rate cap.
+        if self.is_blocked(&host) {
+            return Err(PolicyViolation::UserBlocked);
+        }
+        if self.is_allowed(&host)
+            || (self.is_within_plugin_scope(&host) && self.is_runtime_allowed(&host))
+        {
+            return Ok(CheckOutcome::Allowed);
+        }
+        Ok(CheckOutcome::NeedsConsent { domain: host })
+    }
+
     fn is_blocked(&self, host: &str) -> bool {
         self.config
             .blocked_domains
@@ -457,5 +486,81 @@ mod test {
 
         let resp = np.check("https://abc.com").unwrap();
         assert!(matches!(resp, CheckOutcome::Allowed));
+    }
+
+    // ── check_tcp (raw host gate, used by the tcp-client import) ──────────────
+
+    fn policy(allowed: &[&str], blocked: &[&str]) -> NetworkPolicy {
+        let user = PluginNetworkPolicy {
+            allowed_domains: allowed.iter().map(|s| s.to_string()).collect(),
+            blocked_domains: blocked.iter().map(|s| s.to_string()).collect(),
+            require_https: false,
+            rate_limit_rpm: 10,
+        };
+        let plugin = NetworkDeclarations {
+            allowed_domains: vec![],
+            require_https: false,
+            rate_limit_rpm: 10,
+        };
+        NetworkPolicy::from_plugin_and_settings(&plugin, &user)
+    }
+
+    #[test]
+    fn check_tcp_empty_host_is_invalid() {
+        let mut np = policy(&["*"], &[]);
+        assert!(matches!(
+            np.check_tcp("   "),
+            Err(PolicyViolation::InvalidUrl(_))
+        ));
+    }
+
+    #[test]
+    fn check_tcp_allowlisted_host_is_allowed() {
+        let mut np = policy(&["db.internal"], &[]);
+        assert!(matches!(
+            np.check_tcp("db.internal"),
+            Ok(CheckOutcome::Allowed)
+        ));
+    }
+
+    #[test]
+    fn check_tcp_normalizes_case_and_whitespace() {
+        // Allowlist is stored lowercased; a mixed-case / padded host must match.
+        let mut np = policy(&["db.internal"], &[]);
+        assert!(matches!(
+            np.check_tcp("  DB.Internal  "),
+            Ok(CheckOutcome::Allowed)
+        ));
+    }
+
+    #[test]
+    fn check_tcp_blocked_host_wins_over_wildcard() {
+        let mut np = policy(&["*"], &["evil.host"]);
+        assert!(matches!(
+            np.check_tcp("evil.host"),
+            Err(PolicyViolation::UserBlocked)
+        ));
+    }
+
+    #[test]
+    fn check_tcp_unknown_host_needs_consent_with_normalized_domain() {
+        let mut np = policy(&["known.host"], &[]);
+        assert!(matches!(
+            np.check_tcp("OTHER.host"),
+            Ok(CheckOutcome::NeedsConsent { domain }) if domain == "other.host"
+        ));
+    }
+
+    #[test]
+    fn check_tcp_does_not_rate_limit() {
+        // A DB client opens a fresh connection per op; many connects must not trip
+        // a rate cap (unlike `check`). rate_limit_rpm is low here on purpose.
+        let mut np = policy(&["db.internal"], &[]);
+        for _ in 0..50 {
+            assert!(matches!(
+                np.check_tcp("db.internal"),
+                Ok(CheckOutcome::Allowed)
+            ));
+        }
     }
 }

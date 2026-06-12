@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
@@ -70,6 +74,53 @@ fn next_tab_request_id() -> String {
     )
 }
 
+fn next_query_request_id() -> String {
+    format!(
+        "q-{}",
+        REQUEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
+
+/// A query the plugin asked the host to run async: (request-id, handle, sql).
+type QueryRequest = (String, String, String);
+/// Result of an async query: rows-JSON on success, message on failure.
+pub type QueryResult = std::result::Result<String, String>;
+
+// ── tcp-client (host-terminated TLS) ────────────────────────────────────────
+
+/// Connect/read/write timeouts for the `tcp-client` import. A blocking read on a
+/// hung connection consumes no fuel, so these bound it (see DATABASE_PLUGINS.md).
+const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const TCP_IO_TIMEOUT: Duration = Duration::from_secs(60);
+/// Cap a single `read` allocation so a plugin can't request a huge buffer.
+const TCP_READ_CAP: usize = 1 << 20; // 1 MiB
+
+/// A plaintext or TLS-wrapped stream the plugin reads/writes through `tcp-client`.
+/// TLS is terminated host-side so the plugin always sees decrypted bytes.
+trait ReadWrite: Read + Write + Send {}
+impl<T: Read + Write + Send> ReadWrite for T {}
+
+/// Adapts an already-boxed stream back into a concrete `Read + Write` so it can
+/// be handed to `tcp_tls` for an in-place STARTTLS upgrade.
+struct BoxIo(Box<dyn ReadWrite>);
+impl Read for BoxIo {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+impl Write for BoxIo {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
+/// Service name used for the `secure-storage` keychain entries.
+#[cfg_attr(test, allow(dead_code))] // the test build uses an in-memory secret store
+const KEYRING_SERVICE: &str = "com.thoth.app";
+
 // ── per-store state ───────────────────────────────────────────────────────────
 
 struct DataSourcePluginState {
@@ -89,6 +140,19 @@ struct DataSourcePluginState {
         Arc<Mutex<std::sync::mpsc::Sender<(String, thoth::plugin::http_client::HttpRequest)>>>,
     // Tab-open requests raised by the plugin via the `ui-tabs` import.
     tab_tx: std::sync::mpsc::Sender<TabOpenRequest>,
+    // Open TCP/TLS streams from the `tcp-client` import, keyed by an opaque id.
+    tcp_streams: HashMap<u64, Box<dyn ReadWrite>>,
+    next_tcp_id: u64,
+    // Async query requests raised by the plugin via `db-runtime::submit-query`.
+    query_request_tx: std::sync::mpsc::Sender<QueryRequest>,
+    // The query currently executing on the worker thread, so a tcp-client connect
+    // that hits the consent gate can re-enqueue it once the user approves the host.
+    current_query: Option<QueryRequest>,
+    // Result channel + in-flight counter (shared with the loader) so the consent
+    // DENY path can deliver a terminal failure for the in-flight query instead of
+    // leaving its UI waiting forever.
+    query_result_tx: std::sync::mpsc::Sender<(String, QueryResult)>,
+    query_pending: Arc<AtomicUsize>,
 }
 
 impl WasiView for DataSourcePluginState {
@@ -295,6 +359,348 @@ impl thoth::plugin::ui_tabs::Host for DataSourcePluginState {
     }
 }
 
+// ── tcp-client WIT import — host side (TLS terminated here) ──────────────────
+
+fn tcp_err(code: u32, message: impl Into<String>) -> thoth::plugin::tcp_client::PluginError {
+    thoth::plugin::tcp_client::PluginError {
+        code,
+        message: message.into(),
+    }
+}
+
+/// Open a plaintext TCP stream with connect/IO timeouts.
+fn tcp_connect(host: &str, port: u16) -> std::io::Result<TcpStream> {
+    use std::net::ToSocketAddrs;
+    let mut last_err = std::io::Error::other("no addresses resolved");
+    for addr in (host, port).to_socket_addrs()? {
+        match TcpStream::connect_timeout(&addr, TCP_CONNECT_TIMEOUT) {
+            Ok(s) => {
+                s.set_read_timeout(Some(TCP_IO_TIMEOUT)).ok();
+                s.set_write_timeout(Some(TCP_IO_TIMEOUT)).ok();
+                return Ok(s);
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
+}
+
+/// Wrap any byte stream with host-side TLS (rustls + Mozilla roots). Generic so
+/// it works both at connect time (a fresh `TcpStream`) and for an in-place
+/// STARTTLS upgrade of an already-open plaintext stream.
+fn tcp_tls<S: Read + Write + Send + 'static>(
+    stream: S,
+    host: &str,
+) -> std::result::Result<Box<dyn ReadWrite>, String> {
+    // The TLS toggle maps to libpq `sslmode=require`: encrypt the connection but
+    // do not verify the server certificate's issuer/chain. Database GUIs do this
+    // for a plain "use SSL" toggle so self-signed / internal-CA servers connect.
+    // It encrypts but does not authenticate the server (a future verify-full
+    // option would). Hostname is still required for SNI.
+    let config = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(AcceptAnyServerCert))
+        .with_no_client_auth();
+    let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
+        .map_err(|e| format!("invalid TLS server name '{host}': {e}"))?;
+    let conn = rustls::ClientConnection::new(Arc::new(config), server_name)
+        .map_err(|e| format!("TLS setup failed: {e}"))?;
+    Ok(Box::new(rustls::StreamOwned::new(conn, stream)))
+}
+
+/// A rustls verifier that accepts any server certificate (encryption without
+/// authentication) — the `sslmode=require` posture. See [`tcp_tls`].
+#[derive(Debug)]
+struct AcceptAnyServerCert;
+
+impl rustls::client::danger::ServerCertVerifier for AcceptAnyServerCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        use rustls::SignatureScheme::*;
+        vec![
+            RSA_PKCS1_SHA256,
+            RSA_PKCS1_SHA384,
+            RSA_PKCS1_SHA512,
+            ECDSA_NISTP256_SHA256,
+            ECDSA_NISTP384_SHA384,
+            ECDSA_NISTP521_SHA512,
+            RSA_PSS_SHA256,
+            RSA_PSS_SHA384,
+            RSA_PSS_SHA512,
+            ED25519,
+        ]
+    }
+}
+
+impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
+    fn connect(
+        &mut self,
+        host: String,
+        port: u16,
+        tls: bool,
+    ) -> std::result::Result<u64, thoth::plugin::tcp_client::PluginError> {
+        // The user/connection-host is the gate: allowlist or per-host consent.
+        // Unlike the HTTP SSRF guard we do NOT block private/loopback ranges —
+        // database clients legitimately target localhost and internal networks.
+        match self.policy.check_tcp(&host) {
+            Ok(CheckOutcome::Allowed) => {}
+            Ok(CheckOutcome::NeedsConsent { domain }) => {
+                let _ = self.consent_tx.send(ConsentRequest {
+                    domain: domain.clone(),
+                    plugin_id: self.plugin_id.clone(),
+                });
+                let runtime_allowed = self.policy.runtime_allowed_handle();
+                let dom = domain.clone();
+                // On approval, allow the host AND re-run the query that triggered
+                // this connect (same request id), so the user doesn't have to
+                // press Run again. The retry's check_tcp now returns Allowed.
+                let retry_query = self.current_query.clone();
+                let query_tx = self.query_request_tx.clone();
+                // For the deny path: fail the in-flight query (it's kept pending
+                // for the approve-and-retry path) so its UI stops waiting.
+                let deny_query = self.current_query.clone();
+                let deny_result_tx = self.query_result_tx.clone();
+                let deny_pending = Arc::clone(&self.query_pending);
+                let deny_dom = domain.clone();
+                ConsentManager::push_http_consent(
+                    &domain,
+                    &self.plugin_id,
+                    Arc::new(move |_remember: bool| {
+                        // Always allow the host for the rest of the session: a DB
+                        // client opens a fresh connection per query, so unless the
+                        // approval is recorded the re-run (and every later query)
+                        // would just hit the consent gate again. Unlike the HTTP
+                        // retry path, the re-enqueued query re-checks the policy.
+                        if let Ok(mut list) = runtime_allowed.lock()
+                            && !list.iter().any(|d| d == &dom)
+                        {
+                            list.push(dom.clone());
+                        }
+                        if let Some(q) = &retry_query {
+                            let _ = query_tx.send(q.clone());
+                        }
+                    }),
+                    Arc::new(move |_| {
+                        // User declined the host. Deliver a terminal failure for
+                        // the query that triggered consent so drain_query_results
+                        // completes it (matching pump_queries' +1 / drain's -1
+                        // accounting) instead of leaving the UI pending forever.
+                        if let Some((req_id, _, _)) = &deny_query {
+                            deny_pending.fetch_add(1, Ordering::Relaxed);
+                            let _ = deny_result_tx.send((
+                                req_id.clone(),
+                                Err(format!("connection to '{deny_dom}' denied")),
+                            ));
+                        }
+                    }),
+                );
+                return Err(tcp_err(
+                    403,
+                    format!("host '{domain}' not approved — waiting for user consent"),
+                ));
+            }
+            Err(violation) => return Err(tcp_err(403, format!("blocked: {violation:?}"))),
+        }
+
+        let tcp =
+            tcp_connect(&host, port).map_err(|e| tcp_err(1, format!("connect failed: {e}")))?;
+        let stream: Box<dyn ReadWrite> = if tls {
+            tcp_tls(tcp, &host).map_err(|e| tcp_err(2, e))?
+        } else {
+            Box::new(tcp)
+        };
+        let id = self.next_tcp_id;
+        self.next_tcp_id += 1;
+        self.tcp_streams.insert(id, stream);
+        Ok(id)
+    }
+
+    fn read(
+        &mut self,
+        stream: u64,
+        max: u32,
+    ) -> std::result::Result<Vec<u8>, thoth::plugin::tcp_client::PluginError> {
+        let s = self
+            .tcp_streams
+            .get_mut(&stream)
+            .ok_or_else(|| tcp_err(4, "invalid stream id"))?;
+        let cap = (max as usize).min(TCP_READ_CAP);
+        let mut buf = vec![0u8; cap];
+        let n = s.read(&mut buf).map_err(|e| tcp_err(2, e.to_string()))?;
+        buf.truncate(n);
+        Ok(buf)
+    }
+
+    fn write(
+        &mut self,
+        stream: u64,
+        bytes: Vec<u8>,
+    ) -> std::result::Result<u32, thoth::plugin::tcp_client::PluginError> {
+        let s = self
+            .tcp_streams
+            .get_mut(&stream)
+            .ok_or_else(|| tcp_err(4, "invalid stream id"))?;
+        s.write_all(&bytes).map_err(|e| tcp_err(2, e.to_string()))?;
+        s.flush().map_err(|e| tcp_err(2, e.to_string()))?;
+        Ok(bytes.len() as u32)
+    }
+
+    fn start_tls(
+        &mut self,
+        stream: u64,
+        host: String,
+    ) -> std::result::Result<(), thoth::plugin::tcp_client::PluginError> {
+        // Take the plaintext stream out and replace it (same id) with a TLS
+        // wrapper around it — the protocol has already done its SSL request.
+        let plain = self
+            .tcp_streams
+            .remove(&stream)
+            .ok_or_else(|| tcp_err(4, "invalid stream id"))?;
+        let upgraded = tcp_tls(BoxIo(plain), &host).map_err(|e| tcp_err(2, e))?;
+        self.tcp_streams.insert(stream, upgraded);
+        Ok(())
+    }
+
+    fn close(&mut self, stream: u64) {
+        self.tcp_streams.remove(&stream); // drop closes the socket
+    }
+}
+
+// ── secure-storage WIT import — OS keychain via keyring ─────────────────────
+
+fn se_err(message: impl Into<String>) -> thoth::plugin::secure_storage::PluginError {
+    thoth::plugin::secure_storage::PluginError {
+        code: 1,
+        message: message.into(),
+    }
+}
+
+impl DataSourcePluginState {
+    /// Namespace keychain keys by plugin id so plugins can't read each other's secrets.
+    fn scoped_key(&self, key: &str) -> String {
+        format!("{}:{}", self.plugin_id, key)
+    }
+}
+
+impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
+    fn write(
+        &mut self,
+        key: String,
+        secret: String,
+    ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
+        secret_store::write(&self.scoped_key(&key), &secret).map_err(se_err)
+    }
+
+    fn read(
+        &mut self,
+        key: String,
+    ) -> std::result::Result<Option<String>, thoth::plugin::secure_storage::PluginError> {
+        secret_store::read(&self.scoped_key(&key)).map_err(se_err)
+    }
+
+    fn delete(
+        &mut self,
+        key: String,
+    ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
+        secret_store::delete(&self.scoped_key(&key)).map_err(se_err)
+    }
+}
+
+/// Secret backend: the OS keychain in normal builds, an in-process map under
+/// `cfg(test)` — so unit tests never touch (or hang/prompt on) a real keychain,
+/// which keeps them reliable in CI (no D-Bus secret-service, no macOS prompt).
+#[cfg(not(test))]
+mod secret_store {
+    use super::KEYRING_SERVICE;
+
+    pub(super) fn write(account: &str, secret: &str) -> Result<(), String> {
+        keyring::Entry::new(KEYRING_SERVICE, account)
+            .and_then(|e| e.set_password(secret))
+            .map_err(|e| e.to_string())
+    }
+
+    pub(super) fn read(account: &str) -> Result<Option<String>, String> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
+        match entry.get_password() {
+            Ok(p) => Ok(Some(p)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    pub(super) fn delete(account: &str) -> Result<(), String> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod secret_store {
+    use std::collections::HashMap;
+    use std::sync::{LazyLock, Mutex};
+
+    static STORE: LazyLock<Mutex<HashMap<String, String>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    pub(super) fn write(account: &str, secret: &str) -> Result<(), String> {
+        STORE
+            .lock()
+            .unwrap()
+            .insert(account.to_string(), secret.to_string());
+        Ok(())
+    }
+
+    pub(super) fn read(account: &str) -> Result<Option<String>, String> {
+        Ok(STORE.lock().unwrap().get(account).cloned())
+    }
+
+    pub(super) fn delete(account: &str) -> Result<(), String> {
+        STORE.lock().unwrap().remove(account);
+        Ok(())
+    }
+}
+
+// ── db-runtime WIT import — schedule async queries ──────────────────────────
+
+impl thoth::plugin::db_runtime::Host for DataSourcePluginState {
+    fn submit_query(&mut self, handle: String, q: String) -> String {
+        let req_id = next_query_request_id();
+        let _ = self.query_request_tx.send((req_id.clone(), handle, q));
+        req_id
+    }
+}
+
 // ── reqwest bridge ────────────────────────────────────────────────────────────
 
 fn execute_http_request(
@@ -343,7 +749,8 @@ struct WasmDataSourceInner {
 }
 
 pub struct WasmDataSourceLoader {
-    inner: Mutex<WasmDataSourceInner>,
+    /// `Arc<Mutex>` so async query workers can own the Store off the UI thread.
+    inner: Arc<Mutex<WasmDataSourceInner>>,
     consent_rx: std::sync::mpsc::Receiver<ConsentRequest>,
     /// Receives completed async HTTP results submitted via `submit()`.
     http_rx: std::sync::mpsc::Receiver<(String, HttpCallResult)>,
@@ -353,6 +760,14 @@ pub struct WasmDataSourceLoader {
     pending_count: Arc<AtomicUsize>,
     /// Receives tab-open requests raised by the plugin via the `ui-tabs` import.
     tab_rx: std::sync::mpsc::Receiver<TabOpenRequest>,
+    /// Receives async query requests from `db-runtime::submit-query`.
+    query_request_rx: std::sync::mpsc::Receiver<QueryRequest>,
+    /// Cloned into each spawned query worker to deliver its result.
+    query_result_tx: std::sync::mpsc::Sender<(String, QueryResult)>,
+    /// Receives completed async query results.
+    query_result_rx: std::sync::mpsc::Receiver<(String, QueryResult)>,
+    /// In-flight async queries (for repaint-while-pending).
+    query_pending: Arc<AtomicUsize>,
     plugin_id: String,
 }
 
@@ -377,7 +792,11 @@ impl WasmDataSourceLoader {
         let (retry_tx, retry_rx) =
             std::sync::mpsc::channel::<(String, thoth::plugin::http_client::HttpRequest)>();
         let (tab_tx, tab_rx) = std::sync::mpsc::channel::<TabOpenRequest>();
+        let (query_request_tx, query_request_rx) = std::sync::mpsc::channel::<QueryRequest>();
+        let (query_result_tx, query_result_rx) =
+            std::sync::mpsc::channel::<(String, QueryResult)>();
         let pending_count = Arc::new(AtomicUsize::new(0));
+        let query_pending = Arc::new(AtomicUsize::new(0));
         let retry_tx_shared = Arc::new(Mutex::new(retry_tx));
 
         let state = DataSourcePluginState {
@@ -390,6 +809,12 @@ impl WasmDataSourceLoader {
             pending_count: Arc::clone(&pending_count),
             retry_tx: Arc::clone(&retry_tx_shared),
             tab_tx,
+            tcp_streams: HashMap::new(),
+            next_tcp_id: 1,
+            query_request_tx,
+            current_query: None,
+            query_result_tx: query_result_tx.clone(),
+            query_pending: Arc::clone(&query_pending),
         };
 
         let mut store = Store::new(engine, state);
@@ -438,6 +863,28 @@ impl WasmDataSourceLoader {
             },
         )?;
 
+        // 5. Register the tcp-client + secure-storage imports (DB plugins).
+        thoth::plugin::tcp_client::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+        thoth::plugin::secure_storage::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+
+        // 6. Register the db-runtime import (async query scheduling).
+        thoth::plugin::db_runtime::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+
         let bindings =
             DataSourcePlugin::instantiate(&mut store, &component, &linker).map_err(|e| {
                 ThothError::PluginLoadError {
@@ -447,12 +894,16 @@ impl WasmDataSourceLoader {
             })?;
 
         let mut loader = Self {
-            inner: Mutex::new(WasmDataSourceInner { store, bindings }),
+            inner: Arc::new(Mutex::new(WasmDataSourceInner { store, bindings })),
             consent_rx,
             http_rx,
             retry_rx,
             pending_count,
             tab_rx,
+            query_request_rx,
+            query_result_tx,
+            query_result_rx,
+            query_pending,
             plugin_id,
         };
 
@@ -665,6 +1116,58 @@ impl WasmDataSourceLoader {
         out
     }
 
+    /// Drain queued `submit-query` requests and run each on its own worker thread,
+    /// which owns the Store (via the shared `Arc<Mutex>`) for the query's duration —
+    /// so a blocking DB query runs off the UI thread. Results are delivered via
+    /// `drain_query_results`. Call once per poll.
+    pub fn pump_queries(&self) {
+        while let Ok((req_id, handle, sql)) = self.query_request_rx.try_recv() {
+            let inner = Arc::clone(&self.inner);
+            let tx = self.query_result_tx.clone();
+            self.query_pending.fetch_add(1, Ordering::Relaxed);
+            std::thread::spawn(move || {
+                let result: QueryResult = {
+                    let mut guard = inner.lock().unwrap_or_else(|e| e.into_inner());
+                    let WasmDataSourceInner { store, bindings } = &mut *guard;
+                    // Record the in-flight query so a consent-gated tcp connect can
+                    // re-enqueue it after the user approves the host.
+                    store.data_mut().current_query =
+                        Some((req_id.clone(), handle.clone(), sql.clone()));
+                    let out = match refuel(store) {
+                        Err(e) => Err(e.to_string()),
+                        Ok(()) => match bindings.thoth_plugin_data_source().call_query(
+                            &mut *store,
+                            &handle,
+                            &sql,
+                        ) {
+                            Ok(Ok(json)) => Ok(json),
+                            Ok(Err(pe)) => Err(pe.message),
+                            Err(e) => Err(e.to_string()),
+                        },
+                    };
+                    store.data_mut().current_query = None;
+                    out
+                };
+                let _ = tx.send((req_id, result));
+            });
+        }
+    }
+
+    /// Non-blocking drain of completed async query results: `(request_id, result)`.
+    pub fn drain_query_results(&self) -> Vec<(String, QueryResult)> {
+        let mut out = Vec::new();
+        while let Ok(item) = self.query_result_rx.try_recv() {
+            self.query_pending.fetch_sub(1, Ordering::Relaxed);
+            out.push(item);
+        }
+        out
+    }
+
+    /// True while at least one async query is still running.
+    pub fn has_pending_query(&self) -> bool {
+        self.query_pending.load(Ordering::Relaxed) > 0
+    }
+
     /// Non-blocking drain of retry requests enqueued by consent callbacks.
     /// Each entry is `(original_request_id, request)`. The host should re-dispatch
     /// these on a background thread (bypassing the policy check since user approved)
@@ -756,7 +1259,11 @@ impl WasmDataSourceLoader {
     }
 
     fn call_tab_lifecycle(&self, which: u8) {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        // Best-effort: skip if a query worker currently owns the Store, so e.g.
+        // switching tabs during a running query never blocks the UI thread.
+        let Ok(mut guard) = self.inner.try_lock() else {
+            return;
+        };
         let WasmDataSourceInner { store, bindings } = &mut *guard;
         if refuel(store).is_err() {
             return;
@@ -873,5 +1380,385 @@ impl PluginUiHost for WasmDataSourceLoader {
 
     fn has_pending_http(&self) -> bool {
         WasmDataSourceLoader::has_pending_http(self)
+    }
+
+    fn pump_queries(&self) {
+        WasmDataSourceLoader::pump_queries(self)
+    }
+
+    fn drain_query_results(&self) -> Vec<(String, QueryResult)> {
+        WasmDataSourceLoader::drain_query_results(self)
+    }
+
+    fn has_pending_query(&self) -> bool {
+        WasmDataSourceLoader::has_pending_query(self)
+    }
+}
+
+#[cfg(test)]
+mod helper_tests {
+    use super::*;
+
+    #[test]
+    fn tcp_err_carries_code_and_message() {
+        let e = tcp_err(403, "blocked");
+        assert_eq!(e.code, 403);
+        assert_eq!(e.message, "blocked");
+    }
+
+    #[test]
+    fn se_err_defaults_to_code_1() {
+        let e = se_err("nope");
+        assert_eq!(e.code, 1);
+        assert_eq!(e.message, "nope");
+    }
+
+    #[test]
+    fn secret_store_roundtrip_in_memory() {
+        // Under cfg(test) the secret store is an in-process map — never the real
+        // OS keychain — so write/read/delete round-trips here.
+        let key = "helper_tests:roundtrip";
+        secret_store::write(key, "s3cret").unwrap();
+        assert_eq!(secret_store::read(key).unwrap().as_deref(), Some("s3cret"));
+        secret_store::delete(key).unwrap();
+        assert_eq!(secret_store::read(key).unwrap(), None);
+    }
+
+    #[test]
+    fn secret_store_read_absent_is_none() {
+        assert_eq!(secret_store::read("helper_tests:absent").unwrap(), None);
+    }
+
+    #[test]
+    fn box_io_passes_reads_and_writes_through() {
+        use std::io::{Cursor, Read, Write};
+        let sink: Box<dyn ReadWrite> = Box::new(Cursor::new(Vec::new()));
+        let mut w = BoxIo(sink);
+        assert_eq!(w.write(b"hello").unwrap(), 5);
+        w.flush().unwrap();
+
+        let src: Box<dyn ReadWrite> = Box::new(Cursor::new(b"world".to_vec()));
+        let mut r = BoxIo(src);
+        let mut buf = [0u8; 5];
+        r.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"world");
+    }
+
+    #[test]
+    fn accept_any_server_cert_accepts_everything() {
+        use rustls::client::danger::ServerCertVerifier;
+        use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+
+        let verifier = AcceptAnyServerCert;
+        let cert = CertificateDer::from(vec![0u8, 1, 2, 3]); // contents are not inspected
+        let name = ServerName::try_from("db.internal").unwrap();
+        let now = UnixTime::since_unix_epoch(std::time::Duration::from_secs(1_700_000_000));
+
+        assert!(
+            verifier
+                .verify_server_cert(&cert, &[], &name, &[], now)
+                .is_ok()
+        );
+        assert!(!verifier.supported_verify_schemes().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod live_db_tests {
+    use super::*;
+    use crate::plugin::NetworkDeclarations;
+    use crate::plugin::render_node::UiEvent;
+    use crate::settings::PluginNetworkPolicy;
+    use wasmtime::Config;
+
+    /// Snapshots a plugin's on-disk state file and restores it on drop, so tests
+    /// that write through plugin-storage don't pollute the real app data dir.
+    struct PluginStateGuard {
+        path: Option<std::path::PathBuf>,
+        original: Option<String>,
+    }
+    impl PluginStateGuard {
+        fn capture(plugin_id: &str) -> Self {
+            let path = PersistentState::plugin_state_path(plugin_id).ok();
+            let original = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
+            Self { path, original }
+        }
+    }
+    impl Drop for PluginStateGuard {
+        fn drop(&mut self) {
+            if let Some(path) = &self.path {
+                match &self.original {
+                    Some(s) => {
+                        let _ = std::fs::write(path, s);
+                    }
+                    None => {
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A `*`-allowlisted policy (matches Seshat's plugin.toml) so the tcp-client
+    /// connect to a local DB is permitted without a consent round-trip.
+    fn wildcard_policy() -> NetworkPolicy {
+        let plugin = NetworkDeclarations {
+            allowed_domains: vec!["*".to_string()],
+            require_https: false,
+            rate_limit_rpm: 120,
+        };
+        let user = PluginNetworkPolicy {
+            allowed_domains: vec!["*".to_string()],
+            blocked_domains: vec![],
+            require_https: false,
+            rate_limit_rpm: 120,
+        };
+        NetworkPolicy::from_plugin_and_settings(&plugin, &user)
+    }
+
+    fn ev(id: &str, value: &str) -> UiEvent {
+        UiEvent {
+            widget_id: id.to_string(),
+            kind: "change".to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    /// End-to-end exercise of the real wasm path against a live Postgres:
+    /// instantiate the bundled Seshat plugin, set the connection, and run a
+    /// `SELECT *` through the data-source `query` export. This proves the
+    /// postgres-protocol codec + SCRAM auth run *inside* wasm (WASI random) and
+    /// that the host tcp-client transport connects for real.
+    ///
+    /// Ignored by default (needs a database). Configure via env and run:
+    ///   SESHAT_PG_HOST=127.0.0.1 SESHAT_PG_PORT=5432 \
+    ///   SESHAT_PG_DB=... SESHAT_PG_USER=... SESHAT_PG_PASSWORD=... \
+    ///   SESHAT_PG_SQL='SELECT * FROM some_table LIMIT 3' \
+    ///   cargo test -p thoth --lib seshat_select_star_live_postgres -- --ignored --nocapture
+    #[test]
+    #[ignore = "requires a live Postgres; configure with SESHAT_PG_* env vars"]
+    fn seshat_select_star_live_postgres() {
+        let (Ok(host), Ok(db), Ok(user), Ok(password)) = (
+            std::env::var("SESHAT_PG_HOST"),
+            std::env::var("SESHAT_PG_DB"),
+            std::env::var("SESHAT_PG_USER"),
+            std::env::var("SESHAT_PG_PASSWORD"),
+        ) else {
+            eprintln!("skipping: set SESHAT_PG_HOST/DB/USER/PASSWORD to run");
+            return;
+        };
+        let port = std::env::var("SESHAT_PG_PORT").unwrap_or_else(|_| "5432".to_string());
+        let sql = std::env::var("SESHAT_PG_SQL").unwrap_or_else(|_| {
+            "SELECT * FROM _prisma_migrations ORDER BY started_at LIMIT 3".to_string()
+        });
+
+        let wasm = Path::new("assets/plugins/seshat/plugin.wasm");
+        assert!(
+            wasm.exists(),
+            "build first (cargo build) so the plugin is bundled"
+        );
+
+        let mut config = Config::new();
+        config.consume_fuel(true);
+        let engine = Engine::new(&config).expect("engine");
+
+        let loader = WasmDataSourceLoader::open(
+            &engine,
+            wasm,
+            wildcard_policy(),
+            "com.thoth.seshat".to_string(),
+            &[],
+        )
+        .expect("open seshat plugin");
+
+        for (id, v) in [
+            ("host", host.as_str()),
+            ("port", port.as_str()),
+            ("database", db.as_str()),
+            ("user", user.as_str()),
+            ("password", password.as_str()),
+        ] {
+            loader
+                .handle_event(ev(id, v))
+                .expect("set connection field");
+        }
+
+        // Helper: run a Request (the plugin's off-thread op envelope) and parse.
+        let call = |req: serde_json::Value| -> serde_json::Value {
+            let json = loader
+                .query("seshat", &req.to_string())
+                .unwrap_or_else(|e| panic!("query {req} failed: {e:?}"));
+            serde_json::from_str(&json).expect("result json")
+        };
+
+        // test_connection → server version string
+        let version = call(serde_json::json!({"op": "test_connection"}));
+        eprintln!("test_connection: {version}");
+        assert!(
+            version.as_str().unwrap_or_default().contains("PostgreSQL"),
+            "expected a PostgreSQL version banner"
+        );
+
+        // list_schemas → contains the default `public` schema
+        let schemas = call(serde_json::json!({"op": "list_schemas"}));
+        eprintln!("schemas: {schemas}");
+        assert!(
+            schemas
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s.as_str() == Some("public")),
+            "expected a `public` schema"
+        );
+
+        // list_tables(public) → returns {schema,name,kind} objects
+        let tables = call(serde_json::json!({"op": "list_tables", "schema": "public"}));
+        let table_count = tables.as_array().map(|a| a.len()).unwrap_or(0);
+        eprintln!("public has {table_count} table(s)");
+        assert!(table_count > 0, "expected at least one table in public");
+        let first_table = tables.as_array().unwrap()[0]["name"]
+            .as_str()
+            .expect("table name")
+            .to_string();
+
+        // list_columns(public, <first table>) → typed column metadata
+        let columns = call(serde_json::json!({
+            "op": "list_columns", "schema": "public", "table": first_table
+        }));
+        eprintln!("columns of {first_table}: {columns}");
+        assert!(
+            !columns.as_array().unwrap().is_empty(),
+            "expected columns for {first_table}"
+        );
+        assert!(
+            columns.as_array().unwrap()[0].get("data_type").is_some(),
+            "each column should carry a data_type"
+        );
+
+        // query → typed {columns:[{name,type}], rows:[[..]]}
+        let result = call(serde_json::json!({"op": "query", "sql": sql}));
+        eprintln!(
+            "query result:\n{}",
+            serde_json::to_string_pretty(&result).unwrap()
+        );
+        let cols = result["columns"].as_array().expect("columns array");
+        let rows = result["rows"].as_array().expect("rows array");
+        assert!(!cols.is_empty(), "expected typed columns from `{sql}`");
+        assert!(!rows.is_empty(), "expected at least one row from `{sql}`");
+        assert!(
+            cols[0].get("name").is_some() && cols[0].get("type").is_some(),
+            "each column should have a name and type"
+        );
+        assert!(
+            rows[0].is_array(),
+            "rows should be positional arrays aligned with columns"
+        );
+    }
+
+    /// Render the connections UI and the opened new-connection modal, and assert
+    /// the host can parse both into `UiNode`. A single bad DSL field would make
+    /// the pane render blank in the app; this catches that without a GUI or DB.
+    #[test]
+    fn seshat_connection_ui_parses() {
+        let wasm = Path::new("assets/plugins/seshat/plugin.wasm");
+        if !wasm.exists() {
+            eprintln!("skipping: build the workspace first so the plugin is bundled");
+            return;
+        }
+        // This test drives `dialog-connect`, which persists via plugin-storage to
+        // the real app data dir. Back the file up and restore it on drop so the
+        // test never leaves a phantom connection behind.
+        let _state_guard = PluginStateGuard::capture("com.thoth.seshat");
+
+        let mut config = Config::new();
+        config.consume_fuel(true);
+        let engine = Engine::new(&config).expect("engine");
+        let loader = WasmDataSourceLoader::open(
+            &engine,
+            wasm,
+            wildcard_policy(),
+            "com.thoth.seshat".to_string(),
+            &[],
+        )
+        .expect("open seshat plugin");
+
+        let parse = |json: &str, what: &str| -> UiNode {
+            serde_json::from_str(json)
+                .unwrap_or_else(|e| panic!("{what} did not parse as UiNode: {e}\n{json}"))
+        };
+
+        // Initial view: connections manager with the modal closed.
+        let initial = loader.render_ui().expect("render_ui");
+        parse(&initial.node_json, "connections view");
+        assert!(
+            initial.node_json.contains("new-connection"),
+            "expected a New-connection button in the connections view"
+        );
+
+        // Sidebar view must also parse (this is where bad enum casing surfaced).
+        let sidebar = loader
+            .render_sidebar()
+            .expect("render_sidebar")
+            .expect("sidebar output");
+        parse(&sidebar.node_json, "sidebar view");
+        assert!(
+            sidebar.node_json.contains("new-connection"),
+            "sidebar should expose a New-connection button"
+        );
+
+        // Click "New connection" → the modal must open and still parse.
+        let opened = loader
+            .handle_event(UiEvent {
+                widget_id: "new-connection".to_string(),
+                kind: "click".to_string(),
+                value: String::new(),
+            })
+            .expect("handle_event(new-connection)");
+        parse(&opened.node_json, "new-connection modal");
+        assert!(
+            opened.node_json.contains("\"type\":\"modal\"")
+                && opened.node_json.contains("\"open\":true"),
+            "clicking New connection should open the modal:\n{}",
+            opened.node_json
+        );
+
+        // Cancel → the modal closes again.
+        let closed = loader
+            .handle_event(UiEvent {
+                widget_id: "dialog-cancel".to_string(),
+                kind: "click".to_string(),
+                value: String::new(),
+            })
+            .expect("handle_event(dialog-cancel)");
+        parse(&closed.node_json, "after cancel");
+        assert!(
+            closed.node_json.contains("\"open\":false"),
+            "Cancel should close the modal"
+        );
+
+        // Connecting saves the connection and activates it (no tab opened);
+        // render_ui then shows the editor view.
+        loader
+            .handle_event(UiEvent {
+                widget_id: "dialog-connect".to_string(),
+                kind: "click".to_string(),
+                value: String::new(),
+            })
+            .expect("handle_event(dialog-connect)");
+        let editor = loader.render_ui().expect("render_ui (editor)");
+        parse(&editor.node_json, "editor view");
+        assert!(
+            editor.node_json.contains("code-editor"),
+            "editor view should have a SQL editor:\n{}",
+            editor.node_json
+        );
+
+        // Seeding a fresh tab via init_with_state (the table/history open path)
+        // also lands on the editor and parses.
+        loader
+            .init_with_state(r#"{"connection":"localhost","sql":"SELECT 1"}"#)
+            .expect("init_with_state");
+        let seeded = loader.render_ui().expect("render_ui (seeded)");
+        parse(&seeded.node_json, "seeded editor view");
     }
 }

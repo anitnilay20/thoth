@@ -1,7 +1,8 @@
 use crate::app::persistent_state::Bookmark;
 use crate::components::common::input::{Input, InputProps};
 use crate::components::common::list::{List, ListItem, ListProps};
-use crate::components::common::typography::Typography;
+use crate::components::common::separator::Separator;
+use crate::components::common::sidebar_header::{SidebarHeader, SidebarHeaderProps};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
 use eframe::egui;
 
@@ -40,10 +41,7 @@ impl StatefulComponent for Bookmarks {
         }
 
         // Header
-        ui.add_space(8.0);
-        Typography::panel_header(ui, "BOOKMARKS");
-        ui.add_space(4.0);
-        ui.separator();
+        SidebarHeader::render(ui, SidebarHeaderProps::new("BOOKMARKS"));
         ui.add_space(8.0);
 
         // Jump-to-path input
@@ -75,9 +73,7 @@ impl StatefulComponent for Bookmarks {
             }
         }
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(4.0);
+        Separator::with_margins(ui, (8.0, 4.0));
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])

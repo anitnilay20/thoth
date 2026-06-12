@@ -3,6 +3,7 @@ use eframe::egui;
 use crate::PLUGIN_MANAGER;
 use crate::components::common::card::{Card, CardAction, CardActionVariant, CardEvent, CardIcon};
 use crate::components::common::input::{Input, InputProps};
+use crate::components::common::separator::Separator;
 use crate::components::common::toggle_switch::{
     ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps,
 };
@@ -134,7 +135,7 @@ impl PluginsTab {
                             events.push(PluginsTabEvent::OpenSettingsForPlugin(None));
                         }
                     });
-                    ui.separator();
+                    Separator::plain(ui);
 
                     if plugin.network.is_some() {
                         ui.add_space(8.0);
@@ -387,9 +388,7 @@ impl PluginsTab {
                         .color(colors.warning)
                         .size(12.0),
                     );
-                    ui.add_space(12.0);
-                    ui.separator();
-                    ui.add_space(12.0);
+                    Separator::with_margin(ui, 12.0);
 
                     Self::render_network_policy_form(
                         ui,

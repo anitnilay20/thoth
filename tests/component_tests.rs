@@ -16,14 +16,14 @@ fn test_data_row_basic() {
     run_ui_test(|ui| {
         let output = DataRow::render(
             ui,
-            DataRowProps {
-                display_text: "key: value",
-                text_tokens: (TextToken::Key, Some(TextToken::Str)),
-                background: ui.visuals().widgets.noninteractive.bg_fill,
-                row_id: "test-row",
-                highlights: RowHighlights::default(),
-                syntax_highlighting: true,
-            },
+            DataRowProps::new(
+                "key: value",
+                (TextToken::Key, Some(TextToken::Str)),
+                ui.visuals().widgets.noninteractive.bg_fill,
+                "test-row",
+                RowHighlights::default(),
+                true,
+            ),
         );
 
         // Initially not clicked
@@ -37,14 +37,14 @@ fn test_data_row_with_brackets() {
     run_ui_test(|ui| {
         let output = DataRow::render(
             ui,
-            DataRowProps {
-                display_text: "array: []",
-                text_tokens: (TextToken::Key, Some(TextToken::Bracket)),
-                background: ui.visuals().widgets.noninteractive.bg_fill,
-                row_id: "array-row",
-                highlights: RowHighlights::default(),
-                syntax_highlighting: true,
-            },
+            DataRowProps::new(
+                "array: []",
+                (TextToken::Key, Some(TextToken::Bracket)),
+                ui.visuals().widgets.noninteractive.bg_fill,
+                "array-row",
+                RowHighlights::default(),
+                true,
+            ),
         );
 
         assert!(!output.clicked);
@@ -55,16 +55,19 @@ fn test_data_row_with_brackets() {
 fn test_data_row_with_indentation() {
     run_ui_test(|ui| {
         // Test various indentation levels
-        for level in 0..5 {
+        for level in 0..5usize {
             let output = DataRow::render(
                 ui,
                 DataRowProps {
-                    display_text: &format!("level{}: value", level),
-                    text_tokens: (TextToken::Key, Some(TextToken::Str)),
-                    background: ui.visuals().widgets.noninteractive.bg_fill,
-                    row_id: &format!("indent-{}", level),
-                    highlights: RowHighlights::default(),
-                    syntax_highlighting: true,
+                    indent: level,
+                    ..DataRowProps::new(
+                        &format!("level{}: value", level),
+                        (TextToken::Key, Some(TextToken::Str)),
+                        ui.visuals().widgets.noninteractive.bg_fill,
+                        &format!("indent-{}", level),
+                        RowHighlights::default(),
+                        true,
+                    )
                 },
             );
 
@@ -86,14 +89,14 @@ fn test_data_row_different_text_tokens() {
         for (i, (token1, token2)) in token_pairs.iter().enumerate() {
             let output = DataRow::render(
                 ui,
-                DataRowProps {
-                    display_text: "test: value",
-                    text_tokens: (*token1, *token2),
-                    background: ui.visuals().widgets.noninteractive.bg_fill,
-                    row_id: &format!("token-{}", i),
-                    highlights: RowHighlights::default(),
-                    syntax_highlighting: true,
-                },
+                DataRowProps::new(
+                    "test: value",
+                    (*token1, *token2),
+                    ui.visuals().widgets.noninteractive.bg_fill,
+                    &format!("token-{}", i),
+                    RowHighlights::default(),
+                    true,
+                ),
             );
 
             assert!(!output.clicked);
@@ -109,12 +112,15 @@ fn test_data_row_with_selection_background() {
         let output = DataRow::render(
             ui,
             DataRowProps {
-                display_text: "selected: item",
-                text_tokens: (TextToken::Key, Some(TextToken::Str)),
-                background: selected_bg,
-                row_id: "selected-row",
-                highlights: RowHighlights::default(),
-                syntax_highlighting: true,
+                selected: true,
+                ..DataRowProps::new(
+                    "selected: item",
+                    (TextToken::Key, Some(TextToken::Str)),
+                    selected_bg,
+                    "selected-row",
+                    RowHighlights::default(),
+                    true,
+                )
             },
         );
 
@@ -196,5 +202,146 @@ fn test_mock_context_component_multiple_renders() {
         component.render(ui, MockContextProps { title: "Second" });
         assert_eq!(component.render_count, 2);
         assert_eq!(component.last_title, "Second");
+    });
+}
+
+// ============================================================================
+// SidebarHeader Component Tests
+// ============================================================================
+
+use thoth::components::common::sidebar_header::{
+    SidebarHeader, SidebarHeaderAction, SidebarHeaderProps,
+};
+
+#[test]
+fn test_sidebar_header_title_only() {
+    run_ui_test(|ui| {
+        let out = SidebarHeader::render(ui, SidebarHeaderProps::new("CONNECTIONS"));
+        assert!(out.action_clicked.is_none());
+    });
+}
+
+#[test]
+fn test_sidebar_header_with_trailing_and_actions() {
+    run_ui_test(|ui| {
+        let out = SidebarHeader::render(
+            ui,
+            SidebarHeaderProps {
+                title: "PLUGIN STORE",
+                trailing_text: Some("3 of 12"),
+                actions: &[
+                    SidebarHeaderAction {
+                        icon: egui_phosphor::regular::MAGNIFYING_GLASS,
+                        tooltip: "Search",
+                    },
+                    SidebarHeaderAction {
+                        icon: egui_phosphor::regular::X,
+                        tooltip: "Clear",
+                    },
+                ],
+            },
+        );
+        // Nothing was clicked in a headless render.
+        assert!(out.action_clicked.is_none());
+    });
+}
+
+// ============================================================================
+// DataRow tree-chrome render coverage (caret / leading icon / trailing)
+// ============================================================================
+
+#[test]
+fn test_data_row_tree_chrome_renders() {
+    use eframe::egui::Color32;
+    run_ui_test(|ui| {
+        // Expanded caret + leading icon + trailing text + indent.
+        let out = DataRow::render(
+            ui,
+            DataRowProps {
+                indent: 2,
+                caret: Some(true),
+                leading_icon: Some((egui_phosphor::regular::FOLDER, Color32::LIGHT_BLUE)),
+                trailing: Some("12"),
+                ..DataRowProps::new(
+                    "public",
+                    (TextToken::Key, None),
+                    ui.visuals().widgets.noninteractive.bg_fill,
+                    "sch:0",
+                    RowHighlights::default(),
+                    false,
+                )
+            },
+        );
+        assert!(!out.clicked);
+        assert!(!out.caret_clicked);
+
+        // Collapsed caret (leaf-less) variant.
+        let out = DataRow::render(
+            ui,
+            DataRowProps {
+                caret: Some(false),
+                ..DataRowProps::new(
+                    "users",
+                    (TextToken::Key, None),
+                    ui.visuals().widgets.noninteractive.bg_fill,
+                    "tbl:0:0",
+                    RowHighlights::default(),
+                    false,
+                )
+            },
+        );
+        assert!(!out.caret_clicked);
+    });
+}
+
+// ============================================================================
+// render_node DSL smoke test — exercises many UiNode arms and the components
+// they delegate to (DataRow, Table/TableView, List, Icon, Badge, Separator).
+// ============================================================================
+
+#[test]
+fn test_render_ui_node_covers_many_variants() {
+    use thoth::plugin::render_node::{UiNode, render_ui_node};
+
+    let json = serde_json::json!({
+        "type": "column",
+        "gap": 4,
+        "children": [
+            { "type": "text", "value": "hello", "muted": true },
+            { "type": "separator" },
+            { "type": "spacer", "height": 6.0 },
+            { "type": "badge", "label": "GET", "color": "#89b4fa" },
+            { "type": "icon", "glyph": egui_phosphor::regular::DATABASE, "color": "info", "size": 14.0 },
+            {
+                "type": "data-row",
+                "id": "sch:0",
+                "label": "public",
+                "indent": 1,
+                "caret": true,
+                "icon": { "glyph": egui_phosphor::regular::FOLDER, "color": "muted" },
+                "trailing": "3"
+            },
+            {
+                "type": "table",
+                "headers": ["id", "name"],
+                "rows": [[
+                    { "type": "text", "value": "1" },
+                    { "type": "text", "value": "alice" }
+                ]]
+            },
+            {
+                "type": "list",
+                "id": "things",
+                "items": [{ "title": "item one" }, { "title": "item two" }]
+            }
+        ]
+    });
+
+    let node: UiNode = serde_json::from_value(json).expect("valid UiNode");
+    run_ui_test(|ui| {
+        let mut events = Vec::new();
+        render_ui_node(ui, &node, &mut events);
+        // Headless render: no widget interactions emitted.
+        assert!(events.is_empty());
     });
 }

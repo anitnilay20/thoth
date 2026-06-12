@@ -1,0 +1,17 @@
+id           = "com.thoth.seshat"
+name         = "Seshat"
+version      = "0.1.0"
+description  = "Database client — connect, browse schemas, run SQL (Postgres, MySQL)"
+author       = "Thoth contributors"
+capabilities = ["data-source", "new-ui-component"]
+icon         = ""    # egui_phosphor::regular::DATABASE
+
+[data-source]
+display_name = "Database"
+
+# Seshat connects to user-supplied database hosts (any host:port), so it declares
+# general-purpose network scope; per-host consent still gates unknown hosts.
+[network]
+allowed_domains = ["*"]
+require_https   = false
+rate_limit_rpm  = 120

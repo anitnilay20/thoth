@@ -438,6 +438,21 @@ pub fn icon_rich_text(icon: &str, size: f32) -> egui::RichText {
     egui::RichText::new(icon).font(phosphor_font_id(size))
 }
 
+/// Parse a `#rrggbb` hex string into a color, returning `None` for anything
+/// else so callers choose their own fallback. (Unlike [`Theme::parse_color`],
+/// which is infallible and defaults to black.)
+pub fn parse_hex_color(s: &str) -> Option<Color32> {
+    let s = s.strip_prefix('#')?;
+    if s.len() == 6 {
+        let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+        Some(Color32::from_rgb(r, g, b))
+    } else {
+        None
+    }
+}
+
 // ── apply_theme ───────────────────────────────────────────────────────────────
 
 pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {

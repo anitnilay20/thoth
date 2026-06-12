@@ -103,7 +103,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          # libdbus-1-dev + pkg-config: keyring's Linux secret-service backend links libdbus.
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev pkg-config
 
       # Windows-specific setup - Install WiX for MSI creation (required by cargo-packager)
       - name: Install Windows dependencies
@@ -183,6 +184,13 @@ jobs:
           # Also copy the exe as fallback
           Copy-Item target\${{ matrix.target }}\release\thoth.exe artifacts\
 
+          # Ship the bundled wasm plugins next to the exe (the app loads them
+          # from `<exe dir>\assets\plugins`), so the .zip carries them too.
+          if (Test-Path assets\plugins) {
+            New-Item -ItemType Directory -Force -Path artifacts\assets | Out-Null
+            Copy-Item -Recurse -Force assets\plugins artifacts\assets\plugins
+          }
+
       - name: Create macOS DMG installer
         if: runner.os == 'macOS'
         run: |
@@ -220,6 +228,13 @@ jobs:
           cp target/${{ matrix.target }}/release/thoth artifacts/
           chmod +x artifacts/thoth
 
+          # Ship the bundled wasm plugins next to the binary — the app loads
+          # them from `<bin dir>/assets/plugins`, so the tarball must carry them.
+          if [ -d assets/plugins ]; then
+            mkdir -p artifacts/assets
+            cp -r assets/plugins artifacts/assets/plugins
+          fi
+
       # Create compressed archives
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
@@ -234,7 +249,11 @@ jobs:
           if [ "${{ runner.os }}" = "macOS" ]; then
             tar -czf ../thoth-${{ matrix.target }}.tar.gz Thoth.app
           else
-            tar -czf ../thoth-${{ matrix.target }}.tar.gz thoth
+            # Pack the binary alongside its bundled plugins so installers can
+            # place `assets/plugins/` next to the binary.
+            files="thoth"
+            [ -d assets/plugins ] && files="$files assets/plugins"
+            tar -czf ../thoth-${{ matrix.target }}.tar.gz $files
           fi
 
       # Upload artifacts
