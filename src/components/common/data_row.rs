@@ -379,3 +379,44 @@ fn highlighted_text(
 
     WidgetText::LayoutJob(Arc::new(job))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::blend_colors;
+    use eframe::egui::Color32;
+
+    #[test]
+    fn opaque_overlay_replaces_background() {
+        let bg = Color32::from_rgb(10, 20, 30);
+        let overlay = Color32::from_rgb(200, 100, 50); // alpha 255
+        assert_eq!(blend_colors(bg, overlay), overlay);
+    }
+
+    #[test]
+    fn fully_transparent_overlay_keeps_background() {
+        let bg = Color32::from_rgb(10, 20, 30);
+        let overlay = Color32::from_rgba_unmultiplied(255, 0, 0, 0); // alpha 0
+        assert_eq!(blend_colors(bg, overlay), bg);
+    }
+
+    #[test]
+    fn transparent_over_transparent_stays_transparent() {
+        let out = blend_colors(Color32::TRANSPARENT, Color32::TRANSPARENT);
+        assert_eq!(out, Color32::TRANSPARENT);
+    }
+
+    #[test]
+    fn half_overlay_blends_between_endpoints() {
+        // A semi-transparent white over opaque black: the result is opaque, grey
+        // (equal channels), and strictly between the two endpoints. (Exact value
+        // depends on Color32's premultiplied storage, so assert a range.)
+        let out = blend_colors(
+            Color32::BLACK,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 128),
+        );
+        assert_eq!(out.a(), 255); // opaque base stays opaque
+        assert_eq!(out.r(), out.g());
+        assert_eq!(out.g(), out.b());
+        assert!((1..255).contains(&(out.r() as i32)));
+    }
+}

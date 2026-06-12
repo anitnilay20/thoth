@@ -204,3 +204,144 @@ fn test_mock_context_component_multiple_renders() {
         assert_eq!(component.last_title, "Second");
     });
 }
+
+// ============================================================================
+// SidebarHeader Component Tests
+// ============================================================================
+
+use thoth::components::common::sidebar_header::{
+    SidebarHeader, SidebarHeaderAction, SidebarHeaderProps,
+};
+
+#[test]
+fn test_sidebar_header_title_only() {
+    run_ui_test(|ui| {
+        let out = SidebarHeader::render(ui, SidebarHeaderProps::new("CONNECTIONS"));
+        assert!(out.action_clicked.is_none());
+    });
+}
+
+#[test]
+fn test_sidebar_header_with_trailing_and_actions() {
+    run_ui_test(|ui| {
+        let out = SidebarHeader::render(
+            ui,
+            SidebarHeaderProps {
+                title: "PLUGIN STORE",
+                trailing_text: Some("3 of 12"),
+                actions: &[
+                    SidebarHeaderAction {
+                        icon: egui_phosphor::regular::MAGNIFYING_GLASS,
+                        tooltip: "Search",
+                    },
+                    SidebarHeaderAction {
+                        icon: egui_phosphor::regular::X,
+                        tooltip: "Clear",
+                    },
+                ],
+            },
+        );
+        // Nothing was clicked in a headless render.
+        assert!(out.action_clicked.is_none());
+    });
+}
+
+// ============================================================================
+// DataRow tree-chrome render coverage (caret / leading icon / trailing)
+// ============================================================================
+
+#[test]
+fn test_data_row_tree_chrome_renders() {
+    use eframe::egui::Color32;
+    run_ui_test(|ui| {
+        // Expanded caret + leading icon + trailing text + indent.
+        let out = DataRow::render(
+            ui,
+            DataRowProps {
+                indent: 2,
+                caret: Some(true),
+                leading_icon: Some((egui_phosphor::regular::FOLDER, Color32::LIGHT_BLUE)),
+                trailing: Some("12"),
+                ..DataRowProps::new(
+                    "public",
+                    (TextToken::Key, None),
+                    ui.visuals().widgets.noninteractive.bg_fill,
+                    "sch:0",
+                    RowHighlights::default(),
+                    false,
+                )
+            },
+        );
+        assert!(!out.clicked);
+        assert!(!out.caret_clicked);
+
+        // Collapsed caret (leaf-less) variant.
+        let out = DataRow::render(
+            ui,
+            DataRowProps {
+                caret: Some(false),
+                ..DataRowProps::new(
+                    "users",
+                    (TextToken::Key, None),
+                    ui.visuals().widgets.noninteractive.bg_fill,
+                    "tbl:0:0",
+                    RowHighlights::default(),
+                    false,
+                )
+            },
+        );
+        assert!(!out.caret_clicked);
+    });
+}
+
+// ============================================================================
+// render_node DSL smoke test — exercises many UiNode arms and the components
+// they delegate to (DataRow, Table/TableView, List, Icon, Badge, Separator).
+// ============================================================================
+
+#[test]
+fn test_render_ui_node_covers_many_variants() {
+    use thoth::plugin::render_node::{UiNode, render_ui_node};
+
+    let json = serde_json::json!({
+        "type": "column",
+        "gap": 4,
+        "children": [
+            { "type": "text", "value": "hello", "muted": true },
+            { "type": "separator" },
+            { "type": "spacer", "height": 6.0 },
+            { "type": "badge", "label": "GET", "color": "#89b4fa" },
+            { "type": "icon", "glyph": egui_phosphor::regular::DATABASE, "color": "info", "size": 14.0 },
+            {
+                "type": "data-row",
+                "id": "sch:0",
+                "label": "public",
+                "indent": 1,
+                "caret": true,
+                "icon": { "glyph": egui_phosphor::regular::FOLDER, "color": "muted" },
+                "trailing": "3"
+            },
+            {
+                "type": "table",
+                "headers": ["id", "name"],
+                "rows": [[
+                    { "type": "text", "value": "1" },
+                    { "type": "text", "value": "alice" }
+                ]]
+            },
+            {
+                "type": "list",
+                "id": "things",
+                "items": [{ "title": "item one" }, { "title": "item two" }]
+            }
+        ]
+    });
+
+    let node: UiNode = serde_json::from_value(json).expect("valid UiNode");
+    run_ui_test(|ui| {
+        let mut events = Vec::new();
+        render_ui_node(ui, &node, &mut events);
+        // Headless render: no widget interactions emitted.
+        assert!(events.is_empty());
+    });
+}

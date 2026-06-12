@@ -1396,6 +1396,74 @@ impl PluginUiHost for WasmDataSourceLoader {
 }
 
 #[cfg(test)]
+mod helper_tests {
+    use super::*;
+
+    #[test]
+    fn tcp_err_carries_code_and_message() {
+        let e = tcp_err(403, "blocked");
+        assert_eq!(e.code, 403);
+        assert_eq!(e.message, "blocked");
+    }
+
+    #[test]
+    fn se_err_defaults_to_code_1() {
+        let e = se_err("nope");
+        assert_eq!(e.code, 1);
+        assert_eq!(e.message, "nope");
+    }
+
+    #[test]
+    fn secret_store_roundtrip_in_memory() {
+        // Under cfg(test) the secret store is an in-process map — never the real
+        // OS keychain — so write/read/delete round-trips here.
+        let key = "helper_tests:roundtrip";
+        secret_store::write(key, "s3cret").unwrap();
+        assert_eq!(secret_store::read(key).unwrap().as_deref(), Some("s3cret"));
+        secret_store::delete(key).unwrap();
+        assert_eq!(secret_store::read(key).unwrap(), None);
+    }
+
+    #[test]
+    fn secret_store_read_absent_is_none() {
+        assert_eq!(secret_store::read("helper_tests:absent").unwrap(), None);
+    }
+
+    #[test]
+    fn box_io_passes_reads_and_writes_through() {
+        use std::io::{Cursor, Read, Write};
+        let sink: Box<dyn ReadWrite> = Box::new(Cursor::new(Vec::new()));
+        let mut w = BoxIo(sink);
+        assert_eq!(w.write(b"hello").unwrap(), 5);
+        w.flush().unwrap();
+
+        let src: Box<dyn ReadWrite> = Box::new(Cursor::new(b"world".to_vec()));
+        let mut r = BoxIo(src);
+        let mut buf = [0u8; 5];
+        r.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"world");
+    }
+
+    #[test]
+    fn accept_any_server_cert_accepts_everything() {
+        use rustls::client::danger::ServerCertVerifier;
+        use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+
+        let verifier = AcceptAnyServerCert;
+        let cert = CertificateDer::from(vec![0u8, 1, 2, 3]); // contents are not inspected
+        let name = ServerName::try_from("db.internal").unwrap();
+        let now = UnixTime::since_unix_epoch(std::time::Duration::from_secs(1_700_000_000));
+
+        assert!(
+            verifier
+                .verify_server_cert(&cert, &[], &name, &[], now)
+                .is_ok()
+        );
+        assert!(!verifier.supported_verify_schemes().is_empty());
+    }
+}
+
+#[cfg(test)]
 mod live_db_tests {
     use super::*;
     use crate::plugin::NetworkDeclarations;
