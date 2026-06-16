@@ -40,15 +40,15 @@ impl DataRow {
         );
         let resp = ui.interact(interact_rect, id, egui::Sense::click());
 
-        let caller_bg = self
-            .background
-            .as_deref()
-            .and_then(parse_hex_color)
-            .unwrap_or(Color32::TRANSPARENT);
+        let explicit_bg = self.background.as_deref().and_then(parse_hex_color);
         let base_bg = if self.selected {
             ui.visuals().selection.bg_fill
+        } else if let Some(bg) = explicit_bg {
+            bg
+        } else if self.striped {
+            ui.visuals().faint_bg_color
         } else {
-            caller_bg
+            Color32::TRANSPARENT
         };
         let hovered = resp.hovered() || ui.rect_contains_pointer(interact_rect);
         let background = if hovered {
