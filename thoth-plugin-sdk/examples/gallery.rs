@@ -152,6 +152,20 @@ impl eframe::App for Gallery {
         ui.ctx()
             .memory_mut(|m| m.data.insert_temp(egui::Id::new(THEME_MEMORY_ID), colors));
 
+        // Also drive egui's own visuals from the palette (a minimal stand-in for
+        // the host's apply_theme) so widgets that read ui.visuals() — e.g. the
+        // faint zebra fill, text color, selection — match. Child panels created
+        // via show_inside inherit this ui's style.
+        let faint =
+            Color32::from_rgba_unmultiplied(colors.surface.r(), colors.surface.g(), colors.surface.b(), 77);
+        let v = &mut ui.style_mut().visuals;
+        v.override_text_color = Some(colors.fg);
+        v.panel_fill = colors.bg;
+        v.faint_bg_color = faint;
+        v.selection.bg_fill =
+            Color32::from_rgba_unmultiplied(colors.accent.r(), colors.accent.g(), colors.accent.b(), 60);
+        v.selection.stroke = egui::Stroke::new(1.0, colors.accent);
+
         egui::Panel::left("stories")
             .resizable(false)
             .default_size(180.0)
