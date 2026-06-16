@@ -8,6 +8,7 @@
 mod breadcrumbs;
 mod button;
 mod button_group;
+mod data_row;
 mod icon_button;
 mod input;
 mod select;
@@ -19,6 +20,9 @@ mod typography;
 pub use breadcrumbs::Breadcrumbs;
 pub use button::{Button, ButtonColor, ButtonSize, ButtonType};
 pub use button_group::ButtonGroups;
+pub use data_row::{DataRow, DataRowIcon, RowHighlights};
+#[cfg(feature = "egui")]
+pub use data_row::DataRowOutput;
 pub use icon_button::IconButton;
 pub use input::Input;
 pub use select::{Select, SelectOption, SelectSize};

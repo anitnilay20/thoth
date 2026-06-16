@@ -1,5 +1,10 @@
 use egui::Color32;
 
+pub use crate::tokens::TextToken;
+
+/// Standard height of a tree/data row, in points.
+pub const ROW_HEIGHT: f32 = 22.0;
+
 /// egui memory key under which the host publishes the active [`ThemeColors`].
 ///
 /// The host writes the parsed palette here once per frame (via its
@@ -136,6 +141,58 @@ pub fn parse_hex_color(hex: &str) -> Option<Color32> {
             byte(6)?,
         )),
         _ => None,
+    }
+}
+
+/// Background fill used for a hovered tree/data row.
+pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
+    ui.visuals().widgets.hovered.bg_fill
+}
+
+// ── Syntax token helpers ──────────────────────────────────────────────────────
+
+/// Resolved syntax colours for the active theme, one per [`TextToken`].
+#[derive(Clone, Copy, Debug)]
+pub struct TextPalette {
+    /// Colour for [`TextToken::Key`].
+    pub key: Color32,
+    /// Colour for [`TextToken::Str`].
+    pub string: Color32,
+    /// Colour for [`TextToken::Number`].
+    pub number: Color32,
+    /// Colour for [`TextToken::Boolean`].
+    pub boolean: Color32,
+    /// Colour for [`TextToken::Bracket`].
+    pub bracket: Color32,
+}
+
+impl TextPalette {
+    /// Build the palette from the host-injected [`ThemeColors`] in egui memory.
+    pub fn from_ctx(ctx: &egui::Context) -> Self {
+        let tc = ThemeColors::from_ctx(ctx);
+        Self {
+            key: tc.syntax_key,
+            string: tc.syntax_string,
+            number: tc.syntax_number,
+            boolean: tc.syntax_bool,
+            bracket: tc.syntax_punctuation,
+        }
+    }
+
+    /// The colour for `token`.
+    pub fn color(&self, token: TextToken) -> Color32 {
+        match token {
+            TextToken::Key => self.key,
+            TextToken::Str => self.string,
+            TextToken::Number => self.number,
+            TextToken::Boolean => self.boolean,
+            TextToken::Bracket => self.bracket,
+        }
+    }
+
+    /// The token colour when `enabled`, otherwise `base`.
+    pub fn color_with_highlighting(&self, token: TextToken, enabled: bool, base: Color32) -> Color32 {
+        if enabled { self.color(token) } else { base }
     }
 }
 

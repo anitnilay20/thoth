@@ -27,6 +27,9 @@
 
 pub mod components;
 pub(crate) mod helpers;
+pub mod tokens;
+
+pub use tokens::TextToken;
 
 #[cfg(feature = "plugin")]
 mod wire;
