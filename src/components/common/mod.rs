@@ -10,7 +10,6 @@ pub mod json_tree;
 pub mod list;
 pub mod modal;
 pub mod select;
-pub mod separator;
 pub mod sidebar_header;
 pub mod table_view;
 pub mod tabs;

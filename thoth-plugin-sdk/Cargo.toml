@@ -1,0 +1,26 @@
+[package]
+name = "thoth-plugin-sdk"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bon = "3.9"
+egui = { version = "0.34.3", optional = true }
+
+[features]
+default = []
+plugin = []
+egui = ["dep:egui"]
+
+[dev-dependencies]
+# Drives the component gallery example (examples/gallery.rs).
+eframe = "0.34"
+egui-phosphor = "0.12"
+
+# A live, Storybook-style showcase of the SDK's egui widgets.
+# Run with: cargo run -p thoth-plugin-sdk --example gallery --features egui
+[[example]]
+name = "gallery"
+required-features = ["egui"]

@@ -9,12 +9,12 @@ use crate::components::common::input::{Input, InputProps};
 use crate::components::common::json_tree::{JsonTree, JsonTreeProps};
 use crate::components::common::list::{List, ListItem, ListProps};
 use crate::components::common::select::{Select, SelectOption as CommonSelectOption, SelectProps};
-use crate::components::common::separator::Separator;
+use thoth_plugin_sdk::components::Separator;
 use crate::components::common::tabs::{TabAction, TabItem, TabProps, Tabs};
 use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::table_view::{TableCell, TableView, TableViewProps};
 use crate::components::traits::StatelessComponent;
-use crate::theme::{BgColorOptions, TextToken, ThemeColors, parse_hex_color};
+use crate::theme::{BgColorOptions, TextToken, ThemeColors, ThemeColorsExt, parse_hex_color};
 
 // =============================================================================
 // UiNode — unified display + interactive DSL
@@ -803,7 +803,7 @@ pub fn render_ui_node(ui: &mut egui::Ui, node: &UiNode, events: &mut Vec<UiEvent
             ui.add_space(*height);
         }
         UiNode::Separator => {
-            Separator::plain(ui);
+            ui.add(Separator::plain());
         }
 
         // ── Display ───────────────────────────────────────────────────────

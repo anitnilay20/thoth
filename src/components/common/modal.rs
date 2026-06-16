@@ -1,7 +1,8 @@
 use eframe::egui;
 
+use thoth_plugin_sdk::components::Separator;
+
 use crate::components::{
-    common::separator::Separator,
     icon_button::{IconButton, IconButtonProps},
     traits::StatelessComponent,
 };
@@ -129,7 +130,7 @@ impl Modal {
                     }
                 });
             });
-            Separator::with_margins(ui, (0.0, 4.0));
+            ui.add(Separator::with_margins(0.0, 4.0));
 
             // ── Body ──────────────────────────────────────────────────
             if let Some(h) = modal_h {

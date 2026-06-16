@@ -1,6 +1,6 @@
 use crate::components::common::input::{Input, InputProps};
 use crate::components::common::list::{List, ListItem, ListProps};
-use crate::components::common::separator::Separator;
+use thoth_plugin_sdk::components::Separator;
 use crate::components::common::sidebar_header::{
     SidebarHeader, SidebarHeaderAction, SidebarHeaderProps,
 };
@@ -169,7 +169,7 @@ impl StatefulComponent for Search {
                 .collect();
 
             if !queries.is_empty() {
-                Separator::with_margins(ui, (0.0, 8.0));
+                ui.add(Separator::with_margins(0.0, 8.0));
 
                 ui.horizontal(|ui| {
                     Typography::panel_header(ui, "RECENT SEARCHES");
@@ -237,7 +237,7 @@ impl StatefulComponent for Search {
             }
         }
 
-        Separator::with_margins(ui, (0.0, 8.0));
+        ui.add(Separator::with_margins(0.0, 8.0));
 
         // Display search results list
         if !props.search_state.query.is_empty() {

@@ -7,6 +7,7 @@ use crate::{
     components::{self, traits::ContextComponent},
     plugin::plugin_ui_host::PluginUiHost,
     settings, state,
+    theme::ThemeColorsExt,
 };
 
 use super::{

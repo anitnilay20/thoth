@@ -1,7 +1,7 @@
 use crate::app::persistent_state::Bookmark;
 use crate::components::common::input::{Input, InputProps};
 use crate::components::common::list::{List, ListItem, ListProps};
-use crate::components::common::separator::Separator;
+use thoth_plugin_sdk::components::Separator;
 use crate::components::common::sidebar_header::{SidebarHeader, SidebarHeaderProps};
 use crate::components::traits::{StatefulComponent, StatelessComponent};
 use eframe::egui;
@@ -73,7 +73,7 @@ impl StatefulComponent for Bookmarks {
             }
         }
 
-        Separator::with_margins(ui, (8.0, 4.0));
+        ui.add(Separator::with_margins(8.0, 4.0));
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])

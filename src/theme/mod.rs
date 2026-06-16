@@ -11,6 +11,11 @@ use crate::{
     settings::Settings,
 };
 
+// Pure colour/font helpers are owned by the plugin SDK so host-native and
+// SDK-provided widgets share one implementation. Re-exported so existing
+// `crate::theme::{get_contrast_text_color, phosphor_font_id}` paths keep working.
+pub use thoth_plugin_sdk::theme::{get_contrast_text_color, phosphor_font_id};
+
 // ── Design-system constants ───────────────────────────────────────────────────
 
 // ── Theme (serialisable hex-string form) ──────────────────────────────────────
@@ -220,55 +225,32 @@ impl Theme {
 
 // ── ThemeColors (parsed Color32 form) ────────────────────────────────────────
 
-/// Parsed `Color32` values ready for use in egui rendering.
+// The canonical parsed palette type lives in the plugin SDK so that exactly one
+// `ThemeColors` type flows through egui memory (key
+// [`thoth_plugin_sdk::theme::THEME_MEMORY_ID`]): the host publishes it and both
+// host-native and SDK-provided widgets read it back. Re-exported here so all
+// existing `crate::theme::ThemeColors` references keep working.
+pub use thoth_plugin_sdk::theme::ThemeColors;
+
+/// Host-only rendering helpers on [`ThemeColors`].
 ///
-/// Obtain via [`Theme::colors()`] or read from egui memory with key
-/// `egui::Id::new("theme_colors")`.
-#[derive(Debug, Clone, Copy)]
-pub struct ThemeColors {
-    // Backgrounds
-    pub bg: Color32,
-    pub bg_panel: Color32,
-    pub bg_sunken: Color32,
+/// These build themes for the host's `egui_code_editor` / `egui_dock`
+/// dependencies, which the SDK deliberately does not pull in. Defined as an
+/// extension trait because `ThemeColors` is a foreign type owned by the SDK.
+pub trait ThemeColorsExt {
+    /// Build an `egui_code_editor` `ColorTheme` from the current palette.
+    fn code_editor_theme(&self) -> ColorTheme;
 
-    // Surfaces
-    pub surface: Color32,
-    pub surface_raised: Color32,
-    pub surface_active: Color32,
-
-    // Foreground
-    pub fg: Color32,
-    pub fg_muted: Color32,
-
-    // Syntax
-    pub syntax_key: Color32,
-    pub syntax_string: Color32,
-    pub syntax_number: Color32,
-    pub syntax_bool: Color32,
-    pub syntax_punctuation: Color32,
-
-    // Status
-    pub success: Color32,
-    pub warning: Color32,
-    pub error: Color32,
-    pub info: Color32,
-
-    // Accents
-    pub accent: Color32,
-    pub accent_secondary: Color32,
-
-    // Component-specific
-    pub sidebar_hover: Color32,
-    pub sidebar_header: Color32,
-    pub indent_guide: Color32,
+    /// Build a themed [`egui_dock::Style`] from these colors.
+    fn dock_style(&self, egui_style: &egui::Style) -> egui_dock::Style;
 }
 
-impl ThemeColors {
+impl ThemeColorsExt for ThemeColors {
     /// Build an `egui_code_editor` `ColorTheme` from the current palette.
     ///
     /// Called per-frame from `render_ui_node`; `hex()` interns each unique
     /// colour in a static cache to avoid per-frame allocations.
-    pub fn code_editor_theme(&self) -> ColorTheme {
+    fn code_editor_theme(&self) -> ColorTheme {
         fn hex(c: Color32) -> &'static str {
             use std::collections::HashMap;
             use std::sync::Mutex;
@@ -307,8 +289,7 @@ impl ThemeColors {
         }
     }
 
-    /// Build a Catppuccin-themed [`egui_dock::Style`] from these colors.
-    pub fn dock_style(&self, egui_style: &egui::Style) -> egui_dock::Style {
+    fn dock_style(&self, egui_style: &egui::Style) -> egui_dock::Style {
         let mut style = egui_dock::Style::from_egui(egui_style);
         let zero_rounding = egui::CornerRadius::ZERO;
 
@@ -426,12 +407,6 @@ pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
     ctx.memory_mut(|m| m.data.insert_temp(cache_key, settings.font_family.clone()));
 }
 
-/// Returns a [`egui::FontId`] that always resolves to the Phosphor icon font,
-/// bypassing the Proportional fallback chain entirely.
-pub fn phosphor_font_id(size: f32) -> egui::FontId {
-    egui::FontId::new(size, egui::FontFamily::Name("phosphor".into()))
-}
-
 /// Returns a [`egui::RichText`] pre-configured with the Phosphor icon font.
 /// Use this for any inline icon rendered as a label or inside a widget.
 pub fn icon_rich_text(icon: &str, size: f32) -> egui::RichText {
@@ -463,7 +438,10 @@ pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
     let colors = theme.colors();
 
     ctx.memory_mut(|mem| {
-        mem.data.insert_temp(egui::Id::new("theme_colors"), colors);
+        mem.data.insert_temp(
+            egui::Id::new(thoth_plugin_sdk::theme::THEME_MEMORY_ID),
+            colors,
+        );
     });
 
     ctx.set_visuals(build_visuals(is_dark, &colors));
@@ -591,31 +569,6 @@ pub fn selected_row_bg(ui: &egui::Ui) -> Color32 {
 
 pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
     ui.visuals().widgets.hovered.bg_fill
-}
-
-// ── Contrast helper ───────────────────────────────────────────────────────────
-
-/// Return `WHITE` when the background is dark, `BLACK` when it is light.
-/// Uses the WCAG 2.0 relative luminance formula.
-pub fn get_contrast_text_color(bg: Color32) -> Color32 {
-    fn linearise(c: f32) -> f32 {
-        if c <= 0.03928 {
-            c / 12.92
-        } else {
-            ((c + 0.055) / 1.055).powf(2.4)
-        }
-    }
-    let r = linearise(bg.r() as f32 / 255.0);
-    let g = linearise(bg.g() as f32 / 255.0);
-    let b = linearise(bg.b() as f32 / 255.0);
-    let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    let w = (1.0 + 0.05) / (lum + 0.05);
-    let k = (lum + 0.05) / 0.05;
-    if w >= k {
-        Color32::WHITE
-    } else {
-        Color32::BLACK
-    }
 }
 
 // ── Syntax token helpers ──────────────────────────────────────────────────────
