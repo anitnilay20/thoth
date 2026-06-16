@@ -62,15 +62,9 @@ pub struct DataRow {
     #[serde(default)]
     pub value_token: Option<TextToken>,
     /// Background fill as a `#rrggbb`/`#rrggbbaa` hex string; transparent when
-    /// unset. Takes precedence over [`striped`](DataRow::striped).
+    /// unset.
     #[serde(default)]
     pub background: Option<String>,
-    /// Apply the theme's faint zebra fill to this row. Set on alternating rows
-    /// (e.g. `i % 2 == 1`) to produce striped rows. Ignored when `background`
-    /// is set or the row is `selected`.
-    #[builder(default)]
-    #[serde(default)]
-    pub striped: bool,
     /// Search-highlight ranges within the key/value text.
     #[builder(default)]
     #[serde(default)]

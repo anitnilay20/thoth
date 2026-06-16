@@ -196,6 +196,12 @@ impl TextPalette {
     }
 }
 
+/// Format a [`Color32`] as a `#rrggbbaa` hex string (inverse of
+/// [`parse_hex_color`]).
+pub fn color_to_hex(c: Color32) -> String {
+    format!("#{:02x}{:02x}{:02x}{:02x}", c.r(), c.g(), c.b(), c.a())
+}
+
 /// Returns a [`egui::FontId`] that resolves to the Phosphor icon font family.
 ///
 /// The host is expected to register the icon font under the

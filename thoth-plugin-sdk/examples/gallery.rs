@@ -526,21 +526,6 @@ impl Gallery {
 
         ui.add_space(8.0);
         ui.label("Click the 'count' row to toggle the selected row above.");
-
-        ui.add(Separator::with_margin(12.0));
-        ui.label(egui::RichText::new("striped").strong());
-        ui.add_space(4.0);
-        for i in 0..6 {
-            DataRow::builder()
-                .display_text(format!("item[{i}]: value-{i}"))
-                .row_id(format!("striped-{i}"))
-                .key_token(TextToken::Key)
-                .value_token(TextToken::Str)
-                .syntax_highlighting(true)
-                .striped(i % 2 == 1)
-                .build()
-                .show(ui);
-        }
     }
 
     fn table_view_story(&mut self, ui: &mut egui::Ui) {

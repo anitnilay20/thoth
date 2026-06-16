@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use crate::components::DataRow;
-use crate::theme::{ROW_HEIGHT, TextToken};
+use crate::theme::{ROW_HEIGHT, TextToken, color_to_hex};
 
 use super::JsonTree;
 
@@ -45,17 +45,22 @@ impl JsonTree {
         let row_count = rows.len();
         let mut toggle_path: Option<String> = None;
 
+        // Zebra striping: faint fill on every other displayed row.
+        let stripe = color_to_hex(ui.visuals().faint_bg_color);
+
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show_rows(ui, ROW_HEIGHT, row_count, |ui, range| {
                 for idx in range {
                     let row = &rows[idx];
+                    let background = (idx % 2 == 1).then(|| stripe.clone());
                     let out = DataRow::builder()
                         .display_text(row.text.clone())
                         .row_id(row.path.clone())
                         .key_token(row.key_token)
                         .maybe_value_token(row.value_token)
                         .maybe_caret(row.caret)
+                        .maybe_background(background)
                         .syntax_highlighting(true)
                         .indent(row.indent)
                         .build()
