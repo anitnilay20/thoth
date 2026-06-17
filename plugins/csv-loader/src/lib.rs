@@ -19,7 +19,7 @@ use bindings::exports::thoth::plugin::{
 };
 use bindings::thoth::plugin::types::{Capability, PluginError};
 use csv::ReaderBuilder;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
 struct CsvPlugin;
 
@@ -194,12 +194,17 @@ impl FileViewerGuest for CsvPlugin {
 
 impl SettingsGuest for CsvPlugin {
     fn render_settings() -> Result<SettingsOutput, bindings::thoth::plugin::types::PluginError> {
+        use thoth_plugin_sdk::ToNodeJson;
+        use thoth_plugin_sdk::components::Typography;
+        use thoth_plugin_sdk::render_node::RenderNode;
+
+        let node = RenderNode::Text(
+            Typography::builder()
+                .text("This plugin has no settings.")
+                .build(),
+        );
         Ok(SettingsOutput {
-            node_json: json!({
-                "type": "text",
-                "value": "This plugin has no settings.",
-            })
-            .to_string(),
+            node_json: node.to_json().to_string(),
             height_hint: 0,
         })
     }

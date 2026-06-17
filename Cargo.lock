@@ -1539,6 +1539,7 @@ version = "0.1.0"
 dependencies = [
  "csv",
  "serde_json",
+ "thoth-plugin-sdk",
  "wit-bindgen-rt",
 ]
 
