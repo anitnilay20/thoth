@@ -1,73 +1,116 @@
 //! The SQL editor tab: header, code editor, Run, and the typed results grid.
 
-use serde_json::{json, Value};
+use serde_json::Value;
+use thoth_plugin_sdk::components::{
+    CodeEditor, Colored, Column, Row, Scroll, Separator, Spinner, TableView, Typography,
+};
+use thoth_plugin_sdk::render_node::RenderNode;
 
 use crate::state::State;
-use crate::ui::widgets::button;
+use crate::ui::widgets::{button, muted};
 use crate::ICON_PLAY;
 
-pub(crate) fn editor_view(st: &State) -> Value {
-    json!({
-        "type": "column", "gap": 0, "children": [
-            { "type": "row", "padding": 8, "gap": 8, "children": [
-                button("run", "Run", "Elevated", "Primary", Some(ICON_PLAY), !st.loading, false)
-            ]},
-            { "type": "separator" },
-            { "type": "code-editor", "id": "sql", "value": st.sql, "font-size": 12.0, "syntax": "sql" },
-            { "type": "separator" },
-            { "type": "scroll", "id": "results-scroll", "child": results(st) }
-        ]
-    })
+pub(crate) fn editor_view(st: &State) -> RenderNode {
+    RenderNode::Column(
+        Column::builder()
+            .gap(0.0)
+            .children(vec![
+                RenderNode::Row(
+                    Row::builder()
+                        .padding(8.0)
+                        .gap(8.0)
+                        .children(vec![button(
+                            "run",
+                            "Run",
+                            "Elevated",
+                            "Primary",
+                            Some(ICON_PLAY),
+                            !st.loading,
+                            false,
+                        )])
+                        .build(),
+                ),
+                RenderNode::Separator(Separator::plain()),
+                RenderNode::CodeEditor(
+                    CodeEditor::builder()
+                        .id("sql")
+                        .value(st.sql.clone())
+                        .font_size(12.0)
+                        .syntax("sql")
+                        .build(),
+                ),
+                RenderNode::Separator(Separator::plain()),
+                RenderNode::Scroll(Scroll::builder().child(results(st)).build()),
+            ])
+            .build(),
+    )
 }
 
-fn results(st: &State) -> Value {
+fn results(st: &State) -> RenderNode {
     if st.loading {
-        return json!({ "type": "row", "padding": 16, "gap": 10, "align": "center", "children": [
-            { "type": "spinner" },
-            { "type": "text", "muted": true, "value": "Running query\u{2026}" }
-        ]});
+        return RenderNode::Row(
+            Row::builder()
+                .padding(16.0)
+                .gap(10.0)
+                .align(thoth_plugin_sdk::components::Align::Center)
+                .children(vec![
+                    RenderNode::Spinner(Spinner::builder().build()),
+                    muted("Running query…"),
+                ])
+                .build(),
+        );
     }
     match &st.result {
         Some(Ok(result)) => results_table(result),
-        Some(Err(msg)) => json!({ "type": "row", "padding": 12, "children": [
-            { "type": "colored", "color": "#f38ba8",
-              "child": { "type": "text", "value": format!("Error: {msg}") } }
-        ]}),
-        None => json!({ "type": "row", "padding": 12, "children": [
-            { "type": "text", "muted": true, "value": "Run a query to see results." }
-        ]}),
+        Some(Err(msg)) => RenderNode::Row(
+            Row::builder()
+                .padding(12.0)
+                .children(vec![RenderNode::Colored(
+                    Colored::builder()
+                        .color("#f38ba8")
+                        .child(RenderNode::Text(
+                            Typography::builder().text(format!("Error: {msg}")).build(),
+                        ))
+                        .build(),
+                )])
+                .build(),
+        ),
+        None => RenderNode::Row(
+            Row::builder()
+                .padding(12.0)
+                .children(vec![muted("Run a query to see results.")])
+                .build(),
+        ),
     }
 }
 
 /// Render a `QueryResult` ({columns, rows, tag}) as a typed table, or — for a
 /// statement with no result set — its command tag.
-fn results_table(result: &Value) -> Value {
+fn results_table(result: &Value) -> RenderNode {
     let columns = result.get("columns").and_then(|c| c.as_array());
     let rows = result.get("rows").and_then(|r| r.as_array());
     let tag = result.get("tag").and_then(|t| t.as_str());
 
     match (columns, rows) {
         (Some(cols), Some(rows)) if !cols.is_empty() => {
-            let headers: Vec<Value> = cols
+            let headers: Vec<String> = cols
                 .iter()
                 .map(|c| {
                     let name = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
                     let ty = c.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                    json!(if ty.is_empty() {
+                    if ty.is_empty() {
                         name.to_string()
                     } else {
                         format!("{name}  ·  {ty}")
-                    })
+                    }
                 })
                 .collect();
-            let table_rows: Vec<Value> = rows
+            let table_rows: Vec<Vec<String>> = rows
                 .iter()
                 .map(|row| {
-                    let cells: Vec<Value> = row
-                        .as_array()
-                        .map(|cs| cs.iter().map(cell_node).collect())
-                        .unwrap_or_default();
-                    Value::Array(cells)
+                    row.as_array()
+                        .map(|cs| cs.iter().map(cell_text).collect())
+                        .unwrap_or_default()
                 })
                 .collect();
 
@@ -77,29 +120,36 @@ fn results_table(result: &Value) -> Value {
                 if rows.len() == 1 { "" } else { "s" },
                 tag.map(|t| format!("  ·  {t}")).unwrap_or_default()
             );
-            json!({ "type": "column", "gap": 4, "children": [
-                { "type": "table", "headers": headers, "rows": table_rows },
-                { "type": "row", "padding": 6, "children": [
-                    { "type": "text", "muted": true, "value": footer }
-                ]}
-            ]})
+            RenderNode::Column(
+                Column::builder()
+                    .gap(4.0)
+                    .children(vec![
+                        RenderNode::Table(
+                            TableView::builder().headers(headers).rows(table_rows).build(),
+                        ),
+                        RenderNode::Row(
+                            Row::builder().padding(6.0).children(vec![muted(&footer)]).build(),
+                        ),
+                    ])
+                    .build(),
+            )
         }
-        _ => json!({ "type": "row", "padding": 12, "children": [
-            { "type": "text", "muted": true, "value": tag.unwrap_or("Query OK").to_string() }
-        ]}),
+        _ => RenderNode::Row(
+            Row::builder()
+                .padding(12.0)
+                .children(vec![muted(tag.unwrap_or("Query OK"))])
+                .build(),
+        ),
     }
 }
 
-/// Map a single typed cell value to a display node: NULL muted, JSON/JSONB as an
-/// interactive tree, scalars as text.
-fn cell_node(value: &Value) -> Value {
+/// Flatten a typed cell value to display text (JSON shown compact, NULL as text).
+fn cell_text(value: &Value) -> String {
     match value {
-        Value::Null => {
-            json!({ "type": "italic", "child": { "type": "text", "value": "NULL", "muted": true } })
-        }
-        Value::Object(_) | Value::Array(_) => json!({ "type": "json-tree", "value": value }),
-        Value::Bool(b) => json!({ "type": "text", "value": b.to_string() }),
-        Value::Number(n) => json!({ "type": "text", "value": n.to_string() }),
-        Value::String(s) => json!({ "type": "text", "value": s }),
+        Value::Null => "NULL".to_string(),
+        Value::Object(_) | Value::Array(_) => value.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        Value::String(s) => s.clone(),
     }
 }

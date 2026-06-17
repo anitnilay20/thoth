@@ -46,11 +46,18 @@ struct Seshat;
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
-fn ui_out(node: serde_json::Value) -> UiOutput {
+fn ui_out(node: thoth_plugin_sdk::render_node::RenderNode) -> UiOutput {
     UiOutput {
-        node_json: node.to_string(),
+        node_json: serde_json::to_string(&node).unwrap_or_default(),
         height_hint: 0,
     }
+}
+
+/// A plain text [`RenderNode`] (used for settings / empty placeholders).
+fn text_node(value: &str) -> thoth_plugin_sdk::render_node::RenderNode {
+    thoth_plugin_sdk::render_node::RenderNode::Text(
+        thoth_plugin_sdk::components::Typography::builder().text(value).build(),
+    )
 }
 
 fn err(code: u32, message: impl Into<String>) -> PluginError {
@@ -93,9 +100,9 @@ impl LifecycleGuest for Seshat {
 
 impl SettingsGuest for Seshat {
     fn render_settings() -> Result<SettingsOutput, PluginError> {
+        let node = text_node("No configurable settings yet.");
         Ok(SettingsOutput {
-            node_json: json!({"type":"text","value":"No configurable settings yet.","muted":true})
-                .to_string(),
+            node_json: serde_json::to_string(&node).unwrap_or_default(),
             height_hint: 0,
         })
     }
@@ -175,7 +182,7 @@ impl DataSourceGuest for Seshat {
 
     fn render_pane(_handle: String) -> Result<PaneOutput, PluginError> {
         Ok(PaneOutput {
-            node_json: json!({"type":"text","value":""}).to_string(),
+            node_json: serde_json::to_string(&text_node("")).unwrap_or_default(),
             height_hint: 0,
         })
     }

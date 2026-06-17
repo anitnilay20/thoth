@@ -5921,6 +5921,7 @@ dependencies = [
  "postgres-protocol",
  "serde",
  "serde_json",
+ "thoth-plugin-sdk",
  "wit-bindgen-rt",
 ]
 

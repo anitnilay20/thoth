@@ -1,30 +1,46 @@
 //! The schema-browser tree (lazy schema → table → columns), built from the
 //! shared `data-row` component so it matches the file-viewer tree styling.
 
-use serde_json::{json, Value};
+use thoth_plugin_sdk::components::{Colored, Column, Row, Typography, TypographyVariant};
+use thoth_plugin_sdk::render_node::RenderNode;
 
 use crate::state::{SchemaNode, State};
 use crate::ui::widgets::{data_row, muted};
 use crate::{ICON_CIRCLE, ICON_DATABASE, ICON_EYE, ICON_FOLDER, ICON_KEY, ICON_TABLE};
 
-pub(crate) fn schema_panel(st: &State) -> Value {
+pub(crate) fn schema_panel(st: &State) -> RenderNode {
     let active = st
         .active
         .as_deref()
         .and_then(|id| st.connections.iter().find(|c| c.id == id));
     let Some(conn) = active else {
-        return json!({ "type": "row", "padding": 8, "children": [
-            muted("Select a connection to browse its schema.")
-        ]});
+        return RenderNode::Row(
+            Row::builder()
+                .padding(8.0)
+                .children(vec![muted("Select a connection to browse its schema.")])
+                .build(),
+        );
     };
 
-    let mut nodes = vec![json!({ "type": "row", "padding": 4, "children": [
-        { "type": "text", "value": conn.database, "muted": true }
-    ]})];
+    let mut nodes: Vec<RenderNode> = vec![RenderNode::Row(
+        Row::builder()
+            .padding(4.0)
+            .children(vec![muted(&conn.database)])
+            .build(),
+    )];
 
     if let Some(e) = &st.schema_error {
-        nodes.push(json!({ "type": "colored", "color": "#f38ba8",
-            "child": { "type": "text", "value": e, "size": "sm" } }));
+        nodes.push(RenderNode::Colored(
+            Colored::builder()
+                .color("#f38ba8")
+                .child(RenderNode::Text(
+                    Typography::builder()
+                        .text(e.clone())
+                        .variant(TypographyVariant::Caption)
+                        .build(),
+                ))
+                .build(),
+        ));
     }
     if st.schemas.is_empty() && st.schema_error.is_none() {
         nodes.push(muted("Loading schemas…"));
@@ -45,10 +61,10 @@ pub(crate) fn schema_panel(st: &State) -> Value {
         }
     }
 
-    json!({ "type": "column", "gap": 2, "children": nodes })
+    RenderNode::Column(Column::builder().gap(2.0).children(nodes).build())
 }
 
-fn push_tables(nodes: &mut Vec<Value>, i: usize, sch: &SchemaNode) {
+fn push_tables(nodes: &mut Vec<RenderNode>, i: usize, sch: &SchemaNode) {
     let Some(tables) = &sch.tables else {
         nodes.push(muted("Loading…"));
         return;
@@ -63,7 +79,6 @@ fn push_tables(nodes: &mut Vec<Value>, i: usize, sch: &SchemaNode) {
             "matview" => (ICON_DATABASE, "number"),
             _ => (ICON_TABLE, "string"),
         };
-        // caret → toggle columns; row click → open a SELECT in an editor tab.
         nodes.push(data_row(
             &format!("tbl:{i}:{j}"),
             &tbl.name,

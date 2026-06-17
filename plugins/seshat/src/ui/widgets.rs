@@ -1,22 +1,46 @@
-//! Small shared UiNode builders used across the Seshat view modules.
+//! Small shared `RenderNode` builders used across the Seshat view modules.
 
-use serde_json::{json, Value};
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonType, DataRow, DataRowIcon, Input, Typography, TypographyVariant,
+};
+use thoth_plugin_sdk::render_node::RenderNode;
+use thoth_plugin_sdk::tokens::TextToken;
 
-/// A single- or multi-line text input. `grow` makes it fill remaining row width.
+/// Map a semantic colour name (as used by the old DSL) to a `#rrggbb` hex.
+pub(crate) fn sem_hex(name: &str) -> &'static str {
+    match name {
+        "red" | "error" => "#f38ba8",
+        "green" | "success" | "string" => "#a6e3a1",
+        "blue" | "accent" => "#89b4fa",
+        "orange" | "number" => "#fab387",
+        "purple" => "#cba6f7",
+        "secondary" => "#f5c2e7",
+        "warning" => "#f9e2af",
+        "info" => "#89dceb",
+        _ => "#a6adc8", // muted / gray / fallback
+    }
+}
+
+/// A single-line text input; `grow` makes it fill remaining row width.
 pub(crate) fn text_input(
     id: &str,
     label: &str,
     value: &str,
     grow: bool,
     placeholder: &str,
-) -> Value {
-    json!({
-        "type": "text-input", "id": id, "label": label,
-        "value": value, "placeholder": placeholder, "grow": grow
-    })
+) -> RenderNode {
+    RenderNode::Input(
+        Input::builder()
+            .id(id)
+            .label(label)
+            .value(value.to_string())
+            .placeholder(placeholder.to_string())
+            .grow(grow)
+            .build(),
+    )
 }
 
-/// A `button` node. `btype` is `"Elevated"`/`"Text"`; `color` is `"Primary"`/`"Default"`/….
+/// A button node. `btype` is `"Elevated"`/`"Text"`; `color` is `"Primary"`/`"Default"`/….
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn button(
     id: &str,
@@ -26,29 +50,44 @@ pub(crate) fn button(
     icon: Option<&str>,
     enabled: bool,
     full_width: bool,
-) -> Value {
-    let mut props = json!({
-        "label": label,
-        "button-type": btype,
-        "color": color,
-        "enabled": enabled,
-        "full-width": full_width
-    });
-    if let Some(icon) = icon {
-        props["icon"] = json!(icon);
-    }
-    json!({ "type": "button", "id": id, "props": props })
+) -> RenderNode {
+    let button_type = match btype {
+        "Text" => ButtonType::Text,
+        _ => ButtonType::Elevated,
+    };
+    let color = match color {
+        "Primary" => ButtonColor::Primary,
+        "Secondary" => ButtonColor::Secondary,
+        "Danger" => ButtonColor::Danger,
+        "Success" => ButtonColor::Success,
+        _ => ButtonColor::Default,
+    };
+    RenderNode::Button(
+        Button::builder()
+            .id(id)
+            .label(label)
+            .button_type(button_type)
+            .color(color)
+            .enabled(enabled)
+            .full_width(full_width)
+            .maybe_icon(icon.map(|s| s.to_string()))
+            .build(),
+    )
 }
 
-/// Small muted text (used for hints, columns, loading rows).
-pub(crate) fn muted(text: &str) -> Value {
-    json!({ "type": "text", "value": text, "muted": true, "size": "sm" })
+/// Small muted text (hints, columns, loading rows).
+pub(crate) fn muted(text: &str) -> RenderNode {
+    RenderNode::Text(
+        Typography::builder()
+            .text(text)
+            .variant(TypographyVariant::Caption)
+            .build(),
+    )
 }
 
-/// A tree row backed by the host `DataRow` component: indent + optional caret +
-/// optional leading icon + label + optional trailing. Emits `"toggle"` (caret)
-/// and `"click"` (row body). `caret` is `Some(expanded)` for an expandable node,
-/// `None` for a leaf; `icon` is `(glyph, semantic-color)`.
+/// A tree row backed by the shared `DataRow` component. `caret` is
+/// `Some(expanded)` for an expandable node, `None` for a leaf; `icon` is
+/// `(glyph, semantic-color)`.
 pub(crate) fn data_row(
     id: &str,
     label: &str,
@@ -56,16 +95,19 @@ pub(crate) fn data_row(
     caret: Option<bool>,
     icon: Option<(&str, &str)>,
     trailing: Option<&str>,
-) -> Value {
-    let mut node = json!({ "type": "data-row", "id": id, "label": label, "indent": indent });
-    if let Some(expanded) = caret {
-        node["caret"] = json!(expanded);
-    }
-    if let Some((glyph, color)) = icon {
-        node["icon"] = json!({ "glyph": glyph, "color": color });
-    }
-    if let Some(t) = trailing {
-        node["trailing"] = json!(t);
-    }
-    node
+) -> RenderNode {
+    let leading = icon.map(|(glyph, color)| {
+        DataRowIcon::builder().glyph(glyph).color(sem_hex(color)).build()
+    });
+    RenderNode::DataRow(
+        DataRow::builder()
+            .row_id(id)
+            .display_text(label.to_string())
+            .key_token(TextToken::Key)
+            .indent(indent)
+            .maybe_caret(caret)
+            .maybe_leading_icon(leading)
+            .maybe_trailing(trailing.map(|s| s.to_string()))
+            .build(),
+    )
 }
