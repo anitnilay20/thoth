@@ -18,6 +18,7 @@ mod sidebar_header;
 mod table_view;
 mod toggle_switch;
 mod typography;
+mod modal;
 
 pub use breadcrumbs::Breadcrumbs;
 pub use button::{Button, ButtonColor, ButtonSize, ButtonType};
@@ -28,6 +29,7 @@ pub use data_row::DataRowOutput;
 pub use icon_button::IconButton;
 pub use input::Input;
 pub use json_tree::JsonTree;
+pub use modal::Modal;
 pub use select::{Select, SelectOption, SelectSize};
 pub use separator::Separator;
 pub use sidebar_header::{SidebarHeader, SidebarHeaderAction};

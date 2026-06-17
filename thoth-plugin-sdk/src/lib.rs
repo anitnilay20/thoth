@@ -38,3 +38,5 @@ pub use wire::ToNodeJson;
 
 #[cfg(feature = "egui")]
 pub mod theme;
+
+pub mod render_node;
