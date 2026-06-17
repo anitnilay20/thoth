@@ -213,6 +213,15 @@ impl RenderNode {
             RenderNode::CodeEditor(c) => {
                 c.show(ui);
             }
+            RenderNode::List(l) => {
+                l.show(ui);
+            }
+            RenderNode::Tabs(t) => {
+                t.show(ui);
+            }
+            RenderNode::Card(c) => {
+                c.show(ui);
+            }
 
             // ── Escape hatch ─────────────────────────────────────────────────
             RenderNode::Custom(c) => c.show(ui),
