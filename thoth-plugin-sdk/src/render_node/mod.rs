@@ -69,6 +69,64 @@ pub enum RenderNode {
         /// The amount of space.
         size: f32,
     },
+    /// Proportional horizontal split. `widths` are relative weights (empty =
+    /// equal shares).
+    Split {
+        /// Column nodes, in order.
+        #[serde(default)]
+        children: Vec<RenderNode>,
+        /// Gap between columns, in points.
+        #[serde(default)]
+        gap: f32,
+        /// Relative column weights; empty means equal shares.
+        #[serde(default)]
+        widths: Vec<f32>,
+        /// Draw a vertical separator line between columns.
+        #[serde(default)]
+        separator: bool,
+    },
+    /// A collapsible section, open by default.
+    Group {
+        /// Header label.
+        label: String,
+        /// Section content.
+        #[serde(default)]
+        children: Vec<RenderNode>,
+    },
+    /// A collapsible section, closed by default.
+    Collapsible {
+        /// Header label.
+        label: String,
+        /// Section content.
+        #[serde(default)]
+        children: Vec<RenderNode>,
+    },
+    /// A bottom-aligned group of children (rendered vertically with padding).
+    Footer {
+        /// Footer content, top-to-bottom.
+        #[serde(default)]
+        children: Vec<RenderNode>,
+        /// Vertical gap between children, in points.
+        #[serde(default)]
+        gap: f32,
+        /// Inner padding, in points.
+        #[serde(default)]
+        padding: f32,
+    },
+    /// Inline `key: value` display, where the value is itself a node.
+    KeyValue {
+        /// The key label.
+        key: String,
+        /// The value node.
+        value: Box<RenderNode>,
+    },
+    /// Render `child` with an overridden text colour (`#rrggbb` hex).
+    Colored {
+        /// Colour applied to the subtree's text.
+        color: String,
+        /// The node to colour.
+        child: Box<RenderNode>,
+    },
 
     // ── Leaf widgets (wrap component structs) ────────────────────────────────
     /// A [`Button`].
