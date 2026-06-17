@@ -15,20 +15,21 @@ use serde::{Deserialize, Serialize};
 /// let close = IconButton::builder().icon("\u{e4f6}").tooltip("Close").build();
 /// ```
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
-pub struct IconButton<'a> {
+#[builder(on(String, into))]
+pub struct IconButton {
     /// The icon glyph to display (a Phosphor character).
-    pub icon: &'a str,
+    pub icon: String,
     /// Draw a solid frame behind the glyph. Defaults to `false`.
     #[builder(default)]
     #[serde(default)]
     pub frame: bool,
     /// Optional tooltip shown on hover.
     #[serde(default)]
-    pub tooltip: Option<&'a str>,
+    pub tooltip: Option<String>,
     /// Optional badge dot drawn in the top-right corner, as a `#rrggbb` hex
     /// colour.
     #[serde(default)]
-    pub badge_color: Option<&'a str>,
+    pub badge_color: Option<String>,
     /// Square button size in pixels. Defaults to 20.
     #[serde(default)]
     pub size: Option<f32>,

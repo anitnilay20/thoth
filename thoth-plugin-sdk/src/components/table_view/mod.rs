@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 ///     .build();
 /// ```
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct TableView {
     /// Column header labels.
     #[builder(default)]

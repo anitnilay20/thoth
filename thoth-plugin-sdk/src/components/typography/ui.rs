@@ -26,7 +26,7 @@ impl TypographyVariant {
     }
 }
 
-impl<'a> Typography<'a> {
+impl Typography {
     /// Renders text with a 0.5px horizontal second pass, thickening vertical
     /// strokes to simulate font-weight 700 without loading a separate font.
     fn faux_bold_label(
@@ -65,7 +65,7 @@ impl<'a> Typography<'a> {
     }
 }
 
-impl<'a> Widget for Typography<'a> {
+impl Widget for Typography {
     fn ui(self, ui: &mut egui::Ui) -> Response {
         let colors = ThemeColors::from_ctx(ui.ctx());
         let (variant_size, default_color, variant_bold, is_mono) = self.variant.style(&colors);
@@ -73,6 +73,7 @@ impl<'a> Widget for Typography<'a> {
         let size = self.size.unwrap_or(variant_size);
         let color = self
             .color
+            .as_deref()
             .and_then(parse_hex_color)
             .unwrap_or(default_color);
         let is_bold = variant_bold || self.bold;
@@ -83,12 +84,12 @@ impl<'a> Widget for Typography<'a> {
             } else {
                 FontId::proportional(size)
             };
-            Self::faux_bold_label(ui, self.text, font_id, color, self.italic, self.underline)
+            Self::faux_bold_label(ui, &self.text, font_id, color, self.italic, self.underline)
         } else {
             let mut rt = if is_mono {
-                RichText::new(self.text).size(size).monospace()
+                RichText::new(&self.text).size(size).monospace()
             } else {
-                RichText::new(self.text).size(size)
+                RichText::new(&self.text).size(size)
             };
             if self.italic {
                 rt = rt.italics();

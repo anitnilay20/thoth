@@ -124,18 +124,18 @@ impl Default for Gallery {
             crumb_separator: ".".to_owned(),
             last_navigated: None,
             input: Input::builder()
-                .placeholder("Type something…".to_owned())
-                .icon(egui_phosphor::regular::MAGNIFYING_GLASS.to_owned())
+                .placeholder("Type something…")
+                .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
                 .build(),
             select: Select::builder()
-                .id("gallery-select".to_owned())
-                .value("name".to_owned())
+                .id("gallery-select")
+                .value("name")
                 .options(vec![
-                    SelectOption::builder().value("name".into()).label("Name".into()).build(),
-                    SelectOption::builder().value("date".into()).label("Date".into()).build(),
-                    SelectOption::builder().value("size".into()).label("Size".into()).build(),
+                    SelectOption::builder().value("name").label("Name").build(),
+                    SelectOption::builder().value("date").label("Date").build(),
+                    SelectOption::builder().value("size").label("Size").build(),
                 ])
-                .prefix_label("Sort: ".to_owned())
+                .prefix_label("Sort: ")
                 .build(),
             toggled: true,
             row_selected: false,
@@ -305,7 +305,7 @@ impl Gallery {
             .iter()
             .map(|label| {
                 Button::builder()
-                    .label(label)
+                    .label(*label)
                     .color(ButtonColor::Primary)
                     .button_type(ButtonType::Text)
                     .button_size(ButtonSize::Medium)
@@ -576,6 +576,8 @@ impl Gallery {
             "version": "0.3.25",
             "tags": ["json", "viewer", "egui"],
             "meta": { "stars": 42, "active": true, "license": null },
+            "empty-obj": {},
+            "empty-arr": [],
         });
         JsonTree::builder()
             .value(value)

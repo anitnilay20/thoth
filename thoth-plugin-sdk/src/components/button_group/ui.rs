@@ -4,7 +4,7 @@ use crate::theme::ThemeColors;
 
 use super::ButtonGroups;
 
-impl<'a> ButtonGroups<'a> {
+impl ButtonGroups {
     /// Render the segmented button group and report the user's selection.
     ///
     /// The currently-active segment is taken from `self.active`. The returned
@@ -39,7 +39,7 @@ impl<'a> ButtonGroups<'a> {
     }
 }
 
-impl<'a> Widget for ButtonGroups<'a> {
+impl Widget for ButtonGroups {
     /// Convenience for `ui.add(group)`. Renders the group but **discards** the
     /// selection — use [`ButtonGroups::show`] when you need to know which
     /// segment was clicked.

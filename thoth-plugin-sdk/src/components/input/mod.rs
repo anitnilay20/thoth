@@ -22,6 +22,7 @@ fn default_rows() -> usize {
 /// // each frame: field.show(ui); then read field.value
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct Input {
     /// Current text content (mutated in place by [`Input::show`]).
     #[builder(default)]

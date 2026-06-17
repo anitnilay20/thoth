@@ -2,7 +2,7 @@ use super::{Button, ButtonColor, ButtonType};
 use crate::theme::{ThemeColors, get_contrast_text_color, phosphor_font_id};
 use egui::{Color32, TextFormat, text::LayoutJob};
 
-impl<'a> Button<'a> {
+impl Button {
     fn make_layout_job(icon: Option<&str>, label: &str, size: f32, color: Color32) -> LayoutJob {
         let mut job = LayoutJob::default();
         if let Some(ic) = icon {
@@ -135,14 +135,14 @@ impl<'a> Button<'a> {
 }
 
 #[cfg(feature = "egui")]
-impl<'a> egui::Widget for Button<'a> {
+impl egui::Widget for Button {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         let colors = ThemeColors::from_ctx(ui.ctx());
 
         let (default_font, default_h) = self.button_size.metrics();
         let size = self.size.unwrap_or(default_font);
         let height = Some(self.height.unwrap_or(default_h));
-        let icon = self.icon;
+        let icon = self.icon.as_deref();
         // Full-width buttons stretch to the container's available width.
         let width = if self.full_width {
             Some(ui.available_width())
@@ -164,14 +164,14 @@ impl<'a> egui::Widget for Button<'a> {
                     let text_color = get_contrast_text_color(bg_color);
                     Self::elevated_button(
                         ui,
-                        Self::make_layout_job(icon, self.label, size, text_color),
+                        Self::make_layout_job(icon, &self.label, size, text_color),
                         bg_color,
                         width,
                         height,
                     )
                 }
                 ButtonType::Text => Self::text_button(
-                    ui, self.label, icon, size, bg_color, colors.fg, width, height,
+                    ui, &self.label, icon, size, bg_color, colors.fg, width, height,
                 ),
             })
             .inner;

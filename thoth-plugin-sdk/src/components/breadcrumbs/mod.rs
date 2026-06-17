@@ -15,10 +15,11 @@ use serde::{Deserialize, Serialize};
 /// let crumbs = Breadcrumbs::builder().path("users[42].settings").build();
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct Breadcrumbs<'a> {
+#[builder(on(String, into))]
+pub struct Breadcrumbs {
     /// Period-separated path of the current location,
     /// e.g. `"users[42].settings"` -> `["users", "[42]", "settings"]`.
     /// `None` or `""` denotes the root.
-    path: Option<&'a str>,
-    separator: Option<&'a str>,
+    path: Option<String>,
+    separator: Option<String>,
 }

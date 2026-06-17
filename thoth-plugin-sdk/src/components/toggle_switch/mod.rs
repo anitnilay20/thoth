@@ -15,13 +15,14 @@ use serde::{Deserialize, Serialize};
 ///
 /// let toggle = ToggleSwitch::builder().enabled(true).build();
 /// ```
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, Builder)]
-pub struct ToggleSwitch<'a> {
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
+pub struct ToggleSwitch {
     /// Whether the switch is currently on.
     #[builder(default)]
     #[serde(default)]
     pub enabled: bool,
     /// Optional tooltip shown on hover.
     #[serde(default)]
-    pub hover_text: Option<&'a str>,
+    pub hover_text: Option<String>,
 }

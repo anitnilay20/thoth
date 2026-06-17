@@ -11,7 +11,7 @@ const HEADER_H: f32 = 32.0;
 /// Horizontal inset matching the list rows' left padding.
 const PAD_X: f32 = 8.0;
 
-impl<'a> SidebarHeader<'a> {
+impl SidebarHeader {
     /// Render the header and report which action (if any) was clicked this
     /// frame via [`InnerResponse::inner`] (the index into `actions`).
     pub fn show(&self, ui: &mut egui::Ui) -> InnerResponse<Option<usize>> {
@@ -24,7 +24,7 @@ impl<'a> SidebarHeader<'a> {
                 ui.add_space(PAD_X);
                 ui.add(
                     Typography::builder()
-                        .text(self.title)
+                        .text(self.title.as_str())
                         .variant(TypographyVariant::PanelHeader)
                         .build(),
                 );
@@ -36,8 +36,8 @@ impl<'a> SidebarHeader<'a> {
                         let clicked = ui
                             .add(
                                 IconButton::builder()
-                                    .icon(action.icon)
-                                    .tooltip(action.tooltip)
+                                    .icon(action.icon.as_str())
+                                    .tooltip(action.tooltip.as_str())
                                     .build(),
                             )
                             .clicked();
@@ -45,7 +45,7 @@ impl<'a> SidebarHeader<'a> {
                             action_clicked = Some(idx);
                         }
                     }
-                    if let Some(text) = self.trailing_text {
+                    if let Some(text) = self.trailing_text.as_deref() {
                         ui.label(RichText::new(text).color(colors.fg_muted).size(10.0));
                     }
                 });
@@ -58,7 +58,7 @@ impl<'a> SidebarHeader<'a> {
     }
 }
 
-impl<'a> Widget for SidebarHeader<'a> {
+impl Widget for SidebarHeader {
     fn ui(self, ui: &mut egui::Ui) -> Response {
         self.show(ui).response
     }

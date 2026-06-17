@@ -51,9 +51,10 @@ pub enum TypographyVariant {
 ///     .build();
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
-pub struct Typography<'a> {
+#[builder(on(String, into))]
+pub struct Typography {
     /// The text to render.
-    pub text: &'a str,
+    pub text: String,
     /// Visual scale. Defaults to [`TypographyVariant::Body`].
     #[builder(default)]
     #[serde(default)]
@@ -61,7 +62,7 @@ pub struct Typography<'a> {
     /// Colour override as a `#rrggbb` hex string. When unset, the variant's
     /// default theme colour is used.
     #[serde(default)]
-    pub color: Option<&'a str>,
+    pub color: Option<String>,
     /// Font-size override in points — if unset, derived from `variant`.
     #[serde(default)]
     pub size: Option<f32>,

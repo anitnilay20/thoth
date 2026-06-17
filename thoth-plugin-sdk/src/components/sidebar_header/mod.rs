@@ -6,11 +6,12 @@ use serde::{Deserialize, Serialize};
 
 /// A right-aligned, tooltipped icon action shown in a [`SidebarHeader`].
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
-pub struct SidebarHeaderAction<'a> {
+#[builder(on(String, into))]
+pub struct SidebarHeaderAction {
     /// The icon glyph (a Phosphor character).
-    pub icon: &'a str,
+    pub icon: String,
     /// Tooltip shown on hover.
-    pub tooltip: &'a str,
+    pub tooltip: String,
 }
 
 /// A uniform sidebar section header: a panel title, optional trailing text, and
@@ -29,15 +30,16 @@ pub struct SidebarHeaderAction<'a> {
 ///     .build();
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
-pub struct SidebarHeader<'a> {
+#[builder(on(String, into))]
+pub struct SidebarHeader {
     /// Section title, rendered as a panel header (small, typically upper-case).
-    pub title: &'a str,
+    pub title: String,
     /// Optional muted text shown on the right (e.g. a count like "3 of 12").
     #[serde(default)]
-    pub trailing_text: Option<&'a str>,
+    pub trailing_text: Option<String>,
     /// Optional right-aligned icon buttons. The clicked index is reported by
     /// [`SidebarHeader::show`](Self::show).
     #[builder(default)]
-    #[serde(default, borrow)]
-    pub actions: Vec<SidebarHeaderAction<'a>>,
+    #[serde(default)]
+    pub actions: Vec<SidebarHeaderAction>,
 }

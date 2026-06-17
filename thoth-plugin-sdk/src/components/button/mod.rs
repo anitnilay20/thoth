@@ -72,9 +72,10 @@ pub enum ButtonColor {
 ///     .build();
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct Button<'a> {
+#[builder(on(String, into))]
+pub struct Button {
     /// Text shown on the button.
-    pub label: &'a str,
+    pub label: String,
     /// Visual style (elevated vs. text). Defaults to [`ButtonType::Elevated`].
     #[builder(default)]
     #[serde(rename = "button-type", default)]
@@ -89,7 +90,7 @@ pub struct Button<'a> {
     pub button_size: ButtonSize,
     /// Optional tooltip shown on hover.
     #[serde(default)]
-    pub hover_text: Option<&'a str>,
+    pub hover_text: Option<String>,
     /// Font size override — if unset, derived from `button_size`.
     #[serde(default)]
     pub size: Option<f32>,
@@ -106,7 +107,7 @@ pub struct Button<'a> {
     pub enabled: bool,
     /// Optional leading icon — a Phosphor glyph rendered before the label.
     #[serde(default)]
-    pub icon: Option<&'a str>,
+    pub icon: Option<String>,
     /// Stretch the button to the full available width of its container.
     #[builder(default)]
     #[serde(rename = "full-width", default)]

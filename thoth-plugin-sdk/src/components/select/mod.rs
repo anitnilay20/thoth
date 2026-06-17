@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single option in a [`Select`].
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct SelectOption {
     /// Stable value matched against [`Select::value`].
     pub value: String,
@@ -43,6 +44,7 @@ pub enum SelectSize {
 ///     .build();
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct Select {
     /// Stable id salt — must be unique per on-screen instance (used for the
     /// open/closed popup state).

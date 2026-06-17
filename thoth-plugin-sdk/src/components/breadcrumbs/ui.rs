@@ -17,7 +17,7 @@ struct Segment<'a> {
     display: String,
 }
 
-impl<'a> Breadcrumbs<'a> {
+impl Breadcrumbs {
     /// Render the breadcrumb trail and report navigation.
     ///
     /// The returned [`egui::InnerResponse::inner`] is `Some(path)` when the user
@@ -29,7 +29,7 @@ impl<'a> Breadcrumbs<'a> {
     pub fn show(self, ui: &mut egui::Ui) -> egui::InnerResponse<Option<String>> {
         let colors = ThemeColors::from_ctx(ui.ctx());
         let segments = self.parse_path();
-        let separator = self.separator.unwrap_or(".");
+        let separator = self.separator.as_deref().unwrap_or(".");
 
         let mut selected: Option<String> = None;
 
@@ -67,13 +67,13 @@ impl<'a> Breadcrumbs<'a> {
     }
 }
 
-impl<'a> Widget for Breadcrumbs<'a> {
+impl Widget for Breadcrumbs {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         self.show(ui).response
     }
 }
 
-impl<'a> Breadcrumbs<'a> {
+impl Breadcrumbs {
     /// Split the path into segments, pairing each raw token with its display
     /// form. Numeric tokens are bracketed for display while their raw value is
     /// preserved for navigation.
@@ -81,8 +81,8 @@ impl<'a> Breadcrumbs<'a> {
     /// Examples (raw -> display):
     /// - `"0.user.name"`    -> `["0" → "[0]", "user", "name"]`
     /// - `"users.42.title"` -> `["users", "42" → "[42]", "title"]`
-    fn parse_path(&self) -> Vec<Segment<'a>> {
-        let Some(path) = self.path else {
+    fn parse_path(&self) -> Vec<Segment<'_>> {
+        let Some(path) = self.path.as_deref() else {
             return vec![];
         };
 

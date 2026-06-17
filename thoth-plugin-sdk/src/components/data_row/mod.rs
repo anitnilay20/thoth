@@ -22,6 +22,7 @@ pub struct RowHighlights {
 
 /// An optional leading icon for a [`DataRow`].
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct DataRowIcon {
     /// The Phosphor glyph to render.
     pub glyph: String,
@@ -39,7 +40,7 @@ pub struct DataRowIcon {
 ///
 /// ```
 /// use thoth_plugin_sdk::components::DataRow;
-/// use thoth_plugin_sdk::theme::TextToken;
+/// use thoth_plugin_sdk::TextToken;
 ///
 /// let row = DataRow::builder()
 ///     .display_text("name: \"thoth\"")
@@ -49,6 +50,7 @@ pub struct DataRowIcon {
 ///     .build();
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct DataRow {
     /// Display text for the row, formatted as `key` or `key: value`.
     pub display_text: String,

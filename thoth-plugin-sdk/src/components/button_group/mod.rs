@@ -25,10 +25,9 @@ use crate::components::Button;
 ///     .build();
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
-pub struct ButtonGroups<'a> {
+pub struct ButtonGroups {
     /// The segments, in display order.
-    #[serde(borrow)]
-    items: Vec<Button<'a>>,
+    items: Vec<Button>,
     /// Index into `items` of the currently-active segment.
     active: usize,
 }

@@ -19,6 +19,7 @@ use serde_json::Value;
 /// let tree = JsonTree::builder().value(value).id("preview").build();
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct JsonTree {
     /// The JSON value to display.
     pub value: Value,

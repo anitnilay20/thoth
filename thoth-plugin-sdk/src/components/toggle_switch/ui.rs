@@ -19,7 +19,7 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     )
 }
 
-impl<'a> Widget for ToggleSwitch<'a> {
+impl Widget for ToggleSwitch {
     fn ui(self, ui: &mut egui::Ui) -> Response {
         let colors = ThemeColors::from_ctx(ui.ctx());
 
