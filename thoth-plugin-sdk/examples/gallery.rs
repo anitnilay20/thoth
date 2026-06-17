@@ -12,10 +12,14 @@
 use eframe::egui;
 use egui::Color32;
 use thoth_plugin_sdk::components::{
-    Breadcrumbs, Button, ButtonColor, ButtonGroups, ButtonSize, ButtonType, DataRow, IconButton,
-    Input, JsonTree, Select, SelectOption, Separator, SidebarHeader, SidebarHeaderAction,
-    TableView, ToggleSwitch, Typography, TypographyVariant,
+    Badge, Breadcrumbs, Button, ButtonColor, ButtonGroups, ButtonSize, ButtonType, Card,
+    CardAction, CardIcon, Checkbox, Code, CodeEditor, Column, DataRow, Icon, IconButton, Input,
+    JsonTree, KeyValueList, KvEntry, Link, List, ListItem, ListItemAction, ListItemBadge, Markdown,
+    Modal, MultiSelect, NumberInput, Progress, Radio, Row, Select, SelectOption, Separator,
+    SidebarHeader, SidebarHeaderAction, Slider, Spinner, TableView, Tabs, ToggleSwitch, Typography,
+    TypographyVariant,
 };
+use thoth_plugin_sdk::render_node::RenderNode;
 use thoth_plugin_sdk::theme::{THEME_MEMORY_ID, TextToken, ThemeColors};
 
 fn main() -> eframe::Result<()> {
@@ -60,6 +64,25 @@ enum Story {
     DataRow,
     TableView,
     JsonTree,
+    Badge,
+    Icon,
+    Link,
+    Progress,
+    Spinner,
+    Checkbox,
+    Slider,
+    NumberInput,
+    Radio,
+    MultiSelect,
+    KeyValueList,
+    Code,
+    Markdown,
+    CodeEditor,
+    List,
+    Tabs,
+    Card,
+    Modal,
+    RenderTree,
 }
 
 const STORIES: &[(Story, &str)] = &[
@@ -76,6 +99,25 @@ const STORIES: &[(Story, &str)] = &[
     (Story::DataRow, "Data Row"),
     (Story::TableView, "Table View"),
     (Story::JsonTree, "JSON Tree"),
+    (Story::Badge, "Badge"),
+    (Story::Icon, "Icon"),
+    (Story::Link, "Link"),
+    (Story::Progress, "Progress"),
+    (Story::Spinner, "Spinner"),
+    (Story::Checkbox, "Checkbox"),
+    (Story::Slider, "Slider"),
+    (Story::NumberInput, "Number Input"),
+    (Story::Radio, "Radio"),
+    (Story::MultiSelect, "Multi Select"),
+    (Story::KeyValueList, "Key-Value List"),
+    (Story::Code, "Code"),
+    (Story::Markdown, "Markdown"),
+    (Story::CodeEditor, "Code Editor"),
+    (Story::List, "List"),
+    (Story::Tabs, "Tabs"),
+    (Story::Card, "Card"),
+    (Story::Modal, "Modal"),
+    (Story::RenderTree, "RenderNode tree"),
 ];
 
 struct Gallery {
@@ -105,6 +147,19 @@ struct Gallery {
     toggled: bool,
     row_selected: bool,
     last_header_action: Option<usize>,
+
+    // New-component state.
+    checked: bool,
+    slider_value: f64,
+    number_value: f64,
+    radio: Radio,
+    multi: MultiSelect,
+    kvlist: KeyValueList,
+    code_editor: CodeEditor,
+    card: Card,
+    tabs: Tabs,
+    modal_open: bool,
+    last_list_event: String,
 }
 
 impl Default for Gallery {
@@ -140,6 +195,63 @@ impl Default for Gallery {
             toggled: true,
             row_selected: false,
             last_header_action: None,
+            checked: true,
+            slider_value: 0.5,
+            number_value: 8080.0,
+            radio: Radio::builder()
+                .value("b")
+                .options(vec![
+                    SelectOption::builder().value("a").label("Option A").build(),
+                    SelectOption::builder().value("b").label("Option B").build(),
+                    SelectOption::builder().value("c").label("Option C").build(),
+                ])
+                .build(),
+            multi: MultiSelect::builder()
+                .value(vec!["rust".to_owned()])
+                .options(vec![
+                    SelectOption::builder().value("rust").label("Rust").build(),
+                    SelectOption::builder().value("wasm").label("Wasm").build(),
+                    SelectOption::builder().value("egui").label("egui").build(),
+                ])
+                .build(),
+            kvlist: KeyValueList::builder()
+                .label("Headers")
+                .entries(vec![
+                    KvEntry::builder().key("Accept").value("application/json").build(),
+                    KvEntry::builder().key("Authorization").value("Bearer …").build(),
+                ])
+                .build(),
+            code_editor: CodeEditor::builder()
+                .value("{\n  \"hello\": \"world\"\n}")
+                .syntax("json")
+                .build(),
+            card: Card::builder()
+                .title("My Plugin")
+                .subtitle("Does useful things")
+                .meta("v1.0 · by Author")
+                .tags(vec!["loader".to_owned(), "viewer".to_owned()])
+                .enabled(true)
+                .icon(CardIcon::Glyph(egui_phosphor::regular::PUZZLE_PIECE.to_owned()))
+                .actions(vec![
+                    CardAction::builder().label("Configure").build(),
+                    CardAction::builder().label("Remove").danger(true).build(),
+                ])
+                .build(),
+            tabs: Tabs::builder()
+                .id("gallery-tabs")
+                .headers(vec!["Request".to_owned(), "Response".to_owned(), "Headers".to_owned()])
+                .children(vec![
+                    RenderNode::Text(
+                        Typography::builder().text("Request tab content").build(),
+                    ),
+                    RenderNode::Text(
+                        Typography::builder().text("Response tab content").build(),
+                    ),
+                    RenderNode::Text(Typography::builder().text("Headers tab content").build()),
+                ])
+                .build(),
+            modal_open: false,
+            last_list_event: String::new(),
         }
     }
 }
@@ -173,13 +285,13 @@ impl eframe::App for Gallery {
                 ui.add_space(8.0);
                 ui.heading("Components");
                 ui.separator();
-                for (story, label) in STORIES {
-                    ui.selectable_value(&mut self.story, *story, *label);
-                }
-
-                ui.add_space(12.0);
-                ui.separator();
                 ui.checkbox(&mut self.dark, "Dark theme");
+                ui.separator();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for (story, label) in STORIES {
+                        ui.selectable_value(&mut self.story, *story, *label);
+                    }
+                });
             });
 
         egui::CentralPanel::default()
@@ -198,6 +310,25 @@ impl eframe::App for Gallery {
                 Story::DataRow => self.data_row_story(ui),
                 Story::TableView => self.table_view_story(ui),
                 Story::JsonTree => self.json_tree_story(ui),
+                Story::Badge => self.badge_story(ui),
+                Story::Icon => self.icon_story(ui),
+                Story::Link => self.link_story(ui),
+                Story::Progress => self.progress_story(ui),
+                Story::Spinner => self.spinner_story(ui),
+                Story::Checkbox => self.checkbox_story(ui),
+                Story::Slider => self.slider_story(ui),
+                Story::NumberInput => self.number_input_story(ui),
+                Story::Radio => self.radio_story(ui),
+                Story::MultiSelect => self.multi_select_story(ui),
+                Story::KeyValueList => self.key_value_list_story(ui),
+                Story::Code => self.code_story(ui),
+                Story::Markdown => self.markdown_story(ui),
+                Story::CodeEditor => self.code_editor_story(ui),
+                Story::List => self.list_story(ui),
+                Story::Tabs => self.tabs_story(ui),
+                Story::Card => self.card_story(ui),
+                Story::Modal => self.modal_story(ui),
+                Story::RenderTree => self.render_tree_story(ui),
             });
     }
 }
@@ -584,6 +715,240 @@ impl Gallery {
             .id("gallery-json".to_owned())
             .build()
             .show(ui);
+    }
+
+    fn badge_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Badge");
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.add(Badge::builder().label("GET").color("#89b4fa").build());
+            ui.add(Badge::builder().label("POST").color("#a6e3a1").build());
+            ui.add(Badge::builder().label("DELETE").color("#f38ba8").build());
+            ui.add(Badge::builder().label("DEFAULT").build());
+        });
+    }
+
+    fn icon_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Icon");
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.add(Icon::builder().glyph(egui_phosphor::regular::STAR).size(24.0).build());
+            ui.add(
+                Icon::builder()
+                    .glyph(egui_phosphor::regular::HEART)
+                    .color("#f38ba8")
+                    .size(24.0)
+                    .build(),
+            );
+            ui.add(Icon::builder().glyph(egui_phosphor::regular::GEAR).size(32.0).build());
+        });
+    }
+
+    fn link_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Link");
+        ui.add_space(8.0);
+        ui.add(Link::builder().label("Thoth on GitHub").url("https://github.com/anitnilay20/thoth").build());
+    }
+
+    fn progress_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Progress");
+        ui.add_space(8.0);
+        for v in [0.25_f64, 0.5, 0.75, 1.0] {
+            ui.add(Progress::builder().value(v).build());
+            ui.add_space(4.0);
+        }
+    }
+
+    fn spinner_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Spinner");
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.add(Spinner::builder().size(16.0).build());
+            ui.add(Spinner::builder().size(24.0).build());
+            ui.add(Spinner::builder().size(32.0).build());
+        });
+    }
+
+    fn checkbox_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Checkbox");
+        ui.add_space(8.0);
+        let mut cb = Checkbox::builder().label("Enable feature").checked(self.checked).build();
+        if cb.show(ui).changed() {
+            self.checked = cb.checked;
+        }
+        ui.label(format!("checked: {}", self.checked));
+    }
+
+    fn slider_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Slider");
+        ui.add_space(8.0);
+        let mut s = Slider::builder()
+            .label("Opacity")
+            .value(self.slider_value)
+            .min(0.0)
+            .max(1.0)
+            .build();
+        s.show(ui);
+        self.slider_value = s.value;
+        ui.label(format!("value: {:.2}", self.slider_value));
+    }
+
+    fn number_input_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Number Input");
+        ui.add_space(8.0);
+        let mut n = NumberInput::builder()
+            .label("Port")
+            .value(self.number_value)
+            .min(0.0)
+            .max(65535.0)
+            .build();
+        n.show(ui);
+        self.number_value = n.value;
+        ui.label(format!("value: {}", self.number_value));
+    }
+
+    fn radio_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Radio");
+        ui.add_space(8.0);
+        self.radio.show(ui);
+        ui.label(format!("value: {}", self.radio.value));
+    }
+
+    fn multi_select_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Multi Select");
+        ui.add_space(8.0);
+        self.multi.show(ui);
+        ui.label(format!("value: {:?}", self.multi.value));
+    }
+
+    fn key_value_list_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Key-Value List");
+        ui.add_space(8.0);
+        self.kvlist.show(ui);
+    }
+
+    fn code_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Code");
+        ui.add_space(8.0);
+        ui.add(
+            Code::builder()
+                .value("fn main() {\n    println!(\"hello\");\n}")
+                .language("rust")
+                .build(),
+        );
+    }
+
+    fn markdown_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Markdown");
+        ui.add_space(8.0);
+        Markdown::builder()
+            .value("# Heading\n\nSome **bold** and _italic_ text, a `code` span, and:\n\n- a list\n- of items\n")
+            .build()
+            .show(ui);
+    }
+
+    fn code_editor_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Code Editor");
+        ui.add_space(8.0);
+        self.code_editor.show(ui);
+    }
+
+    fn list_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("List");
+        ui.add_space(8.0);
+        let list = List::builder()
+            .items(vec![
+                ListItem::builder()
+                    .title("Get users")
+                    .description("https://api.example.com/users")
+                    .badge(ListItemBadge::builder().text("GET").color("#89b4fa").build())
+                    .actions(vec![
+                        ListItemAction::builder().icon(egui_phosphor::regular::PENCIL).tooltip("Edit").build(),
+                        ListItemAction::builder().icon(egui_phosphor::regular::TRASH).tooltip("Delete").build(),
+                    ])
+                    .build(),
+                ListItem::builder()
+                    .title("Create user")
+                    .description("https://api.example.com/users")
+                    .badge(ListItemBadge::builder().text("POST").color("#a6e3a1").build())
+                    .build(),
+            ])
+            .build();
+        if let Some(ev) = list.show(ui) {
+            self.last_list_event = format!("{ev:?}");
+        }
+        ui.add_space(8.0);
+        ui.label(format!("last event: {}", self.last_list_event));
+    }
+
+    fn tabs_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Tabs");
+        ui.add_space(8.0);
+        self.tabs.show(ui);
+    }
+
+    fn card_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Card");
+        ui.add_space(8.0);
+        if let Some(ev) = self.card.show(ui) {
+            println!("card event: {ev:?}");
+        }
+    }
+
+    fn modal_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Modal");
+        ui.add_space(8.0);
+        if ui.button("Open modal").clicked() {
+            self.modal_open = true;
+        }
+        if self.modal_open {
+            let modal = Modal::builder().id("gallery-modal").title("Confirm").build();
+            let closed = modal.show_with(ui, |ui| {
+                ui.label("Are you sure you want to proceed?");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let _ = ui.button("Cancel");
+                    let _ = ui.button("Confirm");
+                });
+            });
+            if closed {
+                self.modal_open = false;
+            }
+        }
+    }
+
+    fn render_tree_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("RenderNode tree");
+        ui.add_space(8.0);
+        ui.label("A tree built with builders and rendered via RenderNode::show:");
+        ui.add_space(8.0);
+        // Built once per frame to demonstrate composition; in real use the host
+        // would hold/cache the tree in state.
+        let mut tree = RenderNode::Column(
+            Column::builder()
+                .gap(8.0)
+                .children(vec![
+                    RenderNode::Text(
+                        Typography::builder()
+                            .text("Composed layout")
+                            .variant(TypographyVariant::Heading)
+                            .build(),
+                    ),
+                    RenderNode::Row(
+                        Row::builder()
+                            .gap(6.0)
+                            .children(vec![
+                                RenderNode::Badge(Badge::builder().label("GET").color("#89b4fa").build()),
+                                RenderNode::Text(Typography::builder().text("/api/users").build()),
+                            ])
+                            .build(),
+                    ),
+                    RenderNode::Separator(Separator::plain()),
+                    RenderNode::Button(Button::builder().label("Send").color(ButtonColor::Primary).build()),
+                ])
+                .build(),
+        );
+        tree.show(ui);
     }
 }
 
