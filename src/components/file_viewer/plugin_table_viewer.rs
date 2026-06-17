@@ -149,17 +149,20 @@ impl FileFormatViewer for PluginTableViewer {
 
                             if let Some(node_json) = render_cache.get(&idx) {
                                 match serde_json::from_str::<UiNode>(node_json) {
-                                    Ok(UiNode::Row { children, .. }) => children
+                                    Ok(UiNode::Row(row)) => row
+                                        .children
                                         .into_iter()
                                         .map(|child| {
                                             TableCell::custom(move |ui| {
-                                                render_ui_node(ui, &child, &mut Vec::new());
+                                                let mut c = child.clone();
+                                                render_ui_node(ui, &mut c, &mut Vec::new());
                                             })
                                         })
                                         .collect(),
                                     Ok(other) => {
                                         vec![TableCell::custom(move |ui| {
-                                            render_ui_node(ui, &other, &mut Vec::new());
+                                            let mut c = other.clone();
+                                            render_ui_node(ui, &mut c, &mut Vec::new());
                                         })]
                                     }
                                     Err(_) => vec![TableCell::text("—")],

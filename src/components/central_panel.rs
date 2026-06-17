@@ -184,9 +184,9 @@ impl CentralPanel {
                 // Plugin pane takes priority over the file viewer.
                 if let Some(output) = props.plugin_ui {
                     match serde_json::from_str::<UiNode>(&output.node_json) {
-                        Ok(node) => {
+                        Ok(mut node) => {
                             let mut ui_events = Vec::new();
-                            render_ui_node(ui, &node, &mut ui_events);
+                            render_ui_node(ui, &mut node, &mut ui_events);
                             for evt in ui_events {
                                 events.push(CentralPanelEvent::PluginUiEvent(evt));
                             }

@@ -248,9 +248,9 @@ impl Sidebar {
                     match serde_json::from_str::<crate::plugin::render_node::UiNode>(
                         &info.output.node_json,
                     ) {
-                        Ok(node) => {
+                        Ok(mut node) => {
                             let mut ui_events = Vec::new();
-                            render_ui_node(ui, &node, &mut ui_events);
+                            render_ui_node(ui, &mut node, &mut ui_events);
                             for evt in ui_events {
                                 events.push(SidebarEvent::PluginSidebarEvent(evt));
                             }

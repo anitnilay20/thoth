@@ -186,8 +186,11 @@ impl PluginsTab {
                         }
                     });
 
-                    if let Some(ref node) = node {
-                        render_ui_node(ui, node, &mut vec![]);
+                    if let Some(node) = node {
+                        // Render a fresh clone each frame; the cached parse stays
+                        // intact (the renderer mutates the node it draws).
+                        let mut node = node;
+                        render_ui_node(ui, &mut node, &mut vec![]);
                     }
 
                     // Clear cache when navigating away so stale data isn't shown
