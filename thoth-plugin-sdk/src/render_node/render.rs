@@ -204,6 +204,15 @@ impl RenderNode {
             RenderNode::KeyValueList(k) => {
                 k.show(ui);
             }
+            RenderNode::Code(c) => {
+                ui.add(c.clone());
+            }
+            RenderNode::Markdown(m) => {
+                m.show(ui);
+            }
+            RenderNode::CodeEditor(c) => {
+                c.show(ui);
+            }
 
             // ── Escape hatch ─────────────────────────────────────────────────
             RenderNode::Custom(c) => c.show(ui),

@@ -25,9 +25,10 @@ mod render;
 use serde::{Deserialize, Serialize};
 
 use crate::components::{
-    Badge, Breadcrumbs, Button, ButtonGroups, Checkbox, DataRow, Icon, IconButton, Input, JsonTree,
-    KeyValueList, Link, Modal, MultiSelect, NumberInput, Progress, Radio, Select, Separator,
-    SidebarHeader, Slider, Spinner, TableView, ToggleSwitch, Typography,
+    Badge, Breadcrumbs, Button, ButtonGroups, Checkbox, Code, CodeEditor, DataRow, Icon,
+    IconButton, Input, JsonTree, KeyValueList, Link, Markdown, Modal, MultiSelect, NumberInput,
+    Progress, Radio, Select, Separator, SidebarHeader, Slider, Spinner, TableView, ToggleSwitch,
+    Typography,
 };
 
 /// A node in the Thoth UI tree.
@@ -181,6 +182,12 @@ pub enum RenderNode {
     MultiSelect(MultiSelect),
     /// An editable [`KeyValueList`].
     KeyValueList(KeyValueList),
+    /// A read-only [`Code`] block.
+    Code(Code),
+    /// A rendered [`Markdown`] block.
+    Markdown(Markdown),
+    /// An editable [`CodeEditor`].
+    CodeEditor(CodeEditor),
 
     /// An arbitrary host-drawn widget — the UI-path escape hatch. Never
     /// serialized (the DSL can't express arbitrary code), so it only exists in

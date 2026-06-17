@@ -11,11 +11,18 @@ egui = { version = "0.34.3", optional = true }
 egui-phosphor = { version = "0.12", optional = true }
 egui_extras = { version = "0.34", optional = true }
 egui_code_editor = { version = "0.2.24", optional = true }
+egui_commonmark = { version = "0.23", optional = true }
 
 [features]
 default = []
 plugin = []
-egui = ["dep:egui", "dep:egui-phosphor", "dep:egui_extras", "dep:egui_code_editor"]
+egui = [
+    "dep:egui",
+    "dep:egui-phosphor",
+    "dep:egui_extras",
+    "dep:egui_code_editor",
+    "dep:egui_commonmark",
+]
 
 [dev-dependencies]
 # Drives the component gallery example (examples/gallery.rs).
