@@ -1,11 +1,12 @@
+use crate::render_node::UiEvent;
 use crate::theme::ThemeColors;
 
 use super::Tabs;
 
 impl Tabs {
     /// Render the tab header and the selected panel. Mutates the selected
-    /// child (panels are stateful nodes).
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    /// child (panels are stateful nodes) and collects its events.
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         let colors = ThemeColors::from_ctx(ui.ctx());
         let state_id = egui::Id::new(("sdk_tabs", &self.id));
         let mut selected: usize = ui.ctx().data(|d| d.get_temp(state_id).unwrap_or(0));
@@ -32,7 +33,7 @@ impl Tabs {
 
         // ── Selected panel ───────────────────────────────────────────────────
         if let Some(child) = self.children.get_mut(selected) {
-            child.show(ui);
+            child.show(ui, events);
         }
     }
 }

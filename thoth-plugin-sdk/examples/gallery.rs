@@ -884,13 +884,13 @@ impl Gallery {
     fn tabs_story(&mut self, ui: &mut egui::Ui) {
         ui.heading("Tabs");
         ui.add_space(8.0);
-        self.tabs.show(ui);
+        self.tabs.show(ui, &mut Vec::new());
     }
 
     fn card_story(&mut self, ui: &mut egui::Ui) {
         ui.heading("Card");
         ui.add_space(8.0);
-        if let Some(ev) = self.card.show(ui) {
+        if let Some(ev) = self.card.show(ui, &mut Vec::new()) {
             println!("card event: {ev:?}");
         }
     }
@@ -948,7 +948,7 @@ impl Gallery {
                 ])
                 .build(),
         );
-        tree.show(ui);
+        tree.show(ui, &mut Vec::new());
     }
 }
 

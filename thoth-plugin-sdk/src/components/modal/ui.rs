@@ -12,11 +12,11 @@ impl Modal {
     /// backdrop click, or the header close button). The caller owns visibility.
     /// For arbitrary live widgets that aren't expressible as a `RenderNode`,
     /// use [`Modal::show_with`].
-    pub fn show(mut self, ui: &mut egui::Ui) -> bool {
+    pub fn show(mut self, ui: &mut egui::Ui, events: &mut Vec<crate::render_node::UiEvent>) -> bool {
         let mut body = self.body.take();
         self.show_with(ui, |ui| {
             if let Some(node) = &mut body {
-                node.show(ui);
+                node.show(ui, events);
             }
         })
     }

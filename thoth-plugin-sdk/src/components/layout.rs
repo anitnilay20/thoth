@@ -9,6 +9,8 @@ use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 use crate::render_node::RenderNode;
+#[cfg(feature = "egui")]
+use crate::render_node::UiEvent;
 
 /// Lay children out left-to-right.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
@@ -144,11 +146,11 @@ pub struct Colored {
 #[cfg(feature = "egui")]
 impl Row {
     /// Render the row.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = self.gap;
             for child in &mut self.children {
-                child.show(ui);
+                child.show(ui, events);
             }
         });
     }
@@ -157,11 +159,11 @@ impl Row {
 #[cfg(feature = "egui")]
 impl Column {
     /// Render the column.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = self.gap;
             for child in &mut self.children {
-                child.show(ui);
+                child.show(ui, events);
             }
         });
     }
@@ -170,12 +172,12 @@ impl Column {
 #[cfg(feature = "egui")]
 impl Scroll {
     /// Render the scroll area and its child.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         let mut area = egui::ScrollArea::vertical();
         if let Some(h) = self.max_height {
             area = area.max_height(h);
         }
-        area.show(ui, |ui| self.child.show(ui));
+        area.show(ui, |ui| self.child.show(ui, events));
     }
 }
 
@@ -190,7 +192,7 @@ impl Spacer {
 #[cfg(feature = "egui")]
 impl Split {
     /// Render the proportional columns.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         let n = self.children.len();
         if n == 0 {
             return;
@@ -211,7 +213,7 @@ impl Split {
                 ui.allocate_ui_with_layout(
                     egui::vec2(w, ui.available_height()),
                     egui::Layout::top_down(egui::Align::Min),
-                    |ui| child.show(ui),
+                    |ui| child.show(ui, events),
                 );
                 if separator && i + 1 < n {
                     ui.separator();
@@ -224,12 +226,12 @@ impl Split {
 #[cfg(feature = "egui")]
 impl Group {
     /// Render the collapsible (open by default).
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         egui::CollapsingHeader::new(self.label.as_str())
             .default_open(true)
             .show(ui, |ui| {
                 for child in &mut self.children {
-                    child.show(ui);
+                    child.show(ui, events);
                 }
             });
     }
@@ -238,12 +240,12 @@ impl Group {
 #[cfg(feature = "egui")]
 impl Collapsible {
     /// Render the collapsible (closed by default).
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         egui::CollapsingHeader::new(self.label.as_str())
             .default_open(false)
             .show(ui, |ui| {
                 for child in &mut self.children {
-                    child.show(ui);
+                    child.show(ui, events);
                 }
             });
     }
@@ -252,13 +254,13 @@ impl Collapsible {
 #[cfg(feature = "egui")]
 impl Footer {
     /// Render the footer content.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         egui::Frame::new()
             .inner_margin(egui::Margin::same(self.padding as i8))
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = self.gap;
                 for child in &mut self.children {
-                    child.show(ui);
+                    child.show(ui, events);
                 }
             });
     }
@@ -267,11 +269,11 @@ impl Footer {
 #[cfg(feature = "egui")]
 impl KeyValue {
     /// Render the `key: value` pair.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         ui.horizontal(|ui| {
             let muted = ui.visuals().weak_text_color();
             ui.label(egui::RichText::new(format!("{}: ", self.key)).color(muted));
-            self.value.show(ui);
+            self.value.show(ui, events);
         });
     }
 }
@@ -279,13 +281,13 @@ impl KeyValue {
 #[cfg(feature = "egui")]
 impl Colored {
     /// Render `child` with the overridden text colour.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         let resolved = crate::theme::parse_hex_color(&self.color);
         ui.scope(|ui| {
             if let Some(c) = resolved {
                 ui.visuals_mut().override_text_color = Some(c);
             }
-            self.child.show(ui);
+            self.child.show(ui, events);
         });
     }
 }

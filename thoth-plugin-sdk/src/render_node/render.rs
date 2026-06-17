@@ -9,23 +9,24 @@
 //! Interaction results (clicks, changes) are currently dropped; event
 //! propagation will be threaded through a host sink in a later step.
 
-use super::{CustomWidget, RenderNode};
+use super::{CustomWidget, RenderNode, UiEvent};
 
 impl RenderNode {
-    /// Render this node and its descendants into `ui`.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    /// Render this node and its descendants into `ui`, collecting interaction
+    /// events into `events` (which the host forwards to the plugin).
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         match self {
             // ── Containers (delegate to the layout components) ───────────────
-            RenderNode::Row(r) => r.show(ui),
-            RenderNode::Column(c) => c.show(ui),
-            RenderNode::Scroll(s) => s.show(ui),
+            RenderNode::Row(r) => r.show(ui, events),
+            RenderNode::Column(c) => c.show(ui, events),
+            RenderNode::Scroll(s) => s.show(ui, events),
             RenderNode::Spacer(s) => s.show(ui),
-            RenderNode::Split(s) => s.show(ui),
-            RenderNode::Group(g) => g.show(ui),
-            RenderNode::Collapsible(c) => c.show(ui),
-            RenderNode::Footer(f) => f.show(ui),
-            RenderNode::KeyValue(kv) => kv.show(ui),
-            RenderNode::Colored(c) => c.show(ui),
+            RenderNode::Split(s) => s.show(ui, events),
+            RenderNode::Group(g) => g.show(ui, events),
+            RenderNode::Collapsible(c) => c.show(ui, events),
+            RenderNode::Footer(f) => f.show(ui, events),
+            RenderNode::KeyValue(kv) => kv.show(ui, events),
+            RenderNode::Colored(c) => c.show(ui, events),
 
             // ── Leaf widgets ─────────────────────────────────────────────────
             // Widget-based leaves are cheap owned clones (the node retains its
@@ -86,7 +87,7 @@ impl RenderNode {
                 ui.add(*s);
             }
             RenderNode::Modal(m) => {
-                m.as_ref().clone().show(ui);
+                m.as_ref().clone().show(ui, events);
             }
             RenderNode::Checkbox(c) => {
                 c.show(ui);
@@ -119,10 +120,10 @@ impl RenderNode {
                 l.show(ui);
             }
             RenderNode::Tabs(t) => {
-                t.show(ui);
+                t.show(ui, events);
             }
             RenderNode::Card(c) => {
-                c.show(ui);
+                c.show(ui, events);
             }
 
             // ── Escape hatch ─────────────────────────────────────────────────

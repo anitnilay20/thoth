@@ -16,8 +16,13 @@ pub enum CardEvent {
 
 impl Card {
     /// Render the card, mutating the enable toggle in place and reporting the
-    /// user's action this frame, if any.
-    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<CardEvent> {
+    /// user's action this frame, if any. Body-node events are collected into
+    /// `events`.
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        events: &mut Vec<crate::render_node::UiEvent>,
+    ) -> Option<CardEvent> {
         let colors = ThemeColors::from_ctx(ui.ctx());
         let mut event = None;
 
@@ -85,7 +90,7 @@ impl Card {
 
                         if let Some(body) = &mut self.body {
                             ui.add_space(8.0);
-                            body.show(ui);
+                            body.show(ui, events);
                         }
 
                         if !self.actions.is_empty() {

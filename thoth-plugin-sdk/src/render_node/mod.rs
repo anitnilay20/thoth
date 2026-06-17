@@ -24,6 +24,22 @@ mod render;
 
 use serde::{Deserialize, Serialize};
 
+/// An interaction event emitted by an interactive node while rendering.
+///
+/// The renderer collects these into a `Vec<UiEvent>` (the sink threaded through
+/// [`RenderNode::show`]); the host forwards them to the plugin's event handler.
+/// `kind` is the interaction class (`"change"`, `"click"`, `"toggle"`,
+/// `"action"`), and `value` is a string payload (new value, clicked index, …).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UiEvent {
+    /// Id of the widget that emitted the event.
+    pub id: String,
+    /// Interaction class — e.g. `"change"`, `"click"`, `"toggle"`, `"action"`.
+    pub kind: String,
+    /// String payload describing what happened.
+    pub value: String,
+}
+
 use crate::components::{
     Badge, Breadcrumbs, Button, ButtonGroups, Card, Checkbox, Code, CodeEditor, Collapsible,
     Colored, Column, DataRow, Footer, Group, Icon, IconButton, Input, JsonTree, KeyValue,
