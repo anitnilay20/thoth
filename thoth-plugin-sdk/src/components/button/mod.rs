@@ -74,6 +74,10 @@ pub enum ButtonColor {
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct Button {
+    /// Widget id used for event routing (empty if not part of a DSL tree).
+    #[builder(default)]
+    #[serde(default)]
+    pub id: String,
     /// Text shown on the button.
     pub label: String,
     /// Visual style (elevated vs. text). Defaults to [`ButtonType::Elevated`].

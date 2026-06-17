@@ -47,7 +47,9 @@ pub enum SelectSize {
 #[builder(on(String, into))]
 pub struct Select {
     /// Stable id salt — must be unique per on-screen instance (used for the
-    /// open/closed popup state).
+    /// open/closed popup state and event routing).
+    #[builder(default)]
+    #[serde(default)]
     pub id: String,
     /// Currently selected value (matched against [`SelectOption::value`]).
     #[builder(default)]

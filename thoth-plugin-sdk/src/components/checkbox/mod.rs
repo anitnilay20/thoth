@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct Checkbox {
+    /// Widget id used for event routing.
+    #[builder(default)]
+    #[serde(default)]
+    pub id: String,
     /// Label shown next to the box.
     pub label: String,
     /// Whether the box is checked.

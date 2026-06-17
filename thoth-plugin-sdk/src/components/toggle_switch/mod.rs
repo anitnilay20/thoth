@@ -18,6 +18,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct ToggleSwitch {
+    /// Widget id used for event routing.
+    #[builder(default)]
+    #[serde(default)]
+    pub id: String,
     /// Whether the switch is currently on.
     #[builder(default)]
     #[serde(default)]

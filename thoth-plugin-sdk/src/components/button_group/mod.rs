@@ -25,7 +25,12 @@ use crate::components::Button;
 ///     .build();
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
 pub struct ButtonGroups {
+    /// Widget id used for event routing.
+    #[builder(default)]
+    #[serde(default)]
+    pub id: String,
     /// The segments, in display order.
     items: Vec<Button>,
     /// Index into `items` of the currently-active segment.

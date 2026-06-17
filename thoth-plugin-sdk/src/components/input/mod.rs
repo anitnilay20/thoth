@@ -24,6 +24,10 @@ fn default_rows() -> usize {
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct Input {
+    /// Widget id used for event routing (empty if not part of a DSL tree).
+    #[builder(default)]
+    #[serde(default)]
+    pub id: String,
     /// Current text content (mutated in place by [`Input::show`]).
     #[builder(default)]
     #[serde(default)]

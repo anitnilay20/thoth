@@ -17,6 +17,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct IconButton {
+    /// Widget id used for event routing.
+    #[builder(default)]
+    #[serde(default)]
+    pub id: String,
     /// The icon glyph to display (a Phosphor character).
     pub icon: String,
     /// Draw a solid frame behind the glyph. Defaults to `false`.

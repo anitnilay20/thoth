@@ -20,6 +20,10 @@ use super::SelectOption;
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct Radio {
+    /// Widget id used for event routing.
+    #[builder(default)]
+    #[serde(default)]
+    pub id: String,
     /// Optional group label shown above the options.
     #[builder(default)]
     #[serde(default)]

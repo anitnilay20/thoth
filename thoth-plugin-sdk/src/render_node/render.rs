@@ -28,48 +28,29 @@ impl RenderNode {
             RenderNode::KeyValue(kv) => kv.show(ui, events),
             RenderNode::Colored(c) => c.show(ui, events),
 
-            // ── Leaf widgets ─────────────────────────────────────────────────
-            // Widget-based leaves are cheap owned clones (the node retains its
-            // data; `ui.add` consumes the clone).
+            // ── Action widgets (emit "click") ────────────────────────────────
             RenderNode::Button(b) => {
-                ui.add(b.clone());
-            }
-            RenderNode::Text(t) => {
-                ui.add(t.clone());
+                if ui.add(b.clone()).clicked() {
+                    emit(events, &b.id, "click", String::new());
+                }
             }
             RenderNode::IconButton(b) => {
-                ui.add(b.clone());
+                if ui.add(b.clone()).clicked() {
+                    emit(events, &b.id, "click", String::new());
+                }
             }
             RenderNode::Toggle(t) => {
+                if ui.add(t.clone()).clicked() {
+                    emit(events, &t.id, "change", (!t.enabled).to_string());
+                }
+            }
+
+            // ── Display-only leaves ──────────────────────────────────────────
+            RenderNode::Text(t) => {
                 ui.add(t.clone());
             }
             RenderNode::Separator(s) => {
                 ui.add(*s);
-            }
-            RenderNode::Breadcrumbs(b) => {
-                b.clone().show(ui);
-            }
-            RenderNode::ButtonGroup(g) => {
-                g.show(ui);
-            }
-            // Stateful leaves render through `&mut`, mutating the node's data.
-            RenderNode::Input(i) => {
-                i.show(ui);
-            }
-            RenderNode::Select(s) => {
-                s.show(ui);
-            }
-            RenderNode::DataRow(d) => {
-                d.show(ui);
-            }
-            RenderNode::Table(t) => {
-                t.show(ui);
-            }
-            RenderNode::JsonTree(j) => {
-                j.show(ui);
-            }
-            RenderNode::SidebarHeader(h) => {
-                h.show(ui);
             }
             RenderNode::Badge(b) => {
                 ui.add(b.clone());
@@ -86,38 +67,107 @@ impl RenderNode {
             RenderNode::Spinner(s) => {
                 ui.add(*s);
             }
-            RenderNode::Modal(m) => {
-                m.as_ref().clone().show(ui, events);
-            }
-            RenderNode::Checkbox(c) => {
-                c.show(ui);
-            }
-            RenderNode::Slider(s) => {
-                s.show(ui);
-            }
-            RenderNode::NumberInput(n) => {
-                n.show(ui);
-            }
-            RenderNode::Radio(r) => {
-                r.show(ui);
-            }
-            RenderNode::MultiSelect(m) => {
-                m.show(ui);
-            }
-            RenderNode::KeyValueList(k) => {
-                k.show(ui);
-            }
             RenderNode::Code(c) => {
                 ui.add(c.clone());
             }
             RenderNode::Markdown(m) => {
                 m.show(ui);
             }
+            RenderNode::JsonTree(j) => {
+                j.show(ui);
+            }
+            RenderNode::Table(t) => {
+                t.show(ui);
+            }
+            RenderNode::Breadcrumbs(b) => {
+                b.clone().show(ui);
+            }
+            RenderNode::SidebarHeader(h) => {
+                h.show(ui);
+            }
+
+            // ── Input widgets (emit "change") ────────────────────────────────
+            RenderNode::Input(i) => {
+                if i.show(ui).inner {
+                    emit(events, &i.id, "change", i.value.clone());
+                }
+            }
+            RenderNode::Select(s) => {
+                if let Some(v) = s.show(ui).inner {
+                    emit(events, &s.id, "change", v);
+                }
+            }
+            RenderNode::Checkbox(c) => {
+                if c.show(ui).changed() {
+                    emit(events, &c.id, "change", c.checked.to_string());
+                }
+            }
+            RenderNode::Slider(s) => {
+                if s.show(ui).changed() {
+                    emit(events, &s.id, "change", s.value.to_string());
+                }
+            }
+            RenderNode::NumberInput(n) => {
+                if n.show(ui).changed() {
+                    emit(events, &n.id, "change", n.value.to_string());
+                }
+            }
+            RenderNode::Radio(r) => {
+                if let Some(v) = r.show(ui) {
+                    emit(events, &r.id, "change", v);
+                }
+            }
+            RenderNode::MultiSelect(m) => {
+                if m.show(ui) {
+                    let value = serde_json::to_string(&m.value).unwrap_or_default();
+                    emit(events, &m.id, "change", value);
+                }
+            }
+            RenderNode::KeyValueList(k) => {
+                if k.show(ui) {
+                    let value = serde_json::to_string(&k.entries).unwrap_or_default();
+                    emit(events, &k.id, "change", value);
+                }
+            }
+            RenderNode::ButtonGroup(g) => {
+                if let Some(i) = g.show(ui).inner {
+                    emit(events, &g.id, "change", i.to_string());
+                }
+            }
+            RenderNode::DataRow(d) => {
+                let out = d.show(ui);
+                if out.caret_clicked {
+                    emit(events, &d.row_id, "toggle", String::new());
+                } else if out.clicked {
+                    emit(events, &d.row_id, "click", String::new());
+                }
+            }
             RenderNode::CodeEditor(c) => {
+                // egui_code_editor doesn't surface a change flag cleanly; the
+                // edited text lives in the node's `value` for the host to read.
                 c.show(ui);
             }
             RenderNode::List(l) => {
-                l.show(ui);
+                if let Some(ev) = l.show(ui) {
+                    match ev {
+                        crate::components::ListEvent::ItemClicked(i) => {
+                            emit(events, &l.id, "click", i.to_string());
+                        }
+                        crate::components::ListEvent::ActionClicked { item, action } => {
+                            let value = serde_json::json!({ "item": item, "action": action })
+                                .to_string();
+                            emit(events, &l.id, "action", value);
+                        }
+                    }
+                }
+            }
+
+            // ── Containers that recurse ──────────────────────────────────────
+            RenderNode::Modal(m) => {
+                let id = m.id.clone();
+                if m.as_ref().clone().show(ui, events) {
+                    emit(events, &id, "click", String::new());
+                }
             }
             RenderNode::Tabs(t) => {
                 t.show(ui, events);
@@ -130,6 +180,18 @@ impl RenderNode {
             RenderNode::Custom(c) => c.show(ui),
         }
     }
+}
+
+/// Push an event onto the sink (skipping widgets that have no id assigned).
+fn emit(events: &mut Vec<UiEvent>, id: &str, kind: &str, value: String) {
+    if id.is_empty() {
+        return;
+    }
+    events.push(UiEvent {
+        id: id.to_string(),
+        kind: kind.to_string(),
+        value,
+    });
 }
 
 impl RenderNode {

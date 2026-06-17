@@ -64,6 +64,10 @@ pub struct ListItem {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct List {
+    /// Widget id used for event routing.
+    #[builder(default)]
+    #[serde(default)]
+    pub id: String,
     /// The rows, in order.
     #[builder(default)]
     #[serde(default)]

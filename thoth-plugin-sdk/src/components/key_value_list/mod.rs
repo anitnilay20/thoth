@@ -38,6 +38,10 @@ pub(crate) fn default_true() -> bool {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct KeyValueList {
+    /// Widget id used for event routing.
+    #[builder(default)]
+    #[serde(default)]
+    pub id: String,
     /// Optional label shown above the rows.
     #[builder(default)]
     #[serde(default)]
