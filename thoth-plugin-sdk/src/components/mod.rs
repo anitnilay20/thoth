@@ -5,33 +5,43 @@
 //! and serialize it to JSON for the host; with the `egui` feature the host
 //! renders the same types via their `egui::Widget` implementations.
 
+mod badge;
 mod breadcrumbs;
 mod button;
 mod button_group;
 mod data_row;
+mod icon;
 mod icon_button;
 mod input;
 mod json_tree;
+mod link;
+mod modal;
+mod progress;
 mod select;
 mod separator;
 mod sidebar_header;
+mod spinner;
 mod table_view;
 mod toggle_switch;
 mod typography;
-mod modal;
 
+pub use badge::Badge;
 pub use breadcrumbs::Breadcrumbs;
 pub use button::{Button, ButtonColor, ButtonSize, ButtonType};
 pub use button_group::ButtonGroups;
 pub use data_row::{DataRow, DataRowIcon, RowHighlights};
 #[cfg(feature = "egui")]
 pub use data_row::DataRowOutput;
+pub use icon::Icon;
 pub use icon_button::IconButton;
 pub use input::Input;
 pub use json_tree::JsonTree;
+pub use link::Link;
 pub use modal::Modal;
+pub use progress::Progress;
 pub use select::{Select, SelectOption, SelectSize};
 pub use separator::Separator;
+pub use spinner::Spinner;
 pub use sidebar_header::{SidebarHeader, SidebarHeaderAction};
 pub use table_view::TableView;
 pub use toggle_switch::ToggleSwitch;

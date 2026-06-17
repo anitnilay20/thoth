@@ -86,6 +86,24 @@ impl RenderNode {
             RenderNode::SidebarHeader(h) => {
                 h.show(ui);
             }
+            RenderNode::Badge(b) => {
+                ui.add(b.clone());
+            }
+            RenderNode::Icon(i) => {
+                ui.add(i.clone());
+            }
+            RenderNode::Link(l) => {
+                ui.add(l.clone());
+            }
+            RenderNode::Progress(p) => {
+                ui.add(*p);
+            }
+            RenderNode::Spinner(s) => {
+                ui.add(*s);
+            }
+            RenderNode::Modal(m) => {
+                m.as_ref().clone().show(ui);
+            }
 
             // ── Escape hatch ─────────────────────────────────────────────────
             RenderNode::Custom(c) => c.show(ui),
