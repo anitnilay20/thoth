@@ -6,21 +6,6 @@ use thoth_plugin_sdk::components::{
 use thoth_plugin_sdk::render_node::RenderNode;
 use thoth_plugin_sdk::tokens::TextToken;
 
-/// Map a semantic colour name (as used by the old DSL) to a `#rrggbb` hex.
-pub(crate) fn sem_hex(name: &str) -> &'static str {
-    match name {
-        "red" | "error" => "#f38ba8",
-        "green" | "success" | "string" => "#a6e3a1",
-        "blue" | "accent" => "#89b4fa",
-        "orange" | "number" => "#fab387",
-        "purple" => "#cba6f7",
-        "secondary" => "#f5c2e7",
-        "warning" => "#f9e2af",
-        "info" => "#89dceb",
-        _ => "#a6adc8", // muted / gray / fallback
-    }
-}
-
 /// A single-line text input; `grow` makes it fill remaining row width.
 pub(crate) fn text_input(
     id: &str,
@@ -96,9 +81,9 @@ pub(crate) fn data_row(
     icon: Option<(&str, &str)>,
     trailing: Option<&str>,
 ) -> RenderNode {
-    let leading = icon.map(|(glyph, color)| {
-        DataRowIcon::builder().glyph(glyph).color(sem_hex(color)).build()
-    });
+    // `color` is a semantic token (e.g. "muted", "string", "warning"); the SDK
+    // resolves it against the active theme.
+    let leading = icon.map(|(glyph, color)| DataRowIcon::builder().glyph(glyph).color(color).build());
     RenderNode::DataRow(
         DataRow::builder()
             .row_id(id)

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui::{Color32, RichText, Ui, WidgetText, text::LayoutJob};
 
 use crate::components::IconButton;
-use crate::theme::{ROW_HEIGHT, TextPalette, hover_row_bg, parse_hex_color, phosphor_font_id};
+use crate::theme::{ROW_HEIGHT, TextPalette, ThemeColors, hover_row_bg, phosphor_font_id, resolve_color};
 
 use super::DataRow;
 
@@ -40,10 +40,11 @@ impl DataRow {
         );
         let resp = ui.interact(interact_rect, id, egui::Sense::click());
 
+        let colors = ThemeColors::from_ctx(ui.ctx());
         let caller_bg = self
             .background
             .as_deref()
-            .and_then(parse_hex_color)
+            .and_then(|c| resolve_color(c, &colors))
             .unwrap_or(Color32::TRANSPARENT);
         let base_bg = if self.selected {
             ui.visuals().selection.bg_fill
@@ -106,7 +107,7 @@ impl DataRow {
                     let color = icon
                         .color
                         .as_deref()
-                        .and_then(parse_hex_color)
+                        .and_then(|c| resolve_color(c, &colors))
                         .unwrap_or(muted);
                     body_label(
                         ui,

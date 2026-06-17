@@ -24,12 +24,12 @@ pub struct Icon {
 #[cfg(feature = "egui")]
 impl egui::Widget for Icon {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
-        use crate::theme::{ThemeColors, parse_hex_color, phosphor_font_id};
+        use crate::theme::{ThemeColors, phosphor_font_id, resolve_color};
         let colors = ThemeColors::from_ctx(ui.ctx());
         let color = self
             .color
             .as_deref()
-            .and_then(parse_hex_color)
+            .and_then(|c| resolve_color(c, &colors))
             .unwrap_or(colors.fg_muted);
         let size = self.size.unwrap_or(14.0);
         ui.label(egui::RichText::new(&self.glyph).font(phosphor_font_id(size)).color(color))

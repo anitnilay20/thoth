@@ -6,7 +6,7 @@ use thoth_plugin_sdk::components::{
 use thoth_plugin_sdk::render_node::RenderNode;
 
 use crate::state::{engine_badge, Connection, State};
-use crate::ui::widgets::{button, muted, sem_hex};
+use crate::ui::widgets::{button, muted};
 use crate::{ICON_DATABASE, ICON_PENCIL, ICON_PLUS, ICON_TRASH};
 
 /// The full connections-manager pane (shown in an editor tab with no connection).
@@ -67,12 +67,13 @@ pub(crate) fn connections_list(st: &State) -> RenderNode {
 
 fn connection_item(c: &Connection, active: bool, failed: bool) -> ListItem {
     let (short, color) = engine_badge(c.engine);
+    // Badge colours are semantic tokens, resolved by the SDK against the theme.
     let badge = if failed {
-        ListItemBadge::builder().text("error").color(sem_hex("red")).build()
+        ListItemBadge::builder().text("error").color("red").build()
     } else if active {
-        ListItemBadge::builder().text("active").color(sem_hex("green")).build()
+        ListItemBadge::builder().text("active").color("green").build()
     } else {
-        ListItemBadge::builder().text(short).color(sem_hex(color)).build()
+        ListItemBadge::builder().text(short).color(color).build()
     };
     ListItem::builder()
         .title(c.name.clone())

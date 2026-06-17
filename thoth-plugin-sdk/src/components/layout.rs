@@ -374,7 +374,8 @@ impl KeyValue {
 impl Colored {
     /// Render `child` with the overridden text colour.
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
-        let resolved = crate::theme::parse_hex_color(&self.color);
+        let colors = crate::theme::ThemeColors::from_ctx(ui.ctx());
+        let resolved = crate::theme::resolve_color(&self.color, &colors);
         ui.scope(|ui| {
             if let Some(c) = resolved {
                 ui.visuals_mut().override_text_color = Some(c);

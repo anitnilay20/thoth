@@ -676,7 +676,8 @@ impl Gallery {
     fn table_view_story(&mut self, ui: &mut egui::Ui) {
         ui.heading("Table View");
         ui.add_space(8.0);
-        let table = TableView::builder()
+        let cell = |s: String| RenderNode::Text(Typography::builder().text(s).build());
+        let mut table = TableView::builder()
             .headers(vec![
                 "id  ·  int".into(),
                 "name  ·  text".into(),
@@ -686,15 +687,15 @@ impl Gallery {
                 (1..=50)
                     .map(|i| {
                         vec![
-                            i.to_string(),
-                            format!("plugin-{i}"),
-                            if i % 2 == 0 { "rust" } else { "wasm" }.to_owned(),
+                            cell(i.to_string()),
+                            cell(format!("plugin-{i}")),
+                            cell(if i % 2 == 0 { "rust" } else { "wasm" }.to_owned()),
                         ]
                     })
                     .collect(),
             )
             .build();
-        if let Some(row) = table.show(ui) {
+        if let Some(row) = table.show(ui, &mut Vec::new()) {
             println!("clicked row {row}");
         }
     }

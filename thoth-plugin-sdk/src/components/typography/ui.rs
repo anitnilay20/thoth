@@ -1,7 +1,7 @@
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontId, Response, RichText, Stroke, Widget};
 
-use crate::theme::{ThemeColors, parse_hex_color};
+use crate::theme::{ThemeColors, resolve_color};
 
 use super::{Typography, TypographyVariant};
 
@@ -74,7 +74,7 @@ impl Widget for Typography {
         let color = self
             .color
             .as_deref()
-            .and_then(parse_hex_color)
+            .and_then(|c| resolve_color(c, &colors))
             .unwrap_or(default_color);
         let is_bold = variant_bold || self.bold;
 

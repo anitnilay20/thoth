@@ -77,7 +77,7 @@ impl RenderNode {
                 j.show(ui);
             }
             RenderNode::Table(t) => {
-                t.show(ui);
+                t.show(ui, events);
             }
             RenderNode::Breadcrumbs(b) => {
                 b.clone().show(ui);

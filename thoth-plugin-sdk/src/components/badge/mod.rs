@@ -21,12 +21,12 @@ pub struct Badge {
 #[cfg(feature = "egui")]
 impl egui::Widget for Badge {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
-        use crate::theme::{ThemeColors, get_contrast_text_color, parse_hex_color};
+        use crate::theme::{ThemeColors, get_contrast_text_color, resolve_color};
         let colors = ThemeColors::from_ctx(ui.ctx());
         let bg = self
             .color
             .as_deref()
-            .and_then(parse_hex_color)
+            .and_then(|c| resolve_color(c, &colors))
             .unwrap_or(colors.accent_secondary);
         let fg = get_contrast_text_color(bg);
         egui::Frame::new()

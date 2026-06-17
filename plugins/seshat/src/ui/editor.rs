@@ -2,7 +2,8 @@
 
 use serde_json::Value;
 use thoth_plugin_sdk::components::{
-    CodeEditor, Colored, Column, Row, Scroll, Separator, Spinner, TableView, Typography,
+    CodeEditor, Colored, Column, JsonTree, Row, Scroll, Separator, Spinner, TableView, Typography,
+    TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -105,11 +106,11 @@ fn results_table(result: &Value) -> RenderNode {
                     }
                 })
                 .collect();
-            let table_rows: Vec<Vec<String>> = rows
+            let table_rows: Vec<Vec<RenderNode>> = rows
                 .iter()
                 .map(|row| {
                     row.as_array()
-                        .map(|cs| cs.iter().map(cell_text).collect())
+                        .map(|cs| cs.iter().map(cell_node).collect())
                         .unwrap_or_default()
                 })
                 .collect();
@@ -143,13 +144,22 @@ fn results_table(result: &Value) -> RenderNode {
     }
 }
 
-/// Flatten a typed cell value to display text (JSON shown compact, NULL as text).
-fn cell_text(value: &Value) -> String {
+/// Map a typed cell value to a display node: NULL muted-italic, JSON/JSONB as an
+/// interactive tree, scalars as text.
+fn cell_node(value: &Value) -> RenderNode {
     match value {
-        Value::Null => "NULL".to_string(),
-        Value::Object(_) | Value::Array(_) => value.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => s.clone(),
+        Value::Null => RenderNode::Text(
+            Typography::builder()
+                .text("NULL")
+                .italic(true)
+                .variant(TypographyVariant::BodyMuted)
+                .build(),
+        ),
+        Value::Object(_) | Value::Array(_) => {
+            RenderNode::JsonTree(JsonTree::builder().value(value.clone()).build())
+        }
+        Value::Bool(b) => RenderNode::Text(Typography::builder().text(b.to_string()).build()),
+        Value::Number(n) => RenderNode::Text(Typography::builder().text(n.to_string()).build()),
+        Value::String(s) => RenderNode::Text(Typography::builder().text(s.clone()).build()),
     }
 }

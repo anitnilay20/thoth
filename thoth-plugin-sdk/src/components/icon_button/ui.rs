@@ -1,6 +1,6 @@
 use egui::{Color32, Response, Sense, Widget};
 
-use crate::theme::{ThemeColors, parse_hex_color, phosphor_font_id};
+use crate::theme::{ThemeColors, phosphor_font_id, resolve_color};
 
 use super::IconButton;
 
@@ -58,7 +58,9 @@ impl Widget for IconButton {
                 icon_color,
             );
 
-            if let Some(badge_color) = self.badge_color.as_deref().and_then(parse_hex_color) {
+            if let Some(badge_color) =
+                self.badge_color.as_deref().and_then(|c| resolve_color(c, &colors))
+            {
                 let badge_center = egui::pos2(rect.right() - 6.0, rect.top() + 6.0);
                 ui.painter().circle_filled(badge_center, 2.0, badge_color);
                 ui.painter()

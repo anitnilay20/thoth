@@ -144,6 +144,34 @@ pub fn parse_hex_color(hex: &str) -> Option<Color32> {
     }
 }
 
+/// Resolve a colour string to a [`Color32`], accepting either a `#rrggbb(aa)`
+/// hex literal *or* a semantic theme token resolved against `colors`.
+///
+/// Tokens (theme-reactive): `fg`, `muted`/`fg-muted`/`gray`, `accent`/`blue`,
+/// `secondary`/`purple`, `success`/`green`, `warning`/`orange`, `error`/`red`,
+/// `info`/`cyan`, `string`, `number`, `bool`, `key`. Unknown strings fall back
+/// to bare-hex parsing, then `None`.
+pub fn resolve_color(token: &str, colors: &ThemeColors) -> Option<Color32> {
+    if token.starts_with('#') {
+        return parse_hex_color(token);
+    }
+    Some(match token {
+        "fg" => colors.fg,
+        "muted" | "fg-muted" | "gray" => colors.fg_muted,
+        "accent" | "blue" => colors.accent,
+        "secondary" | "purple" => colors.accent_secondary,
+        "success" | "green" => colors.success,
+        "warning" | "orange" => colors.warning,
+        "error" | "red" => colors.error,
+        "info" | "cyan" => colors.info,
+        "string" => colors.syntax_string,
+        "number" => colors.syntax_number,
+        "bool" | "boolean" => colors.syntax_bool,
+        "key" => colors.syntax_key,
+        other => return parse_hex_color(other),
+    })
+}
+
 /// Background fill used for a hovered tree/data row.
 pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
     ui.visuals().widgets.hovered.bg_fill

@@ -512,10 +512,10 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
         ),
     };
 
-    let header_rows: Vec<Vec<String>> = resp
+    let header_rows: Vec<Vec<RenderNode>> = resp
         .headers
         .iter()
-        .map(|h| vec![h.key.clone(), h.value.clone()])
+        .map(|h| vec![text(&h.key), muted(&h.value)])
         .collect();
 
     let resp_tabs = RenderNode::Tabs(

@@ -1,6 +1,7 @@
 use egui::{Color32, Stroke};
 use egui_extras::{Column, TableBuilder};
 
+use crate::render_node::UiEvent;
 use crate::theme::ThemeColors;
 
 use super::TableView;
@@ -11,12 +12,17 @@ const NUM_COL_W: f32 = 44.0;
 const CELL_PAD: i8 = 10;
 
 impl TableView {
-    /// Render the grid. Returns the index of the row clicked this frame, if any.
-    pub fn show(&self, ui: &mut egui::Ui) -> Option<usize> {
+    /// Render the grid, drawing each cell node and collecting their events.
+    /// Returns the index of the row clicked this frame, if any.
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) -> Option<usize> {
         let colors = ThemeColors::from_ctx(ui.ctx());
 
-        let num_cols = self.headers.len().max(1);
+        let headers = self.headers.clone();
+        let num_cols = headers.len().max(1);
         let min_col_width = self.min_col_width.unwrap_or(150.0);
+        // Render cells from an owned copy so the egui_extras closures don't
+        // borrow `self`; restore afterwards so cell state persists.
+        let mut rows = std::mem::take(&mut self.rows);
 
         let grid = colors.surface;
         let header_border = colors.surface_raised;
@@ -57,7 +63,7 @@ impl TableView {
                             );
                             paint_cell_borders(ui, grid, header_border);
                         });
-                        for h in &self.headers {
+                        for h in &headers {
                             header_row.col(|ui| {
                                 ui.painter().rect_filled(ui.max_rect(), 0.0, header_bg);
                                 let (name, ty) = h.split_once("  ·  ").unwrap_or((h.as_str(), ""));
@@ -92,10 +98,8 @@ impl TableView {
                         }
                     })
                     .body(|body| {
-                        body.rows(ROW_H, self.rows.len(), |mut row| {
+                        body.rows(ROW_H, rows.len(), |mut row| {
                             let idx = row.index();
-                            let empty: Vec<String> = Vec::new();
-                            let cells = self.rows.get(idx).unwrap_or(&empty);
 
                             row.col(|ui| {
                                 let rect = ui.max_rect();
@@ -111,7 +115,6 @@ impl TableView {
 
                             let mut row_clicked = false;
                             for col in 0..num_cols {
-                                let text = cells.get(col).map(String::as_str).unwrap_or("");
                                 let (_, response) = row.col(|ui| {
                                     egui::Frame::NONE
                                         .inner_margin(egui::Margin::symmetric(CELL_PAD, 0))
@@ -122,7 +125,11 @@ impl TableView {
                                                 egui::TextStyle::Body,
                                                 egui::FontId::proportional(12.0),
                                             );
-                                            ui.label(text);
+                                            if let Some(cell) =
+                                                rows.get_mut(idx).and_then(|r| r.get_mut(col))
+                                            {
+                                                cell.show(ui, events);
+                                            }
                                         });
                                     paint_cell_borders(ui, grid, grid);
                                 });
@@ -137,6 +144,7 @@ impl TableView {
                     });
             });
 
+        self.rows = rows;
         clicked_row
     }
 }
