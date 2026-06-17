@@ -136,6 +136,10 @@ pub enum RenderNode {
     Custom(CustomWidget),
 }
 
+/// The shared, type-erased draw closure inside a [`CustomWidget`].
+#[cfg(feature = "egui")]
+type DrawFn = std::sync::Arc<std::sync::Mutex<dyn FnMut(&mut egui::Ui) + Send>>;
+
 /// A type-erased draw closure carried by [`RenderNode::Custom`].
 ///
 /// Wraps a `FnMut(&mut egui::Ui)` in an `Arc<Mutex<…>>` so [`RenderNode`] stays
@@ -143,7 +147,7 @@ pub enum RenderNode {
 /// serialized.
 #[cfg(feature = "egui")]
 #[derive(Clone)]
-pub struct CustomWidget(std::sync::Arc<std::sync::Mutex<dyn FnMut(&mut egui::Ui) + Send>>);
+pub struct CustomWidget(DrawFn);
 
 #[cfg(feature = "egui")]
 impl CustomWidget {
