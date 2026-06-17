@@ -8,9 +8,9 @@ use crate::{
 };
 use serde_json::Value;
 use thoth_plugin_sdk::components::{
-    Badge, BgColor, Button, ButtonColor, Code, CodeEditor, Column, IconButton, Input, JsonTree,
-    KeyValueList, KvEntry, List, ListItem, ListItemAction, ListItemBadge, Modal, Radio, Row,
-    Scroll, Select, SelectOption, Separator, Spinner, Split, TabAction, TableView, Tabs,
+    Align, Badge, BgColor, Button, ButtonColor, Code, CodeEditor, Column, IconButton, Input,
+    JsonTree, KeyValueList, KvEntry, List, ListItem, ListItemAction, ListItemBadge, Modal, Radio,
+    Row, Scroll, Select, SelectOption, Separator, Spinner, Split, TabAction, TableView, Tabs,
     Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
@@ -137,6 +137,7 @@ pub fn build_sidebar(st: &State) -> RenderNode {
                         .gap(6.0)
                         .padding(6.0)
                         .max_width(true)
+                        .align(Align::Fill)
                         .children(vec![
                             RenderNode::Button(
                                 Button::builder()
@@ -164,6 +165,7 @@ pub fn build_sidebar(st: &State) -> RenderNode {
                         .gap(4.0)
                         .padding(6.0)
                         .max_width(true)
+                        .align(Align::Fill)
                         .children(vec![
                             RenderNode::Input(
                                 Input::builder()
@@ -310,6 +312,7 @@ fn build_url_bar(st: &State) -> RenderNode {
             .gap(4.0)
             .padding(4.0)
             .max_width(true)
+            .align(Align::Fill)
             .children(vec![
                 RenderNode::Select(
                     Select::builder()

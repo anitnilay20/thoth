@@ -214,6 +214,18 @@ pub struct Colored {
 
 // ── Rendering ────────────────────────────────────────────────────────────────
 
+/// Does this child act as the "grow" element in a `fill` row (it expands to
+/// claim the remaining width)?
+#[cfg(feature = "egui")]
+fn is_grow(node: &RenderNode) -> bool {
+    match node {
+        RenderNode::Input(i) => i.grow,
+        RenderNode::Button(b) => b.full_width,
+        RenderNode::Spacer(_) => true,
+        _ => false,
+    }
+}
+
 #[cfg(feature = "egui")]
 impl Row {
     /// Render the row.
@@ -229,21 +241,61 @@ impl Row {
         }
         frame.show(ui, |ui| {
             if max_width {
-                ui.set_min_width(ui.available_width());
+                ui.set_width(ui.available_width());
             }
             if let Some(h) = height {
-                ui.set_min_height(h);
+                ui.set_height(h);
             }
             ui.spacing_mut().item_spacing.x = gap;
-            let layout = match align {
-                Align::End => egui::Layout::right_to_left(egui::Align::Center),
-                _ => egui::Layout::left_to_right(egui::Align::Center),
-            };
-            ui.with_layout(layout, |ui| {
-                for child in &mut self.children {
-                    child.show(ui, events);
+
+            match align {
+                Align::Start => {
+                    ui.horizontal(|ui| {
+                        for child in &mut self.children {
+                            child.show(ui, events);
+                        }
+                    });
                 }
-            });
+                Align::Center | Align::End => {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
+                        for child in self.children.iter_mut().rev() {
+                            child.show(ui, events);
+                        }
+                    });
+                }
+                Align::Fill => {
+                    // [prefix LTR…] [grow fills middle] [suffix RTL…]
+                    let grow = self.children.iter().position(is_grow);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
+                        match grow {
+                            Some(gi) => {
+                                let (prefix, rest) = self.children.split_at_mut(gi);
+                                let (grow_child, suffix) = rest.split_at_mut(1);
+                                for child in prefix {
+                                    child.show(ui, events);
+                                }
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.spacing_mut().item_spacing.x = gap;
+                                        for child in suffix.iter_mut().rev() {
+                                            child.show(ui, events);
+                                        }
+                                        grow_child[0].show(ui, events);
+                                    },
+                                );
+                            }
+                            None => {
+                                for child in &mut self.children {
+                                    child.show(ui, events);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
         });
     }
 }
@@ -265,6 +317,9 @@ impl Column {
 impl Scroll {
     /// Render the scroll area and its child.
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
+        // Claim the full available area so the scroll region fills its slot
+        // (and its content can fill it too) rather than collapsing to content.
+        ui.set_min_size(ui.available_size());
         let mut area = egui::ScrollArea::vertical();
         if let Some(h) = self.max_height {
             area = area.max_height(h);
@@ -283,35 +338,51 @@ impl Spacer {
 
 #[cfg(feature = "egui")]
 impl Split {
-    /// Render the proportional columns.
+    /// Render the proportional columns, each filling the full row height.
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         let n = self.children.len();
         if n == 0 {
             return;
         }
-        let total_gap = self.gap * (n.saturating_sub(1)) as f32;
-        let avail = (ui.available_width() - total_gap).max(0.0);
-        let weights: Vec<f32> = if self.widths.len() == n {
-            self.widths.clone()
+        let gap = self.gap;
+        let total_gap = gap * n.saturating_sub(1) as f32;
+        let available = ui.available_width();
+        let usable = (available - total_gap).max(0.0);
+
+        // Resolve per-column widths from relative weights (equal if absent).
+        let col_widths: Vec<f32> = if self.widths.len() == n {
+            let sum: f32 = self.widths.iter().copied().sum::<f32>().max(0.001);
+            self.widths.iter().map(|w| usable * (w / sum)).collect()
         } else {
-            vec![1.0; n]
+            vec![usable / n as f32; n]
         };
-        let sum: f32 = weights.iter().sum::<f32>().max(1.0);
-        let separator = self.separator;
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = self.gap;
-            for (i, child) in self.children.iter_mut().enumerate() {
-                let w = avail * (weights[i] / sum);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(w, ui.available_height()),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| child.show(ui, events),
-                );
-                if separator && i + 1 < n {
-                    ui.separator();
+
+        let sep_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
+        let cursor = ui.cursor();
+        let avail_h = ui.available_height();
+        let mut x = cursor.left();
+        let mut max_h = 0.0_f32;
+
+        for (i, child) in self.children.iter_mut().enumerate() {
+            let col_w = col_widths[i];
+            let col_rect =
+                egui::Rect::from_min_size(egui::pos2(x, cursor.top()), egui::vec2(col_w, avail_h));
+            let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(col_rect));
+            child.show(&mut child_ui, events);
+            max_h = max_h.max(child_ui.min_rect().height());
+            x += col_w;
+            if i + 1 < n {
+                if self.separator {
+                    let sep_x = x + gap / 2.0;
+                    ui.painter().line_segment(
+                        [egui::pos2(sep_x, cursor.top()), egui::pos2(sep_x, cursor.top() + avail_h)],
+                        egui::Stroke::new(1.0, sep_color),
+                    );
                 }
+                x += gap;
             }
-        });
+        }
+        ui.allocate_space(egui::vec2(available, max_h));
     }
 }
 
