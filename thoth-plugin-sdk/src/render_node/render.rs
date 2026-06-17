@@ -143,9 +143,9 @@ impl RenderNode {
                 }
             }
             RenderNode::CodeEditor(c) => {
-                // egui_code_editor doesn't surface a change flag cleanly; the
-                // edited text lives in the node's `value` for the host to read.
-                c.show(ui);
+                if c.show(ui) {
+                    emit(events, &c.id, "change", c.value.clone());
+                }
             }
             RenderNode::List(l) => {
                 if let Some(ev) = l.show(ui) {

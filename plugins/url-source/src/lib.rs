@@ -7,7 +7,7 @@ mod ui;
 
 use std::cell::RefCell;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use bindings::exports::thoth::plugin::{
     data_source::{
@@ -345,16 +345,19 @@ impl DataSourceGuest for UrlSourcePlugin {
         STATE.with(|s| {
             let st = s.borrow();
             Ok(PaneOutput {
-                node_json: build_pane_node(&st).to_string(),
+                node_json: serde_json::to_string(&build_pane_node(&st)).unwrap_or_default(),
                 height_hint: 0,
             })
         })
     }
 }
 
-/// Build a RenderNode tree (JSON) for the main pane.
-fn build_pane_node(_st: &State) -> Value {
-    json!({})
+/// Build a RenderNode tree for the main pane. (Currently unused — the UI lives
+/// in the ui-component surface; render_pane returns an empty column.)
+fn build_pane_node(_st: &State) -> thoth_plugin_sdk::render_node::RenderNode {
+    thoth_plugin_sdk::render_node::RenderNode::Column(
+        thoth_plugin_sdk::components::Column::builder().build(),
+    )
 }
 
 /// Persist the current list of saved requests to plugin storage.
@@ -855,12 +858,13 @@ impl TabHostGuest for UrlSourcePlugin {
 
 impl SettingsGuest for UrlSourcePlugin {
     fn render_settings() -> Result<SettingsOutput, PluginError> {
+        let node = thoth_plugin_sdk::render_node::RenderNode::Text(
+            thoth_plugin_sdk::components::Typography::builder()
+                .text("URL Source is configured per-request in its panel.")
+                .build(),
+        );
         Ok(SettingsOutput {
-            node_json: json!({
-                "type": "text",
-                "value": "",
-            })
-            .to_string(),
+            node_json: serde_json::to_string(&node).unwrap_or_default(),
             height_hint: 0,
         })
     }

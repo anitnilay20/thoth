@@ -35,7 +35,8 @@ pub struct CodeEditor {
 #[cfg(feature = "egui")]
 impl CodeEditor {
     /// Render the editor, editing [`value`](CodeEditor::value) in place.
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    /// Returns `true` when the text changed this frame.
+    pub fn show(&mut self, ui: &mut egui::Ui) -> bool {
         use egui_code_editor::{CodeEditor as Editor, ColorTheme, Syntax};
         let syntax = match self.syntax.as_deref() {
             Some("rust") => Syntax::rust(),
@@ -54,7 +55,10 @@ impl CodeEditor {
                 .with_fontsize(self.font_size.unwrap_or(13.0))
                 .with_theme(ColorTheme::GRUVBOX)
                 .with_syntax(syntax)
-                .show(ui, &mut self.value);
-        });
+                .show(ui, &mut self.value)
+                .response
+                .changed()
+        })
+        .inner
     }
 }

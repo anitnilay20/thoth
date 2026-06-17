@@ -6943,6 +6943,7 @@ dependencies = [
  "base64",
  "serde",
  "serde_json",
+ "thoth-plugin-sdk",
  "wit-bindgen-rt",
 ]
 

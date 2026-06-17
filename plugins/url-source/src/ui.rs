@@ -6,502 +6,538 @@ use crate::{
     http::build_request,
     KvPair, ResponseState, State,
 };
-use serde_json::{json, Value};
-
-pub fn build_ui(st: &State) -> Value {
-    // Two-column split: request form | response
-    // (saved-requests panel lives in the host sidebar via render_sidebar)
-    json!({
-        "type": "column",
-        "gap": 0,
-        "children": [
-            build_url_bar(st),
-            {"type": "separator"},
-            {
-                "type": "split",
-                "gap": 0,
-                "separator": true,
-                "children": [
-                    build_request_column(st),
-                    build_response_column(st)
-                ]
-            },
-            // Export cURL modal (opened by the code icon on the request tabs line).
-            curl_export_modal(st)
-        ]
-    })
-}
-
-fn method_badge_color(method: &str) -> &'static str {
-    match method {
-        "GET" => "blue",
-        "POST" => "green",
-        "PUT" => "orange",
-        "PATCH" => "orange",
-        "DELETE" => "red",
-        "HEAD" => "purple",
-        "OPTIONS" => "purple",
-        _ => "gray",
-    }
-}
+use serde_json::Value;
+use thoth_plugin_sdk::components::{
+    Badge, BgColor, Button, ButtonColor, Code, CodeEditor, Column, IconButton, Input, JsonTree,
+    KeyValueList, KvEntry, List, ListItem, ListItemAction, ListItemBadge, Modal, Radio, Row,
+    Scroll, Select, SelectOption, Separator, Spinner, Split, TabAction, TableView, Tabs,
+    Typography, TypographyVariant,
+};
+use thoth_plugin_sdk::render_node::RenderNode;
 
 // egui_phosphor::regular glyphs
 const ICON_PLUS: &str = "\u{E3D4}"; // PLUS
 const ICON_CODE: &str = "\u{E1BC}"; // CODE (export cURL)
 const ICON_DOWNLOAD: &str = "\u{E20C}"; // DOWNLOAD_SIMPLE (import cURL)
 
+// ── Small helpers ──────────────────────────────────────────────────────────
+
+/// `#rrggbb` badge colour for an HTTP method.
+fn method_badge_hex(method: &str) -> &'static str {
+    match method {
+        "GET" => "#89b4fa",
+        "POST" => "#a6e3a1",
+        "PUT" | "PATCH" => "#fab387",
+        "DELETE" => "#f38ba8",
+        "HEAD" | "OPTIONS" => "#cba6f7",
+        _ => "#9399b2",
+    }
+}
+
+/// Convert the plugin's `KvPair`s into SDK `KvEntry`s.
+fn to_entries(pairs: &[KvPair]) -> Vec<KvEntry> {
+    pairs
+        .iter()
+        .map(|p| {
+            KvEntry::builder()
+                .key(p.key.clone())
+                .value(p.value.clone())
+                .enabled(p.enabled)
+                .build()
+        })
+        .collect()
+}
+
+/// Plain text node.
+fn text(value: &str) -> RenderNode {
+    RenderNode::Text(Typography::builder().text(value).build())
+}
+
+/// Muted text node.
+fn muted(value: &str) -> RenderNode {
+    RenderNode::Text(
+        Typography::builder()
+            .text(value)
+            .variant(TypographyVariant::BodyMuted)
+            .build(),
+    )
+}
+
+/// An elevated button node.
+fn btn(id: &str, label: &str, enabled: bool, color: ButtonColor) -> RenderNode {
+    RenderNode::Button(
+        Button::builder()
+            .id(id)
+            .label(label)
+            .color(color)
+            .enabled(enabled)
+            .build(),
+    )
+}
+
+// ── Main request/response view ──────────────────────────────────────────────
+
+pub fn build_ui(st: &State) -> RenderNode {
+    RenderNode::Column(
+        Column::builder()
+            .gap(0.0)
+            .children(vec![
+                build_url_bar(st),
+                RenderNode::Separator(Separator::plain()),
+                RenderNode::Split(
+                    Split::builder()
+                        .gap(0.0)
+                        .separator(true)
+                        .children(vec![build_request_column(st), build_response_column(st)])
+                        .build(),
+                ),
+                curl_export_modal(st),
+            ])
+            .build(),
+    )
+}
+
 /// Rendered by the host in its sidebar panel.
-pub fn build_sidebar(st: &State) -> Value {
-    let list_items: Vec<Value> = st
+pub fn build_sidebar(st: &State) -> RenderNode {
+    let items: Vec<ListItem> = st
         .saved_requests
         .iter()
         .map(|req| {
-            json!({
-                "title": req.name,
-                "description": req.url,
-                "badge": {
-                    "text": req.method,
-                    "color": method_badge_color(&req.method)
-                },
-                "actions": [{"icon": "x", "tooltip": "Delete"}]
-            })
+            ListItem::builder()
+                .title(req.name.clone())
+                .description(req.url.clone())
+                .badge(
+                    ListItemBadge::builder()
+                        .text(req.method.clone())
+                        .color(method_badge_hex(&req.method))
+                        .build(),
+                )
+                .actions(vec![ListItemAction::builder().icon("x").tooltip("Delete").build()])
+                .build()
         })
         .collect();
 
-    json!({
-        "type": "column",
-        "gap": 0,
-        "children": [
-            {
-                "type": "row",
-                "padding": 6,
-                "children": [
-                    {"type": "heading", "value": "COLLECTIONS", "panel": true}
-                ]
-            },
-            {
-                "type": "row",
-                "gap": 6,
-                "align": "fill",
-                "padding": 6,
-                "children": [
-                    {
-                        "type": "button",
-                        "id": "open-new-tab",
-                        "props": {
-                            "label": "New Request",
-                            "button-type": "Elevated",
-                            "color": "Primary",
-                            "enabled": true,
-                            "icon": ICON_PLUS,
-                            "full-width": true
-                        }
-                    },
-                    {
-                        "type": "icon-button",
-                        "id": "import-curl",
-                        "icon": ICON_DOWNLOAD,
-                        "tooltip": "Import cURL",
-                        "frame": true,
-                        "button-size": "Medium"
-                    }
-                ]
-            },
-            {"type": "separator"},
-            {
-                "type": "row",
-                "gap": 4,
-                "align": "fill",
-                "padding": 6,
-                "children": [
-                    {
-                        "type": "text-input",
-                        "id": "request-name",
-                        "value": st.request_name,
-                        "placeholder": "Request name",
-                        "label": "",
-                        "grow": true
-                    },
-                    btn_elevated("save", "Save", !st.url.is_empty(), "Default")
-                ]
-            },
-            {"type": "separator"},
-            {
-                "type": "list",
-                "id": "saved-requests",
-                "items": list_items,
-                "empty-label": "No saved requests"
-            },
-            // Import cURL modal (opened by the download icon next to New Request).
-            curl_import_modal(st),
-        ]
-    })
+    RenderNode::Column(
+        Column::builder()
+            .gap(0.0)
+            .children(vec![
+                RenderNode::Row(
+                    Row::builder()
+                        .padding(6.0)
+                        .children(vec![RenderNode::Text(
+                            Typography::builder()
+                                .text("COLLECTIONS")
+                                .variant(TypographyVariant::PanelHeader)
+                                .build(),
+                        )])
+                        .build(),
+                ),
+                RenderNode::Row(
+                    Row::builder()
+                        .gap(6.0)
+                        .padding(6.0)
+                        .max_width(true)
+                        .children(vec![
+                            RenderNode::Button(
+                                Button::builder()
+                                    .id("open-new-tab")
+                                    .label("New Request")
+                                    .color(ButtonColor::Primary)
+                                    .icon(ICON_PLUS)
+                                    .full_width(true)
+                                    .build(),
+                            ),
+                            RenderNode::IconButton(
+                                IconButton::builder()
+                                    .id("import-curl")
+                                    .icon(ICON_DOWNLOAD)
+                                    .tooltip("Import cURL")
+                                    .frame(true)
+                                    .build(),
+                            ),
+                        ])
+                        .build(),
+                ),
+                RenderNode::Separator(Separator::plain()),
+                RenderNode::Row(
+                    Row::builder()
+                        .gap(4.0)
+                        .padding(6.0)
+                        .max_width(true)
+                        .children(vec![
+                            RenderNode::Input(
+                                Input::builder()
+                                    .id("request-name")
+                                    .value(st.request_name.clone())
+                                    .placeholder("Request name")
+                                    .grow(true)
+                                    .build(),
+                            ),
+                            btn("save", "Save", !st.url.is_empty(), ButtonColor::Default),
+                        ])
+                        .build(),
+                ),
+                RenderNode::Separator(Separator::plain()),
+                RenderNode::List(
+                    List::builder()
+                        .id("saved-requests")
+                        .items(items)
+                        .empty_label("No saved requests")
+                        .build(),
+                ),
+                curl_import_modal(st),
+            ])
+            .build(),
+    )
 }
 
-/// The "Import cURL" modal — shared shape, rendered in the sidebar.
-fn curl_import_modal(st: &State) -> Value {
-    json!({
-        "type": "modal",
-        "id": "import-modal",
-        "title": "Import cURL",
-        "open": st.show_import_modal,
-        "close-id": "close-import",
-        "width-pct": 0.7,
-        "height-pct": 0.7,
-        "children": [
-            {
-                "type": "text-input",
-                "id": "curl-import-input",
-                "value": st.curl_import_input,
-                "placeholder": "Paste cURL command here…",
-                "label": "cURL command",
-                "multiline": true,
-                "rows": 10
-            },
-            btn_elevated("curl-import-submit", "Import", !st.curl_import_input.is_empty(), "Default")
-        ]
-    })
+fn curl_import_modal(st: &State) -> RenderNode {
+    RenderNode::Modal(Box::new(
+        Modal::builder()
+            .id("import-modal")
+            .title("Import cURL")
+            .open(st.show_import_modal)
+            .close_id("close-import")
+            .width_pct(0.7)
+            .height_pct(0.7)
+            .children(vec![
+                RenderNode::Input(
+                    Input::builder()
+                        .id("curl-import-input")
+                        .value(st.curl_import_input.clone())
+                        .label("cURL command")
+                        .placeholder("Paste cURL command here…")
+                        .multiline(true)
+                        .rows(10)
+                        .build(),
+                ),
+                btn(
+                    "curl-import-submit",
+                    "Import",
+                    !st.curl_import_input.is_empty(),
+                    ButtonColor::Default,
+                ),
+            ])
+            .build(),
+    ))
 }
 
-/// The "Export cURL" modal — rendered in the request tab (build_ui), reflecting
-/// the current request.
-fn curl_export_modal(st: &State) -> Value {
-    let curl_command = crate::build_curl_command(st);
-    json!({
-        "type": "modal",
-        "id": "export-modal",
-        "title": "Export cURL",
-        "open": st.show_export_modal,
-        "close-id": "close-export",
-        "width-pct": 0.7,
-        "height-pct": 0.7,
-        "children": [
-            {
-                "type": "text-input",
-                "id": "curl-output",
-                "value": curl_command,
-                "label": "cURL command",
-                "placeholder": "",
-                "multiline": true,
-                "rows": 10
-            },
-            {
-                "type": "button",
-                "id": "",
-                "copy": curl_command,
-                "props": {
-                    "label": "Copy to Clipboard",
-                    "button-type": "Elevated",
-                    "color": "Default",
-                    "enabled": true
-                }
-            }
-        ]
-    })
+fn curl_export_modal(st: &State) -> RenderNode {
+    let curl = crate::build_curl_command(st);
+    RenderNode::Modal(Box::new(
+        Modal::builder()
+            .id("export-modal")
+            .title("Export cURL")
+            .open(st.show_export_modal)
+            .close_id("close-export")
+            .width_pct(0.7)
+            .height_pct(0.7)
+            .children(vec![
+                RenderNode::Input(
+                    Input::builder()
+                        .id("curl-output")
+                        .value(curl.clone())
+                        .label("cURL command")
+                        .multiline(true)
+                        .rows(10)
+                        .build(),
+                ),
+                RenderNode::Button(
+                    Button::builder()
+                        .label("Copy to Clipboard")
+                        .copy(curl)
+                        .build(),
+                ),
+            ])
+            .build(),
+    ))
 }
 
-fn build_request_column(st: &State) -> Value {
-    json!({
-        "type": "scroll",
-        "id": "request_column",
-        "child": {
-            "type": "column",
-            "gap": 6,
-            "children": [build_req_tabs(st)]
-        }
-    })
+fn build_request_column(st: &State) -> RenderNode {
+    RenderNode::Scroll(
+        Scroll::builder()
+            .child(RenderNode::Column(
+                Column::builder().gap(6.0).children(vec![build_req_tabs(st)]).build(),
+            ))
+            .build(),
+    )
 }
 
-fn build_response_column(st: &State) -> Value {
+fn build_response_column(st: &State) -> RenderNode {
     if st.loading {
         let label = if st.consent_pending {
             "Waiting for consent approval…"
         } else {
             "Sending request…"
         };
-        return json!({
-            "type":      "row",
-            "bg-color":  "mantle",
-            "max-width": true,
-            "padding":   10,
-            "gap":       8,
-            "children": [
-                {"type": "spinner", "size": 14},
-                {"type": "text", "value": label, "muted": true}
-            ]
-        });
+        return RenderNode::Row(
+            Row::builder()
+                .bg_color(BgColor::BgPanel)
+                .max_width(true)
+                .padding(10.0)
+                .gap(8.0)
+                .children(vec![
+                    RenderNode::Spinner(Spinner::builder().size(14.0).build()),
+                    muted(label),
+                ])
+                .build(),
+        );
     }
 
     if let Some(resp) = &st.response {
-        json!({
-            "type": "scroll",
-            "id": "response_column",
-            "child": build_response_panel(st, resp)
-        })
+        RenderNode::Scroll(Scroll::builder().child(build_response_panel(resp)).build())
     } else {
-        json!({
-            "type": "row",
-            "bg-color": "mantle",
-            "max-width": true,
-            "height": 20,
-            "padding": 10,
-            "children": [{
-                "type": "text",
-                "value": "Send a request to see the response here.",
-            }]
-        })
+        RenderNode::Row(
+            Row::builder()
+                .bg_color(BgColor::BgPanel)
+                .max_width(true)
+                .height(20.0)
+                .padding(10.0)
+                .children(vec![text("Send a request to see the response here.")])
+                .build(),
+        )
     }
 }
 
-fn build_url_bar(st: &State) -> Value {
-    // Method dropdown
-    let method_options: Vec<Value> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+fn build_url_bar(st: &State) -> RenderNode {
+    let method_options: Vec<SelectOption> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
         .iter()
-        .map(|m| json!({ "value": m, "label": m }))
+        .map(|m| SelectOption::builder().value(*m).label(*m).build())
         .collect();
 
-    // Visual order: [Method ▾ | URL(grow) | Clear | Send]
-    // Fill layout: prefix items render LTR, then RTL sub-layout for suffix+grow.
-    json!({
-        "type":  "row",
-        "gap":   4,
-        "align": "fill",
-        "padding": 4,
-        "children": [
-            {
-                "type":    "select",
-                "id":      "method",
-                "label":   "",
-                "value":   st.method,
-                "options": method_options,
-                "width":   96
-            },
-            {
-                "type":        "text-input",
-                "id":          "url",
-                "value":       st.url,
-                "placeholder": "https://api.example.com/endpoint",
-                "label":       "",
-                "grow":        true,
-                "required":    true
-            },
-            btn_elevated("clear", "Clear", true, "Danger"),
-            btn_elevated("send", "⚡ Send", !st.url.is_empty(), "Primary"),
-        ]
-    })
+    RenderNode::Row(
+        Row::builder()
+            .gap(4.0)
+            .padding(4.0)
+            .max_width(true)
+            .children(vec![
+                RenderNode::Select(
+                    Select::builder()
+                        .id("method")
+                        .value(st.method.clone())
+                        .options(method_options)
+                        .width(96.0)
+                        .build(),
+                ),
+                RenderNode::Input(
+                    Input::builder()
+                        .id("url")
+                        .value(st.url.clone())
+                        .placeholder("https://api.example.com/endpoint")
+                        .grow(true)
+                        .required(true)
+                        .build(),
+                ),
+                btn("clear", "Clear", true, ButtonColor::Danger),
+                btn("send", "⚡ Send", !st.url.is_empty(), ButtonColor::Primary),
+            ])
+            .build(),
+    )
 }
 
-fn build_req_tabs(st: &State) -> Value {
-    // The `tabs` DSL node embeds all tab content as children.
-    // The host tracks the active tab index in egui memory — the plugin no longer
-    // needs to manage `active_tab` for rendering.  A "change" event is emitted
-    // with the selected header label so the plugin can still react (e.g. Body
-    // tab → auto-promote method to POST).
-    json!({
-        "type":   "tabs",
-        "id":     "req-tabs",
-        "header": ["Params", "Auth", "Headers", "Body"],
-        "actions": [
-            {"id": "export-curl", "icon": ICON_CODE, "tooltip": "Export cURL"}
-        ],
-        "children": [
-            // ── Params ──────────────────────────────────────────────────────
-            {
-                "type":      "key-value-list",
-                "id":        "params",
-                "label":     "",
-                "entries":   st.params,
-                "add-label": "Add param"
-            },
-            // ── Auth ────────────────────────────────────────────────────────
-            build_auth_panel(st),
-            // ── Headers ─────────────────────────────────────────────────────
-            {
-                "type":      "key-value-list",
-                "id":        "headers",
-                "label":     "",
-                "entries":   st.req_headers,
-                "add-label": "Add header"
-            },
-            // ── Body ────────────────────────────────────────────────────────
-            {
-                "type":     "code-editor",
-                "id":       "body",
-                "value":    st.body,
-                "disabled": !is_body_method(&st.method)
-            }
-        ]
-    })
+fn build_req_tabs(st: &State) -> RenderNode {
+    RenderNode::Tabs(
+        Tabs::builder()
+            .id("req-tabs")
+            .headers(vec![
+                "Params".to_string(),
+                "Auth".to_string(),
+                "Headers".to_string(),
+                "Body".to_string(),
+            ])
+            .actions(vec![TabAction::builder()
+                .id("export-curl")
+                .icon(ICON_CODE)
+                .tooltip("Export cURL")
+                .build()])
+            .children(vec![
+                RenderNode::KeyValueList(
+                    KeyValueList::builder()
+                        .id("params")
+                        .entries(to_entries(&st.params))
+                        .add_label("Add param")
+                        .build(),
+                ),
+                build_auth_panel(st),
+                RenderNode::KeyValueList(
+                    KeyValueList::builder()
+                        .id("headers")
+                        .entries(to_entries(&st.req_headers))
+                        .add_label("Add header")
+                        .build(),
+                ),
+                RenderNode::CodeEditor(
+                    CodeEditor::builder()
+                        .id("body")
+                        .value(st.body.clone())
+                        .disabled(!is_body_method(&st.method))
+                        .build(),
+                ),
+            ])
+            .build(),
+    )
 }
 
-fn build_auth_panel(st: &State) -> Value {
-    let type_opts: Vec<Value> = vec![
-        json!({"value": "none",    "label": "No Auth"}),
-        json!({"value": "bearer",  "label": "Bearer Token"}),
-        json!({"value": "basic",   "label": "Basic Auth"}),
-        json!({"value": "api-key", "label": "API Key"}),
+fn build_auth_panel(st: &State) -> RenderNode {
+    let type_opts = vec![
+        SelectOption::builder().value("none").label("No Auth").build(),
+        SelectOption::builder().value("bearer").label("Bearer Token").build(),
+        SelectOption::builder().value("basic").label("Basic Auth").build(),
+        SelectOption::builder().value("api-key").label("API Key").build(),
     ];
 
-    let mut rows: Vec<Value> = vec![json!({
-        "type":    "radio",
-        "id":      "auth-type",
-        "label":   "Auth Type",
-        "value":   st.auth_type,
-        "options": type_opts
-    })];
+    let mut rows: Vec<RenderNode> = vec![RenderNode::Radio(
+        Radio::builder()
+            .id("auth-type")
+            .label("Auth Type")
+            .value(st.auth_type.clone())
+            .options(type_opts)
+            .build(),
+    )];
+
+    let password = |id: &str, label: &str, value: &str| {
+        RenderNode::Input(
+            Input::builder()
+                .id(id)
+                .label(label)
+                .value(value.to_string())
+                .password(true)
+                .build(),
+        )
+    };
+    let field = |id: &str, label: &str, value: &str, placeholder: &str| {
+        RenderNode::Input(
+            Input::builder()
+                .id(id)
+                .label(label)
+                .value(value.to_string())
+                .placeholder(placeholder.to_string())
+                .build(),
+        )
+    };
 
     match st.auth_type.as_str() {
-        "bearer" => rows.push(json!({
-            "type":  "password-input",
-            "id":    "auth-token",
-            "label": "Token",
-            "value": st.auth_token
-        })),
-
+        "bearer" => rows.push(password("auth-token", "Token", &st.auth_token)),
         "basic" => {
-            rows.push(json!({
-                "type":  "text-input",
-                "id":    "auth-username",
-                "label": "Username",
-                "value": st.auth_username
-            }));
-            rows.push(json!({
-                "type":  "password-input",
-                "id":    "auth-password",
-                "label": "Password",
-                "value": st.auth_password
-            }));
+            rows.push(field("auth-username", "Username", &st.auth_username, ""));
+            rows.push(password("auth-password", "Password", &st.auth_password));
         }
-
         "api-key" => {
-            rows.push(json!({
-                "type":    "radio",
-                "id":      "auth-key-in",
-                "label":   "Add Key To",
-                "value":   st.auth_key_in,
-                "options": [
-                    {"value": "header", "label": "Header"},
-                    {"value": "query",  "label": "Query Params"}
-                ]
-            }));
-            rows.push(json!({
-                "type":        "text-input",
-                "id":          "auth-key-name",
-                "label":       "Key Name",
-                "value":       st.auth_key_name,
-                "placeholder": if st.auth_key_in == "header" { "X-API-Key" } else { "api_key" }
-            }));
-            rows.push(json!({
-                "type":  "password-input",
-                "id":    "auth-key-value",
-                "label": "Value",
-                "value": st.auth_key_value
-            }));
+            rows.push(RenderNode::Radio(
+                Radio::builder()
+                    .id("auth-key-in")
+                    .label("Add Key To")
+                    .value(st.auth_key_in.clone())
+                    .options(vec![
+                        SelectOption::builder().value("header").label("Header").build(),
+                        SelectOption::builder().value("query").label("Query Params").build(),
+                    ])
+                    .build(),
+            ));
+            let ph = if st.auth_key_in == "header" { "X-API-Key" } else { "api_key" };
+            rows.push(field("auth-key-name", "Key Name", &st.auth_key_name, ph));
+            rows.push(password("auth-key-value", "Value", &st.auth_key_value));
         }
-
-        _ => {} // none
+        _ => {}
     }
 
-    json!({"type": "column", "gap": 8, "children": rows})
+    RenderNode::Column(Column::builder().gap(8.0).children(rows).build())
 }
 
-fn build_response_panel(_st: &State, resp: &ResponseState) -> Value {
-    let is_error = resp.error.is_some();
-    let (color, status_label) = if is_error {
-        ("#ef4444", "Error".to_string())
+fn build_response_panel(resp: &ResponseState) -> RenderNode {
+    let (color, status_label) = if resp.error.is_some() {
+        ("#ef4444".to_string(), "Error".to_string())
     } else {
         (
-            status_color(resp.status),
+            status_color(resp.status).to_string(),
             format!("{} {}", resp.status, status_text(resp.status)),
         )
     };
 
-    // Status bar: badge + optional time + size
-    let mut status_children = vec![json!({"type": "badge", "label": status_label, "color": color})];
+    let mut status_children: Vec<RenderNode> = vec![RenderNode::Badge(
+        Badge::builder().label(status_label).color(color).build(),
+    )];
     if let Some(ms) = resp.duration_ms {
-        let time_label = if ms < 1000 {
+        let t = if ms < 1000 {
             format!("{ms} ms")
         } else {
             format!("{:.2} s", ms as f64 / 1000.0)
         };
-        status_children.push(json!({"type": "text", "value": time_label, "muted": true}));
+        status_children.push(muted(&t));
     }
     if resp.size_bytes > 0 {
-        let size_label = if resp.size_bytes < 1024 {
+        let s = if resp.size_bytes < 1024 {
             format!("{} B", resp.size_bytes)
         } else if resp.size_bytes < 1024 * 1024 {
             format!("{:.1} KB", resp.size_bytes as f64 / 1024.0)
         } else {
             format!("{:.1} MB", resp.size_bytes as f64 / (1024.0 * 1024.0))
         };
-        status_children.push(json!({"type": "text", "value": size_label, "muted": true}));
+        status_children.push(muted(&s));
     }
-    let status_row = json!({
-        "type":      "row",
-        "bg-color":  "mantle",
-        "max-width": true,
-        "height":    20,
-        "padding":   10,
-        "gap":       8,
-        "children":  status_children
-    });
+    let status_row = RenderNode::Row(
+        Row::builder()
+            .bg_color(BgColor::BgPanel)
+            .max_width(true)
+            .height(20.0)
+            .padding(10.0)
+            .gap(8.0)
+            .children(status_children)
+            .build(),
+    );
 
-    // Error: show the message wrapped in a padded text block, no response tabs.
     if let Some(err) = &resp.error {
-        return json!({
-            "type": "column",
-            "gap":  0,
-            "children": [
-                status_row,
-                {
-                    "type":      "row",
-                    "bg-color":  "base",
-                    "max-width": true,
-                    "padding":   10,
-                    "children": [{
-                        "type":  "text",
-                        "value": err,
-                        "muted": false
-                    }]
-                }
-            ]
-        });
+        return RenderNode::Column(
+            Column::builder()
+                .gap(0.0)
+                .children(vec![
+                    status_row,
+                    RenderNode::Row(
+                        Row::builder()
+                            .bg_color(BgColor::Bg)
+                            .max_width(true)
+                            .padding(10.0)
+                            .children(vec![text(err)])
+                            .build(),
+                    ),
+                ])
+                .build(),
+        );
     }
 
-    // Use the pre-parsed JSON from ResponseState if available; avoids re-parsing on every frame.
-    let pretty_node = match &resp.parsed_body {
-        Some(val) => json!({"type": "json-tree", "value": val}),
-        None => json!({"type": "code", "value": resp.body, "language": "text"}),
+    let pretty = match &resp.parsed_body {
+        Some(val) => RenderNode::JsonTree(JsonTree::builder().value(val.clone()).build()),
+        None => RenderNode::Code(
+            Code::builder().value(resp.body.clone()).language("text").build(),
+        ),
     };
 
-    let resp_tabs = json!({
-        "type":   "tabs",
-        "id":     "resp-tabs",
-        "header": ["Pretty", "Raw", "Headers"],
-        "children": [
-            pretty_node,
-            {"type": "code", "value": resp.body, "language": "json"},
-            {
-                "type":    "table",
-                "headers": ["Header", "Value"],
-                "rows": resp.headers.iter().map(|h| {
-                    vec![
-                        json!({"type": "text", "value": h.key,   "muted": false}),
-                        json!({"type": "text", "value": h.value, "muted": true }),
-                    ]
-                }).collect::<Vec<_>>()
-            }
-        ]
-    });
+    let header_rows: Vec<Vec<String>> = resp
+        .headers
+        .iter()
+        .map(|h| vec![h.key.clone(), h.value.clone()])
+        .collect();
 
-    json!({
-        "type": "column",
-        "gap":  0,
-        "children": [
-            status_row,
-            resp_tabs
-        ]
-    })
+    let resp_tabs = RenderNode::Tabs(
+        Tabs::builder()
+            .id("resp-tabs")
+            .headers(vec!["Pretty".to_string(), "Raw".to_string(), "Headers".to_string()])
+            .children(vec![
+                pretty,
+                RenderNode::Code(
+                    Code::builder().value(resp.body.clone()).language("json").build(),
+                ),
+                RenderNode::Table(
+                    TableView::builder()
+                        .headers(vec!["Header".to_string(), "Value".to_string()])
+                        .rows(header_rows)
+                        .build(),
+                ),
+            ])
+            .build(),
+    );
+
+    RenderNode::Column(Column::builder().gap(0.0).children(vec![status_row, resp_tabs]).build())
 }
 
 // =============================================================================
@@ -509,12 +545,8 @@ fn build_response_panel(_st: &State, resp: &ResponseState) -> Value {
 // =============================================================================
 
 /// Called when the host delivers an async HTTP result via handle_event with
-/// kind="http-response".  value is JSON:
-///   {"ok":{"status":200,"headers":[["k","v"]],"body":"..."}}
-///   {"err":{"code":1,"message":"..."}}
+/// kind="http-response".
 fn handle_http_response(st: &mut State, event: &UiEvent) {
-    // Ignore responses that don't match the current in-flight request so that
-    // a slow earlier request can't overwrite a newer one's result.
     if st.pending_request_id.as_deref() != Some(event.widget_id.as_str()) {
         return;
     }
@@ -532,9 +564,6 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
         }
     };
 
-    // Consent-pending sentinel: keep loading state and spinner visible.
-    // Check the structured code first; fall back to message substring for
-    // compatibility with older host versions that don't emit the code field.
     let is_consent_pending = val
         .get("err")
         .and_then(|e| e.get("code"))
@@ -549,7 +578,6 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
         });
     if is_consent_pending {
         st.consent_pending = true;
-        // loading stays true, pending_request_id stays set
         return;
     }
 
@@ -560,11 +588,7 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
 
     if let Some(ok) = val.get("ok") {
         let status = ok.get("status").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-        let body_raw = ok
-            .get("body")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let body_raw = ok.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let headers: Vec<KvPair> = ok
             .get("headers")
             .and_then(|v| v.as_array())
@@ -583,8 +607,6 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             .unwrap_or_default();
         let duration_ms = ok.get("duration_ms").and_then(|v| v.as_u64());
         let size_bytes = body_raw.len();
-        // Parse JSON once; reuse the Value for pretty-printing and store it
-        // so build_response_panel doesn't have to re-parse on every frame.
         let (body, parsed_body) = match serde_json::from_str::<Value>(&body_raw) {
             Ok(v) => {
                 let pretty = serde_json::to_string_pretty(&v).unwrap_or(body_raw.clone());
@@ -619,7 +641,6 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
 // =============================================================================
 
 pub fn apply_event(st: &mut State, event: &UiEvent) {
-    // HTTP response delivered asynchronously by the host.
     if event.kind == "http-response" {
         handle_http_response(st, event);
         return;
@@ -634,9 +655,6 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
             parse_url_into_state(st, raw);
         }
 
-        // req-tabs emits a "change" event with the header label when switched.
-        // We only need to react to "Body" — auto-promote method so the editor
-        // becomes enabled.
         "req-tabs" if parse_str(&event.value) == "Body" && !is_body_method(&st.method) => {
             st.method = "POST".to_string();
         }
@@ -658,26 +676,9 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
             let request_id = http_client::submit(&req);
             st.pending_request_id = Some(request_id);
             st.loading = true;
-            st.response = None; // clear previous response while loading
+            st.response = None;
         }
 
         _ => {}
     }
-}
-
-// ── Button helpers ────────────────────────────────────────────────────────────
-// Maps the old variant/enabled pattern to the new ButtonProps JSON shape.
-
-/// Elevated (filled) button. Use for primary actions and active tab state.
-fn btn_elevated(id: &str, label: &str, enabled: bool, color: &str) -> Value {
-    json!({
-        "type": "button",
-        "id":   id,
-        "props": {
-            "label":       label,
-            "button-type": "Elevated",
-            "color":       color,
-            "enabled":     enabled
-        }
-    })
 }
