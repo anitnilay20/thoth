@@ -25,8 +25,9 @@ mod render;
 use serde::{Deserialize, Serialize};
 
 use crate::components::{
-    Badge, Breadcrumbs, Button, ButtonGroups, DataRow, Icon, IconButton, Input, JsonTree, Link,
-    Modal, Progress, Select, Separator, SidebarHeader, Spinner, TableView, ToggleSwitch, Typography,
+    Badge, Breadcrumbs, Button, ButtonGroups, Checkbox, DataRow, Icon, IconButton, Input, JsonTree,
+    KeyValueList, Link, Modal, MultiSelect, NumberInput, Progress, Radio, Select, Separator,
+    SidebarHeader, Slider, Spinner, TableView, ToggleSwitch, Typography,
 };
 
 /// A node in the Thoth UI tree.
@@ -168,6 +169,18 @@ pub enum RenderNode {
     /// A [`Modal`] overlay dialog. Boxed because `Modal` itself holds a
     /// `RenderNode` body (breaks the recursive-size cycle).
     Modal(Box<Modal>),
+    /// A [`Checkbox`].
+    Checkbox(Checkbox),
+    /// A [`Slider`].
+    Slider(Slider),
+    /// A numeric [`NumberInput`].
+    NumberInput(NumberInput),
+    /// A [`Radio`] group.
+    Radio(Radio),
+    /// A [`MultiSelect`] checkbox list.
+    MultiSelect(MultiSelect),
+    /// An editable [`KeyValueList`].
+    KeyValueList(KeyValueList),
 
     /// An arbitrary host-drawn widget — the UI-path escape hatch. Never
     /// serialized (the DSL can't express arbitrary code), so it only exists in

@@ -186,6 +186,24 @@ impl RenderNode {
             RenderNode::Modal(m) => {
                 m.as_ref().clone().show(ui);
             }
+            RenderNode::Checkbox(c) => {
+                c.show(ui);
+            }
+            RenderNode::Slider(s) => {
+                s.show(ui);
+            }
+            RenderNode::NumberInput(n) => {
+                n.show(ui);
+            }
+            RenderNode::Radio(r) => {
+                r.show(ui);
+            }
+            RenderNode::MultiSelect(m) => {
+                m.show(ui);
+            }
+            RenderNode::KeyValueList(k) => {
+                k.show(ui);
+            }
 
             // ── Escape hatch ─────────────────────────────────────────────────
             RenderNode::Custom(c) => c.show(ui),
