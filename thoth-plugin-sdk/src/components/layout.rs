@@ -12,6 +12,58 @@ use crate::render_node::RenderNode;
 #[cfg(feature = "egui")]
 use crate::render_node::UiEvent;
 
+/// Cross-axis alignment of a [`Row`]'s children.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Align {
+    /// Pack at the start (left).
+    #[default]
+    Start,
+    /// Center within available width.
+    Center,
+    /// Pack at the end (right).
+    End,
+    /// Distribute to fill the available width (prefix LTR, suffix RTL).
+    Fill,
+}
+
+/// A semantic background-fill token, resolved against the active theme.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BgColor {
+    /// No fill (transparent) — the default.
+    #[default]
+    None,
+    /// Main app background (`bg`).
+    Bg,
+    /// Secondary panel background (`bg-panel`).
+    BgPanel,
+    /// Deepest inset background (`bg-sunken`).
+    BgSunken,
+    /// Resting widget surface (`surface`).
+    Surface,
+    /// Raised/hover surface (`surface-raised`).
+    SurfaceRaised,
+    /// Active/pressed surface (`surface-active`).
+    SurfaceActive,
+}
+
+#[cfg(feature = "egui")]
+impl BgColor {
+    /// Resolve to a concrete colour, or `None` for [`BgColor::None`].
+    fn resolve(self, c: &crate::theme::ThemeColors) -> Option<egui::Color32> {
+        Some(match self {
+            BgColor::None => return None,
+            BgColor::Bg => c.bg,
+            BgColor::BgPanel => c.bg_panel,
+            BgColor::BgSunken => c.bg_sunken,
+            BgColor::Surface => c.surface,
+            BgColor::SurfaceRaised => c.surface_raised,
+            BgColor::SurfaceActive => c.surface_active,
+        })
+    }
+}
+
 /// Lay children out left-to-right.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 pub struct Row {
@@ -23,6 +75,25 @@ pub struct Row {
     #[builder(default)]
     #[serde(default)]
     pub gap: f32,
+    /// Inner padding around the row, in points.
+    #[builder(default)]
+    #[serde(default)]
+    pub padding: f32,
+    /// Cross-axis alignment of children.
+    #[builder(default)]
+    #[serde(default)]
+    pub align: Align,
+    /// Background fill token.
+    #[builder(default)]
+    #[serde(default, rename = "bg-color")]
+    pub bg_color: BgColor,
+    /// Stretch to the full available width.
+    #[builder(default)]
+    #[serde(default, rename = "max-width")]
+    pub max_width: bool,
+    /// Optional fixed height, in points.
+    #[serde(default)]
+    pub height: Option<f32>,
 }
 
 /// Lay children out top-to-bottom.
@@ -147,11 +218,32 @@ pub struct Colored {
 impl Row {
     /// Render the row.
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = self.gap;
-            for child in &mut self.children {
-                child.show(ui, events);
+        let colors = crate::theme::ThemeColors::from_ctx(ui.ctx());
+        let fill = self.bg_color.resolve(&colors);
+        let (gap, padding, align, max_width, height) =
+            (self.gap, self.padding, self.align, self.max_width, self.height);
+
+        let mut frame = egui::Frame::new().inner_margin(egui::Margin::same(padding as i8));
+        if let Some(f) = fill {
+            frame = frame.fill(f);
+        }
+        frame.show(ui, |ui| {
+            if max_width {
+                ui.set_min_width(ui.available_width());
             }
+            if let Some(h) = height {
+                ui.set_min_height(h);
+            }
+            ui.spacing_mut().item_spacing.x = gap;
+            let layout = match align {
+                Align::End => egui::Layout::right_to_left(egui::Align::Center),
+                _ => egui::Layout::left_to_right(egui::Align::Center),
+            };
+            ui.with_layout(layout, |ui| {
+                for child in &mut self.children {
+                    child.show(ui, events);
+                }
+            });
         });
     }
 }

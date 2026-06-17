@@ -7,40 +7,45 @@ use serde::{Deserialize, Serialize};
 use crate::render_node::RenderNode;
 
 
-/// A centered modal dialog with a dimmed backdrop.
+/// A centered modal overlay dialog with a dimmed backdrop.
 ///
-/// The modal supports the SDK's two construction paths:
-/// - **UI path** — call [`Modal::show`] with a closure that draws the body with
-///   live widgets. This is what the host uses for native dialogs.
-/// - **DSL path** — set [`body`](Modal::body) to a [`RenderNode`] tree (e.g.
-///   deserialized from plugin JSON); it is rendered by walking the tree once
-///   `RenderNode` rendering lands. (Today [`Modal::show`]'s closure is the only
-///   active path; `body` is the serializable representation.)
+/// Visibility is plugin-controlled via [`open`](Modal::open): the host only
+/// renders the overlay when `open` is true. Closing it (Escape, backdrop click,
+/// or the header close button) emits a `"click"` event with
+/// [`close_id`](Modal::close_id) (falling back to [`id`](Modal::id)).
 ///
-/// Build it with the [`bon`] builder; only [`id`](Modal::id) and
-/// [`title`](Modal::title) are required.
+/// Content is its [`children`](Modal::children) (the DSL path). For native host
+/// use, [`Modal::show_with`] takes a closure instead.
 ///
 /// ```
 /// use thoth_plugin_sdk::components::Modal;
 ///
-/// let modal = Modal::builder().id("confirm").title("Delete file?").build();
+/// let modal = Modal::builder().id("confirm").title("Delete file?").open(true).build();
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct Modal {
-    /// Stable id — used to key the backdrop/window and must be unique on screen.
+    /// Stable id — keys the backdrop/window; unique on screen.
     pub id: String,
     /// Title shown in the modal header.
     pub title: String,
-    /// Fixed height in points. When set, the body becomes vertically
-    /// scrollable; when unset, the modal sizes to its content.
+    /// Whether the modal is shown. Defaults to `false`.
+    #[builder(default)]
     #[serde(default)]
-    pub height: Option<f32>,
-    /// Fixed width in points. When unset, the modal sizes between 320–480px.
+    pub open: bool,
+    /// Event id emitted (as a `"click"`) when the modal is closed. Falls back
+    /// to `id` when unset.
+    #[serde(default, rename = "close-id")]
+    pub close_id: Option<String>,
+    /// Width as a fraction of the viewport (0.0–1.0). When unset, sizes between
+    /// 320–480px.
+    #[serde(default, rename = "width-pct")]
+    pub width_pct: Option<f32>,
+    /// Height as a fraction of the viewport (0.0–1.0). When unset, auto-sizes.
+    #[serde(default, rename = "height-pct")]
+    pub height_pct: Option<f32>,
+    /// Body content, rendered top-to-bottom inside the modal.
+    #[builder(default)]
     #[serde(default)]
-    pub width: Option<f32>,
-    /// DSL body: a [`RenderNode`] subtree rendered on the DSL path. Ignored by
-    /// [`Modal::show`], which takes its body as a closure (UI path).
-    #[serde(default)]
-    pub body: Option<RenderNode>,
+    pub children: Vec<RenderNode>,
 }

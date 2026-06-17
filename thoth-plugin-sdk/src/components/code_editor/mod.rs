@@ -26,6 +26,10 @@ pub struct CodeEditor {
     /// Optional syntax language (e.g. `"rust"`, `"sql"`); defaults to plain.
     #[serde(default)]
     pub syntax: Option<String>,
+    /// Disable editing (renders read-only / dimmed).
+    #[builder(default)]
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 #[cfg(feature = "egui")]
@@ -39,11 +43,18 @@ impl CodeEditor {
             Some("shell") | Some("sh") | Some("bash") => Syntax::shell(),
             _ => Syntax::default(),
         };
-        Editor::default()
-            .id_source("sdk_code_editor")
-            .with_fontsize(self.font_size.unwrap_or(13.0))
-            .with_theme(ColorTheme::GRUVBOX)
-            .with_syntax(syntax)
-            .show(ui, &mut self.value);
+        let id_source = if self.id.is_empty() {
+            "sdk_code_editor"
+        } else {
+            self.id.as_str()
+        };
+        ui.add_enabled_ui(!self.disabled, |ui| {
+            Editor::default()
+                .id_source(id_source)
+                .with_fontsize(self.font_size.unwrap_or(13.0))
+                .with_theme(ColorTheme::GRUVBOX)
+                .with_syntax(syntax)
+                .show(ui, &mut self.value);
+        });
     }
 }

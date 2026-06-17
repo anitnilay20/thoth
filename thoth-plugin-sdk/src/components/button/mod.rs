@@ -112,6 +112,10 @@ pub struct Button {
     /// Optional leading icon — a Phosphor glyph rendered before the label.
     #[serde(default)]
     pub icon: Option<String>,
+    /// When set, clicking copies this text to the clipboard (handled in-widget,
+    /// no plugin round-trip).
+    #[serde(default)]
+    pub copy: Option<String>,
     /// Stretch the button to the full available width of its container.
     #[builder(default)]
     #[serde(rename = "full-width", default)]

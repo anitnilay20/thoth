@@ -27,7 +27,8 @@ struct ExpandedPaths(HashSet<String>);
 impl JsonTree {
     /// Render the tree into the available area.
     pub fn show(&self, ui: &mut egui::Ui) {
-        let base_id = egui::Id::new(&self.id);
+        let id = if self.id.is_empty() { "json-tree" } else { self.id.as_str() };
+        let base_id = egui::Id::new(id);
         let mem_id = base_id.with("json_tree_expanded");
         let init_id = base_id.with("json_tree_init");
 

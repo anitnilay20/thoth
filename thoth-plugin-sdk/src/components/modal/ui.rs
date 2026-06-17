@@ -1,51 +1,53 @@
 use egui::Widget;
 
 use crate::components::{IconButton, Separator};
+use crate::render_node::UiEvent;
 
 use super::Modal;
 
 impl Modal {
-    /// Render the modal, drawing its [`body`](Modal::body) `RenderNode` (the
-    /// DSL path).
+    /// Render the modal overlay, drawing its [`children`](Modal::children) (the
+    /// DSL path) and collecting their events.
     ///
     /// Returns `true` when the user requested to close it this frame (Escape,
-    /// backdrop click, or the header close button). The caller owns visibility.
-    /// For arbitrary live widgets that aren't expressible as a `RenderNode`,
-    /// use [`Modal::show_with`].
-    pub fn show(mut self, ui: &mut egui::Ui, events: &mut Vec<crate::render_node::UiEvent>) -> bool {
-        let mut body = self.body.take();
-        self.show_with(ui, |ui| {
-            if let Some(node) = &mut body {
-                node.show(ui, events);
+    /// backdrop click, or the header close button). The caller (or the
+    /// `RenderNode` renderer) turns that into the close event.
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) -> bool {
+        let children = &mut self.children;
+        Self::frame(&self.id, &self.title, self.width_pct, self.height_pct, ui, |ui| {
+            for child in children {
+                child.show(ui, events);
             }
         })
     }
 
-    /// Render the modal, drawing its content with the `body` closure (the
-    /// flexible UI path — the closure may borrow local state).
+    /// Render the modal overlay, drawing its content with the `body` closure
+    /// (the flexible UI path — the closure may borrow local state).
     ///
-    /// Returns `true` when the user requested to close it this frame — by
-    /// pressing Escape, clicking the backdrop, or clicking the header's close
-    /// button. The caller owns visibility: hide the modal when this returns
-    /// `true`. When [`Modal::height`] is set the body is wrapped in a vertical
-    /// scroll area.
-    pub fn show_with<F>(self, ui: &mut egui::Ui, body: F) -> bool
+    /// Returns `true` when the user requested to close it this frame.
+    pub fn show_with<F>(&self, ui: &mut egui::Ui, body: F) -> bool
     where
         F: FnOnce(&mut egui::Ui),
     {
+        Self::frame(&self.id, &self.title, self.width_pct, self.height_pct, ui, body)
+    }
+
+    /// Draw the backdrop + centered window chrome and run `body` for content.
+    fn frame<F: FnOnce(&mut egui::Ui)>(
+        id: &str,
+        title: &str,
+        width_pct: Option<f32>,
+        height_pct: Option<f32>,
+        ui: &mut egui::Ui,
+        body: F,
+    ) -> bool {
         let ctx = ui.ctx().clone();
-        let mut close_requested = false;
+        let mut close_requested = ctx.input(|i| i.key_pressed(egui::Key::Escape));
 
-        // ── Escape key ───────────────────────────────────────────────────────
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            close_requested = true;
-        }
-
-        // ── Backdrop ─────────────────────────────────────────────────────────
-        let backdrop_id = egui::Id::new(("modal_backdrop", self.id.clone()));
         let screen = ctx.content_rect();
 
-        let backdrop_resp = egui::Area::new(backdrop_id)
+        // ── Backdrop ─────────────────────────────────────────────────────────
+        let backdrop = egui::Area::new(egui::Id::new(("modal_backdrop", id)))
             .order(egui::Order::Middle)
             .fixed_pos(screen.min)
             .interactable(true)
@@ -55,16 +57,12 @@ impl Modal {
                 ui.allocate_rect(screen, egui::Sense::click())
             })
             .inner;
-
-        if backdrop_resp.clicked() {
+        if backdrop.clicked() {
             close_requested = true;
         }
 
-        // ── Modal window ─────────────────────────────────────────────────────
-        let modal_w = self.width;
-        let modal_h = self.height;
-
-        let win = egui::Window::new(format!("__modal_{}", self.id))
+        // ── Window (sized as a fraction of the viewport) ─────────────────────
+        let win = egui::Window::new(format!("__modal_{id}"))
             .order(egui::Order::Foreground)
             .collapsible(false)
             .resizable(false)
@@ -72,42 +70,36 @@ impl Modal {
             .title_bar(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
 
-        let win = match (modal_w, modal_h) {
-            // Both dimensions fixed.
+        let w = width_pct.map(|p| screen.width() * p.clamp(0.0, 1.0));
+        let h = height_pct.map(|p| screen.height() * p.clamp(0.0, 1.0));
+        let win = match (w, h) {
             (Some(w), Some(h)) => win.fixed_size([w, h]),
-            // Fixed width, auto height.
             (Some(w), None) => win.min_width(w).max_width(w),
-            // Auto width (default 320–480), with or without a fixed height.
             (None, _) => win.min_width(320.0).max_width(480.0),
         };
 
         win.show(&ctx, |ui| {
-            // ── Header ────────────────────────────────────────────────
             ui.horizontal(|ui| {
-                ui.heading(self.title);
+                ui.heading(title);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let close_btn = IconButton::builder()
+                    if IconButton::builder()
                         .icon(egui_phosphor::regular::X)
                         .frame(true)
                         .build()
-                        .ui(ui);
-
-                    if close_btn.clicked() {
+                        .ui(ui)
+                        .clicked()
+                    {
                         close_requested = true;
                     }
                 });
             });
             ui.add(Separator::with_margins(0.0, 4.0));
 
-            // ── Body ──────────────────────────────────────────────────
-            if let Some(h) = modal_h {
-                // Approximate the header (title + separator) height so the body
-                // scroll area fits within the fixed modal height. TODO: measure
-                // the header rect instead of assuming ~40px.
+            if let Some(h) = h {
                 let header_overhead = 40.0;
                 egui::ScrollArea::vertical()
-                    .max_height(h - header_overhead)
-                    .show(ui, |ui| body(ui));
+                    .max_height((h - header_overhead).max(0.0))
+                    .show(ui, body);
             } else {
                 body(ui);
             }

@@ -180,6 +180,13 @@ impl egui::Widget for Button {
             response = response.on_hover_text(hover_text);
         }
 
+        // Copy-to-clipboard on click, handled in-widget.
+        if let Some(text) = &self.copy
+            && response.clicked()
+        {
+            ui.ctx().copy_text(text.clone());
+        }
+
         response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
 
         response

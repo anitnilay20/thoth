@@ -23,6 +23,9 @@ use serde_json::Value;
 pub struct JsonTree {
     /// The JSON value to display.
     pub value: Value,
-    /// Stable id salt for this instance's expansion state.
+    /// Stable id salt for this instance's expansion state. Defaults to
+    /// `"json-tree"` when unset (give distinct ids to multiple on-screen trees).
+    #[builder(default)]
+    #[serde(default)]
     pub id: String,
 }

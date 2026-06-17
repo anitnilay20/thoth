@@ -32,10 +32,22 @@ pub struct Input {
     #[builder(default)]
     #[serde(default)]
     pub value: String,
+    /// Optional label shown above the field.
+    #[builder(default)]
+    #[serde(default)]
+    pub label: String,
     /// Ghost text shown when the field is empty.
     #[builder(default)]
     #[serde(default)]
     pub placeholder: String,
+    /// Stretch the field to fill the available width.
+    #[builder(default)]
+    #[serde(default)]
+    pub grow: bool,
+    /// Mark the field as required (shows a `*` after the label).
+    #[builder(default)]
+    #[serde(default)]
+    pub required: bool,
     /// Optional leading Phosphor icon glyph (single-line only).
     #[serde(default)]
     pub icon: Option<String>,

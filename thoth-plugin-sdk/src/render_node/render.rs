@@ -164,9 +164,11 @@ impl RenderNode {
 
             // ── Containers that recurse ──────────────────────────────────────
             RenderNode::Modal(m) => {
-                let id = m.id.clone();
-                if m.as_ref().clone().show(ui, events) {
-                    emit(events, &id, "click", String::new());
+                if m.open {
+                    let close_id = m.close_id.clone().unwrap_or_else(|| m.id.clone());
+                    if m.show(ui, events) {
+                        emit(events, &close_id, "click", String::new());
+                    }
                 }
             }
             RenderNode::Tabs(t) => {

@@ -12,7 +12,19 @@ impl Input {
     /// response (use it for focus / lost-focus checks).
     pub fn show(&mut self, ui: &mut egui::Ui) -> InnerResponse<bool> {
         let colors = ThemeColors::from_ctx(ui.ctx());
-        let width = self.desired_width.unwrap_or(f32::INFINITY);
+        if !self.label.is_empty() {
+            let text = if self.required {
+                format!("{} *", self.label)
+            } else {
+                self.label.clone()
+            };
+            ui.label(RichText::new(text).color(colors.fg_muted).size(11.0));
+        }
+        let width = if self.grow {
+            f32::INFINITY
+        } else {
+            self.desired_width.unwrap_or(f32::INFINITY)
+        };
 
         let mut changed = false;
         let mut inner_response: Option<egui::Response> = None;

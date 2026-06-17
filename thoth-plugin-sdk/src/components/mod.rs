@@ -57,7 +57,8 @@ pub use input::Input;
 pub use json_tree::JsonTree;
 pub use key_value_list::{KeyValueList, KvEntry};
 pub use layout::{
-    Collapsible, Colored, Column, Footer, Group, KeyValue, Row, Scroll, Spacer, Split,
+    Align, BgColor, Collapsible, Colored, Column, Footer, Group, KeyValue, Row, Scroll, Spacer,
+    Split,
 };
 pub use link::Link;
 pub use list::{List, ListItem, ListItemAction, ListItemBadge};
@@ -75,6 +76,6 @@ pub use slider::Slider;
 pub use spinner::Spinner;
 pub use sidebar_header::{SidebarHeader, SidebarHeaderAction};
 pub use table_view::TableView;
-pub use tabs::Tabs;
+pub use tabs::{TabAction, Tabs};
 pub use toggle_switch::ToggleSwitch;
 pub use typography::{Typography, TypographyVariant};
