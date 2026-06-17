@@ -15,115 +15,17 @@ impl RenderNode {
     /// Render this node and its descendants into `ui`.
     pub fn show(&mut self, ui: &mut egui::Ui) {
         match self {
-            // ── Containers ───────────────────────────────────────────────────
-            RenderNode::Row { children, gap } => {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = *gap;
-                    for child in children {
-                        child.show(ui);
-                    }
-                });
-            }
-            RenderNode::Column { children, gap } => {
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = *gap;
-                    for child in children {
-                        child.show(ui);
-                    }
-                });
-            }
-            RenderNode::Scroll { child, max_height } => {
-                let mut area = egui::ScrollArea::vertical();
-                if let Some(h) = max_height {
-                    area = area.max_height(*h);
-                }
-                area.show(ui, |ui| child.show(ui));
-            }
-            RenderNode::Spacer { size } => {
-                ui.add_space(*size);
-            }
-            RenderNode::Split {
-                children,
-                gap,
-                widths,
-                separator,
-            } => {
-                let n = children.len();
-                if n == 0 {
-                    return;
-                }
-                let total_gap = *gap * (n.saturating_sub(1)) as f32;
-                let avail = (ui.available_width() - total_gap).max(0.0);
-                // Resolve per-column widths from relative weights (equal if absent).
-                let weights: Vec<f32> = if widths.len() == n {
-                    widths.clone()
-                } else {
-                    vec![1.0; n]
-                };
-                let sum: f32 = weights.iter().sum::<f32>().max(1.0);
-                ui.horizontal_top(|ui| {
-                    ui.spacing_mut().item_spacing.x = *gap;
-                    for (i, child) in children.iter_mut().enumerate() {
-                        let w = avail * (weights[i] / sum);
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(w, ui.available_height()),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| child.show(ui),
-                        );
-                        if *separator && i + 1 < n {
-                            ui.separator();
-                        }
-                    }
-                });
-            }
-            RenderNode::Group { label, children } => {
-                egui::CollapsingHeader::new(label.as_str())
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        for child in children {
-                            child.show(ui);
-                        }
-                    });
-            }
-            RenderNode::Collapsible { label, children } => {
-                egui::CollapsingHeader::new(label.as_str())
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        for child in children {
-                            child.show(ui);
-                        }
-                    });
-            }
-            RenderNode::Footer {
-                children,
-                gap,
-                padding,
-            } => {
-                egui::Frame::new()
-                    .inner_margin(egui::Margin::same(*padding as i8))
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = *gap;
-                        for child in children {
-                            child.show(ui);
-                        }
-                    });
-            }
-            RenderNode::KeyValue { key, value } => {
-                ui.horizontal(|ui| {
-                    let muted = ui.visuals().weak_text_color();
-                    ui.label(egui::RichText::new(format!("{key}: ")).color(muted));
-                    value.show(ui);
-                });
-            }
-            RenderNode::Colored { color, child } => {
-                let resolved = crate::theme::parse_hex_color(color);
-                ui.scope(|ui| {
-                    if let Some(c) = resolved {
-                        ui.visuals_mut().override_text_color = Some(c);
-                    }
-                    child.show(ui);
-                });
-            }
+            // ── Containers (delegate to the layout components) ───────────────
+            RenderNode::Row(r) => r.show(ui),
+            RenderNode::Column(c) => c.show(ui),
+            RenderNode::Scroll(s) => s.show(ui),
+            RenderNode::Spacer(s) => s.show(ui),
+            RenderNode::Split(s) => s.show(ui),
+            RenderNode::Group(g) => g.show(ui),
+            RenderNode::Collapsible(c) => c.show(ui),
+            RenderNode::Footer(f) => f.show(ui),
+            RenderNode::KeyValue(kv) => kv.show(ui),
+            RenderNode::Colored(c) => c.show(ui),
 
             // ── Leaf widgets ─────────────────────────────────────────────────
             // Widget-based leaves are cheap owned clones (the node retains its

@@ -19,6 +19,7 @@ mod icon_button;
 mod input;
 mod json_tree;
 mod key_value_list;
+mod layout;
 mod link;
 mod list;
 mod markdown;
@@ -55,6 +56,9 @@ pub use icon_button::IconButton;
 pub use input::Input;
 pub use json_tree::JsonTree;
 pub use key_value_list::{KeyValueList, KvEntry};
+pub use layout::{
+    Collapsible, Colored, Column, Footer, Group, KeyValue, Row, Scroll, Spacer, Split,
+};
 pub use link::Link;
 pub use list::{List, ListItem, ListItemAction, ListItemBadge};
 #[cfg(feature = "egui")]

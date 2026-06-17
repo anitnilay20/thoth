@@ -25,10 +25,11 @@ mod render;
 use serde::{Deserialize, Serialize};
 
 use crate::components::{
-    Badge, Breadcrumbs, Button, ButtonGroups, Card, Checkbox, Code, CodeEditor, DataRow, Icon,
-    IconButton, Input, JsonTree, KeyValueList, Link, List, Markdown, Modal, MultiSelect,
-    NumberInput, Progress, Radio, Select, Separator, SidebarHeader, Slider, Spinner, TableView,
-    Tabs, ToggleSwitch, Typography,
+    Badge, Breadcrumbs, Button, ButtonGroups, Card, Checkbox, Code, CodeEditor, Collapsible,
+    Colored, Column, DataRow, Footer, Group, Icon, IconButton, Input, JsonTree, KeyValue,
+    KeyValueList, Link, List, Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row,
+    Scroll, Select, Separator, SidebarHeader, Slider, Spacer, Spinner, Split, TableView, Tabs,
+    ToggleSwitch, Typography,
 };
 
 /// A node in the Thoth UI tree.
@@ -39,96 +40,27 @@ use crate::components::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum RenderNode {
-    // ── Containers (recursive) ───────────────────────────────────────────────
-    /// Lay children out left-to-right.
-    Row {
-        /// Child nodes, in order.
-        #[serde(default)]
-        children: Vec<RenderNode>,
-        /// Horizontal gap between children, in points.
-        #[serde(default)]
-        gap: f32,
-    },
-    /// Lay children out top-to-bottom.
-    Column {
-        /// Child nodes, in order.
-        #[serde(default)]
-        children: Vec<RenderNode>,
-        /// Vertical gap between children, in points.
-        #[serde(default)]
-        gap: f32,
-    },
-    /// A scrollable region wrapping a single child.
-    Scroll {
-        /// The scrolled content.
-        child: Box<RenderNode>,
-        /// Optional fixed max height, in points.
-        #[serde(default)]
-        max_height: Option<f32>,
-    },
-    /// Empty space of a fixed size, in points.
-    Spacer {
-        /// The amount of space.
-        size: f32,
-    },
-    /// Proportional horizontal split. `widths` are relative weights (empty =
-    /// equal shares).
-    Split {
-        /// Column nodes, in order.
-        #[serde(default)]
-        children: Vec<RenderNode>,
-        /// Gap between columns, in points.
-        #[serde(default)]
-        gap: f32,
-        /// Relative column weights; empty means equal shares.
-        #[serde(default)]
-        widths: Vec<f32>,
-        /// Draw a vertical separator line between columns.
-        #[serde(default)]
-        separator: bool,
-    },
-    /// A collapsible section, open by default.
-    Group {
-        /// Header label.
-        label: String,
-        /// Section content.
-        #[serde(default)]
-        children: Vec<RenderNode>,
-    },
-    /// A collapsible section, closed by default.
-    Collapsible {
-        /// Header label.
-        label: String,
-        /// Section content.
-        #[serde(default)]
-        children: Vec<RenderNode>,
-    },
-    /// A bottom-aligned group of children (rendered vertically with padding).
-    Footer {
-        /// Footer content, top-to-bottom.
-        #[serde(default)]
-        children: Vec<RenderNode>,
-        /// Vertical gap between children, in points.
-        #[serde(default)]
-        gap: f32,
-        /// Inner padding, in points.
-        #[serde(default)]
-        padding: f32,
-    },
-    /// Inline `key: value` display, where the value is itself a node.
-    KeyValue {
-        /// The key label.
-        key: String,
-        /// The value node.
-        value: Box<RenderNode>,
-    },
-    /// Render `child` with an overridden text colour (`#rrggbb` hex).
-    Colored {
-        /// Colour applied to the subtree's text.
-        color: String,
-        /// The node to colour.
-        child: Box<RenderNode>,
-    },
+    // ── Containers (recursive, wrap layout component structs) ────────────────
+    /// A horizontal [`Row`].
+    Row(Row),
+    /// A vertical [`Column`].
+    Column(Column),
+    /// A [`Scroll`] region.
+    Scroll(Scroll),
+    /// Fixed [`Spacer`] space.
+    Spacer(Spacer),
+    /// A proportional [`Split`].
+    Split(Split),
+    /// A [`Group`] (collapsible, open by default).
+    Group(Group),
+    /// A [`Collapsible`] (closed by default).
+    Collapsible(Collapsible),
+    /// A bottom-aligned [`Footer`].
+    Footer(Footer),
+    /// An inline [`KeyValue`] pair.
+    KeyValue(KeyValue),
+    /// A [`Colored`] subtree.
+    Colored(Colored),
 
     // ── Leaf widgets (wrap component structs) ────────────────────────────────
     /// A [`Button`].
