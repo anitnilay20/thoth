@@ -1,9 +1,9 @@
-use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
-use crate::components::common::list::{List, ListItem, ListItemPostfix, ListProps};
-use crate::components::common::sidebar_header::{SidebarHeader, SidebarHeaderProps};
-use crate::components::icon_button::IconButtonProps;
-use crate::components::traits::{StatefulComponent, StatelessComponent};
+use crate::components::traits::StatefulComponent;
 use eframe::egui;
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonType, IconButton, List, ListEvent, ListItem, ListItemPostfix,
+    ListItemPrefix, SidebarHeader,
+};
 
 pub struct RecentFilesProps<'a> {
     pub recent_files: &'a [String],
@@ -37,14 +37,14 @@ impl StatefulComponent for RecentFiles {
             return RecentFilesOutput { events };
         }
 
-        SidebarHeader::render(ui, SidebarHeaderProps::new("RECENT FILES"));
+        ui.add(SidebarHeader::builder().title("RECENT FILES").build());
         ui.add_space(4.0);
 
         egui::ScrollArea::vertical()
             .scroll([false, true])
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let items: Vec<ListItem<'_>> = props
+                let items: Vec<ListItem> = props
                     .recent_files
                     .iter()
                     .map(|path| {
@@ -52,72 +52,58 @@ impl StatefulComponent for RecentFiles {
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or(path.as_str());
-                        ListItem {
-                            title: filename,
-                            description: None,
-                            prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
-                                glyph: egui_phosphor::regular::FILE,
+                        ListItem::builder()
+                            .title(filename.to_string())
+                            .prefix(ListItemPrefix::Icon {
+                                glyph: egui_phosphor::regular::FILE.to_string(),
                                 color: None,
-                            }),
-                            badge: None,
-                            tags: &[],
-                            postfix: Some(ListItemPostfix::IconButton(IconButtonProps {
-                                icon: egui_phosphor::regular::X,
-                                frame: true,
-                                tooltip: Some("Remove"),
-                                badge_color: None,
-                                size: None,
-                                icon_size: None,
-                                disabled: false,
-                                selected: false,
-                            })),
-                            selected: false,
-                            accent: None,
-                        }
+                            })
+                            .postfix(ListItemPostfix::IconButton(
+                                IconButton::builder()
+                                    .icon(egui_phosphor::regular::X)
+                                    .frame(true)
+                                    .tooltip("Remove")
+                                    .build(),
+                            ))
+                            .build()
                     })
                     .collect();
 
-                let output = List::render(
-                    ui,
-                    ListProps {
-                        items: &items,
-                        empty_label: Some("No recent files"),
-                        shrink_to_fit: false,
-                        show_separators: true,
-                        compact: false,
-                        max_height: None,
-                    },
-                );
-
-                if let Some(item_idx) = output.postfix_clicked
-                    && let Some(path) = props.recent_files.get(item_idx)
+                match List::builder()
+                    .items(items)
+                    .empty_label("No recent files")
+                    .build()
+                    .show(ui)
                 {
-                    events.push(RecentFilesEvent::RemoveFile(path.clone()));
-                }
-
-                if let Some(item_idx) = output.row_clicked
-                    && let Some(path) = props.recent_files.get(item_idx)
-                {
-                    events.push(RecentFilesEvent::OpenFile(path.clone()));
+                    Some(ListEvent::PostfixClicked(i)) => {
+                        if let Some(path) = props.recent_files.get(i) {
+                            events.push(RecentFilesEvent::RemoveFile(path.clone()));
+                        }
+                    }
+                    Some(ListEvent::ItemClicked(i)) => {
+                        if let Some(path) = props.recent_files.get(i) {
+                            events.push(RecentFilesEvent::OpenFile(path.clone()));
+                        }
+                    }
+                    _ => {}
                 }
                 ui.add_space(8.0);
 
-                let button_response = Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Open File...".to_string(),
-                        button_type: ButtonType::Elevated,
-                        color: ButtonColor::Default,
-                        hover_text: None,
-                        size: Some(13.0),
-                        width: Some(ui.available_width() - 16.0),
-                        height: Some(28.0),
-                        icon: Some(egui_phosphor::regular::FILE_PLUS.to_string()),
-                        ..Default::default()
-                    },
-                );
-
-                if button_response.clicked {
+                let avail = ui.available_width();
+                let clicked = ui
+                    .add(
+                        Button::builder()
+                            .label("Open File...")
+                            .button_type(ButtonType::Elevated)
+                            .color(ButtonColor::Default)
+                            .size(13.0)
+                            .width(avail - 16.0)
+                            .height(28.0)
+                            .icon(egui_phosphor::regular::FILE_PLUS)
+                            .build(),
+                    )
+                    .clicked();
+                if clicked {
                     events.push(RecentFilesEvent::OpenFilePicker);
                 }
             });
