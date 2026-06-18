@@ -31,11 +31,9 @@ pub use shortcuts::ShortcutsTab;
 pub use updates::UpdatesTab;
 pub use viewer::ViewerTab;
 
-use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
-use crate::components::common::icon_button::{IconButton, IconButtonProps};
-use crate::components::common::input::{Input, InputProps};
 use crate::components::settings_dialog::plugins::{PluginsTab, PluginsTabEvent, PluginsTabProps};
-use crate::components::traits::{ContextComponent, StatelessComponent};
+use crate::components::traits::ContextComponent;
+use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType, IconButton, Input};
 use crate::notification::{Notification, NotificationManager, NotificationStatus};
 use crate::settings::Settings;
 use crate::theme::{self, Theme, ThemeColors, icon_rich_text, phosphor_font_id};
@@ -673,20 +671,15 @@ impl ContextComponent for SettingsDialog {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    let close_out = IconButton::render(
-                                        ui,
-                                        IconButtonProps {
-                                            icon: egui_phosphor::regular::X,
-                                            tooltip: Some("Close"),
-                                            frame: false,
-                                            badge_color: None,
-                                            size: Some(egui::vec2(20.0, 20.0)),
-                                            disabled: false,
-                                            icon_size: None,
-                                            selected: false,
-                                        },
+                                    let close_out = ui.add(
+                                        IconButton::builder()
+                                            .icon(egui_phosphor::regular::X)
+                                            .tooltip("Close")
+                                            .frame(false)
+                                            .size(20.0)
+                                            .build(),
                                     );
-                                    if close_out.clicked {
+                                    if close_out.clicked() {
                                         if let Ok(mut closed) = viewport_closed.lock() {
                                             *closed = true;
                                         }
@@ -758,18 +751,16 @@ impl ContextComponent for SettingsDialog {
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     // Save button
-                                    let save_btn = Button::render(
-                                        ui,
-                                        ButtonProps {
-                                            label: "Save changes".to_string(),
-                                            button_type: ButtonType::Elevated,
-                                            color: ButtonColor::Primary,
-                                            size: Some(13.0),
-                                            enabled: is_dirty,
-                                            ..Default::default()
-                                        },
+                                    let save_btn = ui.add(
+                                        Button::builder()
+                                            .label("Save changes")
+                                            .button_type(ButtonType::Elevated)
+                                            .color(ButtonColor::Primary)
+                                            .size(13.0)
+                                            .enabled(is_dirty)
+                                            .build(),
                                     );
-                                    if save_btn.clicked
+                                    if save_btn.clicked()
                                         && let Ok(settings) = draft_settings.lock()
                                     {
                                         new_settings = Some(settings.clone());
@@ -783,17 +774,15 @@ impl ContextComponent for SettingsDialog {
                                     ui.add_space(8.0);
 
                                     // Cancel button
-                                    let cancel_btn = Button::render(
-                                        ui,
-                                        ButtonProps {
-                                            label: "Cancel".to_string(),
-                                            button_type: ButtonType::Elevated,
-                                            color: ButtonColor::Default,
-                                            size: Some(13.0),
-                                            ..Default::default()
-                                        },
+                                    let cancel_btn = ui.add(
+                                        Button::builder()
+                                            .label("Cancel")
+                                            .button_type(ButtonType::Elevated)
+                                            .color(ButtonColor::Default)
+                                            .size(13.0)
+                                            .build(),
                                     );
-                                    if cancel_btn.clicked {
+                                    if cancel_btn.clicked() {
                                         if let Ok(mut closed) = viewport_closed.lock() {
                                             *closed = true;
                                         }
@@ -804,17 +793,15 @@ impl ContextComponent for SettingsDialog {
 
                                     // Reset section button
                                     if is_dirty {
-                                        let reset_btn = Button::render(
-                                            ui,
-                                            ButtonProps {
-                                                label: "Reset section".to_string(),
-                                                button_type: ButtonType::Text,
-                                                color: ButtonColor::Default,
-                                                size: Some(12.0),
-                                                ..Default::default()
-                                            },
+                                        let reset_btn = ui.add(
+                                            Button::builder()
+                                                .label("Reset section")
+                                                .button_type(ButtonType::Text)
+                                                .color(ButtonColor::Default)
+                                                .size(12.0)
+                                                .build(),
                                         );
-                                        if reset_btn.clicked
+                                        if reset_btn.clicked()
                                             && let (Ok(mut draft), Ok(tab)) =
                                                 (draft_settings.lock(), selected_tab.lock())
                                         {
@@ -860,20 +847,16 @@ impl ContextComponent for SettingsDialog {
                         egui::Frame::NONE
                             .outer_margin(egui::Margin::symmetric(12, 4))
                             .show(ui, |ui| {
-                                Input::render(
-                                    ui,
-                                    InputProps {
-                                        value: &mut search_query,
-                                        placeholder: "Search settings…",
-                                        icon: Some(egui_phosphor::regular::MAGNIFYING_GLASS),
-                                        password: false,
-                                        disabled: false,
-                                        multiline: false,
-                                        rows: 1,
-                                        desired_width: None,
-                                        id_salt: None,
-                                    },
-                                );
+                                let mut input = Input::builder()
+                                    .value(search_query.clone())
+                                    .placeholder("Search settings…")
+                                    .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
+                                    .rows(1)
+                                    .build();
+                                let r = input.show(ui);
+                                if r.inner {
+                                    search_query = input.value.clone();
+                                }
                             });
                         ctx.data_mut(|d| d.insert_temp(search_id, search_query.clone()));
 
@@ -913,23 +896,21 @@ impl ContextComponent for SettingsDialog {
                                                 .to_string()
                                         })
                                         .unwrap_or_else(|_| "settings.toml".to_string());
-                                    let btn = Button::render(
-                                        ui,
-                                        ButtonProps {
-                                            label: path_str,
-                                            button_type: ButtonType::Text,
-                                            color: ButtonColor::Default,
-                                            size: Some(11.0),
-                                            ..Default::default()
-                                        },
+                                    let btn = ui.add(
+                                        Button::builder()
+                                            .label(path_str)
+                                            .button_type(ButtonType::Text)
+                                            .color(ButtonColor::Default)
+                                            .size(11.0)
+                                            .build(),
                                     );
-                                    if btn.clicked
+                                    if btn.clicked()
                                         && let Ok(path) =
                                             crate::settings::Settings::settings_file_path()
                                     {
                                         let _ = open::that(path);
                                     }
-                                    btn.response.on_hover_text(
+                                    btn.on_hover_text(
                                         crate::settings::Settings::settings_file_path()
                                             .map(|p| p.to_string_lossy().to_string())
                                             .unwrap_or_default(),

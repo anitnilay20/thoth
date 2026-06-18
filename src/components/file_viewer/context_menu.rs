@@ -1,9 +1,8 @@
 use eframe::egui::Ui;
 
-use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
-use crate::components::traits::StatelessComponent;
 use crate::file::loaders::FileType;
 use crate::helpers::{LruCache, get_context_menu_shortcuts};
+use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType};
 
 use serde_json::Value;
 
@@ -84,20 +83,14 @@ where
 
     // Copy Key
     if config.show_copy_key {
-        let copy_key_btn = Button::render(
-            ui,
-            ButtonProps {
-                label: format!("Copy Key ({})", copy_key_sc),
-                button_type: ButtonType::Text,
-                color: ButtonColor::Default,
-                hover_text: None,
-                size: None,
-                width: None,
-                height: None,
-                ..Default::default()
-            },
+        let copy_key_btn = ui.add(
+            Button::builder()
+                .label(format!("Copy Key ({})", copy_key_sc))
+                .button_type(ButtonType::Text)
+                .color(ButtonColor::Default)
+                .build(),
         );
-        if copy_key_btn.clicked {
+        if copy_key_btn.clicked() {
             on_action(ContextMenuAction::CopyKey);
             ui.close();
             action_selected = true;
@@ -106,20 +99,14 @@ where
 
     // Copy Value (only show for simple values)
     if config.show_copy_value {
-        let copy_value_btn = Button::render(
-            ui,
-            ButtonProps {
-                label: format!("Copy Value ({})", copy_value_sc),
-                button_type: ButtonType::Text,
-                color: ButtonColor::Default,
-                hover_text: None,
-                size: None,
-                width: None,
-                height: None,
-                ..Default::default()
-            },
+        let copy_value_btn = ui.add(
+            Button::builder()
+                .label(format!("Copy Value ({})", copy_value_sc))
+                .button_type(ButtonType::Text)
+                .color(ButtonColor::Default)
+                .build(),
         );
-        if copy_value_btn.clicked {
+        if copy_value_btn.clicked() {
             on_action(ContextMenuAction::CopyValue);
             ui.close();
             action_selected = true;
@@ -128,20 +115,14 @@ where
 
     // Copy Object (only show for bracket values - objects and arrays)
     if config.show_copy_object {
-        let copy_object_btn = Button::render(
-            ui,
-            ButtonProps {
-                label: format!("Copy Object ({})", copy_object_sc),
-                button_type: ButtonType::Text,
-                color: ButtonColor::Default,
-                hover_text: None,
-                size: None,
-                width: None,
-                height: None,
-                ..Default::default()
-            },
+        let copy_object_btn = ui.add(
+            Button::builder()
+                .label(format!("Copy Object ({})", copy_object_sc))
+                .button_type(ButtonType::Text)
+                .color(ButtonColor::Default)
+                .build(),
         );
-        if copy_object_btn.clicked {
+        if copy_object_btn.clicked() {
             on_action(ContextMenuAction::CopyObject);
             ui.close();
             action_selected = true;
@@ -150,20 +131,14 @@ where
 
     // Copy Path
     if config.show_copy_path {
-        let copy_path_btn = Button::render(
-            ui,
-            ButtonProps {
-                label: format!("Copy Path ({})", copy_path_sc),
-                button_type: ButtonType::Text,
-                color: ButtonColor::Default,
-                hover_text: None,
-                size: None,
-                width: None,
-                height: None,
-                ..Default::default()
-            },
+        let copy_path_btn = ui.add(
+            Button::builder()
+                .label(format!("Copy Path ({})", copy_path_sc))
+                .button_type(ButtonType::Text)
+                .color(ButtonColor::Default)
+                .build(),
         );
-        if copy_path_btn.clicked {
+        if copy_path_btn.clicked() {
             on_action(ContextMenuAction::CopyPath);
             ui.close();
             action_selected = true;

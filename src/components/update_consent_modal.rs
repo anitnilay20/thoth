@@ -1,12 +1,11 @@
 use eframe::egui::{self, Frame, Layout, Margin, RichText};
 
 use crate::{
-    components::{
-        button::{Button, ButtonColor, ButtonProps, ButtonSize, ButtonType},
-        traits::StatelessComponent,
-        typography::{Typography, TypographyProps, TypographyVariant},
-    },
+    components::traits::StatelessComponent,
     theme::{ThemeColors, phosphor_font_id},
+};
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonSize, ButtonType, Typography, TypographyVariant,
 };
 
 pub struct UpdateConsentModal;
@@ -60,14 +59,12 @@ impl StatelessComponent for UpdateConsentModal {
                         );
                         ui.add_space(10.0);
                         ui.vertical(|ui| {
-                            Typography::render(
-                                ui,
-                                TypographyProps {
-                                    text: "Update Available",
-                                    variant: TypographyVariant::BodyLarge,
-                                    bold: true,
-                                    ..Default::default()
-                                },
+                            ui.add(
+                                Typography::builder()
+                                    .text("Update Available")
+                                    .variant(TypographyVariant::BodyLarge)
+                                    .bold(true)
+                                    .build(),
                             );
                             Typography::body_muted(
                                 ui,
@@ -110,34 +107,32 @@ impl StatelessComponent for UpdateConsentModal {
                 })
                 .show(ui, |ui| {
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                        if Button::render(
-                            ui,
-                            ButtonProps {
-                                label: "Update Now".to_string(),
-                                button_type: ButtonType::Elevated,
-                                color: ButtonColor::Primary,
-                                button_size: ButtonSize::Medium,
-                                ..Default::default()
-                            },
-                        )
-                        .clicked
+                        if ui
+                            .add(
+                                Button::builder()
+                                    .label("Update Now")
+                                    .button_type(ButtonType::Elevated)
+                                    .color(ButtonColor::Primary)
+                                    .button_size(ButtonSize::Medium)
+                                    .build(),
+                            )
+                            .clicked()
                         {
                             output.update_now = true;
                         }
 
                         ui.add_space(8.0);
 
-                        if Button::render(
-                            ui,
-                            ButtonProps {
-                                label: "Remind Later".to_string(),
-                                button_type: ButtonType::Text,
-                                color: ButtonColor::Default,
-                                button_size: ButtonSize::Medium,
-                                ..Default::default()
-                            },
-                        )
-                        .clicked
+                        if ui
+                            .add(
+                                Button::builder()
+                                    .label("Remind Later")
+                                    .button_type(ButtonType::Text)
+                                    .color(ButtonColor::Default)
+                                    .button_size(ButtonSize::Medium)
+                                    .build(),
+                            )
+                            .clicked()
                         {
                             output.remind_later = true;
                         }
