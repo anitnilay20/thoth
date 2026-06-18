@@ -2,15 +2,14 @@ use eframe::egui::{self, Align2, Color32, CornerRadius, Frame, Layout, Margin, R
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonSize, ButtonType, IconButton, List,
+    ListEvent, ListItem, ListItemPostfix, ListItemPrefix, Typography, TypographyVariant,
+};
+use thoth_plugin_sdk::theme::color_to_hex;
+
 use crate::{
-    components::{
-        button::{Button, ButtonColor, ButtonProps, ButtonSize, ButtonType},
-        button_group::{ButtonGroup, ButtonGroupItem, ButtonGroupProps},
-        icon_button::{IconButton, IconButtonProps},
-        list::{List, ListItem, ListItemPostfix, ListItemPrefix, ListProps},
-        traits::{ContextComponent, StatelessComponent},
-        typography::{Typography, TypographyProps, TypographyVariant},
-    },
+    components::traits::ContextComponent,
     notification::{NotificationKind, NotificationManager, NotificationStatus},
     theme::{ThemeColors, phosphor_font_id},
 };
@@ -99,25 +98,21 @@ impl ContextComponent for NotificationDropdown {
             egui_phosphor::regular::BELL
         };
 
-        let btn = IconButton::render(
-            ui,
-            IconButtonProps {
-                icon: bell_icon,
-                tooltip: Some("Notifications"),
-                frame: false,
-                badge_color: if unread_count > 0 {
-                    Some(colors.error)
+        let btn = ui.add(
+            IconButton::builder()
+                .icon(bell_icon)
+                .tooltip("Notifications")
+                .frame(false)
+                .maybe_badge_color(if unread_count > 0 {
+                    Some(color_to_hex(colors.error))
                 } else {
                     None
-                },
-                size: None,
-                disabled: false,
-                icon_size: None,
-                selected: self.state.is_open,
-            },
+                })
+                .selected(self.state.is_open)
+                .build(),
         );
 
-        if btn.clicked {
+        if btn.clicked() {
             self.state.is_open = !self.state.is_open;
         }
 
@@ -166,38 +161,33 @@ impl NotificationDropdown {
                                 Typography::caption(ui, &format!("{unread_count} unread"));
                             }
                             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                                if IconButton::render(
-                                    ui,
-                                    IconButtonProps {
-                                        icon: egui_phosphor::regular::X,
-                                        tooltip: Some("Close"),
-                                        frame: false,
-                                        badge_color: None,
-                                        size: Some(egui::vec2(20.0, 20.0)),
-                                        icon_size: Some(13.0),
-                                        disabled: false,
-                                        selected: false,
-                                    },
-                                )
-                                .clicked
+                                if ui
+                                    .add(
+                                        IconButton::builder()
+                                            .icon(egui_phosphor::regular::X)
+                                            .tooltip("Close")
+                                            .frame(false)
+                                            .size(20.0)
+                                            .icon_size(13.0)
+                                            .build(),
+                                    )
+                                    .clicked()
                                 {
                                     close_panel = true;
                                 }
                                 ui.add_space(4.0);
-                                if IconButton::render(
-                                    ui,
-                                    IconButtonProps {
-                                        icon: egui_phosphor::regular::CHECKS,
-                                        tooltip: Some("Mark all as read"),
-                                        frame: false,
-                                        badge_color: None,
-                                        size: Some(egui::vec2(20.0, 20.0)),
-                                        icon_size: Some(13.0),
-                                        disabled: unread_count == 0,
-                                        selected: false,
-                                    },
-                                )
-                                .clicked
+                                if ui
+                                    .add(
+                                        IconButton::builder()
+                                            .icon(egui_phosphor::regular::CHECKS)
+                                            .tooltip("Mark all as read")
+                                            .frame(false)
+                                            .size(20.0)
+                                            .icon_size(13.0)
+                                            .disabled(unread_count == 0)
+                                            .build(),
+                                    )
+                                    .clicked()
                                     && let Some(m) = crate::NOTIFICATION_MANAGER.get()
                                     && let Ok(mut nm) = m.lock()
                                 {
@@ -218,31 +208,27 @@ impl NotificationDropdown {
                         bottom: 8,
                     })
                     .show(ui, |ui| {
-                        let out = ButtonGroup::render(
-                            ui,
-                            ButtonGroupProps {
-                                items: &[
-                                    ButtonGroupItem {
-                                        value: "all",
-                                        label: "All",
-                                    },
-                                    ButtonGroupItem {
-                                        value: "unread",
-                                        label: "Unread",
-                                    },
-                                    ButtonGroupItem {
-                                        value: "plugins",
-                                        label: "Plugins",
-                                    },
-                                    ButtonGroupItem {
-                                        value: "errors",
-                                        label: "Errors",
-                                    },
-                                ],
-                                active: new_filter.as_str(),
-                            },
-                        );
-                        if let Some(v) = out.selected {
+                        let selected = ButtonGroups::builder()
+                            .items(vec![
+                                ButtonGroupItem::builder().value("all").label("All").build(),
+                                ButtonGroupItem::builder()
+                                    .value("unread")
+                                    .label("Unread")
+                                    .build(),
+                                ButtonGroupItem::builder()
+                                    .value("plugins")
+                                    .label("Plugins")
+                                    .build(),
+                                ButtonGroupItem::builder()
+                                    .value("errors")
+                                    .label("Errors")
+                                    .build(),
+                            ])
+                            .active(new_filter.as_str())
+                            .build()
+                            .show(ui)
+                            .inner;
+                        if let Some(v) = selected {
                             new_filter = Filter::from_str(&v);
                         }
                     });
@@ -346,7 +332,7 @@ impl NotificationDropdown {
                                     })
                                     .collect();
 
-                                let list_items: Vec<ListItem<'_>> = bucket
+                                let list_items: Vec<ListItem> = bucket
                                     .iter()
                                     .zip(descs.iter())
                                     .zip(action_labels.iter())
@@ -358,60 +344,49 @@ impl NotificationDropdown {
                                             let (icon, icon_color) = kind_icon(*kind, colors);
                                             let postfix = if *pinned {
                                                 action_label.as_deref().map(|label| {
-                                                    ListItemPostfix::ActionButton(ButtonProps {
-                                                        label: label.to_string(),
-                                                        button_type: ButtonType::Elevated,
-                                                        color: ButtonColor::Primary,
-                                                        button_size: ButtonSize::Small,
-                                                        ..Default::default()
-                                                    })
+                                                    ListItemPostfix::Button(
+                                                        Button::builder()
+                                                            .label(label)
+                                                            .button_type(ButtonType::Elevated)
+                                                            .color(ButtonColor::Primary)
+                                                            .button_size(ButtonSize::Small)
+                                                            .build(),
+                                                    )
                                                 })
                                             } else {
-                                                Some(ListItemPostfix::IconButton(IconButtonProps {
-                                                    icon: egui_phosphor::regular::X,
-                                                    tooltip: Some("Dismiss"),
-                                                    frame: false,
-                                                    badge_color: None,
-                                                    size: Some(egui::vec2(18.0, 18.0)),
-                                                    icon_size: Some(11.0),
-                                                    disabled: false,
-                                                    selected: false,
-                                                }))
+                                                Some(ListItemPostfix::IconButton(
+                                                    IconButton::builder()
+                                                        .icon(egui_phosphor::regular::X)
+                                                        .tooltip("Dismiss")
+                                                        .frame(false)
+                                                        .size(18.0)
+                                                        .icon_size(11.0)
+                                                        .build(),
+                                                ))
                                             };
-                                            ListItem {
-                                                title: title.as_str(),
-                                                description: Some(desc.as_str()),
-                                                prefix: Some(ListItemPrefix::Icon {
-                                                    glyph: icon,
-                                                    color: Some(icon_color),
-                                                }),
-                                                badge: None,
-                                                postfix,
-                                                selected: false,
-                                                accent: if *unread {
-                                                    Some(icon_color)
-                                                } else {
-                                                    None
-                                                },
-                                                tags: &[],
-                                            }
+                                            ListItem::builder()
+                                                .title(title.clone())
+                                                .description(desc.clone())
+                                                .prefix(ListItemPrefix::Icon {
+                                                    glyph: icon.to_string(),
+                                                    color: Some(color_to_hex(icon_color)),
+                                                })
+                                                .maybe_accent(
+                                                    (*unread).then(|| color_to_hex(icon_color)),
+                                                )
+                                                .maybe_postfix(postfix)
+                                                .build()
                                         },
                                     )
                                     .collect();
 
-                                let list_out = List::render(
-                                    ui,
-                                    ListProps {
-                                        items: &list_items,
-                                        empty_label: None,
-                                        shrink_to_fit: true,
-                                        show_separators: true,
-                                        compact: false,
-                                        max_height: None,
-                                    },
-                                );
+                                let list_event = List::builder()
+                                    .items(list_items)
+                                    .shrink_to_fit(true)
+                                    .build()
+                                    .show(ui);
 
-                                if let Some(idx) = list_out.postfix_clicked
+                                if let Some(ListEvent::PostfixClicked(idx)) = list_event
                                     && let Some(row) = bucket.get(idx)
                                 {
                                     if row.8 {
@@ -425,7 +400,7 @@ impl NotificationDropdown {
                                 }
 
                                 // Clicking a row fires the primary (first) action only.
-                                if let Some(idx) = list_out.row_clicked
+                                if let Some(ListEvent::ItemClicked(idx)) = list_event
                                     && let Some(row) = bucket.get(idx)
                                     && let Some((_, cb)) = row.6.first()
                                 {
@@ -447,17 +422,16 @@ impl NotificationDropdown {
                     .fill(colors.bg_sunken)
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            if Button::render(
-                                ui,
-                                ButtonProps {
-                                    label: "Clear all".to_string(),
-                                    button_type: ButtonType::Text,
-                                    color: ButtonColor::Default,
-                                    button_size: ButtonSize::Small,
-                                    ..Default::default()
-                                },
-                            )
-                            .clicked
+                            if ui
+                                .add(
+                                    Button::builder()
+                                        .label("Clear all")
+                                        .button_type(ButtonType::Text)
+                                        .color(ButtonColor::Default)
+                                        .button_size(ButtonSize::Small)
+                                        .build(),
+                                )
+                                .clicked()
                                 && let Some(m) = crate::NOTIFICATION_MANAGER.get()
                                 && let Ok(mut nm) = m.lock()
                             {
@@ -519,14 +493,12 @@ fn render_empty_state(ui: &mut egui::Ui, filter: Filter) {
                         .color(colors.surface_active),
                 );
                 ui.add_space(8.0);
-                Typography::render(
-                    ui,
-                    TypographyProps {
-                        text: title,
-                        variant: TypographyVariant::BodyLarge,
-                        bold: true,
-                        ..Default::default()
-                    },
+                ui.add(
+                    Typography::builder()
+                        .text(title)
+                        .variant(TypographyVariant::BodyLarge)
+                        .bold(true)
+                        .build(),
                 );
                 ui.add_space(4.0);
                 Typography::body_muted(ui, body);

@@ -209,4 +209,9 @@ impl RenderNode {
     pub fn custom(draw: impl FnMut(&mut egui::Ui) + Send + 'static) -> Self {
         RenderNode::Custom(CustomWidget::new(draw))
     }
+
+    /// Convenience constructor for a plain `Body` text node.
+    pub fn text(value: impl Into<String>) -> Self {
+        RenderNode::Text(crate::components::Typography::builder().text(value).build())
+    }
 }
