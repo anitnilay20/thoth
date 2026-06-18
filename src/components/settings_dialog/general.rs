@@ -1,11 +1,11 @@
 use eframe::egui;
 
-use crate::components::common::select::{Select, SelectOption, SelectProps};
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::components::settings_dialog::theme_picker::{ThemePicker, ThemePickerProps};
 use crate::components::traits::StatelessComponent;
 use crate::settings::Settings;
 use crate::theme::ThemeColors;
+use thoth_plugin_sdk::components::{Select, SelectOption};
 
 #[derive(Debug, Clone)]
 pub enum GeneralTabEvent {
@@ -110,29 +110,27 @@ impl StatelessComponent for GeneralTab {
 
                             let mut font_opts: Vec<SelectOption> =
                                 Vec::with_capacity(families.len() + 1);
-                            font_opts.push(SelectOption {
-                                value: String::new(),
-                                label: "System default".into(),
-                            });
+                            font_opts.push(
+                                SelectOption::builder()
+                                    .value(String::new())
+                                    .label("System default")
+                                    .build(),
+                            );
                             for family in &families {
-                                font_opts.push(SelectOption {
-                                    value: family.clone(),
-                                    label: family.clone(),
-                                });
+                                font_opts.push(
+                                    SelectOption::builder()
+                                        .value(family.clone())
+                                        .label(family.clone())
+                                        .build(),
+                                );
                             }
 
-                            let font_out = Select::render(
-                                ui,
-                                SelectProps {
-                                    id_salt: "font_family_combo",
-                                    value: current,
-                                    options: &font_opts,
-                                    prefix_label: None,
-                                    size: Default::default(),
-                                    width: None,
-                                },
-                            );
-                            if let Some(new_val) = font_out.changed {
+                            let mut select = Select::builder()
+                                .id("font_family_combo")
+                                .value(current.to_string())
+                                .options(font_opts)
+                                .build();
+                            if let Some(new_val) = select.show(ui).inner {
                                 if new_val.is_empty() {
                                     events.push(GeneralTabEvent::FontFamily(None));
                                 } else {

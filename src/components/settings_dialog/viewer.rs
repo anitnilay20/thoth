@@ -1,11 +1,9 @@
-use crate::components::common::toggle_switch::{
-    ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps,
-};
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::components::traits::StatelessComponent;
 use crate::settings::ViewerSettings;
 use crate::theme::ThemeColors;
 use eframe::egui;
+use thoth_plugin_sdk::components::ToggleSwitch;
 
 pub struct ViewerTab;
 
@@ -53,16 +51,12 @@ impl StatelessComponent for ViewerTab {
                         None,
                         colors,
                         |ui| {
-                            let out = ToggleSwitch::render(
-                                ui,
-                                ToggleSwitchProps {
-                                    enabled: s.syntax_highlighting,
-                                    hover_text: None,
-                                },
-                            );
-                            for evt in out.events {
-                                let ToggleSwitchEvent::Toggled(v) = evt;
-                                events.push(ViewerTabEvent::SyntaxHighlightingChanged(v));
+                            let on = s.syntax_highlighting;
+                            if ui
+                                .add(ToggleSwitch::builder().enabled(on).build())
+                                .clicked()
+                            {
+                                events.push(ViewerTabEvent::SyntaxHighlightingChanged(!on));
                             }
                         },
                     );

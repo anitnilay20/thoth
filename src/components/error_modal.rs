@@ -1,7 +1,7 @@
-use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
-use crate::components::traits::{StatefulComponent, StatelessComponent};
+use crate::components::traits::StatefulComponent;
 use crate::error::{ErrorHandler, ErrorRecovery, RecoveryAction, ThothError};
 use eframe::egui;
+use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType};
 
 /// Props for the error modal
 pub struct ErrorModalProps<'a> {
@@ -96,40 +96,28 @@ impl StatefulComponent for ErrorModal {
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Close button (always available)
-                        let close_btn = Button::render(
-                            ui,
-                            ButtonProps {
-                                label: "Close".to_string(),
-                                button_type: ButtonType::Elevated,
-                                color: ButtonColor::Default,
-                                hover_text: None,
-                                size: None,
-                                width: None,
-                                height: None,
-                                ..Default::default()
-                            },
+                        let close_btn = ui.add(
+                            Button::builder()
+                                .label("Close")
+                                .button_type(ButtonType::Elevated)
+                                .color(ButtonColor::Default)
+                                .build(),
                         );
-                        if close_btn.clicked {
+                        if close_btn.clicked() {
                             events.push(ErrorModalEvent::Close);
                             recovery_action = Some(RecoveryAction::ClearError);
                         }
 
                         // Only show Retry button if error is recoverable
                         if ErrorHandler::is_recoverable(props.error) {
-                            let retry_btn = Button::render(
-                                ui,
-                                ButtonProps {
-                                    label: "Retry".to_string(),
-                                    button_type: ButtonType::Elevated,
-                                    color: ButtonColor::Danger,
-                                    hover_text: None,
-                                    size: None,
-                                    width: None,
-                                    height: None,
-                                    ..Default::default()
-                                },
+                            let retry_btn = ui.add(
+                                Button::builder()
+                                    .label("Retry")
+                                    .button_type(ButtonType::Elevated)
+                                    .color(ButtonColor::Danger)
+                                    .build(),
                             );
-                            if retry_btn.clicked {
+                            if retry_btn.clicked() {
                                 events.push(ErrorModalEvent::Retry);
                                 recovery_action = Some(RecoveryAction::Retry);
                             }
@@ -137,20 +125,14 @@ impl StatefulComponent for ErrorModal {
 
                         // Show Reset button for specific recovery actions
                         if matches!(action, RecoveryAction::Reset) {
-                            let reset_btn = Button::render(
-                                ui,
-                                ButtonProps {
-                                    label: "Reset".to_string(),
-                                    button_type: ButtonType::Elevated,
-                                    color: ButtonColor::Danger,
-                                    hover_text: None,
-                                    size: None,
-                                    width: None,
-                                    height: None,
-                                    ..Default::default()
-                                },
+                            let reset_btn = ui.add(
+                                Button::builder()
+                                    .label("Reset")
+                                    .button_type(ButtonType::Elevated)
+                                    .color(ButtonColor::Danger)
+                                    .build(),
                             );
-                            if reset_btn.clicked {
+                            if reset_btn.clicked() {
                                 events.push(ErrorModalEvent::Reset);
                                 recovery_action = Some(RecoveryAction::Reset);
                             }

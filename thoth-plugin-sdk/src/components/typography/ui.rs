@@ -65,6 +65,61 @@ impl Typography {
     }
 }
 
+impl Typography {
+    fn shorthand(ui: &mut egui::Ui, text: &str, variant: TypographyVariant) -> Response {
+        ui.add(Typography::builder().text(text).variant(variant).build())
+    }
+
+    /// Render a `PanelHeader` (small upper-case sidebar section title).
+    pub fn panel_header(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::PanelHeader)
+    }
+    /// Render a `GroupLabel` (muted bold group label).
+    pub fn group_label(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::GroupLabel)
+    }
+    /// Render a `Title`.
+    pub fn title(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::Title)
+    }
+    /// Render a `Heading`.
+    pub fn heading(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::Heading)
+    }
+    /// Render `BodyLarge` text.
+    pub fn body_large(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::BodyLarge)
+    }
+    /// Render `Body` text.
+    pub fn body(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::Body)
+    }
+    /// Render `BodyMuted` text.
+    pub fn body_muted(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::BodyMuted)
+    }
+    /// Render a `Subtitle`.
+    pub fn subtitle(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::Subtitle)
+    }
+    /// Render a `Caption`.
+    pub fn caption(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::Caption)
+    }
+    /// Render a `Label`.
+    pub fn label(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::Label)
+    }
+    /// Render `Mono` (monospace) text.
+    pub fn mono(ui: &mut egui::Ui, text: &str) -> Response {
+        Self::shorthand(ui, text, TypographyVariant::Mono)
+    }
+    /// Render bold `Body` text.
+    pub fn bold(ui: &mut egui::Ui, text: &str) -> Response {
+        ui.add(Typography::builder().text(text).bold(true).build())
+    }
+}
+
 impl Widget for Typography {
     fn ui(self, ui: &mut egui::Ui) -> Response {
         let colors = ThemeColors::from_ctx(ui.ctx());

@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, RichText};
 
-use crate::components::common::typography::Typography;
+use thoth_plugin_sdk::components::Typography;
 use crate::theme::{
     CARD_OUTER_H, CARD_RADIUS, CONTROL_WIDTH, DIRTY_DOT_RADIUS, GROUP_SPACING, ROW_INNER_H,
     ROW_PADDING_H, ROW_PADDING_V, ThemeColors, icon_rich_text,

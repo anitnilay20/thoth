@@ -1,15 +1,12 @@
 use chrono::{DateTime, Utc};
 use eframe::egui::{self, RichText};
 
-use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
-use crate::components::common::toggle_switch::{
-    ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps,
-};
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::components::traits::StatelessComponent;
 use crate::settings::UpdateSettings;
 use crate::theme::ThemeColors;
 use crate::update::UpdateState;
+use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType, ToggleSwitch};
 
 pub struct UpdatesTab;
 
@@ -65,16 +62,12 @@ impl StatelessComponent for UpdatesTab {
                         None,
                         colors,
                         |ui| {
-                            let out = ToggleSwitch::render(
-                                ui,
-                                ToggleSwitchProps {
-                                    enabled: s.auto_check,
-                                    hover_text: None,
-                                },
-                            );
-                            for evt in out.events {
-                                let ToggleSwitchEvent::Toggled(v) = evt;
-                                events.push(UpdatesTabEvent::AutoCheckChanged(v));
+                            let on = s.auto_check;
+                            if ui
+                                .add(ToggleSwitch::builder().enabled(on).build())
+                                .clicked()
+                            {
+                                events.push(UpdatesTabEvent::AutoCheckChanged(!on));
                             }
                         },
                     );
@@ -160,17 +153,16 @@ impl StatelessComponent for UpdatesTab {
                                 None,
                                 colors,
                                 |ui| {
-                                    if Button::render(
-                                        ui,
-                                        ButtonProps {
-                                            label: "Download".to_string(),
-                                            button_type: ButtonType::Elevated,
-                                            color: ButtonColor::Success,
-                                            size: Some(13.0),
-                                            ..Default::default()
-                                        },
-                                    )
-                                    .clicked
+                                    if ui
+                                        .add(
+                                            Button::builder()
+                                                .label("Download")
+                                                .button_type(ButtonType::Elevated)
+                                                .color(ButtonColor::Success)
+                                                .size(13.0)
+                                                .build(),
+                                        )
+                                        .clicked()
                                     {
                                         events.push(UpdatesTabEvent::DownloadUpdate);
                                     }
@@ -201,17 +193,16 @@ impl StatelessComponent for UpdatesTab {
                                 None,
                                 colors,
                                 |ui| {
-                                    if Button::render(
-                                        ui,
-                                        ButtonProps {
-                                            label: "Install & Restart".to_string(),
-                                            button_type: ButtonType::Elevated,
-                                            color: ButtonColor::Primary,
-                                            size: Some(13.0),
-                                            ..Default::default()
-                                        },
-                                    )
-                                    .clicked
+                                    if ui
+                                        .add(
+                                            Button::builder()
+                                                .label("Install & Restart")
+                                                .button_type(ButtonType::Elevated)
+                                                .color(ButtonColor::Primary)
+                                                .size(13.0)
+                                                .build(),
+                                        )
+                                        .clicked()
                                     {
                                         events.push(UpdatesTabEvent::InstallUpdate);
                                     }
@@ -229,17 +220,16 @@ impl StatelessComponent for UpdatesTab {
                                 None,
                                 colors,
                                 |ui| {
-                                    if Button::render(
-                                        ui,
-                                        ButtonProps {
-                                            label: "Retry".to_string(),
-                                            button_type: ButtonType::Elevated,
-                                            color: ButtonColor::Default,
-                                            size: Some(13.0),
-                                            ..Default::default()
-                                        },
-                                    )
-                                    .clicked
+                                    if ui
+                                        .add(
+                                            Button::builder()
+                                                .label("Retry")
+                                                .button_type(ButtonType::Elevated)
+                                                .color(ButtonColor::Default)
+                                                .size(13.0)
+                                                .build(),
+                                        )
+                                        .clicked()
                                     {
                                         events.push(UpdatesTabEvent::CheckForUpdates);
                                     }
@@ -263,17 +253,16 @@ impl StatelessComponent for UpdatesTab {
                                 if checking {
                                     ui.add(egui::Spinner::new().size(14.0).color(colors.info));
                                 } else {
-                                    if Button::render(
-                                        ui,
-                                        ButtonProps {
-                                            label: "Check now".to_string(),
-                                            button_type: ButtonType::Elevated,
-                                            color: ButtonColor::Default,
-                                            size: Some(13.0),
-                                            ..Default::default()
-                                        },
-                                    )
-                                    .clicked
+                                    if ui
+                                        .add(
+                                            Button::builder()
+                                                .label("Check now")
+                                                .button_type(ButtonType::Elevated)
+                                                .color(ButtonColor::Default)
+                                                .size(13.0)
+                                                .build(),
+                                        )
+                                        .clicked()
                                     {
                                         events.push(UpdatesTabEvent::CheckForUpdates);
                                     }

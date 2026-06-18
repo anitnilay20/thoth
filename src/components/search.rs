@@ -1,14 +1,10 @@
-use crate::components::common::input::{Input, InputProps};
-use crate::components::common::list::{List, ListItem, ListProps};
-use thoth_plugin_sdk::components::Separator;
-use crate::components::common::sidebar_header::{
-    SidebarHeader, SidebarHeaderAction, SidebarHeaderProps,
-};
-use crate::components::common::typography::Typography;
-use crate::components::icon_button::{IconButton, IconButtonProps};
-use crate::components::traits::{StatefulComponent, StatelessComponent};
+use crate::components::traits::StatefulComponent;
 use crate::search::{QueryMode, Search as SearchState, SearchMessage, decode_history_entry};
 use eframe::egui;
+use thoth_plugin_sdk::components::{
+    IconButton, Input, List, ListEvent, ListItem, ListItemPrefix, Separator, SidebarHeader,
+    SidebarHeaderAction, Typography,
+};
 
 /// Detect query mode based on whether the query starts with '$'
 fn detect_query_mode(query: &str) -> QueryMode {
@@ -59,24 +55,22 @@ impl StatefulComponent for Search {
         let mut events = Vec::new();
 
         // Header with buttons
-        let header = SidebarHeader::render(
-            ui,
-            SidebarHeaderProps {
-                title: "SEARCH",
-                trailing_text: None,
-                actions: &[
-                    SidebarHeaderAction {
-                        icon: egui_phosphor::regular::MAGNIFYING_GLASS,
-                        tooltip: "Search",
-                    },
-                    SidebarHeaderAction {
-                        icon: egui_phosphor::regular::X,
-                        tooltip: "Clear search",
-                    },
-                ],
-            },
-        );
-        match header.action_clicked {
+        let action_clicked = SidebarHeader::builder()
+            .title("SEARCH")
+            .actions(vec![
+                SidebarHeaderAction::builder()
+                    .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
+                    .tooltip("Search")
+                    .build(),
+                SidebarHeaderAction::builder()
+                    .icon(egui_phosphor::regular::X)
+                    .tooltip("Clear search")
+                    .build(),
+            ])
+            .build()
+            .show(ui)
+            .inner;
+        match action_clicked {
             // Search
             Some(0) if !self.search_query.is_empty() => {
                 let query_mode = detect_query_mode(&self.search_query);
@@ -102,20 +96,16 @@ impl StatefulComponent for Search {
         }
         ui.add_space(8.0);
 
-        let search_out = Input::render(
-            ui,
-            InputProps {
-                value: &mut self.search_query,
-                placeholder: "Search… ($ prefix for JSONPath, e.g. $.user.name = \"alice\")",
-                icon: Some(egui_phosphor::regular::MAGNIFYING_GLASS),
-                password: false,
-                disabled: false,
-                multiline: false,
-                rows: 1,
-                desired_width: None,
-                id_salt: None,
-            },
-        );
+        let mut search_input = Input::builder()
+            .id("search_query")
+            .value(self.search_query.clone())
+            .placeholder("Search… ($ prefix for JSONPath, e.g. $.user.name = \"alice\")")
+            .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
+            .build();
+        let search_out = search_input.show(ui);
+        if search_out.inner {
+            self.search_query = search_input.value.clone();
+        }
         let response = search_out.response;
 
         if props.just_opened {
@@ -174,56 +164,41 @@ impl StatefulComponent for Search {
                 ui.horizontal(|ui| {
                     Typography::panel_header(ui, "RECENT SEARCHES");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let clear_output = IconButton::render(
-                            ui,
-                            IconButtonProps {
-                                icon: egui_phosphor::regular::X,
-                                frame: false,
-                                tooltip: Some("Clear search history"),
-                                badge_color: None,
-                                size: Some(egui::vec2(16.0, 16.0)),
-                                disabled: false,
-                                icon_size: None,
-                                selected: false,
-                            },
-                        );
-                        if clear_output.clicked {
+                        let clicked = ui
+                            .add(
+                                IconButton::builder()
+                                    .icon(egui_phosphor::regular::X)
+                                    .frame(false)
+                                    .tooltip("Clear search history")
+                                    .size(16.0)
+                                    .build(),
+                            )
+                            .clicked();
+                        if clicked {
                             events.push(SearchEvent::ClearHistory);
                         }
                     });
                 });
                 ui.add_space(4.0);
 
-                let items: Vec<ListItem<'_>> = queries
+                let items: Vec<ListItem> = queries
                     .iter()
-                    .map(|q| ListItem {
-                        title: q.as_str(),
-                        description: None,
-                        prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
-                            glyph: egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE,
-                            color: None,
-                        }),
-                        badge: None,
-                        postfix: None,
-                        selected: false,
-                        accent: None,
-                        tags: &[],
+                    .map(|q| {
+                        ListItem::builder()
+                            .title(q.clone())
+                            .prefix(ListItemPrefix::Icon {
+                                glyph: egui_phosphor::regular::CLOCK_COUNTER_CLOCKWISE.to_string(),
+                                color: None,
+                            })
+                            .build()
                     })
                     .collect();
 
-                let output = List::render(
-                    ui,
-                    ListProps {
-                        items: &items,
-                        empty_label: None,
-                        shrink_to_fit: false,
-                        show_separators: true,
-                        compact: false,
-                        max_height: Some(300.0),
-                    },
-                );
-
-                if let Some(idx) = output.row_clicked
+                if let Some(ListEvent::ItemClicked(idx)) = List::builder()
+                    .items(items)
+                    .max_height(300.0)
+                    .build()
+                    .show(ui)
                     && let Some(q) = queries.get(idx)
                 {
                     self.search_query = q.clone();
@@ -270,21 +245,18 @@ impl StatefulComponent for Search {
                         })
                     })
                     .collect();
-                let items: Vec<ListItem<'_>> = titles
+                let items: Vec<ListItem> = titles
                     .iter()
                     .zip(descriptions.iter())
-                    .map(|(title, desc): (&String, &Option<String>)| ListItem {
-                        title: title.as_str(),
-                        description: desc.as_deref(),
-                        prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
-                            glyph: egui_phosphor::regular::MAGNIFYING_GLASS,
-                            color: None,
-                        }),
-                        badge: None,
-                        postfix: None,
-                        selected: false,
-                        accent: None,
-                        tags: &[],
+                    .map(|(title, desc): (&String, &Option<String>)| {
+                        ListItem::builder()
+                            .title(title.clone())
+                            .maybe_description(desc.clone())
+                            .prefix(ListItemPrefix::Icon {
+                                glyph: egui_phosphor::regular::MAGNIFYING_GLASS.to_string(),
+                                color: None,
+                            })
+                            .build()
                     })
                     .collect();
 
@@ -292,18 +264,11 @@ impl StatefulComponent for Search {
                     .id_salt("search_results_scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        let output = List::render(
-                            ui,
-                            ListProps {
-                                items: &items,
-                                empty_label: None,
-                                shrink_to_fit: false,
-                                show_separators: true,
-                                compact: false,
-                                max_height: Some(300.0),
-                            },
-                        );
-                        if let Some(idx) = output.row_clicked
+                        if let Some(ListEvent::ItemClicked(idx)) = List::builder()
+                            .items(items)
+                            .max_height(300.0)
+                            .build()
+                            .show(ui)
                             && let Some(hit) = props.search_state.results.hits().get(idx)
                         {
                             events.push(SearchEvent::NavigateToResult {

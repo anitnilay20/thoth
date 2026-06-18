@@ -2,12 +2,10 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui;
 
+use thoth_plugin_sdk::components::IconButton;
+
 use crate::{
-    components::{
-        icon_button::{IconButton, IconButtonProps},
-        traits::{ContextComponent, StatelessComponent},
-    },
-    file::lazy_loader::FileKind,
+    components::traits::ContextComponent, file::lazy_loader::FileKind,
     shortcuts::KeyboardShortcuts,
 };
 
@@ -130,43 +128,33 @@ impl Toolbar {
                         ui.add_space(lead);
 
                         // Navigation buttons
-                        let back_btn = IconButton::render(
-                            ui,
-                            IconButtonProps {
-                                icon: egui_phosphor::regular::CARET_LEFT,
-                                frame: false,
-                                tooltip: Some(&format!(
+                        let back_btn = ui.add(
+                            IconButton::builder()
+                                .icon(egui_phosphor::regular::CARET_LEFT)
+                                .tooltip(format!(
                                     "Go back ({})",
                                     props.shortcuts.nav_back.format()
-                                )),
-                                badge_color: None,
-                                size: Some(button_size),
-                                disabled: !props.can_go_back,
-                                selected: false,
-                                icon_size: None,
-                            },
+                                ))
+                                .size(button_size.x)
+                                .disabled(!props.can_go_back)
+                                .build(),
                         );
-                        if back_btn.clicked {
+                        if back_btn.clicked() {
                             events.push(ToolbarEvent::NavigateBack);
                         }
 
-                        let fwd_btn = IconButton::render(
-                            ui,
-                            IconButtonProps {
-                                icon: egui_phosphor::regular::CARET_RIGHT,
-                                frame: false,
-                                tooltip: Some(&format!(
+                        let fwd_btn = ui.add(
+                            IconButton::builder()
+                                .icon(egui_phosphor::regular::CARET_RIGHT)
+                                .tooltip(format!(
                                     "Go forward ({})",
                                     props.shortcuts.nav_forward.format()
-                                )),
-                                badge_color: None,
-                                size: Some(button_size),
-                                disabled: !props.can_go_forward,
-                                selected: false,
-                                icon_size: None,
-                            },
+                                ))
+                                .size(button_size.x)
+                                .disabled(!props.can_go_forward)
+                                .build(),
                         );
-                        if fwd_btn.clicked {
+                        if fwd_btn.clicked() {
                             events.push(ToolbarEvent::NavigateForward);
                         }
 
