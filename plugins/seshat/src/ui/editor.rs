@@ -38,6 +38,7 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                         .value(st.sql.clone())
                         .font_size(12.0)
                         .syntax("sql")
+                        .bordered(false)
                         .build(),
                 ),
                 RenderNode::Separator(Separator::plain()),

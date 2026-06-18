@@ -1,7 +1,7 @@
 //! The connections list and the connections-manager view.
 
 use thoth_plugin_sdk::components::{
-    Column, List, ListItem, ListItemAction, ListItemBadge, Row, Scroll, Separator,
+    Column, List, ListItem, ListItemAction, ListItemBadge, ListItemPrefix, Row, Scroll, Separator,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -78,8 +78,9 @@ fn connection_item(c: &Connection, active: bool, failed: bool) -> ListItem {
     ListItem::builder()
         .title(c.name.clone())
         .description(c.summary())
-        .icon(ICON_DATABASE)
+        .prefix(ListItemPrefix::Icon { glyph: ICON_DATABASE.to_string(), color: None })
         .badge(badge)
+        .selected(active)
         .actions(vec![
             ListItemAction::builder().icon(ICON_PENCIL).tooltip("Edit connection").build(),
             ListItemAction::builder().icon(ICON_TRASH).tooltip("Delete connection").build(),

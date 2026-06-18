@@ -16,7 +16,7 @@ pub struct Slider {
     #[builder(default)]
     #[serde(default)]
     pub id: String,
-    /// Label shown before the slider.
+    /// Label shown above the slider.
     #[builder(default)]
     #[serde(default)]
     pub label: String,
@@ -36,15 +36,12 @@ pub struct Slider {
 impl Slider {
     /// Render the slider, editing [`value`](Slider::value) in place.
     pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        ui.horizontal(|ui| {
-            if !self.label.is_empty() {
-                ui.label(&self.label);
-            }
-            ui.add_enabled(
-                !self.disabled,
-                egui::Slider::new(&mut self.value, self.min..=self.max),
-            )
-        })
-        .inner
+        if !self.label.is_empty() {
+            ui.label(&self.label);
+        }
+        ui.add_enabled(
+            !self.disabled,
+            egui::Slider::new(&mut self.value, self.min..=self.max),
+        )
     }
 }

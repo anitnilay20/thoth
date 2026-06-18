@@ -118,6 +118,12 @@ pub struct Scroll {
     /// Optional fixed max height, in points.
     #[serde(default)]
     pub max_height: Option<f32>,
+    /// Optional id salt to disambiguate this scroll area from sibling scroll
+    /// areas (egui derives a scroll id from tree position, which can collide
+    /// between two scrolls at equivalent positions, e.g. split columns).
+    #[builder(into)]
+    #[serde(default)]
+    pub id: Option<String>,
 }
 
 /// Empty space of a fixed size, in points.
@@ -321,6 +327,9 @@ impl Scroll {
         // (and its content can fill it too) rather than collapsing to content.
         ui.set_min_size(ui.available_size());
         let mut area = egui::ScrollArea::vertical();
+        if let Some(id) = &self.id {
+            area = area.id_salt(id);
+        }
         if let Some(h) = self.max_height {
             area = area.max_height(h);
         }

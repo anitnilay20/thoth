@@ -1,101 +1,92 @@
-use egui::Widget;
+use egui::{CursorIcon, RichText};
 
-use crate::{
-    components::{Button, ButtonSize, ButtonType},
-    theme::ThemeColors,
-};
+use crate::theme::ThemeColors;
 
 use super::Breadcrumbs;
-
-/// One parsed breadcrumb segment.
-struct Segment<'a> {
-    /// The original token from the input path, used to rebuild a canonical
-    /// navigation path (e.g. `"42"`).
-    raw: &'a str,
-    /// How the segment is shown to the user — numeric indices are bracketed
-    /// (e.g. `"[42]"`), everything else matches `raw`.
-    display: String,
-}
 
 impl Breadcrumbs {
     /// Render the breadcrumb trail and report navigation.
     ///
     /// The returned [`egui::InnerResponse::inner`] is `Some(path)` when the user
-    /// clicked a segment this frame, where `path` is the separator-joined trail
-    /// of the original (raw) tokens up to and including that segment — i.e. it
-    /// matches the input syntax, not the bracketed display form. Clicking
-    /// `settings` in `users.42.settings` yields `"users.42.settings"`. It is
-    /// `None` when nothing was clicked.
+    /// clicked a segment this frame: `Some("")` for the always-present **Root**
+    /// link, or the delimiter-joined trail (in display form, with numeric indices
+    /// bracketed) up to and including the clicked segment. The last segment is the
+    /// current location — rendered bold and non-clickable. `None` when nothing
+    /// was clicked.
     pub fn show(self, ui: &mut egui::Ui) -> egui::InnerResponse<Option<String>> {
         let colors = ThemeColors::from_ctx(ui.ctx());
-        let segments = self.parse_path();
-        let separator = self.separator.as_deref().unwrap_or(".");
-
+        let delim = self.separator.as_deref().unwrap_or(".");
         let mut selected: Option<String> = None;
 
         let inner = ui.horizontal(|ui| {
-            // Tighten the gap between segment buttons and separators.
-            ui.spacing_mut().item_spacing.x = 2.0;
-
-            for (i, segment) in segments.iter().enumerate() {
-                if i > 0 {
-                    ui.colored_label(colors.fg_muted, separator);
+            ui.add_space(8.0);
+            match self.path.as_deref() {
+                None => {
+                    ui.label(RichText::new("No selection").size(12.0).color(colors.fg_muted));
                 }
+                Some("") => {
+                    ui.label(RichText::new("Root").size(12.0).color(colors.fg));
+                }
+                Some(p) => {
+                    let segments = Self::parse_path(p, delim);
 
-                let hover = format!("Navigate to {}", segment.display);
-                let response = Button::builder()
-                    .label(segment.display.as_str())
-                    .button_type(ButtonType::Text)
-                    .button_size(ButtonSize::Small)
-                    .hover_text(hover.as_str())
-                    .build()
-                    .ui(ui);
+                    // Root is always clickable.
+                    if ui
+                        .link(RichText::new("Root").size(12.0).color(colors.fg))
+                        .on_hover_cursor(CursorIcon::PointingHand)
+                        .clicked()
+                    {
+                        selected = Some(String::new());
+                    }
 
-                if response.clicked() {
-                    selected = Some(
-                        segments[..=i]
-                            .iter()
-                            .map(|s| s.raw)
-                            .collect::<Vec<_>>()
-                            .join(separator),
-                    );
+                    let last = segments.len().saturating_sub(1);
+                    for (i, segment) in segments.iter().enumerate() {
+                        ui.label(
+                            RichText::new(egui_phosphor::regular::CARET_RIGHT)
+                                .size(10.0)
+                                .color(colors.fg_muted),
+                        );
+                        if i == last {
+                            ui.label(
+                                RichText::new(segment).size(12.0).color(colors.fg).strong(),
+                            );
+                        } else {
+                            let path = segments[..=i].join(delim);
+                            let resp = ui
+                                .link(RichText::new(segment).size(12.0).color(colors.fg))
+                                .on_hover_cursor(CursorIcon::PointingHand)
+                                .on_hover_text(format!("Navigate to {path}"));
+                            if resp.clicked() {
+                                selected = Some(path);
+                            }
+                        }
+                    }
+                    ui.add_space(8.0);
                 }
             }
         });
 
         egui::InnerResponse::new(selected, inner.response)
     }
-}
 
-impl Widget for Breadcrumbs {
-    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
-        self.show(ui).response
+    /// Split `path` on `delim` into displayable segments. Numeric tokens are
+    /// bracketed (e.g. `"0"` -> `"[0]"`); empty tokens are dropped.
+    fn parse_path(path: &str, delim: &str) -> Vec<String> {
+        path.split(delim)
+            .filter(|t| !t.is_empty())
+            .map(|t| {
+                if t.bytes().all(|b| b.is_ascii_digit()) {
+                    format!("[{t}]")
+                } else {
+                    t.to_owned()
+                }
+            })
+            .collect()
     }
 }
 
-impl Breadcrumbs {
-    /// Split the path into segments, pairing each raw token with its display
-    /// form. Numeric tokens are bracketed for display while their raw value is
-    /// preserved for navigation.
-    ///
-    /// Examples (raw -> display):
-    /// - `"0.user.name"`    -> `["0" → "[0]", "user", "name"]`
-    /// - `"users.42.title"` -> `["users", "42" → "[42]", "title"]`
-    fn parse_path(&self) -> Vec<Segment<'_>> {
-        let Some(path) = self.path.as_deref() else {
-            return vec![];
-        };
-
-        path.split('.')
-            .filter(|token| !token.is_empty())
-            .map(|raw| {
-                let display = if !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()) {
-                    format!("[{raw}]")
-                } else {
-                    raw.to_owned()
-                };
-                Segment { raw, display }
-            })
-            .collect()
+impl egui::Widget for Breadcrumbs {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        self.show(ui).response
     }
 }

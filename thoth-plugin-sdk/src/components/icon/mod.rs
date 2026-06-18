@@ -16,7 +16,7 @@ pub struct Icon {
     /// Colour as a `#rrggbb` hex string; defaults to muted foreground.
     #[serde(default)]
     pub color: Option<String>,
-    /// Glyph size in points; defaults to 14.
+    /// Glyph size in points; defaults to 13.
     #[serde(default)]
     pub size: Option<f32>,
 }
@@ -31,7 +31,7 @@ impl egui::Widget for Icon {
             .as_deref()
             .and_then(|c| resolve_color(c, &colors))
             .unwrap_or(colors.fg_muted);
-        let size = self.size.unwrap_or(14.0);
+        let size = self.size.unwrap_or(13.0);
         ui.label(egui::RichText::new(&self.glyph).font(phosphor_font_id(size)).color(color))
     }
 }

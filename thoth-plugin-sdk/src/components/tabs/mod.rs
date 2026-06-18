@@ -54,4 +54,8 @@ pub struct Tabs {
     #[builder(default)]
     #[serde(default)]
     pub children: Vec<RenderNode>,
+    /// Gap (px) between the tab strip and the panel content below it. Defaults
+    /// to 10; set to 0 for a panel that sits flush under the tabs.
+    #[serde(default, rename = "content-gap")]
+    pub content_gap: Option<f32>,
 }

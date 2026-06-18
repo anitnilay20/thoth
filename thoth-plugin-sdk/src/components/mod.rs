@@ -7,6 +7,8 @@
 
 mod badge;
 mod breadcrumbs;
+#[cfg(feature = "egui")]
+pub(crate) mod helpers;
 mod button;
 mod button_group;
 mod card;
@@ -41,7 +43,7 @@ mod typography;
 pub use badge::Badge;
 pub use breadcrumbs::Breadcrumbs;
 pub use button::{Button, ButtonColor, ButtonSize, ButtonType};
-pub use button_group::ButtonGroups;
+pub use button_group::{ButtonGroupItem, ButtonGroups};
 pub use card::{Card, CardAction, CardIcon};
 #[cfg(feature = "egui")]
 pub use card::CardEvent;
@@ -61,7 +63,9 @@ pub use layout::{
     Split,
 };
 pub use link::Link;
-pub use list::{List, ListItem, ListItemAction, ListItemBadge};
+pub use list::{
+    List, ListItem, ListItemAction, ListItemBadge, ListItemPostfix, ListItemPrefix,
+};
 #[cfg(feature = "egui")]
 pub use list::ListEvent;
 pub use markdown::Markdown;

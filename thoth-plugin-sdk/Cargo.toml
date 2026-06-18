@@ -12,6 +12,10 @@ egui-phosphor = { version = "0.12", optional = true }
 egui_extras = { version = "0.34", optional = true }
 egui_code_editor = { version = "0.2.24", optional = true }
 egui_commonmark = { version = "0.23", optional = true }
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "ico",
+], optional = true }
 
 [features]
 default = []
@@ -22,6 +26,7 @@ egui = [
     "dep:egui_extras",
     "dep:egui_code_editor",
     "dep:egui_commonmark",
+    "dep:image",
 ]
 
 [dev-dependencies]

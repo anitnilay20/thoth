@@ -4,27 +4,34 @@ mod ui;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
-use crate::components::Button;
+/// One segment of a [`ButtonGroups`] control.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
+pub struct ButtonGroupItem {
+    /// The value emitted when this segment is selected.
+    pub value: String,
+    /// The label shown on the segment.
+    pub label: String,
+}
 
-/// A segmented control: a row of [`Button`]s where one is the active segment.
+/// A pill-style segmented control — one selection at a time.
 ///
-/// Build it from a list of buttons and the index of the initially-active one.
-/// When rendered (with the `egui` feature) use
-/// [`ButtonGroups::show`](Self::show) to learn which segment the user picked;
-/// the plain `egui::Widget` impl discards that selection.
+/// The active segment is filled with `surface_active`; inactive segments are
+/// transparent and highlight on hover. [`ButtonGroups::show`](Self::show) reports
+/// the newly-selected value; the plain `egui::Widget` impl discards it.
 ///
 /// ```
-/// use thoth_plugin_sdk::components::{Button, ButtonGroups};
+/// use thoth_plugin_sdk::components::{ButtonGroupItem, ButtonGroups};
 ///
 /// let group = ButtonGroups::builder()
 ///     .items(vec![
-///         Button::builder().label("GET").build(),
-///         Button::builder().label("POST").build(),
+///         ButtonGroupItem::builder().value("get").label("GET").build(),
+///         ButtonGroupItem::builder().value("post").label("POST").build(),
 ///     ])
-///     .active(0)
+///     .active("get")
 ///     .build();
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 pub struct ButtonGroups {
     /// Widget id used for event routing.
@@ -32,7 +39,11 @@ pub struct ButtonGroups {
     #[serde(default)]
     pub id: String,
     /// The segments, in display order.
-    items: Vec<Button>,
-    /// Index into `items` of the currently-active segment.
-    active: usize,
+    #[builder(default)]
+    #[serde(default)]
+    pub items: Vec<ButtonGroupItem>,
+    /// The currently-active segment's value.
+    #[builder(default)]
+    #[serde(default)]
+    pub active: String,
 }

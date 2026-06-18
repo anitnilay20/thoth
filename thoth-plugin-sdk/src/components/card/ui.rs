@@ -44,6 +44,22 @@ impl Card {
                                     .corner_radius(CornerRadius::same(10)),
                             );
                         }
+                        Some(CardIcon::IconFile { path }) => {
+                            let (rect, _) = ui
+                                .allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::hover());
+                            if let Some(texture) = crate::components::helpers::load_icon_texture(
+                                ui.ctx(),
+                                std::path::Path::new(path),
+                                "card_icon",
+                            ) {
+                                ui.put(
+                                    rect,
+                                    egui::Image::new(&texture)
+                                        .fit_to_exact_size(rect.size())
+                                        .corner_radius(CornerRadius::same(10)),
+                                );
+                            }
+                        }
                         None => {}
                     }
                     ui.add_space(12.0);
@@ -72,20 +88,29 @@ impl Card {
 
                         if !self.tags.is_empty() {
                             ui.add_space(6.0);
-                            ui.horizontal_wrapped(|ui| {
+                            ui.horizontal(|ui| {
                                 for tag in &self.tags {
-                                    ui.add(
-                                        crate::components::Badge::builder()
-                                            .label(tag.as_str())
-                                            .build(),
-                                    );
+                                    egui::Frame::new()
+                                        .fill(colors.surface_raised)
+                                        .corner_radius(4.0)
+                                        .inner_margin(egui::Margin::symmetric(6, 2))
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                RichText::new(tag).size(10.0).color(colors.info),
+                                            );
+                                        });
+                                    ui.add_space(2.0);
                                 }
                             });
                         }
 
                         if let Some(meta) = &self.meta {
                             ui.add_space(4.0);
-                            ui.label(RichText::new(meta).color(colors.fg_muted).size(11.0));
+                            ui.label(
+                                RichText::new(meta)
+                                    .color(colors.fg_muted.linear_multiply(0.8))
+                                    .size(11.0),
+                            );
                         }
 
                         if let Some(body) = &mut self.body {

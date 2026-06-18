@@ -26,6 +26,12 @@ pub enum CardIcon {
         /// Encoded image bytes (PNG/JPEG/…).
         bytes: Vec<u8>,
     },
+    /// A PNG/ICO loaded from a filesystem path. Host-only — plugins cannot
+    /// supply host paths, so this renders nothing under wasm.
+    IconFile {
+        /// Filesystem path to the icon.
+        path: String,
+    },
 }
 
 /// A card action button.

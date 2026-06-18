@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, Builder)]
 pub struct Spinner {
-    /// Diameter in points; defaults to egui's default spinner size.
+    /// Diameter in points; defaults to 16.
     #[serde(default)]
     pub size: Option<f32>,
 }
@@ -20,10 +20,7 @@ impl egui::Widget for Spinner {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         use crate::theme::ThemeColors;
         let colors = ThemeColors::from_ctx(ui.ctx());
-        let mut spinner = egui::Spinner::new().color(colors.accent);
-        if let Some(size) = self.size {
-            spinner = spinner.size(size);
-        }
+        let spinner = egui::Spinner::new().color(colors.accent).size(self.size.unwrap_or(16.0));
         ui.add(spinner)
     }
 }

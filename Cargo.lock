@@ -6430,6 +6430,7 @@ dependencies = [
  "egui_code_editor",
  "egui_commonmark",
  "egui_extras",
+ "image",
  "serde",
  "serde_json",
 ]

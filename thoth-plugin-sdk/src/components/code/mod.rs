@@ -21,17 +21,13 @@ pub struct Code {
 #[cfg(feature = "egui")]
 impl egui::Widget for Code {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
-        let bg = ui.visuals().code_bg_color;
-        egui::Frame::new()
-            .fill(bg)
-            .corner_radius(4)
-            .inner_margin(egui::Margin::symmetric(8, 6))
+        egui::ScrollArea::horizontal()
             .show(ui, |ui| {
                 ui.add(
                     egui::Label::new(egui::RichText::new(&self.value).monospace())
-                        .selectable(true),
-                );
+                        .wrap_mode(egui::TextWrapMode::Extend),
+                )
             })
-            .response
+            .inner
     }
 }

@@ -258,6 +258,7 @@ fn curl_export_modal(st: &State) -> RenderNode {
 fn build_request_column(st: &State) -> RenderNode {
     RenderNode::Scroll(
         Scroll::builder()
+            .id("request-scroll")
             .child(RenderNode::Column(
                 Column::builder().gap(6.0).children(vec![build_req_tabs(st)]).build(),
             ))
@@ -287,7 +288,9 @@ fn build_response_column(st: &State) -> RenderNode {
     }
 
     if let Some(resp) = &st.response {
-        RenderNode::Scroll(Scroll::builder().child(build_response_panel(resp)).build())
+        RenderNode::Scroll(
+            Scroll::builder().id("response-scroll").child(build_response_panel(resp)).build(),
+        )
     } else {
         RenderNode::Row(
             Row::builder()
@@ -348,6 +351,7 @@ fn build_req_tabs(st: &State) -> RenderNode {
                 "Headers".to_string(),
                 "Body".to_string(),
             ])
+            .content_gap(0.0)
             .actions(vec![TabAction::builder()
                 .id("export-curl")
                 .icon(ICON_CODE)
@@ -373,6 +377,7 @@ fn build_req_tabs(st: &State) -> RenderNode {
                     CodeEditor::builder()
                         .id("body")
                         .value(st.body.clone())
+                        .rows(25)
                         .disabled(!is_body_method(&st.method))
                         .build(),
                 ),

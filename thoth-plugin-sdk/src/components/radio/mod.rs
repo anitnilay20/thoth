@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::SelectOption;
 
-/// A vertical radio-button group. Owns the selected `value`; [`Radio::show`]
+/// A horizontal radio-button group. Owns the selected `value`; [`Radio::show`]
 /// updates it in place and returns the newly-selected value when it changes.
 ///
 /// ```
@@ -49,10 +49,10 @@ impl Radio {
     pub fn show(&mut self, ui: &mut egui::Ui) -> Option<String> {
         let mut changed = None;
         ui.add_enabled_ui(!self.disabled, |ui| {
-            ui.vertical(|ui| {
-                if !self.label.is_empty() {
-                    ui.label(&self.label);
-                }
+            if !self.label.is_empty() {
+                ui.label(&self.label);
+            }
+            ui.horizontal(|ui| {
                 for opt in &self.options {
                     if ui
                         .radio(self.value == opt.value, &opt.label)

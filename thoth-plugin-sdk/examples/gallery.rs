@@ -12,7 +12,8 @@
 use eframe::egui;
 use egui::Color32;
 use thoth_plugin_sdk::components::{
-    Badge, Breadcrumbs, Button, ButtonColor, ButtonGroups, ButtonSize, ButtonType, Card,
+    Badge, Breadcrumbs, Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonSize, ButtonType,
+    Card,
     CardAction, CardIcon, Checkbox, Code, CodeEditor, Column, DataRow, Icon, IconButton, Input,
     JsonTree, KeyValueList, KvEntry, Link, List, ListItem, ListItemAction, ListItemBadge, Markdown,
     Modal, MultiSelect, NumberInput, Progress, Radio, Row, Select, SelectOption, Separator,
@@ -134,7 +135,7 @@ struct Gallery {
     show_icon: bool,
 
     // State for the ButtonGroup story.
-    active: usize,
+    active: String,
 
     // State for the Breadcrumbs story.
     crumb_path: String,
@@ -174,7 +175,7 @@ impl Default for Gallery {
             enabled: true,
             full_width: false,
             show_icon: false,
-            active: 0,
+            active: "GET".to_string(),
             crumb_path: "users.42.settings.theme".to_owned(),
             crumb_separator: ".".to_owned(),
             last_navigated: None,
@@ -429,29 +430,17 @@ impl Gallery {
     fn button_group_story(&mut self, ui: &mut egui::Ui) {
         ui.heading("Button Group");
         ui.add_space(8.0);
-        ui.label(format!("Active index: {}", self.active));
+        ui.label(format!("Active: {}", self.active));
         ui.add_space(12.0);
 
-        let items: Vec<Button> = ["GET", "POST", "PUT", "DELETE"]
+        let items: Vec<ButtonGroupItem> = ["GET", "POST", "PUT", "DELETE"]
             .iter()
-            .map(|label| {
-                Button::builder()
-                    .label(*label)
-                    .color(ButtonColor::Primary)
-                    .button_type(ButtonType::Text)
-                    .button_size(ButtonSize::Medium)
-                    .enabled(true)
-                    .full_width(false)
-                    .build()
-            })
+            .map(|label| ButtonGroupItem::builder().value(*label).label(*label).build())
             .collect();
 
-        let group = ButtonGroups::builder()
-            .items(items)
-            .active(self.active)
-            .build();
-        if let Some(i) = group.show(ui).inner {
-            self.active = i;
+        let group = ButtonGroups::builder().items(items).active(self.active.as_str()).build();
+        if let Some(value) = group.show(ui).inner {
+            self.active = value;
         }
     }
 

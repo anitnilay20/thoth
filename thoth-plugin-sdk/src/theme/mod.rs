@@ -100,6 +100,53 @@ impl ThemeColors {
     }
 }
 
+#[cfg(feature = "egui")]
+impl ThemeColors {
+    /// Build an `egui_code_editor` `ColorTheme` from the current palette so the
+    /// code editor's syntax highlighting matches the active theme.
+    ///
+    /// Called per-frame; `hex()` interns each unique colour in a static cache to
+    /// avoid per-frame allocations.
+    pub fn code_editor_theme(&self) -> egui_code_editor::ColorTheme {
+        fn hex(c: Color32) -> &'static str {
+            use std::collections::HashMap;
+            use std::sync::Mutex;
+            static CACHE: std::sync::OnceLock<Mutex<HashMap<u32, &'static str>>> =
+                std::sync::OnceLock::new();
+            let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+            let key = ((c.r() as u32) << 16) | ((c.g() as u32) << 8) | (c.b() as u32);
+            let mut map = cache.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(&s) = map.get(&key) {
+                return s;
+            }
+            let s = Box::leak(format!("{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()).into_boxed_str());
+            map.insert(key, s);
+            s
+        }
+        let is_dark = get_contrast_text_color(self.bg) == Color32::WHITE;
+        let fg_hex = hex(self.fg);
+        let string_hex = hex(self.syntax_string);
+        egui_code_editor::ColorTheme {
+            name: if is_dark { "Thoth Dark" } else { "Thoth Light" },
+            dark: is_dark,
+            // Match the surrounding panel background so the editor blends in
+            // rather than reading as a distinct sunken box.
+            bg: hex(self.bg),
+            cursor: fg_hex,
+            selection: hex(self.surface_raised),
+            comments: hex(self.fg_muted),
+            functions: hex(self.syntax_key),
+            keywords: hex(self.accent),
+            literals: string_hex,
+            numerics: hex(self.syntax_number),
+            punctuation: fg_hex,
+            strs: string_hex,
+            types: hex(self.info),
+            special: hex(self.error),
+        }
+    }
+}
+
 /// Return `WHITE` when the background is dark, `BLACK` when it is light.
 ///
 /// Uses the WCAG 2.0 relative-luminance formula to pick a legible text colour

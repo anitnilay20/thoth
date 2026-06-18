@@ -65,39 +65,156 @@ impl KeyValueList {
     /// Render the editable rows, mutating [`entries`](KeyValueList::entries) in
     /// place. Returns `true` if anything changed this frame.
     pub fn show(&mut self, ui: &mut egui::Ui) -> bool {
-        let mut changed = false;
-        let mut remove: Option<usize> = None;
+        use super::{Button, ButtonType, IconButton};
+        use crate::theme::ThemeColors;
+        let colors = ThemeColors::from_ctx(ui.ctx());
 
-        ui.add_enabled_ui(!self.disabled, |ui| {
-            ui.vertical(|ui| {
-                if !self.label.is_empty() {
-                    ui.label(&self.label);
-                }
-                for (i, entry) in self.entries.iter_mut().enumerate() {
-                    ui.horizontal(|ui| {
-                        changed |= ui.checkbox(&mut entry.enabled, "").changed();
-                        changed |= ui
-                            .add(egui::TextEdit::singleline(&mut entry.key).hint_text("key"))
-                            .changed();
-                        changed |= ui
-                            .add(egui::TextEdit::singleline(&mut entry.value).hint_text("value"))
-                            .changed();
-                        if ui.button(egui_phosphor::regular::X).clicked() {
-                            remove = Some(i);
-                        }
-                    });
-                }
-                if ui.button(&self.add_label).clicked() {
-                    self.entries.push(KvEntry::builder().enabled(true).build());
+        let mut changed = false;
+        let mut to_remove: Option<usize> = None;
+        let disabled = self.disabled;
+
+        if !self.label.is_empty() {
+            ui.label(&self.label);
+        }
+
+        let toggle_col_w = 22.0;
+        let delete_col_w = 24.0;
+        let available = ui.available_width();
+        let input_w = ((available - toggle_col_w - delete_col_w - 12.0) / 2.0).max(40.0);
+
+        // ── Header row ────────────────────────────────────────────────
+        // TextEdit has ~4px internal left padding; match it so header
+        // labels align with the placeholder/input text below.
+        let text_edit_pad = 4.0;
+        let header_rect = ui
+            .horizontal(|ui| {
+                ui.set_width(available);
+                ui.spacing_mut().item_spacing.x = 4.0;
+                let label_color = colors.fg_muted;
+                let font = egui::FontId::proportional(11.0);
+                ui.allocate_exact_size(egui::vec2(toggle_col_w, 24.0), egui::Sense::hover());
+                ui.painter().text(
+                    ui.cursor().min + egui::vec2(text_edit_pad, 8.0),
+                    egui::Align2::LEFT_TOP,
+                    "KEY",
+                    font.clone(),
+                    label_color,
+                );
+                ui.allocate_exact_size(egui::vec2(input_w, 24.0), egui::Sense::hover());
+                ui.painter().text(
+                    ui.cursor().min + egui::vec2(text_edit_pad, 8.0),
+                    egui::Align2::LEFT_TOP,
+                    "VALUE",
+                    font,
+                    label_color,
+                );
+                ui.allocate_exact_size(egui::vec2(input_w, 24.0), egui::Sense::hover());
+            })
+            .response
+            .rect;
+
+        // Bottom border under header.
+        let border_y = header_rect.bottom();
+        ui.painter().line_segment(
+            [
+                egui::pos2(header_rect.left(), border_y),
+                egui::pos2(header_rect.right(), border_y),
+            ],
+            egui::Stroke::new(1.0, colors.surface_raised),
+        );
+
+        // ── Data rows ─────────────────────────────────────────────────
+        for (i, entry) in self.entries.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                ui.set_width(available);
+                ui.spacing_mut().item_spacing.x = 4.0;
+                if ui
+                    .add_sized(
+                        egui::vec2(toggle_col_w, 24.0),
+                        egui::Checkbox::without_text(&mut entry.enabled),
+                    )
+                    .changed()
+                {
                     changed = true;
                 }
+                // Dim key/value text when the row is disabled.
+                let text_color = if entry.enabled { colors.fg } else { colors.fg_muted };
+                if ui
+                    .add_sized(
+                        egui::vec2(input_w, 24.0),
+                        egui::TextEdit::singleline(&mut entry.key)
+                            .frame(egui::Frame::NONE)
+                            .hint_text("key")
+                            .text_color(text_color)
+                            .background_color(egui::Color32::TRANSPARENT),
+                    )
+                    .changed()
+                {
+                    changed = true;
+                }
+                if ui
+                    .add_sized(
+                        egui::vec2(input_w, 24.0),
+                        egui::TextEdit::singleline(&mut entry.value)
+                            .frame(egui::Frame::NONE)
+                            .hint_text("value")
+                            .text_color(text_color)
+                            .background_color(egui::Color32::TRANSPARENT),
+                    )
+                    .changed()
+                {
+                    changed = true;
+                }
+                if !disabled
+                    && ui
+                        .add(
+                            IconButton::builder()
+                                .icon(egui_phosphor::regular::X)
+                                .frame(false)
+                                .tooltip("Remove")
+                                .size(14.0)
+                                .build(),
+                        )
+                        .clicked()
+                {
+                    to_remove = Some(i);
+                }
             });
-        });
 
-        if let Some(i) = remove {
-            self.entries.remove(i);
+            // Row separator.
+            let row_rect = ui.min_rect();
+            ui.painter().line_segment(
+                [
+                    egui::pos2(row_rect.left(), row_rect.bottom()),
+                    egui::pos2(row_rect.right(), row_rect.bottom()),
+                ],
+                egui::Stroke::new(1.0, colors.surface),
+            );
+        }
+
+        if let Some(idx) = to_remove {
+            self.entries.remove(idx);
             changed = true;
         }
+
+        // ── Add row button ────────────────────────────────────────────
+        if !disabled {
+            ui.add_space(4.0);
+            if ui
+                .add(
+                    Button::builder()
+                        .label(&self.add_label)
+                        .button_type(ButtonType::Text)
+                        .icon(egui_phosphor::regular::PLUS)
+                        .build(),
+                )
+                .clicked()
+            {
+                self.entries.push(KvEntry::builder().enabled(true).build());
+                changed = true;
+            }
+        }
+
         changed
     }
 }

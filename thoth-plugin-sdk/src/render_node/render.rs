@@ -130,8 +130,8 @@ impl RenderNode {
                 }
             }
             RenderNode::ButtonGroup(g) => {
-                if let Some(i) = g.show(ui).inner {
-                    emit(events, &g.id, "change", i.to_string());
+                if let Some(value) = g.show(ui).inner {
+                    emit(events, &g.id, "change", value);
                 }
             }
             RenderNode::DataRow(d) => {
@@ -157,6 +157,9 @@ impl RenderNode {
                             let value = serde_json::json!({ "item": item, "action": action })
                                 .to_string();
                             emit(events, &l.id, "action", value);
+                        }
+                        crate::components::ListEvent::PostfixClicked(i) => {
+                            emit(events, &l.id, "postfix", i.to_string());
                         }
                     }
                 }

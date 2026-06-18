@@ -16,7 +16,7 @@ pub struct NumberInput {
     #[builder(default)]
     #[serde(default)]
     pub id: String,
-    /// Label shown before the field.
+    /// Label shown above the field.
     #[builder(default)]
     #[serde(default)]
     pub label: String,
@@ -38,19 +38,11 @@ pub struct NumberInput {
 impl NumberInput {
     /// Render the input, editing [`value`](NumberInput::value) in place.
     pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        ui.horizontal(|ui| {
-            if !self.label.is_empty() {
-                ui.label(&self.label);
-            }
-            let mut drag = egui::DragValue::new(&mut self.value);
-            match (self.min, self.max) {
-                (Some(min), Some(max)) => drag = drag.range(min..=max),
-                (Some(min), None) => drag = drag.range(min..=f64::INFINITY),
-                (None, Some(max)) => drag = drag.range(f64::NEG_INFINITY..=max),
-                (None, None) => {}
-            }
-            ui.add_enabled(!self.disabled, drag)
-        })
-        .inner
+        if !self.label.is_empty() {
+            ui.label(&self.label);
+        }
+        let range = self.min.unwrap_or(f64::NEG_INFINITY)..=self.max.unwrap_or(f64::INFINITY);
+        let drag = egui::DragValue::new(&mut self.value).range(range);
+        ui.add_enabled(!self.disabled, drag)
     }
 }
