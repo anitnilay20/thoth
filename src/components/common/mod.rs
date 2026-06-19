@@ -1,18 +1,7 @@
-pub mod breadcrumbs;
-pub mod button;
-pub mod button_group;
-pub mod card;
-pub mod data_row;
+//! Host-side shared utilities for feature components.
+//!
+//! The reusable UI widgets that used to live here now come from
+//! `thoth_plugin_sdk::components`. What remains is host-only glue: the
+//! component-trait system (`traits`) and the icon-texture loader (`helpers`).
 pub mod helpers;
-pub mod icon_button;
-pub mod input;
-pub mod json_tree;
-pub mod list;
-pub mod modal;
-pub mod select;
-pub mod sidebar_header;
-pub mod table_view;
-pub mod tabs;
-pub mod toggle_switch;
 pub mod traits;
-pub mod typography;

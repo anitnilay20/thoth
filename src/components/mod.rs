@@ -1,20 +1,8 @@
-// ── Common reusable primitives ────────────────────────────────────────────────
+// ── Host-side shared utilities (the reusable widgets now live in the SDK) ──────
 pub mod common;
 
-// Re-export common modules at the `components::` level so existing import
-// paths (e.g. `crate::components::button::Button`) continue to work.
-pub use common::breadcrumbs;
-pub use common::button;
-pub use common::button_group;
-pub use common::card;
-pub use common::data_row;
-pub use common::icon_button;
-pub use common::input;
-pub use common::list;
-pub use common::table_view;
-pub use common::toggle_switch;
+// The component-trait system stays host-side.
 pub use common::traits;
-pub use common::typography;
 
 // ── App-specific panels and feature components ────────────────────────────────
 pub mod bookmarks;
