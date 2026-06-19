@@ -159,9 +159,9 @@ impl RenderNode {
     }
 
     /// A node that renders a JSON value coloured by its type — matching the
-    /// JSON tree's syntax colours. Scalars become coloured text (strings,
-    /// numbers, booleans), `null` renders italic + muted, and objects/arrays
-    /// become an interactive [`JsonTree`].
+    /// JSON tree's syntax colours. Numbers and booleans get their type colour,
+    /// `null` renders italic + muted, objects/arrays become an interactive
+    /// [`JsonTree`], and strings use the default foreground colour.
     pub fn json_cell(value: &serde_json::Value) -> Self {
         use serde_json::Value;
         match value {
@@ -174,9 +174,8 @@ impl RenderNode {
             Value::Number(n) => {
                 RenderNode::Text(Typography::builder().text(n.to_string()).color("number").build())
             }
-            Value::String(s) => {
-                RenderNode::Text(Typography::builder().text(s.clone()).color("string").build())
-            }
+            // Strings use the default foreground colour (no syntax tint).
+            Value::String(s) => RenderNode::text(s.clone()),
             Value::Array(_) | Value::Object(_) => {
                 RenderNode::JsonTree(JsonTree::builder().value(value.clone()).build())
             }
