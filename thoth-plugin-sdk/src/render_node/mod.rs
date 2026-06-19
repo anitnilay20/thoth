@@ -152,6 +152,38 @@ pub enum RenderNode {
     Custom(CustomWidget),
 }
 
+impl RenderNode {
+    /// A plain `Body` text node.
+    pub fn text(value: impl Into<String>) -> Self {
+        RenderNode::Text(Typography::builder().text(value).build())
+    }
+
+    /// A node that renders a JSON value coloured by its type — matching the
+    /// JSON tree's syntax colours. Scalars become coloured text (strings,
+    /// numbers, booleans), `null` renders italic + muted, and objects/arrays
+    /// become an interactive [`JsonTree`].
+    pub fn json_cell(value: &serde_json::Value) -> Self {
+        use serde_json::Value;
+        match value {
+            Value::Null => RenderNode::Text(
+                Typography::builder().text("null").italic(true).color("muted").build(),
+            ),
+            Value::Bool(b) => {
+                RenderNode::Text(Typography::builder().text(b.to_string()).color("boolean").build())
+            }
+            Value::Number(n) => {
+                RenderNode::Text(Typography::builder().text(n.to_string()).color("number").build())
+            }
+            Value::String(s) => {
+                RenderNode::Text(Typography::builder().text(s.clone()).color("string").build())
+            }
+            Value::Array(_) | Value::Object(_) => {
+                RenderNode::JsonTree(JsonTree::builder().value(value.clone()).build())
+            }
+        }
+    }
+}
+
 /// The shared, type-erased draw closure inside a [`CustomWidget`].
 #[cfg(feature = "egui")]
 type DrawFn = std::sync::Arc<std::sync::Mutex<dyn FnMut(&mut egui::Ui) + Send>>;

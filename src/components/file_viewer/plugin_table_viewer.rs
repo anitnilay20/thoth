@@ -114,13 +114,10 @@ impl FileFormatViewer for PluginTableViewer {
                         };
                         headers_for_closure
                             .iter()
-                            .map(|h| {
-                                let text = record
-                                    .as_ref()
-                                    .and_then(|v| v.get(h))
-                                    .map(|v| v.as_str().unwrap_or(&v.to_string()).to_owned())
-                                    .unwrap_or_default();
-                                RenderNode::text(text)
+                            .map(|h| match record.as_ref().and_then(|v| v.get(h)) {
+                                // Colour each cell by its JSON type, like the tree.
+                                Some(v) => RenderNode::json_cell(v),
+                                None => RenderNode::text(""),
                             })
                             .collect()
                     }

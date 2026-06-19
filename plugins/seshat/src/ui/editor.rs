@@ -2,8 +2,7 @@
 
 use serde_json::Value;
 use thoth_plugin_sdk::components::{
-    CodeEditor, Colored, Column, JsonTree, Row, Scroll, Separator, Spinner, TableView, Typography,
-    TypographyVariant,
+    CodeEditor, Colored, Column, Row, Scroll, Separator, Spinner, TableView, Typography,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -111,7 +110,7 @@ fn results_table(result: &Value) -> RenderNode {
                 .iter()
                 .map(|row| {
                     row.as_array()
-                        .map(|cs| cs.iter().map(cell_node).collect())
+                        .map(|cs| cs.iter().map(RenderNode::json_cell).collect())
                         .unwrap_or_default()
                 })
                 .collect();
@@ -145,22 +144,3 @@ fn results_table(result: &Value) -> RenderNode {
     }
 }
 
-/// Map a typed cell value to a display node: NULL muted-italic, JSON/JSONB as an
-/// interactive tree, scalars as text.
-fn cell_node(value: &Value) -> RenderNode {
-    match value {
-        Value::Null => RenderNode::Text(
-            Typography::builder()
-                .text("NULL")
-                .italic(true)
-                .variant(TypographyVariant::BodyMuted)
-                .build(),
-        ),
-        Value::Object(_) | Value::Array(_) => {
-            RenderNode::JsonTree(JsonTree::builder().value(value.clone()).build())
-        }
-        Value::Bool(b) => RenderNode::Text(Typography::builder().text(b.to_string()).build()),
-        Value::Number(n) => RenderNode::Text(Typography::builder().text(n.to_string()).build()),
-        Value::String(s) => RenderNode::Text(Typography::builder().text(s.clone()).build()),
-    }
-}
