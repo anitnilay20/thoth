@@ -92,7 +92,7 @@ impl MetaGuest for Seshat {
 
 impl LifecycleGuest for Seshat {
     fn on_load(_setting: String) {
-        STATE.with(|s| load_state(&mut s.borrow_mut()));
+        STATE.with_mut(|s| load_state(s));
     }
     fn on_close() {}
     fn on_setting_change(_setting: String) {}
@@ -110,8 +110,7 @@ impl SettingsGuest for Seshat {
 
 impl TabHostGuest for Seshat {
     fn tab_title() -> String {
-        STATE.with(|s| {
-            let st = s.borrow();
+        STATE.with(|st| {
             st.active
                 .as_deref()
                 .and_then(|id| st.connections.iter().find(|c| c.id == id))
@@ -125,17 +124,15 @@ impl TabHostGuest for Seshat {
     }
     /// Snapshot the editor tab so the host can restore it across restarts.
     fn get_state() -> Result<String, PluginError> {
-        Ok(STATE.with(|s| {
-            let st = s.borrow();
+        Ok(STATE.with(|st| {
             json!({ "connection": st.active, "sql": st.sql }).to_string()
         }))
     }
     /// Seed a freshly-opened editor tab with its connection (and SQL).
     fn init_with_state(state: String) -> Result<(), PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow_mut();
-            load_state(&mut st);
-            events::activate_from_state(&mut st, &state);
+        STATE.with_mut(|st| {
+            load_state(st);
+            events::activate_from_state(st, &state);
         });
         Ok(())
     }
@@ -159,10 +156,7 @@ impl DataSourceGuest for Seshat {
 
     /// Dispatch one [`Request`] against the active profile and return its JSON.
     fn query(_handle: String, q: String) -> Result<String, PluginError> {
-        let (profile, engine) = STATE.with(|s| {
-            let st = s.borrow();
-            (st.query_profile(), st.engine())
-        });
+        let (profile, engine) = STATE.with(|st| (st.query_profile(), st.engine()));
         let adapter = db::adapter(engine);
         let req: Request =
             serde_json::from_str(&q).map_err(|e| err(2, format!("bad request: {e}")))?;
@@ -192,29 +186,26 @@ impl DataSourceGuest for Seshat {
 
 impl UiComponentGuest for Seshat {
     fn render_sidebar() -> Result<Option<UiOutput>, PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow_mut();
+        STATE.with_mut(|st| {
             // Re-read persisted connections + history so entries written by editor
             // tabs (a separate instance) show up in the always-visible sidebar.
-            reload_persisted(&mut st);
-            Ok(Some(ui_out(build_sidebar(&st))))
+            reload_persisted(st);
+            Ok(Some(ui_out(build_sidebar(st))))
         })
     }
 
     fn render_ui() -> Result<UiOutput, PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow_mut();
-            load_state(&mut st);
-            Ok(ui_out(build_ui(&st)))
+        STATE.with_mut(|st| {
+            load_state(st);
+            Ok(ui_out(build_ui(st)))
         })
     }
 
     fn handle_event(event: UiEvent) -> Result<UiOutput, PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow_mut();
-            load_state(&mut st);
-            apply_event(&mut st, &event);
-            Ok(ui_out(build_ui(&st)))
+        STATE.with_mut(|st| {
+            load_state(st);
+            apply_event(st, &event);
+            Ok(ui_out(build_ui(st)))
         })
     }
 }

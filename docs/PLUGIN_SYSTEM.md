@@ -947,6 +947,54 @@ The component builders and a live gallery of every widget are in the
 `thoth-plugin-sdk` crate (`cargo run -p thoth-plugin-sdk --example gallery
 --features egui`).
 
+### Plugin state (`thoth_plugin_sdk::state`)
+
+WIT exports are free functions with no `self`, so plugins keep their runtime
+state in a global. Instead of hand-rolling `thread_local! { static STATE:
+RefCell<Option<T>> }` and repeating the borrow dance, use `PluginState<T>` — a
+lazily-initialised cell usable directly as a `static`:
+
+```rust
+use thoth_plugin_sdk::state::PluginState;
+
+#[derive(Default)]
+struct State { url: String }
+
+static STATE: PluginState<State> = PluginState::new();
+
+// read (auto-inits from Default) / mutate:
+let url = STATE.with(|s| s.url.clone());
+STATE.with_mut(|s| s.url = new_url);
+
+// when "absent" is meaningful (e.g. a file that hasn't been opened):
+STATE.set(State { url });          // store explicitly
+STATE.try_with(|s| s.url.clone()); // -> Option, None if unset
+STATE.reset();                     // drop it (e.g. from on-close)
+```
+
+`with`/`with_mut`/`get` require `T: Default`; `set`/`reset`/`try_with`/
+`is_initialised` do not. Don't call `with`/`with_mut` re-entrantly (they borrow
+internally, like `RefCell`). All three bundled plugins use this.
+
+### Settings (`thoth_plugin_sdk::settings`)
+
+The host passes settings to `on-load` / `on-setting-change` as a JSON array of
+`{key, value}` records. `SettingsMap` reads and builds that payload:
+
+```rust
+use thoth_plugin_sdk::settings::SettingsMap;
+
+fn on_load(setting: String) {
+    let s = SettingsMap::from_json(&setting);
+    let url    = s.get("url").unwrap_or_default();
+    let method = s.get_or("method", "GET");
+    // ...
+}
+
+// build a payload back out
+let json = SettingsMap::new().with("url", &url).with("method", &method).to_json();
+```
+
 ## UiNode DSL Reference
 
 > The tables below document the on-the-wire JSON shape. With the SDK

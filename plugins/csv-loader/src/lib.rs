@@ -7,8 +7,9 @@
 #[rustfmt::skip]
 mod bindings;
 
-use std::cell::RefCell;
 use std::path::PathBuf;
+
+use thoth_plugin_sdk::state::PluginState;
 
 use bindings::exports::thoth::plugin::{
     file_loader::Guest as FileLoaderGuest,
@@ -32,9 +33,7 @@ struct State {
     delimiter: u8,
 }
 
-thread_local! {
-    static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
-}
+static STATE: PluginState<State> = PluginState::new();
 
 // ── plugin-meta ───────────────────────────────────────────────────────────────
 
@@ -62,7 +61,7 @@ impl LifecycleGuest for CsvPlugin {
     }
 
     fn on_close() {
-        STATE.with(|s| *s.borrow_mut() = None);
+        STATE.reset();
     }
 
     fn on_setting_change(_setting: String) {
@@ -96,77 +95,69 @@ impl FileLoaderGuest for CsvPlugin {
         // Count records without loading them all into memory.
         let count = rdr.records().count() as u64;
 
-        STATE.with(|s| {
-            *s.borrow_mut() = Some(State {
-                headers,
-                file: PathBuf::from(path),
-                delimiter,
-            })
+        STATE.set(State {
+            headers,
+            file: PathBuf::from(path),
+            delimiter,
         });
 
         Ok(count)
     }
 
     fn get(idx: u64) -> Result<String, PluginError> {
-        STATE.with(|s| {
-            let guard = s.borrow();
-            let state = guard
-                .as_ref()
-                .ok_or_else(|| plugin_err(2, "file not opened"))?;
+        STATE
+            .try_with(|state| {
+                let mut rdr = ReaderBuilder::new()
+                    .delimiter(state.delimiter)
+                    .has_headers(true)
+                    .from_path(&state.file)
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            let mut rdr = ReaderBuilder::new()
-                .delimiter(state.delimiter)
-                .has_headers(true)
-                .from_path(&state.file)
-                .map_err(|e| plugin_err(1, e.to_string()))?;
+                let record = rdr
+                    .records()
+                    .nth(idx as usize)
+                    .ok_or_else(|| plugin_err(2, "index out of range"))?
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            let record = rdr
-                .records()
-                .nth(idx as usize)
-                .ok_or_else(|| plugin_err(2, "index out of range"))?
-                .map_err(|e| plugin_err(1, e.to_string()))?;
+                let obj: Map<String, Value> = state
+                    .headers
+                    .iter()
+                    .zip(record.iter())
+                    .map(|(k, v)| (k.clone(), Value::String(v.to_owned())))
+                    .collect();
 
-            let obj: Map<String, Value> = state
-                .headers
-                .iter()
-                .zip(record.iter())
-                .map(|(k, v)| (k.clone(), Value::String(v.to_owned())))
-                .collect();
-
-            serde_json::to_string(&Value::Object(obj)).map_err(|e| plugin_err(3, e.to_string()))
-        })
+                serde_json::to_string(&Value::Object(obj)).map_err(|e| plugin_err(3, e.to_string()))
+            })
+            .unwrap_or_else(|| Err(plugin_err(2, "file not opened")))
     }
 
     fn raw_bytes(idx: u64) -> Result<Vec<u8>, PluginError> {
-        STATE.with(|s| {
-            let guard = s.borrow();
-            let state = guard
-                .as_ref()
-                .ok_or_else(|| plugin_err(2, "file not opened"))?;
+        STATE
+            .try_with(|state| {
+                // Return the original (unparsed) CSV/TSV bytes for this record by
+                // reading the ByteRecord at `idx` and reconstructing the delimited line.
+                let mut rdr = ReaderBuilder::new()
+                    .delimiter(state.delimiter)
+                    .has_headers(true)
+                    .from_path(&state.file)
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            // Return the original (unparsed) CSV/TSV bytes for this record by
-            // reading the ByteRecord at `idx` and reconstructing the delimited line.
-            let mut rdr = ReaderBuilder::new()
-                .delimiter(state.delimiter)
-                .has_headers(true)
-                .from_path(&state.file)
-                .map_err(|e| plugin_err(1, e.to_string()))?;
+                let record = rdr
+                    .byte_records()
+                    .nth(idx as usize)
+                    .ok_or_else(|| plugin_err(2, "index out of range"))?
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            let record = rdr
-                .byte_records()
-                .nth(idx as usize)
-                .ok_or_else(|| plugin_err(2, "index out of range"))?
-                .map_err(|e| plugin_err(1, e.to_string()))?;
-
-            let mut out = Vec::new();
-            for (i, field) in record.iter().enumerate() {
-                if i > 0 {
-                    out.push(state.delimiter);
+                let mut out = Vec::new();
+                for (i, field) in record.iter().enumerate() {
+                    if i > 0 {
+                        out.push(state.delimiter);
+                    }
+                    out.extend_from_slice(field);
                 }
-                out.extend_from_slice(field);
-            }
-            Ok(out)
-        })
+                Ok(out)
+            })
+            .unwrap_or_else(|| Err(plugin_err(2, "file not opened")))
     }
 }
 
@@ -178,7 +169,7 @@ impl FileViewerGuest for CsvPlugin {
     }
 
     fn column_headers() -> Option<Vec<String>> {
-        STATE.with(|s| s.borrow().as_ref().map(|state| state.headers.clone()))
+        STATE.try_with(|state| state.headers.clone())
     }
 
     fn render_record(
