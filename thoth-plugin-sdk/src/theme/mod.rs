@@ -1,3 +1,11 @@
+//! The library-owned theme palette and colour helpers.
+//!
+//! [`ThemeColors`] is the canonical palette type; the host publishes it into
+//! egui memory (under [`THEME_MEMORY_ID`]) and SDK widgets read it back via
+//! [`ThemeColors::from_ctx`]. Also exposes colour parsing/token resolution
+//! ([`resolve_color`], [`parse_hex_color`], [`color_to_hex`]), contrast and
+//! Phosphor-font helpers, and the [`TextPalette`]/[`TextToken`] syntax colours.
+
 use egui::Color32;
 
 pub use crate::tokens::TextToken;

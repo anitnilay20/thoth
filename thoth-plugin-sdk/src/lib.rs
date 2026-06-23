@@ -25,6 +25,8 @@
 //! publishes it into egui memory, and widgets read it back via
 //! [`theme::ThemeColors::from_ctx`]. See the [`theme`] module for details.
 
+#![deny(missing_docs)]
+
 pub mod components;
 pub(crate) mod helpers;
 pub mod settings;

@@ -150,6 +150,13 @@ pub enum RenderNode {
     #[cfg(feature = "egui")]
     #[serde(skip)]
     Custom(CustomWidget),
+
+    /// Fallback for an unrecognised `"type"` — produced when deserialising a
+    /// node from a newer host (or plugin) that this SDK version doesn't know.
+    /// Renders as nothing, so old plugins degrade gracefully instead of failing
+    /// to parse a tree containing newer node types.
+    #[serde(other)]
+    Unknown,
 }
 
 impl RenderNode {

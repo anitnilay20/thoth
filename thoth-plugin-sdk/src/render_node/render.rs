@@ -183,6 +183,9 @@ impl RenderNode {
 
             // ── Escape hatch ─────────────────────────────────────────────────
             RenderNode::Custom(c) => c.show(ui),
+
+            // Unrecognised node from a newer peer — render nothing.
+            RenderNode::Unknown => {}
         }
     }
 }
