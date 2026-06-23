@@ -9,8 +9,7 @@ mod bindings;
 
 use std::path::PathBuf;
 
-use thoth_plugin_sdk::PluginMeta;
-use thoth_plugin_sdk::state::PluginState;
+use thoth_plugin_sdk::prelude::*;
 
 use bindings::exports::thoth::plugin::{
     file_loader::Guest as FileLoaderGuest,

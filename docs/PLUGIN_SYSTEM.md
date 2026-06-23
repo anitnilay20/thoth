@@ -867,8 +867,16 @@ thoth-plugin-sdk = { path = "../../thoth-plugin-sdk", features = ["plugin"] }
 
 Cargo features:
 - **default** — the DSL component types + `bon` builders (all a wasm plugin needs).
-- **`plugin`** — adds the `ToNodeJson` wire-protocol trait (`node.to_json()`).
+- **`plugin`** — adds the `ToNodeJson` wire-protocol trait (`node.to_json()`) and the `PluginMeta` derive.
 - **`egui`** — the host-only renderer; **do not** enable it in plugins.
+
+One glob brings in everything a plugin author needs (components + builders,
+`RenderNode`, `PluginState`, `SettingsMap`, and — with the `plugin` feature —
+`PluginMeta` and `ToNodeJson`):
+
+```rust
+use thoth_plugin_sdk::prelude::*;
+```
 
 ### Build a tree and serialize it
 
