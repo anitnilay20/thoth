@@ -66,6 +66,7 @@ impl BgColor {
 
 /// Lay children out left-to-right.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
+#[non_exhaustive]
 pub struct Row {
     /// Child nodes, in order.
     #[builder(default)]
@@ -98,6 +99,7 @@ pub struct Row {
 
 /// Lay children out top-to-bottom.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
+#[non_exhaustive]
 pub struct Column {
     /// Child nodes, in order.
     #[builder(default)]
@@ -111,6 +113,7 @@ pub struct Column {
 
 /// A scrollable region wrapping a single child.
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
+#[non_exhaustive]
 pub struct Scroll {
     /// The scrolled content.
     #[builder(into)]
@@ -128,6 +131,7 @@ pub struct Scroll {
 
 /// Empty space of a fixed size, in points.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, Builder)]
+#[non_exhaustive]
 pub struct Spacer {
     /// The amount of space.
     pub size: f32,
@@ -136,6 +140,7 @@ pub struct Spacer {
 /// Proportional horizontal split. `widths` are relative weights (empty = equal
 /// shares).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
+#[non_exhaustive]
 pub struct Split {
     /// Column nodes, in order.
     #[builder(default)]
@@ -158,6 +163,7 @@ pub struct Split {
 /// A collapsible section, open by default.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Group {
     /// Header label.
     pub label: String,
@@ -170,6 +176,7 @@ pub struct Group {
 /// A collapsible section, closed by default.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Collapsible {
     /// Header label.
     pub label: String,
@@ -181,6 +188,7 @@ pub struct Collapsible {
 
 /// A bottom-aligned group of children (rendered vertically with padding).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
+#[non_exhaustive]
 pub struct Footer {
     /// Footer content, top-to-bottom.
     #[builder(default)]
@@ -199,6 +207,7 @@ pub struct Footer {
 /// Inline `key: value` display, where the value is itself a node.
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct KeyValue {
     /// The key label.
     pub key: String,
@@ -210,6 +219,7 @@ pub struct KeyValue {
 /// Render `child` with an overridden text colour (`#rrggbb` hex).
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Colored {
     /// Colour applied to the subtree's text.
     pub color: String,

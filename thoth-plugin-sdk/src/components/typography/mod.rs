@@ -52,6 +52,7 @@ pub enum TypographyVariant {
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Typography {
     /// The text to render.
     pub text: String,

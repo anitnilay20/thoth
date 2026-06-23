@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 /// let bar = Progress::builder().value(0.6).build();
 /// ```
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, Builder)]
+#[non_exhaustive]
 pub struct Progress {
     /// Completion in `0.0..=1.0`.
     pub value: f64,

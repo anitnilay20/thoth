@@ -16,6 +16,7 @@ fn default_true() -> bool {
 /// A right-aligned icon action on a [`ListItem`] (hover-revealed trailing icons).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct ListItemAction {
     /// The action's Phosphor glyph.
     pub icon: String,
@@ -27,6 +28,7 @@ pub struct ListItemAction {
 /// A colored badge shown *before* a [`ListItem`]'s title (e.g. an HTTP method).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct ListItemBadge {
     /// Badge text.
     pub text: String,
@@ -88,6 +90,7 @@ pub enum ListItemPostfix {
 /// One row in a [`List`].
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct ListItem {
     /// Primary title text.
     pub title: String,
@@ -133,6 +136,7 @@ pub struct ListItem {
 /// ```
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct List {
     /// Widget id used for event routing.
     #[builder(default)]

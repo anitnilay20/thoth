@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Breadcrumbs {
     /// Delimiter-separated path of the current location,
     /// e.g. `"users.42.settings"` -> `["users", "[42]", "settings"]`.

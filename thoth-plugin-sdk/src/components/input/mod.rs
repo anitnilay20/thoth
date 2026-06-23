@@ -23,6 +23,7 @@ fn default_rows() -> usize {
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Input {
     /// Widget id used for event routing (empty if not part of a DSL tree).
     #[builder(default)]

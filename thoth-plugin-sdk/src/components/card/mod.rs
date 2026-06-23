@@ -37,6 +37,7 @@ pub enum CardIcon {
 /// A card action button.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct CardAction {
     /// Button label.
     pub label: String,
@@ -58,6 +59,7 @@ pub struct CardAction {
 /// ```
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Card {
     /// Title text.
     pub title: String,

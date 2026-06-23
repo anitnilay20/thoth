@@ -8,6 +8,7 @@ fn default_add_label() -> String {
 /// One editable key/value row in a [`KeyValueList`].
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct KvEntry {
     /// The key text.
     #[builder(default)]
@@ -37,6 +38,7 @@ pub(crate) fn default_true() -> bool {
 /// ```
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct KeyValueList {
     /// Widget id used for event routing.
     #[builder(default)]

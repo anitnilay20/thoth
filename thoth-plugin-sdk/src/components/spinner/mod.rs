@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 /// let spinner = Spinner::builder().size(20.0).build();
 /// ```
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, Builder)]
+#[non_exhaustive]
 pub struct Spinner {
     /// Diameter in points; defaults to 16.
     #[serde(default)]

@@ -55,6 +55,7 @@ use crate::components::{
 /// `{"type": "row", "children": [...]}`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum RenderNode {
     // ── Containers (recursive, wrap layout component structs) ────────────────
     /// A horizontal [`Row`].

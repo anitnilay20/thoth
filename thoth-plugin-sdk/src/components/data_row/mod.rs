@@ -23,6 +23,7 @@ pub struct RowHighlights {
 /// An optional leading icon for a [`DataRow`].
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct DataRowIcon {
     /// The Phosphor glyph to render.
     pub glyph: String,
@@ -51,6 +52,7 @@ pub struct DataRowIcon {
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct DataRow {
     /// Display text for the row, formatted as `key` or `key: value`.
     pub display_text: String,

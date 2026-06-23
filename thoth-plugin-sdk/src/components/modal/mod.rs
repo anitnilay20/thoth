@@ -24,6 +24,7 @@ use crate::render_node::RenderNode;
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Modal {
     /// Stable id — keys the backdrop/window; unique on screen.
     pub id: String,

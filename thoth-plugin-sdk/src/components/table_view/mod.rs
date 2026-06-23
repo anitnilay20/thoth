@@ -29,6 +29,7 @@ use crate::render_node::RenderNode;
 /// ```
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct TableView {
     /// Column header labels.
     #[builder(default)]

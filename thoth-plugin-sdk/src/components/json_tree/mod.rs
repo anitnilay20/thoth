@@ -20,6 +20,7 @@ use serde_json::Value;
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct JsonTree {
     /// The JSON value to display.
     pub value: Value,

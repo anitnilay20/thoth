@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 /// A right-aligned, tooltipped icon action shown in a [`SidebarHeader`].
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct SidebarHeaderAction {
     /// The icon glyph (a Phosphor character).
     pub icon: String,
@@ -31,6 +32,7 @@ pub struct SidebarHeaderAction {
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct SidebarHeader {
     /// Section title, rendered as a panel header (small, typically upper-case).
     pub title: String,

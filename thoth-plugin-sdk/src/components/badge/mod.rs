@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Badge {
     /// Text shown inside the pill.
     pub label: String,

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 /// let sep = Separator::with_margin(8.0);
 /// ```
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, Builder)]
+#[non_exhaustive]
 pub struct Separator {
     /// Space added above the line, in points.
     #[builder(default)]

@@ -9,6 +9,7 @@ use crate::render_node::RenderNode;
 /// A right-aligned icon action on a [`Tabs`] header line.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct TabAction {
     /// Event id emitted (as a "click") when the action is pressed.
     pub id: String,
@@ -34,6 +35,7 @@ pub struct TabAction {
 /// ```
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Tabs {
     /// Stable id salt for the selected-tab state.
     pub id: String,

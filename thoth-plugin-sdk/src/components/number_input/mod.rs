@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct NumberInput {
     /// Widget id used for event routing.
     #[builder(default)]

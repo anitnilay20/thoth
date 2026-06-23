@@ -73,6 +73,7 @@ pub enum ButtonColor {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Button {
     /// Widget id used for event routing (empty if not part of a DSL tree).
     #[builder(default)]

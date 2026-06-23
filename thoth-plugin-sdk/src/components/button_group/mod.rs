@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 /// One segment of a [`ButtonGroups`] control.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct ButtonGroupItem {
     /// The value emitted when this segment is selected.
     pub value: String,
@@ -33,6 +34,7 @@ pub struct ButtonGroupItem {
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct ButtonGroups {
     /// Widget id used for event routing.
     #[builder(default)]

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Icon {
     /// The Phosphor glyph to render.
     pub glyph: String,

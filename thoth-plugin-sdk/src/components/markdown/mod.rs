@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 /// ```
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
+#[non_exhaustive]
 pub struct Markdown {
     /// The Markdown source.
     pub value: String,
