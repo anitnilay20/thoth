@@ -3,6 +3,13 @@ name = "thoth-plugin-sdk-macros"
 version = "0.1.0"
 edition = "2021"
 description = "Derive macros for thoth-plugin-sdk (PluginMeta)."
+authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/anitnilay20/thoth"
+homepage = "https://github.com/anitnilay20/thoth"
+keywords = ["thoth", "plugin", "derive", "macro"]
+categories = ["development-tools::procedural-macro-helpers"]
+rust-version = "1.92"
 
 [lib]
 proc-macro = true
