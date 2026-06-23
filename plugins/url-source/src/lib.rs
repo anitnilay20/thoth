@@ -7,6 +7,7 @@ mod ui;
 
 use serde_json::Value;
 
+use thoth_plugin_sdk::PluginMeta;
 use thoth_plugin_sdk::state::PluginState;
 
 use bindings::exports::thoth::plugin::{
@@ -14,18 +15,26 @@ use bindings::exports::thoth::plugin::{
         ConfigEntry, FieldSchema, Guest as DataSourceGuest, PaneOutput, PluginError, SourceSchema,
     },
     plugin_lifecycle::Guest as LifecycleGuest,
-    plugin_meta::Guest as MetaGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
     tab_host::Guest as TabHostGuest,
     ui_component::{Guest as UiComponentGuest, UiEvent, UiOutput},
 };
-use bindings::thoth::plugin::types::Capability;
 
 use crate::{
     helper::{ce, normalise_array, plugin_err, request_is_non_empty, type_hint, ui_out},
     http::http_fetch,
 };
 
+#[derive(PluginMeta)]
+#[plugin(
+    id = "com.thoth.url-source",
+    name = "URL Source",
+    version = "0.1.0",
+    description = "Fetch JSON data from any HTTP endpoint",
+    capabilities = [DataSource, NewUiComponent],
+    author = "Thoth contributors",
+    icon = "\u{E28C}",
+)]
 struct UrlSourcePlugin;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -177,21 +186,6 @@ struct StoredData {
 }
 
 static STATE: PluginState<State> = PluginState::new();
-
-impl MetaGuest for UrlSourcePlugin {
-    fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-        bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-            id: "com.thoth.url-source".to_string(),
-            name: "URL Source".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Fetch JSON data from any HTTP endpoint".to_string(),
-            capabilities: vec![Capability::DataSource, Capability::NewUiComponent],
-            author: Some("Thoth contributors".to_string()),
-            homepage: None,
-            icon: Some("\u{E28C}".to_string()),
-        }
-    }
-}
 
 impl LifecycleGuest for UrlSourcePlugin {
     fn on_load(setting: String) {

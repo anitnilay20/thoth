@@ -16,10 +16,11 @@ image = { version = "0.25", default-features = false, features = [
     "png",
     "ico",
 ], optional = true }
+thoth-plugin-sdk-macros = { path = "../thoth-plugin-sdk-macros", version = "0.1.0", optional = true }
 
 [features]
 default = []
-plugin = []
+plugin = ["dep:thoth-plugin-sdk-macros"]
 egui = [
     "dep:egui",
     "dep:egui-phosphor",

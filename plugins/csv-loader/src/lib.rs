@@ -9,19 +9,28 @@ mod bindings;
 
 use std::path::PathBuf;
 
+use thoth_plugin_sdk::PluginMeta;
 use thoth_plugin_sdk::state::PluginState;
 
 use bindings::exports::thoth::plugin::{
     file_loader::Guest as FileLoaderGuest,
     file_viewer::{DisplayMode, Guest as FileViewerGuest},
     plugin_lifecycle::Guest as LifecycleGuest,
-    plugin_meta::Guest as MetaGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
 };
-use bindings::thoth::plugin::types::{Capability, PluginError};
+use bindings::thoth::plugin::types::PluginError;
 use csv::ReaderBuilder;
 use serde_json::{Map, Value};
 
+#[derive(PluginMeta)]
+#[plugin(
+    id = "com.thoth.csv-loader",
+    name = "CSV Loader",
+    version = "0.1.0",
+    description = "Load CSV and TSV files as tabular JSON records",
+    capabilities = [FileLoader, FileViewer],
+    author = "Thoth contributors",
+)]
 struct CsvPlugin;
 
 // ── per-instance state stored inside the WASM sandbox ────────────────────────
@@ -35,22 +44,6 @@ struct State {
 
 static STATE: PluginState<State> = PluginState::new();
 
-// ── plugin-meta ───────────────────────────────────────────────────────────────
-
-impl MetaGuest for CsvPlugin {
-    fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-        bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-            id: "com.thoth.csv-loader".to_string(),
-            name: "CSV Loader".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Load CSV and TSV files as tabular JSON records".to_string(),
-            capabilities: vec![Capability::FileLoader, Capability::FileViewer],
-            author: Some("Thoth contributors".to_string()),
-            homepage: None,
-            icon: None,
-        }
-    }
-}
 
 // ── plugin-lifecycle ──────────────────────────────────────────────────────────
 

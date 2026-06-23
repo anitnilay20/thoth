@@ -6433,6 +6433,16 @@ dependencies = [
  "image",
  "serde",
  "serde_json",
+ "thoth-plugin-sdk-macros",
+]
+
+[[package]]
+name = "thoth-plugin-sdk-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.110",
 ]
 
 [[package]]

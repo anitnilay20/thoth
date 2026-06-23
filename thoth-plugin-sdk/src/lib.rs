@@ -40,6 +40,11 @@ mod wire;
 #[cfg(feature = "plugin")]
 pub use wire::ToNodeJson;
 
+/// Derive the `plugin-meta` `get_info()` export from a `#[plugin(...)]`
+/// attribute. See [`thoth_plugin_sdk_macros::PluginMeta`].
+#[cfg(feature = "plugin")]
+pub use thoth_plugin_sdk_macros::PluginMeta;
+
 #[cfg(feature = "egui")]
 pub mod theme;
 

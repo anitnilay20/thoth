@@ -995,6 +995,36 @@ fn on_load(setting: String) {
 let json = SettingsMap::new().with("url", &url).with("method", &method).to_json();
 ```
 
+### Plugin metadata (`#[derive(PluginMeta)]`)
+
+Every plugin must implement `plugin-meta`'s `get_info()` — pure boilerplate. The
+`PluginMeta` derive generates it from a declarative attribute:
+
+```rust
+use thoth_plugin_sdk::PluginMeta;
+
+#[derive(PluginMeta)]
+#[plugin(
+    id          = "com.example.my-plugin",
+    name        = "My Plugin",
+    version     = env!("CARGO_PKG_VERSION"),
+    description = "Does useful things",
+    capabilities = [DataSource, NewUiComponent],
+    author      = "Me",        // optional
+    icon        = "\u{E28C}",  // optional (homepage also optional)
+)]
+struct MyPlugin;
+```
+
+`id`/`name`/`version`/`description` are required; `author`/`homepage`/`icon` are
+optional. Values are any `ToString` expression (string literal, `env!(...)`, or a
+glyph const). `capabilities` lists the binding `Capability` variant names
+(`FileLoader`, `FileViewer`, `DataSource`, `Exporter`, `SearchProvider`,
+`NewUiComponent`). The derive expands to the `get_info()` impl against your
+`cargo component` bindings, so it expects the conventional top-level
+`mod bindings;`. (Lifecycle hooks — `on-load`/`on-close`/`on-setting-change` —
+are still written by hand; only the static metadata is derived.)
+
 ## UiNode DSL Reference
 
 > The tables below document the on-the-wire JSON shape. With the SDK

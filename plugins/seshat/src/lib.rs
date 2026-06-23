@@ -13,12 +13,11 @@ use serde_json::json;
 use bindings::exports::thoth::plugin::{
     data_source::{ConfigEntry, Guest as DataSourceGuest, PaneOutput, PluginError, SourceSchema},
     plugin_lifecycle::Guest as LifecycleGuest,
-    plugin_meta::Guest as MetaGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
     tab_host::Guest as TabHostGuest,
     ui_component::{Guest as UiComponentGuest, UiEvent, UiOutput},
 };
-use bindings::thoth::plugin::types::Capability;
+use thoth_plugin_sdk::PluginMeta;
 
 use events::apply_event;
 use state::{load_state, reload_persisted, Request, STATE};
@@ -42,6 +41,16 @@ pub(crate) const ICON_EYE: &str = "\u{E220}";
 pub(crate) const ICON_KEY: &str = "\u{E2D6}";
 pub(crate) const ICON_CIRCLE: &str = "\u{E18A}";
 
+#[derive(PluginMeta)]
+#[plugin(
+    id = "com.thoth.seshat",
+    name = "Seshat",
+    version = "0.1.0",
+    description = "Database client for Thoth",
+    capabilities = [DataSource, NewUiComponent],
+    author = "Thoth contributors",
+    icon = ICON_DATABASE,
+)]
 struct Seshat;
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -74,21 +83,6 @@ fn to_json<T: Serialize>(result: Result<T, String>) -> Result<String, PluginErro
 }
 
 // ── meta / lifecycle / settings / tab-host ───────────────────────────────────
-
-impl MetaGuest for Seshat {
-    fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-        bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-            id: "com.thoth.seshat".to_string(),
-            name: "Seshat".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Database client for Thoth".to_string(),
-            capabilities: vec![Capability::DataSource, Capability::NewUiComponent],
-            author: Some("Thoth contributors".to_string()),
-            homepage: None,
-            icon: Some(ICON_DATABASE.to_string()),
-        }
-    }
-}
 
 impl LifecycleGuest for Seshat {
     fn on_load(_setting: String) {
