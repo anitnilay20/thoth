@@ -303,6 +303,21 @@ mod tests {
         assert_eq!(v["children"].as_array().unwrap().len(), 2);
         assert_eq!(v["children"][0]["type"], "text");
         assert_eq!(v["children"][1]["text"], "line 2");
+
+        // Round-trip: the recursive `children: Vec<RenderNode>` must survive
+        // deserialization, not just serialize to the right shape.
+        let back: RenderNode = serde_json::from_value(v).unwrap();
+        let RenderNode::Column(col) = back else {
+            panic!("expected RenderNode::Column, got {back:?}");
+        };
+        assert_eq!(col.children.len(), 2);
+        match (&col.children[0], &col.children[1]) {
+            (RenderNode::Text(a), RenderNode::Text(b)) => {
+                assert_eq!(a.text, "line 1");
+                assert_eq!(b.text, "line 2");
+            }
+            other => panic!("expected two Text children, got {other:?}"),
+        }
     }
 
     // ── deserialisation ───────────────────────────────────────────────────────

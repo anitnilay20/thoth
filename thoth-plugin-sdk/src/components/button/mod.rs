@@ -154,6 +154,11 @@ mod tests {
             .enabled(false)
             .full_width(true)
             .icon("trash-icon")
+            .hover_text("Delete this item")
+            .size(13.0)
+            .width(120.0)
+            .height(28.0)
+            .copy("copied text")
             .build();
         assert_eq!(btn.id, "my-btn");
         assert_eq!(btn.label, "Delete");
@@ -163,6 +168,11 @@ mod tests {
         assert!(!btn.enabled);
         assert!(btn.full_width);
         assert_eq!(btn.icon.as_deref(), Some("trash-icon"));
+        assert_eq!(btn.hover_text.as_deref(), Some("Delete this item"));
+        assert_eq!(btn.size, Some(13.0));
+        assert_eq!(btn.width, Some(120.0));
+        assert_eq!(btn.height, Some(28.0));
+        assert_eq!(btn.copy.as_deref(), Some("copied text"));
     }
 
     // ── ButtonSize::metrics ───────────────────────────────────────────────────
