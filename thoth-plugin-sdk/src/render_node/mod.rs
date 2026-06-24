@@ -235,3 +235,221 @@ impl std::fmt::Debug for CustomWidget {
         f.write_str("CustomWidget(..)")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::RenderNode;
+    use crate::components::{
+        Button, ButtonColor, Column, Row, Separator, Typography, TypographyVariant,
+    };
+    use serde_json::{json, Value};
+
+    // ── type tag serialisation ────────────────────────────────────────────────
+
+    #[test]
+    fn separator_serialises_with_type_tag() {
+        let node = RenderNode::Separator(Separator::plain());
+        let v: Value = serde_json::to_value(&node).unwrap();
+        assert_eq!(v["type"], "separator");
+    }
+
+    #[test]
+    fn text_node_serialises_with_type_tag() {
+        let node = RenderNode::Text(Typography::builder().text("hello").build());
+        let v: Value = serde_json::to_value(&node).unwrap();
+        assert_eq!(v["type"], "text");
+        assert_eq!(v["text"], "hello");
+    }
+
+    #[test]
+    fn button_node_serialises_with_type_tag() {
+        let node = RenderNode::Button(Button::builder().label("Click me").build());
+        let v: Value = serde_json::to_value(&node).unwrap();
+        assert_eq!(v["type"], "button");
+        assert_eq!(v["label"], "Click me");
+    }
+
+    #[test]
+    fn column_node_serialises_with_type_tag() {
+        let node = RenderNode::Column(Column::builder().gap(8.0).build());
+        let v: Value = serde_json::to_value(&node).unwrap();
+        assert_eq!(v["type"], "column");
+        assert_eq!(v["gap"], 8.0);
+    }
+
+    #[test]
+    fn row_node_serialises_with_type_tag() {
+        let node = RenderNode::Row(Row::builder().padding(4.0).build());
+        let v: Value = serde_json::to_value(&node).unwrap();
+        assert_eq!(v["type"], "row");
+        assert_eq!(v["padding"], 4.0);
+    }
+
+    // ── nested children serialisation ─────────────────────────────────────────
+
+    #[test]
+    fn column_with_children_serialises_correctly() {
+        let node = RenderNode::Column(
+            Column::builder()
+                .gap(4.0)
+                .children(vec![
+                    RenderNode::Text(Typography::builder().text("line 1").build()),
+                    RenderNode::Text(Typography::builder().text("line 2").build()),
+                ])
+                .build(),
+        );
+        let v: Value = serde_json::to_value(&node).unwrap();
+        assert_eq!(v["type"], "column");
+        assert_eq!(v["children"].as_array().unwrap().len(), 2);
+        assert_eq!(v["children"][0]["type"], "text");
+        assert_eq!(v["children"][1]["text"], "line 2");
+    }
+
+    // ── deserialisation ───────────────────────────────────────────────────────
+
+    #[test]
+    fn separator_deserialises_from_json() {
+        let json = r#"{"type":"separator","margin-top":0.0,"margin-bottom":0.0}"#;
+        let node: RenderNode = serde_json::from_str(json).unwrap();
+        assert!(matches!(node, RenderNode::Separator(_)));
+    }
+
+    #[test]
+    fn text_node_deserialises_from_json() {
+        let json = r#"{"type":"text","text":"hello"}"#;
+        let node: RenderNode = serde_json::from_str(json).unwrap();
+        if let RenderNode::Text(t) = node {
+            assert_eq!(t.text, "hello");
+        } else {
+            panic!("expected RenderNode::Text");
+        }
+    }
+
+    #[test]
+    fn unknown_type_deserialises_as_unknown_variant() {
+        let json = r#"{"type":"future-widget-9000","some-field":true}"#;
+        let node: RenderNode = serde_json::from_str(json).unwrap();
+        assert!(matches!(node, RenderNode::Unknown));
+    }
+
+    #[test]
+    fn round_trip_text_node() {
+        let original = RenderNode::Text(
+            Typography::builder()
+                .text("round-trip")
+                .variant(TypographyVariant::Caption)
+                .build(),
+        );
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: RenderNode = serde_json::from_str(&json).unwrap();
+        if let RenderNode::Text(t) = restored {
+            assert_eq!(t.text, "round-trip");
+            assert_eq!(t.variant, TypographyVariant::Caption);
+        } else {
+            panic!("expected RenderNode::Text after round-trip");
+        }
+    }
+
+    #[test]
+    fn round_trip_button_node_with_color() {
+        let original = RenderNode::Button(
+            Button::builder()
+                .id("btn1")
+                .label("Save")
+                .color(ButtonColor::Primary)
+                .build(),
+        );
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: RenderNode = serde_json::from_str(&json).unwrap();
+        if let RenderNode::Button(b) = restored {
+            assert_eq!(b.id, "btn1");
+            assert_eq!(b.label, "Save");
+            assert_eq!(b.color, ButtonColor::Primary);
+        } else {
+            panic!("expected RenderNode::Button after round-trip");
+        }
+    }
+
+    // ── RenderNode::text() constructor ────────────────────────────────────────
+
+    #[test]
+    fn text_constructor_produces_body_typography() {
+        let node = RenderNode::text("hello");
+        if let RenderNode::Text(t) = node {
+            assert_eq!(t.text, "hello");
+            assert_eq!(t.variant, TypographyVariant::Body);
+        } else {
+            panic!("expected RenderNode::Text");
+        }
+    }
+
+    // ── RenderNode::json_cell() ───────────────────────────────────────────────
+
+    #[test]
+    fn json_cell_null_produces_italic_muted_text() {
+        let node = RenderNode::json_cell(&Value::Null);
+        if let RenderNode::Text(t) = node {
+            assert_eq!(t.text, "null");
+            assert!(t.italic);
+            assert_eq!(t.color.as_deref(), Some("muted"));
+        } else {
+            panic!("expected RenderNode::Text for null");
+        }
+    }
+
+    #[test]
+    fn json_cell_bool_produces_colored_text() {
+        let node = RenderNode::json_cell(&Value::Bool(true));
+        if let RenderNode::Text(t) = node {
+            assert_eq!(t.text, "true");
+            assert_eq!(t.color.as_deref(), Some("boolean"));
+        } else {
+            panic!("expected RenderNode::Text for bool");
+        }
+    }
+
+    #[test]
+    fn json_cell_number_produces_colored_text() {
+        let node = RenderNode::json_cell(&json!(42));
+        if let RenderNode::Text(t) = node {
+            assert_eq!(t.text, "42");
+            assert_eq!(t.color.as_deref(), Some("number"));
+        } else {
+            panic!("expected RenderNode::Text for number");
+        }
+    }
+
+    #[test]
+    fn json_cell_string_produces_plain_text() {
+        let node = RenderNode::json_cell(&Value::String("hello".into()));
+        if let RenderNode::Text(t) = node {
+            assert_eq!(t.text, "hello");
+            assert_eq!(t.color, None); // no syntax tint for strings
+        } else {
+            panic!("expected RenderNode::Text for string");
+        }
+    }
+
+    #[test]
+    fn json_cell_array_produces_json_tree() {
+        let node = RenderNode::json_cell(&json!([1, 2, 3]));
+        assert!(matches!(node, RenderNode::JsonTree(_)));
+    }
+
+    #[test]
+    fn json_cell_object_produces_json_tree() {
+        let node = RenderNode::json_cell(&json!({"a": 1}));
+        assert!(matches!(node, RenderNode::JsonTree(_)));
+    }
+
+    #[test]
+    fn json_cell_bool_false_produces_boolean_color() {
+        let node = RenderNode::json_cell(&Value::Bool(false));
+        if let RenderNode::Text(t) = node {
+            assert_eq!(t.text, "false");
+            assert_eq!(t.color.as_deref(), Some("boolean"));
+        } else {
+            panic!("expected RenderNode::Text for bool false");
+        }
+    }
+}

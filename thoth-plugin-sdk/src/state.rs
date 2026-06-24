@@ -128,3 +128,180 @@ impl<T> Default for PluginState<T> {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PluginState;
+
+    #[derive(Default, Clone, PartialEq, Debug)]
+    struct Counter {
+        count: u32,
+        name: String,
+    }
+
+    // ── is_initialised / set / reset ─────────────────────────────────────────
+
+    #[test]
+    fn new_is_not_initialised() {
+        let state: PluginState<Counter> = PluginState::new();
+        assert!(!state.is_initialised());
+    }
+
+    #[test]
+    fn set_marks_initialised() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.set(Counter { count: 1, name: "a".into() });
+        assert!(state.is_initialised());
+    }
+
+    #[test]
+    fn reset_clears_value() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.set(Counter { count: 5, name: "x".into() });
+        state.reset();
+        assert!(!state.is_initialised());
+    }
+
+    #[test]
+    fn reset_on_empty_is_idempotent() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.reset(); // should not panic
+        assert!(!state.is_initialised());
+    }
+
+    #[test]
+    fn set_replaces_existing_value() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.set(Counter { count: 1, name: "first".into() });
+        state.set(Counter { count: 2, name: "second".into() });
+        let name = state.try_with(|s| s.name.clone()).unwrap();
+        assert_eq!(name, "second");
+    }
+
+    // ── try_with / try_with_mut ───────────────────────────────────────────────
+
+    #[test]
+    fn try_with_returns_none_when_empty() {
+        let state: PluginState<Counter> = PluginState::new();
+        assert!(state.try_with(|_| ()).is_none());
+    }
+
+    #[test]
+    fn try_with_returns_some_when_set() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.set(Counter { count: 42, name: "hello".into() });
+        let count = state.try_with(|s| s.count);
+        assert_eq!(count, Some(42));
+    }
+
+    #[test]
+    fn try_with_does_not_initialise() {
+        let state: PluginState<Counter> = PluginState::new();
+        let _ = state.try_with(|s| s.count);
+        assert!(!state.is_initialised());
+    }
+
+    #[test]
+    fn try_with_mut_returns_none_when_empty() {
+        let state: PluginState<Counter> = PluginState::new();
+        assert!(state.try_with_mut(|_| ()).is_none());
+    }
+
+    #[test]
+    fn try_with_mut_mutates_when_set() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.set(Counter { count: 0, name: String::new() });
+        state.try_with_mut(|s| s.count += 10);
+        let count = state.try_with(|s| s.count).unwrap();
+        assert_eq!(count, 10);
+    }
+
+    // ── with (auto-initialises from Default) ──────────────────────────────────
+
+    #[test]
+    fn with_auto_initialises_from_default() {
+        let state: PluginState<Counter> = PluginState::new();
+        let count = state.with(|s| s.count);
+        assert_eq!(count, 0);
+        assert!(state.is_initialised());
+    }
+
+    #[test]
+    fn with_reads_existing_value() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.set(Counter { count: 7, name: "test".into() });
+        let count = state.with(|s| s.count);
+        assert_eq!(count, 7);
+    }
+
+    #[test]
+    fn with_nested_reads_are_allowed() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.set(Counter { count: 3, name: "n".into() });
+        let (a, b) = state.with(|s| (s.count, state.with(|t| t.count)));
+        assert_eq!(a, 3);
+        assert_eq!(b, 3);
+    }
+
+    // ── with_mut ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn with_mut_auto_initialises_and_mutates() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.with_mut(|s| s.count = 99);
+        let count = state.with(|s| s.count);
+        assert_eq!(count, 99);
+    }
+
+    #[test]
+    fn with_mut_mutates_existing_value() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.set(Counter { count: 5, name: "start".into() });
+        state.with_mut(|s| {
+            s.count += 10;
+            s.name = "changed".into();
+        });
+        let (count, name) = state.with(|s| (s.count, s.name.clone()));
+        assert_eq!(count, 15);
+        assert_eq!(name, "changed");
+    }
+
+    #[test]
+    fn with_mut_return_value_is_forwarded() {
+        let state: PluginState<Counter> = PluginState::new();
+        let prev = state.with_mut(|s| {
+            let old = s.count;
+            s.count = 5;
+            old
+        });
+        assert_eq!(prev, 0);
+        assert_eq!(state.with(|s| s.count), 5);
+    }
+
+    // ── get ───────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn get_returns_clone_of_default_when_unset() {
+        let state: PluginState<Counter> = PluginState::new();
+        let c = state.get();
+        assert_eq!(c, Counter::default());
+        assert!(state.is_initialised());
+    }
+
+    #[test]
+    fn get_returns_clone_of_stored_value() {
+        let state: PluginState<Counter> = PluginState::new();
+        state.set(Counter { count: 77, name: "clone".into() });
+        let c = state.get();
+        assert_eq!(c.count, 77);
+        assert_eq!(c.name, "clone");
+    }
+
+    // ── Default impl for PluginState ──────────────────────────────────────────
+
+    #[test]
+    fn default_creates_empty_state() {
+        let state: PluginState<Counter> = PluginState::default();
+        assert!(!state.is_initialised());
+    }
+}

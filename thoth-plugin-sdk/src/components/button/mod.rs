@@ -122,3 +122,117 @@ pub struct Button {
     #[serde(rename = "full-width", default)]
     pub full_width: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Button, ButtonColor, ButtonSize, ButtonType};
+    use serde_json::Value;
+
+    // ── builder defaults ──────────────────────────────────────────────────────
+
+    #[test]
+    fn builder_requires_only_label() {
+        let btn = Button::builder().label("Save").build();
+        assert_eq!(btn.label, "Save");
+        assert_eq!(btn.id, "");
+        assert_eq!(btn.button_type, ButtonType::Elevated);
+        assert_eq!(btn.color, ButtonColor::Default);
+        assert_eq!(btn.button_size, ButtonSize::Medium);
+        assert!(btn.enabled);
+        assert!(!btn.full_width);
+        assert!(btn.icon.is_none());
+    }
+
+    #[test]
+    fn builder_sets_all_fields() {
+        let btn = Button::builder()
+            .id("my-btn")
+            .label("Delete")
+            .color(ButtonColor::Danger)
+            .button_type(ButtonType::Text)
+            .button_size(ButtonSize::Small)
+            .enabled(false)
+            .full_width(true)
+            .icon("trash-icon")
+            .build();
+        assert_eq!(btn.id, "my-btn");
+        assert_eq!(btn.label, "Delete");
+        assert_eq!(btn.color, ButtonColor::Danger);
+        assert_eq!(btn.button_type, ButtonType::Text);
+        assert_eq!(btn.button_size, ButtonSize::Small);
+        assert!(!btn.enabled);
+        assert!(btn.full_width);
+        assert_eq!(btn.icon.as_deref(), Some("trash-icon"));
+    }
+
+    // ── ButtonSize::metrics ───────────────────────────────────────────────────
+
+    #[test]
+    fn button_size_small_metrics() {
+        assert_eq!(ButtonSize::Small.metrics(), (11.0, 24.0));
+    }
+
+    #[test]
+    fn button_size_medium_metrics() {
+        assert_eq!(ButtonSize::Medium.metrics(), (13.0, 28.0));
+    }
+
+    #[test]
+    fn button_size_large_metrics() {
+        assert_eq!(ButtonSize::Large.metrics(), (15.0, 32.0));
+    }
+
+    // ── serialisation ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn button_type_elevated_serialises() {
+        let s = serde_json::to_string(&ButtonType::Elevated).unwrap();
+        assert_eq!(s, r#""Elevated""#);
+    }
+
+    #[test]
+    fn button_type_text_serialises() {
+        let s = serde_json::to_string(&ButtonType::Text).unwrap();
+        assert_eq!(s, r#""Text""#);
+    }
+
+    #[test]
+    fn button_color_primary_serialises() {
+        let s = serde_json::to_string(&ButtonColor::Primary).unwrap();
+        assert_eq!(s, r#""Primary""#);
+    }
+
+    #[test]
+    fn button_color_danger_serialises() {
+        let s = serde_json::to_string(&ButtonColor::Danger).unwrap();
+        assert_eq!(s, r#""Danger""#);
+    }
+
+    #[test]
+    fn button_serialises_renamed_fields() {
+        let btn = Button::builder()
+            .label("Go")
+            .button_type(ButtonType::Elevated)
+            .full_width(true)
+            .build();
+        let v: Value = serde_json::to_value(&btn).unwrap();
+        assert_eq!(v["button-type"], "Elevated");
+        assert_eq!(v["full-width"], true);
+    }
+
+    #[test]
+    fn button_round_trips_through_json() {
+        let original = Button::builder()
+            .id("btn")
+            .label("Click")
+            .color(ButtonColor::Success)
+            .enabled(false)
+            .build();
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: Button = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.id, "btn");
+        assert_eq!(restored.label, "Click");
+        assert_eq!(restored.color, ButtonColor::Success);
+        assert!(!restored.enabled);
+    }
+}

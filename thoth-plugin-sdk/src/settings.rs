@@ -123,3 +123,193 @@ impl FromIterator<(String, String)> for SettingsMap {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SettingsMap;
+
+    // ── from_json ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn from_json_parses_valid_payload() {
+        let map = SettingsMap::from_json(r#"[{"key":"url","value":"https://x"}]"#);
+        assert_eq!(map.get("url"), Some("https://x"));
+    }
+
+    #[test]
+    fn from_json_empty_array_gives_empty_map() {
+        let map = SettingsMap::from_json("[]");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn from_json_malformed_input_gives_empty_map() {
+        let map = SettingsMap::from_json("not json at all");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn from_json_wrong_shape_gives_empty_map() {
+        let map = SettingsMap::from_json(r#"{"key":"url","value":"x"}"#);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn from_json_preserves_multiple_entries() {
+        let map =
+            SettingsMap::from_json(r#"[{"key":"a","value":"1"},{"key":"b","value":"2"}]"#);
+        assert_eq!(map.get("a"), Some("1"));
+        assert_eq!(map.get("b"), Some("2"));
+        assert_eq!(map.len(), 2);
+    }
+
+    // ── get / get_or ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn get_returns_none_for_missing_key() {
+        let map = SettingsMap::new();
+        assert_eq!(map.get("missing"), None);
+    }
+
+    #[test]
+    fn get_or_returns_default_for_missing_key() {
+        let map = SettingsMap::new();
+        assert_eq!(map.get_or("method", "GET"), "GET");
+    }
+
+    #[test]
+    fn get_returns_first_value_for_duplicate_keys() {
+        let map = SettingsMap::from_json(
+            r#"[{"key":"x","value":"first"},{"key":"x","value":"second"}]"#,
+        );
+        assert_eq!(map.get("x"), Some("first"));
+    }
+
+    // ── contains_key ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn contains_key_true_when_present() {
+        let map = SettingsMap::from_json(r#"[{"key":"k","value":"v"}]"#);
+        assert!(map.contains_key("k"));
+    }
+
+    #[test]
+    fn contains_key_false_when_absent() {
+        let map = SettingsMap::new();
+        assert!(!map.contains_key("missing"));
+    }
+
+    // ── insert ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn insert_adds_new_entry() {
+        let mut map = SettingsMap::new();
+        map.insert("key", "value");
+        assert_eq!(map.get("key"), Some("value"));
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn insert_replaces_existing_value_in_place() {
+        let mut map = SettingsMap::from_json(r#"[{"key":"k","value":"old"}]"#);
+        map.insert("k", "new");
+        assert_eq!(map.get("k"), Some("new"));
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn insert_preserves_order_of_remaining_entries() {
+        let mut map =
+            SettingsMap::from_json(r#"[{"key":"a","value":"1"},{"key":"b","value":"2"}]"#);
+        map.insert("a", "updated");
+        let keys: Vec<&str> = map.iter().map(|(k, _)| k).collect();
+        assert_eq!(keys, ["a", "b"]);
+    }
+
+    // ── with (builder) ────────────────────────────────────────────────────────
+
+    #[test]
+    fn with_chains_multiple_entries() {
+        let map = SettingsMap::new()
+            .with("url", "https://x")
+            .with("method", "POST");
+        assert_eq!(map.get("url"), Some("https://x"));
+        assert_eq!(map.get("method"), Some("POST"));
+        assert_eq!(map.len(), 2);
+    }
+
+    // ── to_json ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn to_json_empty_map_produces_empty_array() {
+        let json = SettingsMap::new().to_json();
+        assert_eq!(json, "[]");
+    }
+
+    #[test]
+    fn to_json_round_trips_single_entry() {
+        let json = SettingsMap::new()
+            .with("url", "https://x")
+            .to_json();
+        assert_eq!(json, r#"[{"key":"url","value":"https://x"}]"#);
+    }
+
+    #[test]
+    fn to_json_round_trips_multiple_entries_in_order() {
+        let json = SettingsMap::new()
+            .with("url", "https://x")
+            .with("method", "POST")
+            .to_json();
+        assert_eq!(
+            json,
+            r#"[{"key":"url","value":"https://x"},{"key":"method","value":"POST"}]"#
+        );
+    }
+
+    #[test]
+    fn from_json_then_to_json_is_identity() {
+        let original = r#"[{"key":"a","value":"1"},{"key":"b","value":"2"}]"#;
+        let json = SettingsMap::from_json(original).to_json();
+        assert_eq!(json, original);
+    }
+
+    // ── iter / len / is_empty ─────────────────────────────────────────────────
+
+    #[test]
+    fn iter_yields_entries_in_insertion_order() {
+        let map = SettingsMap::new().with("z", "1").with("a", "2");
+        let pairs: Vec<(&str, &str)> = map.iter().collect();
+        assert_eq!(pairs, [("z", "1"), ("a", "2")]);
+    }
+
+    #[test]
+    fn is_empty_true_on_new_map() {
+        assert!(SettingsMap::new().is_empty());
+    }
+
+    #[test]
+    fn is_empty_false_after_insert() {
+        let map = SettingsMap::new().with("k", "v");
+        assert!(!map.is_empty());
+    }
+
+    // ── from_iter ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn from_iter_builds_map_from_string_pairs() {
+        let pairs = vec![
+            ("url".to_string(), "https://example.com".to_string()),
+            ("method".to_string(), "GET".to_string()),
+        ];
+        let map: SettingsMap = pairs.into_iter().collect();
+        assert_eq!(map.get("url"), Some("https://example.com"));
+        assert_eq!(map.get("method"), Some("GET"));
+        assert_eq!(map.len(), 2);
+    }
+
+    #[test]
+    fn from_iter_empty_iterator_gives_empty_map() {
+        let map: SettingsMap = std::iter::empty::<(String, String)>().collect();
+        assert!(map.is_empty());
+    }
+}

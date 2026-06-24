@@ -29,3 +29,92 @@ pub trait ToNodeJson: Serialize {
 }
 
 impl<T: Serialize + ?Sized> ToNodeJson for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::ToNodeJson;
+    use serde::Serialize;
+    use serde_json::{json, Value};
+
+    #[derive(Serialize)]
+    struct Simple {
+        x: u32,
+        label: String,
+    }
+
+    // ── to_json ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn to_json_serialises_struct_to_value() {
+        let s = Simple { x: 7, label: "hi".into() };
+        let v = s.to_json();
+        assert_eq!(v, json!({"x": 7, "label": "hi"}));
+    }
+
+    #[test]
+    fn to_json_on_string_produces_json_string() {
+        let s = "hello".to_string();
+        let v = s.to_json();
+        assert_eq!(v, Value::String("hello".into()));
+    }
+
+    #[test]
+    fn to_json_on_number() {
+        let v = 42u32.to_json();
+        assert_eq!(v, json!(42));
+    }
+
+    #[test]
+    fn to_json_on_vec() {
+        let v = vec![1u32, 2, 3].to_json();
+        assert_eq!(v, json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn to_json_on_option_none() {
+        let v: Option<u32> = None;
+        assert_eq!(v.to_json(), Value::Null);
+    }
+
+    #[test]
+    fn to_json_on_option_some() {
+        let v: Option<u32> = Some(5);
+        assert_eq!(v.to_json(), json!(5));
+    }
+
+    // ── try_to_json ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn try_to_json_returns_ok_for_valid_value() {
+        let s = Simple { x: 1, label: "ok".into() };
+        assert!(s.try_to_json().is_ok());
+    }
+
+    #[test]
+    fn try_to_json_matches_to_json_for_normal_values() {
+        let s = Simple { x: 99, label: "test".into() };
+        let expected = s.to_json();
+        let actual = s.try_to_json().unwrap();
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn try_to_json_fails_for_nan_float() {
+        // f32/f64 NaN is not representable as JSON — try_to_json returns Err.
+        #[derive(Serialize)]
+        struct WithFloat {
+            v: f32,
+        }
+        let bad = WithFloat { v: f32::NAN };
+        assert!(bad.try_to_json().is_err());
+    }
+
+    // ── blanket impl covers &T ────────────────────────────────────────────────
+
+    #[test]
+    fn to_json_works_on_ref() {
+        let s = Simple { x: 3, label: "ref".into() };
+        let v = (&s).to_json();
+        assert_eq!(v["x"], json!(3));
+    }
+}
