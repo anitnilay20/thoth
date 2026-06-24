@@ -665,17 +665,13 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             .unwrap_or_default();
         let duration_ms = ok.get("duration_ms").and_then(|v| v.as_u64());
         let size_bytes = body_raw.len();
-        let (body, parsed_body) = match serde_json::from_str::<Value>(&body_raw) {
-            Ok(v) => {
-                let pretty = serde_json::to_string_pretty(&v).unwrap_or(body_raw.clone());
-                (pretty, Some(v))
-            }
-            Err(_) => (body_raw, None),
-        };
+        // Keep `body` as the exact raw payload so the Raw tab matches the
+        // server response. The Pretty/JSON viewer uses `parsed_body`.
+        let parsed_body = serde_json::from_str::<Value>(&body_raw).ok();
         st.response = Some(ResponseState {
             status,
             headers,
-            body,
+            body: body_raw,
             parsed_body,
             error: None,
             duration_ms,

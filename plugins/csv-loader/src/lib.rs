@@ -104,9 +104,10 @@ impl FileLoaderGuest for CsvPlugin {
                     .from_path(&state.file)
                     .map_err(|e| plugin_err(1, e.to_string()))?;
 
+                let row = usize::try_from(idx).map_err(|_| plugin_err(2, "index out of range"))?;
                 let record = rdr
                     .records()
-                    .nth(idx as usize)
+                    .nth(row)
                     .ok_or_else(|| plugin_err(2, "index out of range"))?
                     .map_err(|e| plugin_err(1, e.to_string()))?;
 
@@ -133,18 +134,24 @@ impl FileLoaderGuest for CsvPlugin {
                     .from_path(&state.file)
                     .map_err(|e| plugin_err(1, e.to_string()))?;
 
+                let row = usize::try_from(idx).map_err(|_| plugin_err(2, "index out of range"))?;
                 let record = rdr
                     .byte_records()
-                    .nth(idx as usize)
+                    .nth(row)
                     .ok_or_else(|| plugin_err(2, "index out of range"))?
                     .map_err(|e| plugin_err(1, e.to_string()))?;
 
-                let mut out = Vec::new();
-                for (i, field) in record.iter().enumerate() {
-                    if i > 0 {
-                        out.push(state.delimiter);
-                    }
-                    out.extend_from_slice(field);
+                // Re-serialize through the CSV writer so fields containing the
+                // delimiter, quotes, or newlines stay properly escaped.
+                let mut wtr = csv::WriterBuilder::new()
+                    .delimiter(state.delimiter)
+                    .from_writer(Vec::new());
+                wtr.write_byte_record(&record)
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
+                let mut out = wtr.into_inner().map_err(|e| plugin_err(1, e.to_string()))?;
+                // Drop the trailing line terminator to keep this API newline-free.
+                while out.last() == Some(&b'\n') || out.last() == Some(&b'\r') {
+                    out.pop();
                 }
                 Ok(out)
             })

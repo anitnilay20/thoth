@@ -29,7 +29,7 @@ pub(crate) fn build_ui(st: &State) -> RenderNode {
     RenderNode::Column(
         Column::builder()
             .gap(0.0)
-            .children(vec![main, dialog::dialog(st), error::error_modal(st)])
+            .children(vec![main, dialog::dialog(st, ""), error::error_modal(st)])
             .build(),
     )
 }

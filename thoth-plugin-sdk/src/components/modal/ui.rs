@@ -89,7 +89,12 @@ impl Modal {
         let win = match (w, h) {
             (Some(w), Some(h)) => win.fixed_size([w, h]),
             (Some(w), None) => win.min_width(w).max_width(w),
-            (None, _) => win.min_width(320.0).max_width(480.0),
+            (None, Some(h)) => win
+                .min_width(320.0)
+                .max_width(480.0)
+                .min_height(h)
+                .max_height(h),
+            (None, None) => win.min_width(320.0).max_width(480.0),
         };
 
         win.show(&ctx, |ui| {

@@ -9,10 +9,10 @@ impl Breadcrumbs {
     ///
     /// The returned [`egui::InnerResponse::inner`] is `Some(path)` when the user
     /// clicked a segment this frame: `Some("")` for the always-present **Root**
-    /// link, or the delimiter-joined trail (in display form, with numeric indices
-    /// bracketed) up to and including the clicked segment. The last segment is the
-    /// current location — rendered bold and non-clickable. `None` when nothing
-    /// was clicked.
+    /// link, or the delimiter-joined raw trail (matching the input format of
+    /// [`Breadcrumbs::path`], so it round-trips) up to and including the clicked
+    /// segment. The last segment is the current location — rendered bold and
+    /// non-clickable. `None` when nothing was clicked.
     pub fn show(self, ui: &mut egui::Ui) -> egui::InnerResponse<Option<String>> {
         let colors = ThemeColors::from_ctx(ui.ctx());
         let delim = self.separator.as_deref().unwrap_or(".");
@@ -51,11 +51,22 @@ impl Breadcrumbs {
                                 .color(colors.fg_muted),
                         );
                         if i == last {
-                            ui.label(RichText::new(segment).size(12.0).color(colors.fg).strong());
+                            ui.label(
+                                RichText::new(&segment.display)
+                                    .size(12.0)
+                                    .color(colors.fg)
+                                    .strong(),
+                            );
                         } else {
-                            let path = segments[..=i].join(delim);
+                            // Navigation emits the RAW path so it round-trips
+                            // with `Breadcrumbs::path`, not the bracketed display.
+                            let path = segments[..=i]
+                                .iter()
+                                .map(|s| s.raw.as_str())
+                                .collect::<Vec<_>>()
+                                .join(delim);
                             let resp = ui
-                                .link(RichText::new(segment).size(12.0).color(colors.fg))
+                                .link(RichText::new(&segment.display).size(12.0).color(colors.fg))
                                 .on_hover_cursor(CursorIcon::PointingHand)
                                 .on_hover_text(format!("Navigate to {path}"));
                             if resp.clicked() {
@@ -71,20 +82,28 @@ impl Breadcrumbs {
         egui::InnerResponse::new(selected, inner.response)
     }
 
-    /// Split `path` on `delim` into displayable segments. Numeric tokens are
-    /// bracketed (e.g. `"0"` -> `"[0]"`); empty tokens are dropped.
-    fn parse_path(path: &str, delim: &str) -> Vec<String> {
+    /// Split `path` on `delim` into segments. Each segment keeps its `raw` token
+    /// (for navigation round-tripping) and a `display` form where numeric tokens
+    /// are bracketed (e.g. `"0"` -> `"[0]"`); empty tokens are dropped.
+    fn parse_path(path: &str, delim: &str) -> Vec<BreadcrumbSegment> {
         path.split(delim)
             .filter(|t| !t.is_empty())
-            .map(|t| {
-                if t.bytes().all(|b| b.is_ascii_digit()) {
+            .map(|t| BreadcrumbSegment {
+                raw: t.to_owned(),
+                display: if t.bytes().all(|b| b.is_ascii_digit()) {
                     format!("[{t}]")
                 } else {
                     t.to_owned()
-                }
+                },
             })
             .collect()
     }
+}
+
+/// A parsed breadcrumb segment: the `raw` input token and its `display` form.
+struct BreadcrumbSegment {
+    raw: String,
+    display: String,
 }
 
 impl egui::Widget for Breadcrumbs {

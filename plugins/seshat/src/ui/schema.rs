@@ -32,7 +32,7 @@ pub(crate) fn schema_panel(st: &State) -> RenderNode {
     if let Some(e) = &st.schema_error {
         nodes.push(RenderNode::Colored(
             Colored::builder()
-                .color("#f38ba8")
+                .color("error")
                 .child(RenderNode::Text(
                     Typography::builder()
                         .text(e.clone())

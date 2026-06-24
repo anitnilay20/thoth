@@ -6,8 +6,9 @@
 //! node's own data in place — the host can keep the tree in state and read
 //! values back out.
 //!
-//! Interaction results (clicks, changes) are currently dropped; event
-//! propagation will be threaded through a host sink in a later step.
+//! Interaction results (clicks, changes) are collected into an event sink — a
+//! `&mut Vec<UiEvent>` passed to [`RenderNode::show`] — which the host forwards
+//! to the plugin.
 
 use super::{CustomWidget, RenderNode, UiEvent};
 

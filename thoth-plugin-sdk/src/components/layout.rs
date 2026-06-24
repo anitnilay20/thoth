@@ -277,7 +277,20 @@ impl Row {
                         }
                     });
                 }
-                Align::Center | Align::End => {
+                Align::Center => {
+                    // Center the row of children horizontally: lay them out
+                    // left-to-right inside a top-down/centered wrapper so the
+                    // group is centered within the available width.
+                    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = gap;
+                            for child in &mut self.children {
+                                child.show(ui, events);
+                            }
+                        });
+                    });
+                }
+                Align::End => {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = gap;
                         for child in self.children.iter_mut().rev() {

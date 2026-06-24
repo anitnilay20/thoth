@@ -8,7 +8,7 @@ hand-writing that JSON, build it with type-safe builders — the host renders th
 
 ```toml
 [dependencies]
-thoth-plugin-sdk = "0.1"
+thoth-plugin-sdk = { version = "0.1", features = ["plugin"] }
 ```
 
 ```rust

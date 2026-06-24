@@ -126,7 +126,7 @@ impl Default for State {
 struct ResponseState {
     status: u16,
     headers: Vec<KvPair>,
-    body: String, // pretty-printed if JSON, raw otherwise
+    body: String, // raw response payload, exactly as received
     /// Pre-parsed JSON value, populated when the body is valid JSON so
     /// build_response_panel doesn't need to re-parse on every render frame.
     parsed_body: Option<serde_json::Value>,
@@ -345,7 +345,13 @@ impl DataSourceGuest for UrlSourcePlugin {
     }
 
     fn close(_handle: String) {
-        STATE.reset();
+        // A per-handle close must not wipe shared plugin UI data (the sidebar
+        // saved-requests collection). Reset only the per-request/response form.
+        STATE.with_mut(|st| {
+            let saved_requests = std::mem::take(&mut st.saved_requests);
+            *st = State::fresh();
+            st.saved_requests = saved_requests;
+        });
     }
 
     fn render_pane(_handle: String) -> Result<PaneOutput, PluginError> {

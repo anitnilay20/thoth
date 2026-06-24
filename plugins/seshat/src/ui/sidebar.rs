@@ -59,7 +59,7 @@ pub(crate) fn build_sidebar(st: &State) -> RenderNode {
                         ])
                         .build(),
                 ),
-                dialog(st),
+                dialog(st, "sb-"),
                 error_modal(st),
             ])
             .build(),

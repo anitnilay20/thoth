@@ -56,8 +56,11 @@ pub enum ListItemPrefix {
         /// Accent colour (hex or theme token) for the glyph and tile tint.
         color: String,
     },
-    /// A 48×48 image loaded from a filesystem path. Host-only — plugins cannot
-    /// supply host paths, so this renders nothing under wasm.
+    /// A 48×48 image loaded from a host filesystem path. **Host-only**: skipped
+    /// by serde so it can never cross the plugin→host wire (a plugin can't turn
+    /// list rendering into a local-file read); the host constructs it directly
+    /// in Rust.
+    #[serde(skip)]
     IconFile {
         /// Filesystem path to a PNG/ICO icon.
         path: String,

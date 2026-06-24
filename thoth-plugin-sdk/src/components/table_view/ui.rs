@@ -101,7 +101,8 @@ impl TableView {
                         body.rows(ROW_H, rows.len(), |mut row| {
                             let idx = row.index();
 
-                            row.col(|ui| {
+                            let mut row_clicked = false;
+                            let (_, number_resp) = row.col(|ui| {
                                 let rect = ui.max_rect();
                                 ui.painter().text(
                                     rect.center(),
@@ -112,8 +113,10 @@ impl TableView {
                                 );
                                 paint_cell_borders(ui, grid, grid);
                             });
+                            if number_resp.clicked() {
+                                row_clicked = true;
+                            }
 
-                            let mut row_clicked = false;
                             for col in 0..num_cols {
                                 let (_, response) = row.col(|ui| {
                                     egui::Frame::NONE
@@ -248,7 +251,8 @@ impl TableView {
                                 cells.push(crate::render_node::RenderNode::text(""));
                             }
 
-                            row.col(|ui| {
+                            let mut row_clicked = false;
+                            let (_, number_resp) = row.col(|ui| {
                                 let rect = ui.max_rect();
                                 ui.painter().text(
                                     rect.center(),
@@ -259,8 +263,10 @@ impl TableView {
                                 );
                                 paint_cell_borders(ui, grid, grid);
                             });
+                            if number_resp.clicked() {
+                                row_clicked = true;
+                            }
 
-                            let mut row_clicked = false;
                             for cell in &mut cells {
                                 let (_, response) = row.col(|ui| {
                                     egui::Frame::NONE

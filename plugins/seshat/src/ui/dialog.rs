@@ -10,12 +10,18 @@ use crate::ui::widgets::{button, text_input};
 use crate::ICON_PLUG;
 
 /// The new/edit-connection modal. Shared by the manager view and the sidebar.
-pub(crate) fn dialog(st: &State) -> RenderNode {
+///
+/// `prefix` scopes the egui widget ids per rendering surface so the modal can
+/// coexist in the same egui frame (sidebar panel + editor tab) without id
+/// collisions. The event router strips this prefix before matching. Pass `""`
+/// for the editor tab and `"sb-"` for the sidebar.
+pub(crate) fn dialog(st: &State, prefix: &str) -> RenderNode {
+    let id = |name: &str| format!("{prefix}{name}");
     let mut form_children: Vec<RenderNode> = vec![
-        text_input("f-name", "Name", &st.form.name, false, "my-database"),
+        text_input(&id("f-name"), "Name", &st.form.name, false, "my-database"),
         RenderNode::Select(
             Select::builder()
-                .id("f-engine")
+                .id(id("f-engine"))
                 .value(engine_value(st.form.engine))
                 .options(vec![
                     SelectOption::builder()
@@ -33,22 +39,22 @@ pub(crate) fn dialog(st: &State) -> RenderNode {
             Row::builder()
                 .gap(8.0)
                 .children(vec![
-                    text_input("f-host", "Host", &st.form.host, true, "localhost"),
-                    text_input("f-port", "Port", &st.form.port, false, "5432"),
+                    text_input(&id("f-host"), "Host", &st.form.host, true, "localhost"),
+                    text_input(&id("f-port"), "Port", &st.form.port, false, "5432"),
                 ])
                 .build(),
         ),
         text_input(
-            "f-database",
+            &id("f-database"),
             "Database",
             &st.form.database,
             false,
             "postgres",
         ),
-        text_input("f-user", "User", &st.form.user, false, ""),
+        text_input(&id("f-user"), "User", &st.form.user, false, ""),
         RenderNode::Input(
             Input::builder()
-                .id("f-password")
+                .id(id("f-password"))
                 .label("Password")
                 .value(st.form.password.clone())
                 .password(true)
@@ -56,7 +62,7 @@ pub(crate) fn dialog(st: &State) -> RenderNode {
         ),
         RenderNode::Checkbox(
             Checkbox::builder()
-                .id("f-tls")
+                .id(id("f-tls"))
                 .label("Require TLS")
                 .checked(st.form.tls)
                 .build(),
@@ -88,7 +94,7 @@ pub(crate) fn dialog(st: &State) -> RenderNode {
             .align(Align::Center)
             .children(vec![
                 button(
-                    "dialog-test",
+                    &id("dialog-test"),
                     "Test connection",
                     "Text",
                     "Default",
@@ -97,7 +103,7 @@ pub(crate) fn dialog(st: &State) -> RenderNode {
                     false,
                 ),
                 button(
-                    "dialog-cancel",
+                    &id("dialog-cancel"),
                     "Cancel",
                     "Text",
                     "Default",
@@ -106,7 +112,7 @@ pub(crate) fn dialog(st: &State) -> RenderNode {
                     false,
                 ),
                 button(
-                    "dialog-connect",
+                    &id("dialog-connect"),
                     connect_label,
                     "Elevated",
                     "Primary",
@@ -120,10 +126,10 @@ pub(crate) fn dialog(st: &State) -> RenderNode {
 
     RenderNode::Modal(Box::new(
         Modal::builder()
-            .id("new-connection-dialog")
+            .id(id("new-connection-dialog"))
             .title(title)
             .open(st.dialog_open)
-            .close_id("dialog-close")
+            .close_id(id("dialog-close"))
             .width_pct(0.5)
             .children(vec![RenderNode::Column(
                 Column::builder().gap(10.0).children(form_children).build(),

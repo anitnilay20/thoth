@@ -182,7 +182,8 @@ impl DataRow {
         }
 
         DataRowOutput {
-            clicked: resp.clicked() || body_clicked,
+            // A caret click takes precedence and must not surface as a row click.
+            clicked: !caret_clicked && (resp.clicked() || body_clicked),
             right_clicked: resp.secondary_clicked() || body_secondary,
             caret_clicked,
             response: resp,

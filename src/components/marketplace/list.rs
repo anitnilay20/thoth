@@ -374,37 +374,39 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         .build()
         .show(ui);
 
-    if let Some(ListEvent::ItemClicked(idx)) = list_event
-        && let Some(row) = rows.get(idx)
-    {
-        state.selected_id = Some(row.id.clone());
-    }
-
-    if let Some(ListEvent::PostfixClicked(item_idx)) = list_event
-        && let Some(row) = rows.get(item_idx)
-    {
-        state.selected_id = Some(row.id.clone());
-        match &row.install_state {
-            InstallState::NotInstalled | InstallState::Update => {
-                if let Some(plugin) = state.plugins.iter().find(|p| p.id == row.id) {
-                    let slot = plugin.download_and_install(ui.ctx().clone());
-                    state.install_handles.insert(row.id.clone(), slot);
-                    state
-                        .install_states
-                        .insert(row.id.clone(), InstallState::Installing(0));
+    match list_event {
+        Some(ListEvent::ItemClicked(idx)) => {
+            if let Some(row) = rows.get(idx) {
+                state.selected_id = Some(row.id.clone());
+            }
+        }
+        Some(ListEvent::PostfixClicked(item_idx)) => {
+            if let Some(row) = rows.get(item_idx) {
+                state.selected_id = Some(row.id.clone());
+                match &row.install_state {
+                    InstallState::NotInstalled | InstallState::Update => {
+                        if let Some(plugin) = state.plugins.iter().find(|p| p.id == row.id) {
+                            let slot = plugin.download_and_install(ui.ctx().clone());
+                            state.install_handles.insert(row.id.clone(), slot);
+                            state
+                                .install_states
+                                .insert(row.id.clone(), InstallState::Installing(0));
+                        }
+                    }
+                    InstallState::Disabled => {
+                        state
+                            .install_states
+                            .insert(row.id.clone(), InstallState::Installed);
+                    }
+                    InstallState::Failed(_) | InstallState::Installing(_) => {
+                        state.install_handles.remove(&row.id);
+                        state.install_states.remove(&row.id);
+                    }
+                    _ => {}
                 }
             }
-            InstallState::Disabled => {
-                state
-                    .install_states
-                    .insert(row.id.clone(), InstallState::Installed);
-            }
-            InstallState::Failed(_) | InstallState::Installing(_) => {
-                state.install_handles.remove(&row.id);
-                state.install_states.remove(&row.id);
-            }
-            _ => {}
         }
+        _ => {}
     }
 }
 

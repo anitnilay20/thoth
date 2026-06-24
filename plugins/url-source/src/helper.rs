@@ -26,7 +26,8 @@ pub fn plugin_err(code: u32, message: impl Into<String>) -> PluginError {
 
 pub fn ui_out(node: thoth_plugin_sdk::render_node::RenderNode) -> UiOutput {
     UiOutput {
-        node_json: serde_json::to_string(&node).unwrap_or_default(),
+        node_json: serde_json::to_string(&node)
+            .expect("RenderNode serialization should be infallible"),
         height_hint: 0,
     }
 }

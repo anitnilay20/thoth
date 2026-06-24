@@ -170,16 +170,24 @@ impl egui::Widget for Button {
                         height,
                     )
                 }
-                ButtonType::Text => Self::text_button(
-                    ui,
-                    &self.label,
-                    icon,
-                    size,
-                    bg_color,
-                    colors.fg,
-                    width,
-                    height,
-                ),
+                ButtonType::Text => {
+                    // Text buttons paint with their semantic color; preserve it on
+                    // hover instead of falling back to the default foreground.
+                    let hover_color = match self.color {
+                        ButtonColor::Default => colors.fg,
+                        _ => bg_color,
+                    };
+                    Self::text_button(
+                        ui,
+                        &self.label,
+                        icon,
+                        size,
+                        bg_color,
+                        hover_color,
+                        width,
+                        height,
+                    )
+                }
             })
             .inner;
 

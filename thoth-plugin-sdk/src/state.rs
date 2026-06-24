@@ -31,50 +31,53 @@
 //! assert!(!STATE.is_initialised());
 //! ```
 
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 /// A plugin-global, lazily-initialised state cell usable as a `static`.
 ///
 /// The value is created on first access via [`Default`] (or supplied up front
-/// with [`set`](PluginState::set)). Access is mediated by closures so the
-/// borrow never escapes.
+/// with [`set`](PluginState::set)). Access is mediated by closures so the guard
+/// never escapes.
 ///
 /// # Threading
 ///
-/// Thoth plugins run single-threaded on `wasm32`, so this type is declared
-/// [`Sync`] to be usable in a `static`. It is **not** safe to share across
-/// threads; do not use it from a multi-threaded host context.
+/// Backed by a [`Mutex`], so `PluginState<T>` is soundly [`Sync`] (for `T:
+/// Send`) on every target and can live in a `static`. Thoth plugins run
+/// single-threaded on `wasm32`, so the lock is never contended. **Do not
+/// re-enter the cell** from inside a `with`/`with_mut`/`try_with` closure — the
+/// cell is locked for the closure's duration, so a nested access deadlocks.
 pub struct PluginState<T> {
-    cell: RefCell<Option<T>>,
+    cell: Mutex<Option<T>>,
 }
-
-// SAFETY: Thoth plugins execute single-threaded on wasm32; the cell is never
-// accessed concurrently. This bound only exists so the value can live in a
-// `static`.
-unsafe impl<T> Sync for PluginState<T> {}
 
 impl<T> PluginState<T> {
     /// Create an empty state cell. `const`, so it can initialise a `static`.
     pub const fn new() -> Self {
         Self {
-            cell: RefCell::new(None),
+            cell: Mutex::new(None),
         }
+    }
+
+    /// Lock the cell, recovering the guard if a previous holder panicked
+    /// (poisoning is meaningless for a single-threaded plugin).
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<T>> {
+        self.cell.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Replace the stored value, initialising it if necessary.
     pub fn set(&self, value: T) {
-        *self.cell.borrow_mut() = Some(value);
+        *self.lock() = Some(value);
     }
 
     /// Drop the stored value. The next [`with`](Self::with) /
     /// [`with_mut`](Self::with_mut) re-initialises it from [`Default`].
     pub fn reset(&self) {
-        *self.cell.borrow_mut() = None;
+        *self.lock() = None;
     }
 
     /// Whether a value is currently stored.
     pub fn is_initialised(&self) -> bool {
-        self.cell.borrow().is_some()
+        self.lock().is_some()
     }
 
     /// Run `f` with a shared reference *only if* a value is stored, returning
@@ -82,34 +85,27 @@ impl<T> PluginState<T> {
     /// meaningful state — e.g. a resource that hasn't been opened yet — and you
     /// don't want [`Default`]-initialisation.
     pub fn try_with<R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
-        self.cell.borrow().as_ref().map(f)
+        self.lock().as_ref().map(f)
     }
 
     /// Mutable counterpart to [`try_with`](Self::try_with).
     pub fn try_with_mut<R>(&self, f: impl FnOnce(&mut T) -> R) -> Option<R> {
-        self.cell.borrow_mut().as_mut().map(f)
+        self.lock().as_mut().map(f)
     }
 }
 
 impl<T: Default> PluginState<T> {
     /// Run `f` with a shared reference to the state, initialising it from
     /// [`Default`] if it has not been set yet.
-    ///
-    /// Nested [`with`](Self::with) calls are fine; a nested
-    /// [`with_mut`](Self::with_mut) while a `with` borrow is held will panic
-    /// (the same rule as [`RefCell`]).
     pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
-        if self.cell.borrow().is_none() {
-            *self.cell.borrow_mut() = Some(T::default());
-        }
-        let guard = self.cell.borrow();
-        f(guard.as_ref().expect("just initialised"))
+        let mut guard = self.lock();
+        f(guard.get_or_insert_with(T::default))
     }
 
     /// Run `f` with a mutable reference to the state, initialising it from
     /// [`Default`] if it has not been set yet.
     pub fn with_mut<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
-        let mut guard = self.cell.borrow_mut();
+        let mut guard = self.lock();
         f(guard.get_or_insert_with(T::default))
     }
 
@@ -253,18 +249,6 @@ mod tests {
         });
         let count = state.with(|s| s.count);
         assert_eq!(count, 7);
-    }
-
-    #[test]
-    fn with_nested_reads_are_allowed() {
-        let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter {
-            count: 3,
-            name: "n".into(),
-        });
-        let (a, b) = state.with(|s| (s.count, state.with(|t| t.count)));
-        assert_eq!(a, 3);
-        assert_eq!(b, 3);
     }
 
     // ── with_mut ──────────────────────────────────────────────────────────────

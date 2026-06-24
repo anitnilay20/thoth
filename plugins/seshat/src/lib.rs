@@ -90,7 +90,11 @@ impl LifecycleGuest for Seshat {
     fn on_load(_setting: String) {
         STATE.with_mut(load_state);
     }
-    fn on_close() {}
+    fn on_close() {
+        // Drop in-memory runtime state (active_profile, password_cache) on
+        // lifecycle close, matching url-source / csv-loader.
+        STATE.reset();
+    }
     fn on_setting_change(_setting: String) {}
 }
 

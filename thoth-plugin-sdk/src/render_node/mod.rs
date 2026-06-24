@@ -170,6 +170,12 @@ impl RenderNode {
     /// JSON tree's syntax colours. Numbers and booleans get their type colour,
     /// `null` renders italic + muted, objects/arrays become an interactive
     /// [`JsonTree`], and strings use the default foreground colour.
+    ///
+    /// Note: objects/arrays build a [`JsonTree`] with the default (shared) id.
+    /// If several such cells are visible at once, set a unique
+    /// [`JsonTree::id`](crate::components::JsonTree::id) per instance so their
+    /// expansion state doesn't leak across cells (this helper has no per-cell
+    /// context to assign one).
     pub fn json_cell(value: &serde_json::Value) -> Self {
         use serde_json::Value;
         match value {
@@ -516,12 +522,19 @@ mod wire_format_tests {
     }
 
     #[test]
-    fn card_icon_file_uses_kebab_tag() {
-        let v = serde_json::to_value(CardIcon::IconFile {
-            path: "/x.png".into(),
-        })
-        .unwrap();
-        assert_eq!(v["icon-file"]["path"], json!("/x.png"));
+    fn card_icon_file_is_host_only_not_on_the_wire() {
+        // `IconFile` is `#[serde(skip)]` (security): the host may construct it in
+        // Rust, but it must never cross the plugin→host wire — so it neither
+        // serializes nor deserializes.
+        assert!(
+            serde_json::to_value(CardIcon::IconFile {
+                path: "/x.png".into()
+            })
+            .is_err()
+        );
+        let from_wire: Result<CardIcon, _> =
+            serde_json::from_value(json!({ "icon-file": { "path": "/etc/passwd" } }));
+        assert!(from_wire.is_err());
     }
 
     #[test]

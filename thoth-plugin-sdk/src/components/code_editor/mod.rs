@@ -57,12 +57,22 @@ impl CodeEditor {
             Some("rust") => Syntax::rust(),
             Some("sql") => Syntax::sql(),
             Some("shell") | Some("sh") | Some("bash") => Syntax::shell(),
+            // The crate has no built-in JSON syntax; approximate it so JSON
+            // content isn't rendered as plain text: highlight the literals and
+            // treat strings via the default quote handling.
+            Some("json") => Syntax::new("json")
+                .with_comment("//")
+                .with_keywords(["true", "false", "null"]),
             _ => Syntax::default(),
         };
-        let id_source = if self.id.is_empty() {
-            "sdk_code_editor"
+        // Fall back to a per-`ui` id when no explicit id is set, so multiple
+        // anonymous editors don't share egui state (focus/cursor/scroll).
+        // `id_source` wants a `String`; derive a stable-but-unique one from the
+        // current ui's auto id when no explicit id was provided.
+        let id_source: String = if self.id.is_empty() {
+            format!("sdk_code_editor_{:?}", ui.next_auto_id())
         } else {
-            self.id.as_str()
+            self.id.clone()
         };
         let theme = colors.code_editor_theme();
 

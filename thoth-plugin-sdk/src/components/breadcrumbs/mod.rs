@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// ```
 /// use thoth_plugin_sdk::components::Breadcrumbs;
 ///
-/// let crumbs = Breadcrumbs::builder().path("users[42].settings").build();
+/// let crumbs = Breadcrumbs::builder().path("users.42.settings").build();
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]

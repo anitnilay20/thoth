@@ -48,11 +48,19 @@ impl SettingsMap {
         Self::default()
     }
 
-    /// Parse a `[{"key":…,"value":…}]` payload. Malformed input yields an empty
-    /// map rather than an error, so a bad payload never crashes the plugin.
+    /// Parse a `[{"key":…,"value":…}]` payload, returning an error on malformed
+    /// input so callers can distinguish "no settings" from "bad payload".
+    pub fn try_from_json(json: &str) -> Result<Self, serde_json::Error> {
+        let entries = serde_json::from_str(json)?;
+        Ok(Self { entries })
+    }
+
+    /// Lenient wrapper over [`try_from_json`](Self::try_from_json): malformed
+    /// input yields an empty map rather than an error, so a bad payload never
+    /// crashes the plugin. Use [`try_from_json`](Self::try_from_json) when you
+    /// need to detect parse failures.
     pub fn from_json(json: &str) -> Self {
-        let entries = serde_json::from_str(json).unwrap_or_default();
-        Self { entries }
+        Self::try_from_json(json).unwrap_or_default()
     }
 
     /// The value for `key`, if present.
@@ -152,6 +160,22 @@ mod tests {
     fn from_json_wrong_shape_gives_empty_map() {
         let map = SettingsMap::from_json(r#"{"key":"url","value":"x"}"#);
         assert!(map.is_empty());
+    }
+
+    #[test]
+    fn try_from_json_parses_valid_payload() {
+        let map = SettingsMap::try_from_json(r#"[{"key":"url","value":"https://x"}]"#).unwrap();
+        assert_eq!(map.get("url"), Some("https://x"));
+    }
+
+    #[test]
+    fn try_from_json_errors_on_malformed_input() {
+        assert!(SettingsMap::try_from_json("not json at all").is_err());
+    }
+
+    #[test]
+    fn try_from_json_errors_on_wrong_shape() {
+        assert!(SettingsMap::try_from_json(r#"{"key":"url","value":"x"}"#).is_err());
     }
 
     #[test]

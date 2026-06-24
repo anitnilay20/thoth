@@ -8,15 +8,17 @@ use serde::Serialize;
 ///
 /// Blanket-implemented for every [`Serialize`] type, so each component (and the
 /// composed node tree as a whole) gets `to_json()` for free — there is nothing
-/// to implement per component. Serialization of these plain-data DSL structs is
-/// effectively infallible; the only way `to_value` can fail is a non-finite
-/// float (e.g. a `NaN` width), which is a programming error worth surfacing
-/// loudly rather than silently emitting a broken node.
+/// to implement per component. Serialization of these plain-data DSL structs to
+/// a [`serde_json::Value`] is infallible: `serde_json::to_value` can only fail
+/// on custom `Serialize` impls that error, and non-finite floats (e.g. a `NaN`
+/// width) are mapped to JSON `null` rather than erroring. The `.expect(...)` is
+/// therefore unreachable for our DSL data.
 pub trait ToNodeJson: Serialize {
     /// Serialize this node into a [`serde_json::Value`].
     ///
-    /// Panics only if the node contains a non-finite float — see the trait
-    /// docs. Use [`ToNodeJson::try_to_json`] when a value may legitimately fail.
+    /// For the plain-data DSL types this is infallible — see the trait docs.
+    /// Use [`ToNodeJson::try_to_json`] for arbitrary `Serialize` types whose
+    /// custom impls may legitimately fail.
     fn to_json(&self) -> serde_json::Value {
         serde_json::to_value(self).expect("DSL node serialization should be infallible")
     }

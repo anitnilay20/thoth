@@ -78,10 +78,10 @@ impl StatefulComponent for DataSourcePanel {
         let mut node: UiNode = serde_json::from_str(
             &self.cached_output.as_ref().unwrap().node_json,
         )
-        .unwrap_or_else(|_| {
+        .unwrap_or_else(|e| {
             UiNode::Text(
                 thoth_plugin_sdk::components::Typography::builder()
-                    .text("UI parse error")
+                    .text(format!("UI parse error: {e}"))
                     .build(),
             )
         });

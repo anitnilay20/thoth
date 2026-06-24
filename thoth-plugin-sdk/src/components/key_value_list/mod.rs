@@ -131,10 +131,13 @@ impl KeyValueList {
                 ui.set_width(available);
                 ui.spacing_mut().item_spacing.x = 4.0;
                 if ui
-                    .add_sized(
-                        egui::vec2(toggle_col_w, 24.0),
-                        egui::Checkbox::without_text(&mut entry.enabled),
-                    )
+                    .add_enabled_ui(!disabled, |ui| {
+                        ui.add_sized(
+                            egui::vec2(toggle_col_w, 24.0),
+                            egui::Checkbox::without_text(&mut entry.enabled),
+                        )
+                    })
+                    .inner
                     .changed()
                 {
                     changed = true;
@@ -146,27 +149,33 @@ impl KeyValueList {
                     colors.fg_muted
                 };
                 if ui
-                    .add_sized(
-                        egui::vec2(input_w, 24.0),
-                        egui::TextEdit::singleline(&mut entry.key)
-                            .frame(egui::Frame::NONE)
-                            .hint_text("key")
-                            .text_color(text_color)
-                            .background_color(egui::Color32::TRANSPARENT),
-                    )
+                    .add_enabled_ui(!disabled, |ui| {
+                        ui.add_sized(
+                            egui::vec2(input_w, 24.0),
+                            egui::TextEdit::singleline(&mut entry.key)
+                                .frame(egui::Frame::NONE)
+                                .hint_text("key")
+                                .text_color(text_color)
+                                .background_color(egui::Color32::TRANSPARENT),
+                        )
+                    })
+                    .inner
                     .changed()
                 {
                     changed = true;
                 }
                 if ui
-                    .add_sized(
-                        egui::vec2(input_w, 24.0),
-                        egui::TextEdit::singleline(&mut entry.value)
-                            .frame(egui::Frame::NONE)
-                            .hint_text("value")
-                            .text_color(text_color)
-                            .background_color(egui::Color32::TRANSPARENT),
-                    )
+                    .add_enabled_ui(!disabled, |ui| {
+                        ui.add_sized(
+                            egui::vec2(input_w, 24.0),
+                            egui::TextEdit::singleline(&mut entry.value)
+                                .frame(egui::Frame::NONE)
+                                .hint_text("value")
+                                .text_color(text_color)
+                                .background_color(egui::Color32::TRANSPARENT),
+                        )
+                    })
+                    .inner
                     .changed()
                 {
                     changed = true;

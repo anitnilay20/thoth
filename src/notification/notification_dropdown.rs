@@ -386,25 +386,28 @@ impl NotificationDropdown {
                                     .build()
                                     .show(ui);
 
-                                if let Some(ListEvent::PostfixClicked(idx)) = list_event
-                                    && let Some(row) = bucket.get(idx)
-                                {
-                                    if row.8 {
-                                        // Pinned row: postfix is an action button — fire it.
-                                        if let Some((_, cb)) = row.6.first() {
+                                match list_event {
+                                    Some(ListEvent::PostfixClicked(idx)) => {
+                                        if let Some(row) = bucket.get(idx) {
+                                            if row.8 {
+                                                // Pinned row: postfix is an action button — fire it.
+                                                if let Some((_, cb)) = row.6.first() {
+                                                    cb();
+                                                }
+                                            } else {
+                                                to_dismiss = Some(row.0.clone());
+                                            }
+                                        }
+                                    }
+                                    // Clicking a row fires the primary (first) action only.
+                                    Some(ListEvent::ItemClicked(idx)) => {
+                                        if let Some(row) = bucket.get(idx)
+                                            && let Some((_, cb)) = row.6.first()
+                                        {
                                             cb();
                                         }
-                                    } else {
-                                        to_dismiss = Some(row.0.clone());
                                     }
-                                }
-
-                                // Clicking a row fires the primary (first) action only.
-                                if let Some(ListEvent::ItemClicked(idx)) = list_event
-                                    && let Some(row) = bucket.get(idx)
-                                    && let Some((_, cb)) = row.6.first()
-                                {
-                                    cb();
+                                    _ => {}
                                 }
                             }
                         }

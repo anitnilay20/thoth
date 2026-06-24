@@ -26,8 +26,11 @@ pub enum CardIcon {
         /// Encoded image bytes (PNG/JPEG/…).
         bytes: Vec<u8>,
     },
-    /// A PNG/ICO loaded from a filesystem path. Host-only — plugins cannot
-    /// supply host paths, so this renders nothing under wasm.
+    /// A PNG/ICO loaded from a host filesystem path. **Host-only**: skipped by
+    /// serde so it can never cross the plugin→host wire (a plugin can't turn
+    /// card rendering into a local-file read); the host constructs it directly
+    /// in Rust.
+    #[serde(skip)]
     IconFile {
         /// Filesystem path to the icon.
         path: String,

@@ -177,11 +177,12 @@ impl PluginsTab {
                         }
                     });
 
-                    if let Some(node) = node {
-                        // Render a fresh clone each frame; the cached parse stays
-                        // intact (the renderer mutates the node it draws).
-                        let mut node = node;
+                    if let Some(mut node) = node {
+                        // The renderer mutates stateful widget state in-place;
+                        // persist the mutated node so inputs/selects keep their
+                        // values across frames instead of resetting.
                         render_ui_node(ui, &mut node, &mut vec![]);
+                        ui.ctx().data_mut(|d| d.insert_temp(cache_id, node));
                     }
 
                     // Clear cache when navigating away so stale data isn't shown
@@ -289,15 +290,17 @@ impl PluginsTab {
                                 }
                             });
 
+                            let has_settings = !plugin.capabilities.contains(&Capability::Theme);
+                            let has_uninstall = !plugin.bundled;
                             let mut actions: Vec<CardAction> = vec![];
 
-                            if !plugin.capabilities.contains(&Capability::Theme) {
+                            if has_settings {
                                 actions.push(
                                     CardAction::builder().label("Settings").danger(false).build(),
                                 );
                             }
 
-                            if !plugin.bundled {
+                            if has_uninstall {
                                 actions.push(
                                     CardAction::builder().label("Uninstall").danger(true).build(),
                                 );
@@ -321,12 +324,14 @@ impl PluginsTab {
                                             enabled: v,
                                         });
                                     }
-                                    CardEvent::ActionClicked(0) => {
+                                    CardEvent::ActionClicked(0) if has_settings => {
                                         events.push(PluginsTabEvent::OpenSettingsForPlugin(
                                             Some(plugin.id.clone()),
                                         ));
                                     }
-                                    CardEvent::ActionClicked(1) if !plugin.bundled => {
+                                    CardEvent::ActionClicked(i)
+                                        if has_uninstall && i == (has_settings as usize) =>
+                                    {
                                         events.push(PluginsTabEvent::UninstallPlugin(
                                             plugin.id.clone(),
                                         ));
