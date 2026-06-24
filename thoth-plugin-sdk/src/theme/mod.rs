@@ -31,8 +31,7 @@ pub const THEME_MEMORY_ID: &str = "theme_colors";
 /// named by **role** (e.g. `accent`, `surface_active`) rather than palette
 /// position so a single theme drives both host-native and plugin-defined UI
 /// consistently.
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ThemeColors {
     // Backgrounds
     /// Main app background.
@@ -274,7 +273,12 @@ impl TextPalette {
     }
 
     /// The token colour when `enabled`, otherwise `base`.
-    pub fn color_with_highlighting(&self, token: TextToken, enabled: bool, base: Color32) -> Color32 {
+    pub fn color_with_highlighting(
+        &self,
+        token: TextToken,
+        enabled: bool,
+        base: Color32,
+    ) -> Color32 {
         if enabled { self.color(token) } else { base }
     }
 }

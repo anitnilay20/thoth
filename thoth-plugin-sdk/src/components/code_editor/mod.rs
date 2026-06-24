@@ -50,8 +50,8 @@ impl CodeEditor {
     /// Render the editor, editing [`value`](CodeEditor::value) in place.
     /// Returns `true` when the text changed this frame.
     pub fn show(&mut self, ui: &mut egui::Ui) -> bool {
-        use egui_code_editor::{CodeEditor as Editor, Syntax};
         use crate::theme::ThemeColors;
+        use egui_code_editor::{CodeEditor as Editor, Syntax};
         let colors = ThemeColors::from_ctx(ui.ctx());
         let syntax = match self.syntax.as_deref() {
             Some("rust") => Syntax::rust(),
@@ -79,7 +79,12 @@ impl CodeEditor {
             .stroke(stroke)
             .corner_radius(4)
             // Top padding so the first line sits a little below the border.
-            .inner_margin(egui::Margin { left: 0, right: 0, top: 6, bottom: 0 })
+            .inner_margin(egui::Margin {
+                left: 0,
+                right: 0,
+                top: 6,
+                bottom: 0,
+            })
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;

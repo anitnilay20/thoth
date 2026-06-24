@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::render_node::RenderNode;
 
-
 /// A centered modal overlay dialog with a dimmed backdrop.
 ///
 /// Visibility is plugin-controlled via [`open`](Modal::open): the host only

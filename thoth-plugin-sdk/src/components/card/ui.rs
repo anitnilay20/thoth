@@ -67,7 +67,12 @@ impl Card {
                     ui.vertical(|ui| {
                         // ── Title row (+ toggle) ─────────────────────────────
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(&self.title).color(colors.fg).size(16.0).strong());
+                            ui.label(
+                                RichText::new(&self.title)
+                                    .color(colors.fg)
+                                    .size(16.0)
+                                    .strong(),
+                            );
                             if let Some(on) = self.enabled {
                                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                                     if ui

@@ -1,3 +1,3 @@
-pub (crate) fn default_enabled() -> bool {
+pub(crate) fn default_enabled() -> bool {
     true
 }

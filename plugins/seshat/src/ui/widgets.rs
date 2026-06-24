@@ -83,7 +83,8 @@ pub(crate) fn data_row(
 ) -> RenderNode {
     // `color` is a semantic token (e.g. "muted", "string", "warning"); the SDK
     // resolves it against the active theme.
-    let leading = icon.map(|(glyph, color)| DataRowIcon::builder().glyph(glyph).color(color).build());
+    let leading =
+        icon.map(|(glyph, color)| DataRowIcon::builder().glyph(glyph).color(color).build());
     RenderNode::DataRow(
         DataRow::builder()
             .row_id(id)

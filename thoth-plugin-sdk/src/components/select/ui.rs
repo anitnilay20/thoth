@@ -141,8 +141,9 @@ impl Select {
                                                 );
                                             }
                                             if item_resp.hovered() {
-                                                ui.ctx()
-                                                    .set_cursor_icon(egui::CursorIcon::PointingHand);
+                                                ui.ctx().set_cursor_icon(
+                                                    egui::CursorIcon::PointingHand,
+                                                );
                                             }
                                         }
 

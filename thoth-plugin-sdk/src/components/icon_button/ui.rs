@@ -58,13 +58,18 @@ impl Widget for IconButton {
                 icon_color,
             );
 
-            if let Some(badge_color) =
-                self.badge_color.as_deref().and_then(|c| resolve_color(c, &colors))
+            if let Some(badge_color) = self
+                .badge_color
+                .as_deref()
+                .and_then(|c| resolve_color(c, &colors))
             {
                 let badge_center = egui::pos2(rect.right() - 6.0, rect.top() + 6.0);
                 ui.painter().circle_filled(badge_center, 2.0, badge_color);
-                ui.painter()
-                    .circle_stroke(badge_center, 2.0, egui::Stroke::new(1.5, Color32::WHITE));
+                ui.painter().circle_stroke(
+                    badge_center,
+                    2.0,
+                    egui::Stroke::new(1.5, Color32::WHITE),
+                );
             }
         }
 

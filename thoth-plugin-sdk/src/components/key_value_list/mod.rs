@@ -140,7 +140,11 @@ impl KeyValueList {
                     changed = true;
                 }
                 // Dim key/value text when the row is disabled.
-                let text_color = if entry.enabled { colors.fg } else { colors.fg_muted };
+                let text_color = if entry.enabled {
+                    colors.fg
+                } else {
+                    colors.fg_muted
+                };
                 if ui
                     .add_sized(
                         egui::vec2(input_w, 24.0),

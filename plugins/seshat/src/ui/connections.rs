@@ -60,7 +60,9 @@ pub(crate) fn connections_list(st: &State) -> RenderNode {
         List::builder()
             .id("connections-list")
             .items(items)
-            .empty_label("No saved connections yet — click \u{201c}New connection\u{201d} to add one.")
+            .empty_label(
+                "No saved connections yet — click \u{201c}New connection\u{201d} to add one.",
+            )
             .build(),
     )
 }
@@ -71,19 +73,31 @@ fn connection_item(c: &Connection, active: bool, failed: bool) -> ListItem {
     let badge = if failed {
         ListItemBadge::builder().text("error").color("red").build()
     } else if active {
-        ListItemBadge::builder().text("active").color("green").build()
+        ListItemBadge::builder()
+            .text("active")
+            .color("green")
+            .build()
     } else {
         ListItemBadge::builder().text(short).color(color).build()
     };
     ListItem::builder()
         .title(c.name.clone())
         .description(c.summary())
-        .prefix(ListItemPrefix::Icon { glyph: ICON_DATABASE.to_string(), color: None })
+        .prefix(ListItemPrefix::Icon {
+            glyph: ICON_DATABASE.to_string(),
+            color: None,
+        })
         .badge(badge)
         .selected(active)
         .actions(vec![
-            ListItemAction::builder().icon(ICON_PENCIL).tooltip("Edit connection").build(),
-            ListItemAction::builder().icon(ICON_TRASH).tooltip("Delete connection").build(),
+            ListItemAction::builder()
+                .icon(ICON_PENCIL)
+                .tooltip("Edit connection")
+                .build(),
+            ListItemAction::builder()
+                .icon(ICON_TRASH)
+                .tooltip("Delete connection")
+                .build(),
         ])
         .build()
 }

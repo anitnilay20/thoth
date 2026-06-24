@@ -5,7 +5,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{DeriveInput, Expr, ExprArray, Ident, parse_macro_input};
+use syn::{parse_macro_input, DeriveInput, Expr, ExprArray, Ident};
 
 /// Derive the `plugin-meta` export from a declarative attribute, replacing the
 /// hand-written `impl Guest for … { fn get_info() … }` boilerplate.
@@ -60,7 +60,11 @@ pub fn derive_plugin_meta(input: TokenStream) -> TokenStream {
     let mut capabilities: Vec<Ident> = Vec::new();
 
     let parsed = attr.parse_nested_meta(|meta| {
-        let key = meta.path.get_ident().map(|i| i.to_string()).unwrap_or_default();
+        let key = meta
+            .path
+            .get_ident()
+            .map(|i| i.to_string())
+            .unwrap_or_default();
         match key.as_str() {
             "id" => id = Some(meta.value()?.parse()?),
             "name" => name = Some(meta.value()?.parse()?),

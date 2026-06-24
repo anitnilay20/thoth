@@ -27,7 +27,11 @@ struct ExpandedPaths(HashSet<String>);
 impl JsonTree {
     /// Render the tree into the available area.
     pub fn show(&self, ui: &mut egui::Ui) {
-        let id = if self.id.is_empty() { "json-tree" } else { self.id.as_str() };
+        let id = if self.id.is_empty() {
+            "json-tree"
+        } else {
+            self.id.as_str()
+        };
         let base_id = egui::Id::new(id);
         let mem_id = base_id.with("json_tree_expanded");
         let init_id = base_id.with("json_tree_init");
@@ -88,7 +92,13 @@ impl JsonTree {
     }
 }
 
-fn flatten_value(value: &Value, path: &str, indent: usize, expanded: &ExpandedPaths, out: &mut Vec<TreeRow>) {
+fn flatten_value(
+    value: &Value,
+    path: &str,
+    indent: usize,
+    expanded: &ExpandedPaths,
+    out: &mut Vec<TreeRow>,
+) {
     match value {
         Value::Object(map) => {
             let is_expanded = expanded.0.contains(path);
@@ -106,7 +116,14 @@ fn flatten_value(value: &Value, path: &str, indent: usize, expanded: &ExpandedPa
             });
             if is_expanded {
                 for (key, val) in map {
-                    flatten_keyed(key, val, &format!("{path}/{key}"), indent + 1, expanded, out);
+                    flatten_keyed(
+                        key,
+                        val,
+                        &format!("{path}/{key}"),
+                        indent + 1,
+                        expanded,
+                        out,
+                    );
                 }
                 out.push(closing(path, indent, "}"));
             }
@@ -127,7 +144,14 @@ fn flatten_value(value: &Value, path: &str, indent: usize, expanded: &ExpandedPa
             });
             if is_expanded {
                 for (i, val) in arr.iter().enumerate() {
-                    flatten_keyed(&i.to_string(), val, &format!("{path}/{i}"), indent + 1, expanded, out);
+                    flatten_keyed(
+                        &i.to_string(),
+                        val,
+                        &format!("{path}/{i}"),
+                        indent + 1,
+                        expanded,
+                        out,
+                    );
                 }
                 out.push(closing(path, indent, "]"));
             }
@@ -146,7 +170,14 @@ fn flatten_value(value: &Value, path: &str, indent: usize, expanded: &ExpandedPa
     }
 }
 
-fn flatten_keyed(key: &str, val: &Value, path: &str, indent: usize, expanded: &ExpandedPaths, out: &mut Vec<TreeRow>) {
+fn flatten_keyed(
+    key: &str,
+    val: &Value,
+    path: &str,
+    indent: usize,
+    expanded: &ExpandedPaths,
+    out: &mut Vec<TreeRow>,
+) {
     match val {
         Value::Object(map) => {
             let is_expanded = expanded.0.contains(path);
@@ -187,7 +218,14 @@ fn flatten_keyed(key: &str, val: &Value, path: &str, indent: usize, expanded: &E
             });
             if is_expanded {
                 for (i, v) in arr.iter().enumerate() {
-                    flatten_keyed(&i.to_string(), v, &format!("{path}/{i}"), indent + 1, expanded, out);
+                    flatten_keyed(
+                        &i.to_string(),
+                        v,
+                        &format!("{path}/{i}"),
+                        indent + 1,
+                        expanded,
+                        out,
+                    );
                 }
                 out.push(closing(path, indent, "]"));
             }

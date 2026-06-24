@@ -5,12 +5,12 @@ use crate::helpers::{
 };
 use crate::search::results::{FieldComponent, MatchFragment, MatchTarget};
 use crate::theme::{ROW_HEIGHT, row_fill, selected_row_bg};
-use thoth_plugin_sdk::components::{DataRow, RowHighlights};
-use thoth_plugin_sdk::tokens::TextToken;
 use eframe::egui::{self, Ui};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use thoth_plugin_sdk::components::{DataRow, RowHighlights};
+use thoth_plugin_sdk::tokens::TextToken;
 
 use super::context_menu::{
     ContextMenuConfig, ContextMenuHandler, execute_context_menu_action, render_context_menu,
@@ -564,8 +564,10 @@ impl JsonTreeViewer {
                         .row_id(path.clone())
                         .key_token(row.text_token.0)
                         .maybe_value_token(row.text_token.1)
-                        .maybe_background((bg != egui::Color32::TRANSPARENT)
-                            .then(|| thoth_plugin_sdk::theme::color_to_hex(bg)))
+                        .maybe_background(
+                            (bg != egui::Color32::TRANSPARENT)
+                                .then(|| thoth_plugin_sdk::theme::color_to_hex(bg)),
+                        )
                         .highlights(row.highlights.clone())
                         .syntax_highlighting(syntax_highlighting)
                         .indent(row.indent)

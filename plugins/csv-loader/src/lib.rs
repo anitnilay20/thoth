@@ -43,7 +43,6 @@ struct State {
 
 static STATE: PluginState<State> = PluginState::new();
 
-
 // ── plugin-lifecycle ──────────────────────────────────────────────────────────
 
 impl LifecycleGuest for CsvPlugin {
@@ -177,9 +176,9 @@ impl FileViewerGuest for CsvPlugin {
 
 impl SettingsGuest for CsvPlugin {
     fn render_settings() -> Result<SettingsOutput, bindings::thoth::plugin::types::PluginError> {
-        use thoth_plugin_sdk::ToNodeJson;
         use thoth_plugin_sdk::components::Typography;
         use thoth_plugin_sdk::render_node::RenderNode;
+        use thoth_plugin_sdk::ToNodeJson;
 
         let node = RenderNode::Text(
             Typography::builder()

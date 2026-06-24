@@ -57,7 +57,10 @@ impl SettingsMap {
 
     /// The value for `key`, if present.
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.entries.iter().find(|e| e.key == key).map(|e| e.value.as_str())
+        self.entries
+            .iter()
+            .find(|e| e.key == key)
+            .map(|e| e.value.as_str())
     }
 
     /// The value for `key`, or `default` when absent.
@@ -89,7 +92,9 @@ impl SettingsMap {
 
     /// Iterate over the `(key, value)` entries in order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.entries.iter().map(|e| (e.key.as_str(), e.value.as_str()))
+        self.entries
+            .iter()
+            .map(|e| (e.key.as_str(), e.value.as_str()))
     }
 
     /// Number of entries.

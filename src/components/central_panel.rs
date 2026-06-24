@@ -1,4 +1,3 @@
-use thoth_plugin_sdk::components::Separator;
 use crate::components::file_viewer::FileViewer;
 use crate::components::traits::ContextComponent;
 use crate::error::{ErrorHandler, ThothError};
@@ -7,6 +6,7 @@ use crate::plugin::render_node::{UiEvent, UiNode, UiOutput, render_ui_node};
 use crate::search;
 use eframe::egui;
 use std::path::PathBuf;
+use thoth_plugin_sdk::components::Separator;
 
 /// Props passed down to the CentralPanel (immutable, one-way binding)
 pub struct CentralPanelProps<'a> {

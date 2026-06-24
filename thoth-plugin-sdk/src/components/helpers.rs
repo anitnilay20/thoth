@@ -33,5 +33,9 @@ fn decode_image_to_texture(ctx: &Context, path: &Path) -> Option<TextureHandle> 
     let rgba = img.to_rgba8();
     let (w, h) = rgba.dimensions();
     let color_image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
-    Some(ctx.load_texture(path.to_string_lossy(), color_image, egui::TextureOptions::LINEAR))
+    Some(ctx.load_texture(
+        path.to_string_lossy(),
+        color_image,
+        egui::TextureOptions::LINEAR,
+    ))
 }

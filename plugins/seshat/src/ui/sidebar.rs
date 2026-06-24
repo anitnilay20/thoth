@@ -1,7 +1,9 @@
 //! The Seshat sidebar: a top-tabbed navigator (Connections / Schema / History)
 //! with icon-only tab headers and a "+" action to add a connection.
 
-use thoth_plugin_sdk::components::{Column, Row, Separator, TabAction, Tabs, Typography, TypographyVariant};
+use thoth_plugin_sdk::components::{
+    Column, Row, Separator, TabAction, Tabs, Typography, TypographyVariant,
+};
 use thoth_plugin_sdk::render_node::RenderNode;
 
 use crate::state::State;

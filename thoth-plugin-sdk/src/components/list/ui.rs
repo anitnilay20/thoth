@@ -38,8 +38,15 @@ fn item_height(item: &ListItem, compact: bool) -> f32 {
         item.prefix,
         Some(ListItemPrefix::IconTile { .. }) | Some(ListItemPrefix::IconFile { .. })
     );
-    let two_line = item.description.as_deref().is_some_and(|d| d.contains('\n'));
-    let tags_h = if item.tags.is_empty() { 0.0 } else { ROW_H_TAGS_ADD };
+    let two_line = item
+        .description
+        .as_deref()
+        .is_some_and(|d| d.contains('\n'));
+    let tags_h = if item.tags.is_empty() {
+        0.0
+    } else {
+        ROW_H_TAGS_ADD
+    };
     let base = if two_line {
         ROW_H_DESC2
     } else {
@@ -96,7 +103,9 @@ impl List {
 
         scroll.show_viewport(ui, |ui, viewport| {
             ui.set_min_height(total_h);
-            let start = offsets.partition_point(|&y| y < viewport.min.y).saturating_sub(1);
+            let start = offsets
+                .partition_point(|&y| y < viewport.min.y)
+                .saturating_sub(1);
             let end = offsets.partition_point(|&y| y <= viewport.max.y).min(n);
             if offsets[start] > 0.0 {
                 ui.add_space(offsets[start]);
@@ -106,8 +115,9 @@ impl List {
                 let item = &self.items[idx];
                 let item_id = scroll_id.with(idx);
                 let row_h = item_height(item, compact);
-                let was_hovered =
-                    ui.ctx().memory(|m| m.data.get_temp::<bool>(item_id).unwrap_or(false));
+                let was_hovered = ui
+                    .ctx()
+                    .memory(|m| m.data.get_temp::<bool>(item_id).unwrap_or(false));
 
                 let mut postfix_clicked = false;
                 let mut row_action_clicked: Option<usize> = None;
@@ -144,7 +154,8 @@ impl List {
                 if is_hovered {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
-                ui.ctx().memory_mut(|m| m.data.insert_temp(item_id, is_hovered));
+                ui.ctx()
+                    .memory_mut(|m| m.data.insert_temp(item_id, is_hovered));
 
                 // Row background.
                 let hovering = is_hovered || was_hovered;
@@ -159,7 +170,10 @@ impl List {
 
                 // Left accent border.
                 if !compact
-                    && let Some(accent) = item.accent.as_deref().and_then(|c| resolve_color(c, &colors))
+                    && let Some(accent) = item
+                        .accent
+                        .as_deref()
+                        .and_then(|c| resolve_color(c, &colors))
                 {
                     let border = egui::Rect::from_min_size(
                         row_resp.rect.min,
@@ -171,7 +185,10 @@ impl List {
                 if postfix_clicked {
                     event = Some(ListEvent::PostfixClicked(idx));
                 } else if let Some(a) = row_action_clicked {
-                    event = Some(ListEvent::ActionClicked { item: idx, action: a });
+                    event = Some(ListEvent::ActionClicked {
+                        item: idx,
+                        action: a,
+                    });
                 } else if is_hovered && ui.input(|i| i.pointer.primary_clicked()) {
                     event = Some(ListEvent::ItemClicked(idx));
                 }
@@ -194,7 +211,10 @@ impl List {
         match &item.prefix {
             Some(ListItemPrefix::Icon { glyph, color }) => {
                 ui.add_space(8.0);
-                let c = color.as_deref().and_then(|c| resolve_color(c, colors)).unwrap_or(colors.fg_muted);
+                let c = color
+                    .as_deref()
+                    .and_then(|c| resolve_color(c, colors))
+                    .unwrap_or(colors.fg_muted);
                 ui.label(RichText::new(glyph).font(phosphor_font_id(13.0)).color(c));
                 ui.add_space(4.0);
             }
@@ -248,16 +268,25 @@ impl List {
         match &item.postfix {
             Some(ListItemPostfix::Badge { text, bg, fg }) => {
                 ui.add_space(6.0);
-                let bg_c = bg.as_deref().and_then(|c| resolve_color(c, colors)).unwrap_or(colors.accent_secondary);
-                let fg_c = fg.as_deref().and_then(|c| resolve_color(c, colors)).unwrap_or_else(|| get_contrast_text_color(bg_c));
+                let bg_c = bg
+                    .as_deref()
+                    .and_then(|c| resolve_color(c, colors))
+                    .unwrap_or(colors.accent_secondary);
+                let fg_c = fg
+                    .as_deref()
+                    .and_then(|c| resolve_color(c, colors))
+                    .unwrap_or_else(|| get_contrast_text_color(bg_c));
                 let bg_slot = ui.painter().add(egui::Shape::Noop);
-                let galley = ui.painter().layout_no_wrap(text.clone(), FontId::proportional(10.0), fg_c);
+                let galley =
+                    ui.painter()
+                        .layout_no_wrap(text.clone(), FontId::proportional(10.0), fg_c);
                 let pad = egui::vec2(6.0, 2.0);
                 let size = galley.size() + pad * 2.0;
                 let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
                 if ui.is_rect_visible(rect) {
                     ui.painter().galley(rect.min + pad, galley, fg_c);
-                    ui.painter().set(bg_slot, egui::Shape::rect_filled(rect, u8::MAX, bg_c));
+                    ui.painter()
+                        .set(bg_slot, egui::Shape::rect_filled(rect, u8::MAX, bg_c));
                 }
             }
             Some(ListItemPostfix::Button(btn)) => {
@@ -318,7 +347,10 @@ impl List {
             Layout::top_down(Align::LEFT),
             |ui| {
                 let title_h = 15.0;
-                let two_line = item.description.as_deref().is_some_and(|d| d.contains('\n'));
+                let two_line = item
+                    .description
+                    .as_deref()
+                    .is_some_and(|d| d.contains('\n'));
                 let desc_h = if two_line {
                     2.0 + 13.0 + 5.0 + 13.0
                 } else if item.description.is_some() {
@@ -326,7 +358,11 @@ impl List {
                 } else {
                     0.0
                 };
-                let tags_h = if item.tags.is_empty() { 0.0 } else { ROW_H_TAGS_ADD };
+                let tags_h = if item.tags.is_empty() {
+                    0.0
+                } else {
+                    ROW_H_TAGS_ADD
+                };
                 let pad = (row_h - (title_h + desc_h + tags_h)).max(0.0) / 2.0;
                 if pad > 0.0 {
                     ui.add_space(pad);
@@ -353,9 +389,17 @@ impl List {
                             fg,
                         );
                     }
-                    let title_color = if compact && !item.selected { colors.fg_muted } else { colors.fg };
+                    let title_color = if compact && !item.selected {
+                        colors.fg_muted
+                    } else {
+                        colors.fg
+                    };
                     let title = RichText::new(&item.title).size(12.0).color(title_color);
-                    let title = if item.selected && compact { title.strong() } else { title };
+                    let title = if item.selected && compact {
+                        title.strong()
+                    } else {
+                        title
+                    };
                     ui.add(egui::Label::new(title).truncate());
                 });
 
@@ -363,15 +407,19 @@ impl List {
                     let mut parts = desc.splitn(2, '\n');
                     if let Some(first) = parts.next() {
                         ui.add(
-                            egui::Label::new(RichText::new(first).size(11.0).color(colors.fg_muted))
-                                .truncate(),
+                            egui::Label::new(
+                                RichText::new(first).size(11.0).color(colors.fg_muted),
+                            )
+                            .truncate(),
                         );
                     }
                     if let Some(second) = parts.next() {
                         ui.add_space(3.0);
                         ui.add(
-                            egui::Label::new(RichText::new(second).size(11.0).color(colors.fg_muted))
-                                .truncate(),
+                            egui::Label::new(
+                                RichText::new(second).size(11.0).color(colors.fg_muted),
+                            )
+                            .truncate(),
                         );
                     }
                 }

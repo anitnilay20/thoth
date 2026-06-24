@@ -13,12 +13,11 @@ use eframe::egui;
 use egui::Color32;
 use thoth_plugin_sdk::components::{
     Badge, Breadcrumbs, Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonSize, ButtonType,
-    Card,
-    CardAction, CardIcon, Checkbox, Code, CodeEditor, Column, DataRow, Icon, IconButton, Input,
-    JsonTree, KeyValueList, KvEntry, Link, List, ListItem, ListItemAction, ListItemBadge, Markdown,
-    Modal, MultiSelect, NumberInput, Progress, Radio, Row, Select, SelectOption, Separator,
-    SidebarHeader, SidebarHeaderAction, Slider, Spinner, TableView, Tabs, ToggleSwitch, Typography,
-    TypographyVariant,
+    Card, CardAction, CardIcon, Checkbox, Code, CodeEditor, Column, DataRow, Icon, IconButton,
+    Input, JsonTree, KeyValueList, KvEntry, Link, List, ListItem, ListItemAction, ListItemBadge,
+    Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row, Select, SelectOption,
+    Separator, SidebarHeader, SidebarHeaderAction, Slider, Spinner, TableView, Tabs, ToggleSwitch,
+    Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 use thoth_plugin_sdk::theme::{THEME_MEMORY_ID, TextToken, ThemeColors};
@@ -218,8 +217,14 @@ impl Default for Gallery {
             kvlist: KeyValueList::builder()
                 .label("Headers")
                 .entries(vec![
-                    KvEntry::builder().key("Accept").value("application/json").build(),
-                    KvEntry::builder().key("Authorization").value("Bearer …").build(),
+                    KvEntry::builder()
+                        .key("Accept")
+                        .value("application/json")
+                        .build(),
+                    KvEntry::builder()
+                        .key("Authorization")
+                        .value("Bearer …")
+                        .build(),
                 ])
                 .build(),
             code_editor: CodeEditor::builder()
@@ -232,7 +237,9 @@ impl Default for Gallery {
                 .meta("v1.0 · by Author")
                 .tags(vec!["loader".to_owned(), "viewer".to_owned()])
                 .enabled(true)
-                .icon(CardIcon::Glyph(egui_phosphor::regular::PUZZLE_PIECE.to_owned()))
+                .icon(CardIcon::Glyph(
+                    egui_phosphor::regular::PUZZLE_PIECE.to_owned(),
+                ))
                 .actions(vec![
                     CardAction::builder().label("Configure").build(),
                     CardAction::builder().label("Remove").danger(true).build(),
@@ -240,14 +247,14 @@ impl Default for Gallery {
                 .build(),
             tabs: Tabs::builder()
                 .id("gallery-tabs")
-                .headers(vec!["Request".to_owned(), "Response".to_owned(), "Headers".to_owned()])
+                .headers(vec![
+                    "Request".to_owned(),
+                    "Response".to_owned(),
+                    "Headers".to_owned(),
+                ])
                 .children(vec![
-                    RenderNode::Text(
-                        Typography::builder().text("Request tab content").build(),
-                    ),
-                    RenderNode::Text(
-                        Typography::builder().text("Response tab content").build(),
-                    ),
+                    RenderNode::Text(Typography::builder().text("Request tab content").build()),
+                    RenderNode::Text(Typography::builder().text("Response tab content").build()),
                     RenderNode::Text(Typography::builder().text("Headers tab content").build()),
                 ])
                 .build(),
@@ -261,7 +268,11 @@ impl eframe::App for Gallery {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Mimic the host: publish the active palette into egui memory so every
         // SDK widget can read it back via `ThemeColors::from_ctx`.
-        let colors = if self.dark { dark_palette() } else { light_palette() };
+        let colors = if self.dark {
+            dark_palette()
+        } else {
+            light_palette()
+        };
         ui.ctx()
             .memory_mut(|m| m.data.insert_temp(egui::Id::new(THEME_MEMORY_ID), colors));
 
@@ -269,14 +280,22 @@ impl eframe::App for Gallery {
         // the host's apply_theme) so widgets that read ui.visuals() — e.g. the
         // faint zebra fill, text color, selection — match. Child panels created
         // via show_inside inherit this ui's style.
-        let faint =
-            Color32::from_rgba_unmultiplied(colors.surface.r(), colors.surface.g(), colors.surface.b(), 77);
+        let faint = Color32::from_rgba_unmultiplied(
+            colors.surface.r(),
+            colors.surface.g(),
+            colors.surface.b(),
+            77,
+        );
         let v = &mut ui.style_mut().visuals;
         v.override_text_color = Some(colors.fg);
         v.panel_fill = colors.bg;
         v.faint_bg_color = faint;
-        v.selection.bg_fill =
-            Color32::from_rgba_unmultiplied(colors.accent.r(), colors.accent.g(), colors.accent.b(), 60);
+        v.selection.bg_fill = Color32::from_rgba_unmultiplied(
+            colors.accent.r(),
+            colors.accent.g(),
+            colors.accent.b(),
+            60,
+        );
         v.selection.stroke = egui::Stroke::new(1.0, colors.accent);
 
         egui::Panel::left("stories")
@@ -349,28 +368,43 @@ impl Gallery {
                 ui.end_row();
 
                 ui.label("Color");
-                combo(ui, "color", &mut self.color, &[
-                    (ButtonColor::Default, "Default"),
-                    (ButtonColor::Primary, "Primary"),
-                    (ButtonColor::Secondary, "Secondary"),
-                    (ButtonColor::Danger, "Danger"),
-                    (ButtonColor::Success, "Success"),
-                ]);
+                combo(
+                    ui,
+                    "color",
+                    &mut self.color,
+                    &[
+                        (ButtonColor::Default, "Default"),
+                        (ButtonColor::Primary, "Primary"),
+                        (ButtonColor::Secondary, "Secondary"),
+                        (ButtonColor::Danger, "Danger"),
+                        (ButtonColor::Success, "Success"),
+                    ],
+                );
                 ui.end_row();
 
                 ui.label("Type");
-                combo(ui, "type", &mut self.button_type, &[
-                    (ButtonType::Elevated, "Elevated"),
-                    (ButtonType::Text, "Text"),
-                ]);
+                combo(
+                    ui,
+                    "type",
+                    &mut self.button_type,
+                    &[
+                        (ButtonType::Elevated, "Elevated"),
+                        (ButtonType::Text, "Text"),
+                    ],
+                );
                 ui.end_row();
 
                 ui.label("Size");
-                combo(ui, "size", &mut self.size, &[
-                    (ButtonSize::Small, "Small"),
-                    (ButtonSize::Medium, "Medium"),
-                    (ButtonSize::Large, "Large"),
-                ]);
+                combo(
+                    ui,
+                    "size",
+                    &mut self.size,
+                    &[
+                        (ButtonSize::Small, "Small"),
+                        (ButtonSize::Medium, "Medium"),
+                        (ButtonSize::Large, "Large"),
+                    ],
+                );
                 ui.end_row();
 
                 ui.label("Flags");
@@ -435,10 +469,18 @@ impl Gallery {
 
         let items: Vec<ButtonGroupItem> = ["GET", "POST", "PUT", "DELETE"]
             .iter()
-            .map(|label| ButtonGroupItem::builder().value(*label).label(*label).build())
+            .map(|label| {
+                ButtonGroupItem::builder()
+                    .value(*label)
+                    .label(*label)
+                    .build()
+            })
             .collect();
 
-        let group = ButtonGroups::builder().items(items).active(self.active.as_str()).build();
+        let group = ButtonGroups::builder()
+            .items(items)
+            .active(self.active.as_str())
+            .build();
         if let Some(value) = group.show(ui).inner {
             self.active = value;
         }
@@ -462,10 +504,12 @@ impl Gallery {
                 ui.end_row();
             });
         ui.label(
-            egui::RichText::new("Input is dot-separated; numeric segments render as [n]. \
-                 The separator only changes how segments are joined for display/navigation.")
-                .small()
-                .weak(),
+            egui::RichText::new(
+                "Input is dot-separated; numeric segments render as [n]. \
+                 The separator only changes how segments are joined for display/navigation.",
+            )
+            .small()
+            .weak(),
         );
 
         ui.add_space(16.0);
@@ -475,7 +519,9 @@ impl Gallery {
         // ── Live preview ──────────────────────────────────────────────────
         let crumbs = Breadcrumbs::builder()
             .path(self.crumb_path.as_str())
-            .maybe_separator((!self.crumb_separator.is_empty()).then_some(self.crumb_separator.as_str()))
+            .maybe_separator(
+                (!self.crumb_separator.is_empty()).then_some(self.crumb_separator.as_str()),
+            )
             .build();
         if let Some(path) = crumbs.show(ui).inner {
             self.last_navigated = Some(path);
@@ -506,12 +552,7 @@ impl Gallery {
             (TypographyVariant::Mono, "Mono"),
         ];
         for (variant, name) in variants {
-            ui.add(
-                Typography::builder()
-                    .text(name)
-                    .variant(variant)
-                    .build(),
-            );
+            ui.add(Typography::builder().text(name).variant(variant).build());
             ui.add_space(2.0);
         }
         ui.add(Separator::with_margin(8.0));
@@ -587,12 +628,47 @@ impl Gallery {
         ui.heading("Icon Button");
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.add(IconButton::builder().icon(egui_phosphor::regular::STAR).tooltip("Plain").build());
-            ui.add(IconButton::builder().icon(egui_phosphor::regular::GEAR).frame(true).tooltip("Framed").build());
-            ui.add(IconButton::builder().icon(egui_phosphor::regular::HEART).selected(true).tooltip("Selected").build());
-            ui.add(IconButton::builder().icon(egui_phosphor::regular::TRASH).disabled(true).tooltip("Disabled").build());
-            ui.add(IconButton::builder().icon(egui_phosphor::regular::BELL).badge_color("#f38ba8").tooltip("Badge").build());
-            ui.add(IconButton::builder().icon(egui_phosphor::regular::PLUS).size(28.0).tooltip("Large").build());
+            ui.add(
+                IconButton::builder()
+                    .icon(egui_phosphor::regular::STAR)
+                    .tooltip("Plain")
+                    .build(),
+            );
+            ui.add(
+                IconButton::builder()
+                    .icon(egui_phosphor::regular::GEAR)
+                    .frame(true)
+                    .tooltip("Framed")
+                    .build(),
+            );
+            ui.add(
+                IconButton::builder()
+                    .icon(egui_phosphor::regular::HEART)
+                    .selected(true)
+                    .tooltip("Selected")
+                    .build(),
+            );
+            ui.add(
+                IconButton::builder()
+                    .icon(egui_phosphor::regular::TRASH)
+                    .disabled(true)
+                    .tooltip("Disabled")
+                    .build(),
+            );
+            ui.add(
+                IconButton::builder()
+                    .icon(egui_phosphor::regular::BELL)
+                    .badge_color("#f38ba8")
+                    .tooltip("Badge")
+                    .build(),
+            );
+            ui.add(
+                IconButton::builder()
+                    .icon(egui_phosphor::regular::PLUS)
+                    .size(28.0)
+                    .tooltip("Large")
+                    .build(),
+            );
         });
     }
 
@@ -722,7 +798,12 @@ impl Gallery {
         ui.heading("Icon");
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.add(Icon::builder().glyph(egui_phosphor::regular::STAR).size(24.0).build());
+            ui.add(
+                Icon::builder()
+                    .glyph(egui_phosphor::regular::STAR)
+                    .size(24.0)
+                    .build(),
+            );
             ui.add(
                 Icon::builder()
                     .glyph(egui_phosphor::regular::HEART)
@@ -730,14 +811,24 @@ impl Gallery {
                     .size(24.0)
                     .build(),
             );
-            ui.add(Icon::builder().glyph(egui_phosphor::regular::GEAR).size(32.0).build());
+            ui.add(
+                Icon::builder()
+                    .glyph(egui_phosphor::regular::GEAR)
+                    .size(32.0)
+                    .build(),
+            );
         });
     }
 
     fn link_story(&mut self, ui: &mut egui::Ui) {
         ui.heading("Link");
         ui.add_space(8.0);
-        ui.add(Link::builder().label("Thoth on GitHub").url("https://github.com/anitnilay20/thoth").build());
+        ui.add(
+            Link::builder()
+                .label("Thoth on GitHub")
+                .url("https://github.com/anitnilay20/thoth")
+                .build(),
+        );
     }
 
     fn progress_story(&mut self, ui: &mut egui::Ui) {
@@ -762,7 +853,10 @@ impl Gallery {
     fn checkbox_story(&mut self, ui: &mut egui::Ui) {
         ui.heading("Checkbox");
         ui.add_space(8.0);
-        let mut cb = Checkbox::builder().label("Enable feature").checked(self.checked).build();
+        let mut cb = Checkbox::builder()
+            .label("Enable feature")
+            .checked(self.checked)
+            .build();
         if cb.show(ui).changed() {
             self.checked = cb.checked;
         }
@@ -851,16 +945,32 @@ impl Gallery {
                 ListItem::builder()
                     .title("Get users")
                     .description("https://api.example.com/users")
-                    .badge(ListItemBadge::builder().text("GET").color("#89b4fa").build())
+                    .badge(
+                        ListItemBadge::builder()
+                            .text("GET")
+                            .color("#89b4fa")
+                            .build(),
+                    )
                     .actions(vec![
-                        ListItemAction::builder().icon(egui_phosphor::regular::PENCIL).tooltip("Edit").build(),
-                        ListItemAction::builder().icon(egui_phosphor::regular::TRASH).tooltip("Delete").build(),
+                        ListItemAction::builder()
+                            .icon(egui_phosphor::regular::PENCIL)
+                            .tooltip("Edit")
+                            .build(),
+                        ListItemAction::builder()
+                            .icon(egui_phosphor::regular::TRASH)
+                            .tooltip("Delete")
+                            .build(),
                     ])
                     .build(),
                 ListItem::builder()
                     .title("Create user")
                     .description("https://api.example.com/users")
-                    .badge(ListItemBadge::builder().text("POST").color("#a6e3a1").build())
+                    .badge(
+                        ListItemBadge::builder()
+                            .text("POST")
+                            .color("#a6e3a1")
+                            .build(),
+                    )
                     .build(),
             ])
             .build();
@@ -892,7 +1002,10 @@ impl Gallery {
             self.modal_open = true;
         }
         if self.modal_open {
-            let modal = Modal::builder().id("gallery-modal").title("Confirm").build();
+            let modal = Modal::builder()
+                .id("gallery-modal")
+                .title("Confirm")
+                .build();
             let closed = modal.show_with(ui, |ui| {
                 ui.label("Are you sure you want to proceed?");
                 ui.add_space(8.0);
@@ -928,13 +1041,20 @@ impl Gallery {
                         Row::builder()
                             .gap(6.0)
                             .children(vec![
-                                RenderNode::Badge(Badge::builder().label("GET").color("#89b4fa").build()),
+                                RenderNode::Badge(
+                                    Badge::builder().label("GET").color("#89b4fa").build(),
+                                ),
                                 RenderNode::Text(Typography::builder().text("/api/users").build()),
                             ])
                             .build(),
                     ),
                     RenderNode::Separator(Separator::plain()),
-                    RenderNode::Button(Button::builder().label("Send").color(ButtonColor::Primary).build()),
+                    RenderNode::Button(
+                        Button::builder()
+                            .label("Send")
+                            .color(ButtonColor::Primary)
+                            .build(),
+                    ),
                 ])
                 .build(),
         );
@@ -943,12 +1063,7 @@ impl Gallery {
 }
 
 /// A small combo-box helper for picking one of several `Copy` enum variants.
-fn combo<T: PartialEq + Copy>(
-    ui: &mut egui::Ui,
-    id: &str,
-    current: &mut T,
-    options: &[(T, &str)],
-) {
+fn combo<T: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, current: &mut T, options: &[(T, &str)]) {
     let selected_label = options
         .iter()
         .find(|(v, _)| v == current)

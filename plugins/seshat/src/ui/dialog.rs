@@ -18,8 +18,14 @@ pub(crate) fn dialog(st: &State) -> RenderNode {
                 .id("f-engine")
                 .value(engine_value(st.form.engine))
                 .options(vec![
-                    SelectOption::builder().value("postgres").label("PostgreSQL").build(),
-                    SelectOption::builder().value("mysql").label("MySQL").build(),
+                    SelectOption::builder()
+                        .value("postgres")
+                        .label("PostgreSQL")
+                        .build(),
+                    SelectOption::builder()
+                        .value("mysql")
+                        .label("MySQL")
+                        .build(),
                 ])
                 .build(),
         ),
@@ -32,7 +38,13 @@ pub(crate) fn dialog(st: &State) -> RenderNode {
                 ])
                 .build(),
         ),
-        text_input("f-database", "Database", &st.form.database, false, "postgres"),
+        text_input(
+            "f-database",
+            "Database",
+            &st.form.database,
+            false,
+            "postgres",
+        ),
         text_input("f-user", "User", &st.form.user, false, ""),
         RenderNode::Input(
             Input::builder()
@@ -75,9 +87,33 @@ pub(crate) fn dialog(st: &State) -> RenderNode {
             .gap(8.0)
             .align(Align::Center)
             .children(vec![
-                button("dialog-test", "Test connection", "Text", "Default", Some(ICON_PLUG), true, false),
-                button("dialog-cancel", "Cancel", "Text", "Default", None, true, false),
-                button("dialog-connect", connect_label, "Elevated", "Primary", Some(ICON_PLUG), true, false),
+                button(
+                    "dialog-test",
+                    "Test connection",
+                    "Text",
+                    "Default",
+                    Some(ICON_PLUG),
+                    true,
+                    false,
+                ),
+                button(
+                    "dialog-cancel",
+                    "Cancel",
+                    "Text",
+                    "Default",
+                    None,
+                    true,
+                    false,
+                ),
+                button(
+                    "dialog-connect",
+                    connect_label,
+                    "Elevated",
+                    "Primary",
+                    Some(ICON_PLUG),
+                    true,
+                    false,
+                ),
             ])
             .build(),
     ));

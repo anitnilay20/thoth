@@ -55,9 +55,7 @@ impl Radio {
             }
             ui.horizontal(|ui| {
                 for opt in &self.options {
-                    if ui
-                        .radio(self.value == opt.value, &opt.label)
-                        .clicked()
+                    if ui.radio(self.value == opt.value, &opt.label).clicked()
                         && self.value != opt.value
                     {
                         changed = Some(opt.value.clone());

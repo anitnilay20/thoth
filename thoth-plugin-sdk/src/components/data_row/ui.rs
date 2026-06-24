@@ -3,7 +3,9 @@ use std::sync::Arc;
 use egui::{Color32, RichText, Ui, WidgetText, text::LayoutJob};
 
 use crate::components::IconButton;
-use crate::theme::{ROW_HEIGHT, TextPalette, ThemeColors, hover_row_bg, phosphor_font_id, resolve_color};
+use crate::theme::{
+    ROW_HEIGHT, TextPalette, ThemeColors, hover_row_bg, phosphor_font_id, resolve_color,
+};
 
 use super::DataRow;
 
@@ -189,7 +191,13 @@ impl DataRow {
 }
 
 /// Add one body label that participates in the row's click.
-fn body_label(ui: &mut Ui, text: WidgetText, selectable: bool, clicked: &mut bool, secondary: &mut bool) {
+fn body_label(
+    ui: &mut Ui,
+    text: WidgetText,
+    selectable: bool,
+    clicked: &mut bool,
+    secondary: &mut bool,
+) {
     let label = if selectable {
         egui::Label::new(text).selectable(true)
     } else {

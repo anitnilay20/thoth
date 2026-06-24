@@ -154,8 +154,8 @@ impl RenderNode {
                             emit(events, &l.id, "click", i.to_string());
                         }
                         crate::components::ListEvent::ActionClicked { item, action } => {
-                            let value = serde_json::json!({ "item": item, "action": action })
-                                .to_string();
+                            let value =
+                                serde_json::json!({ "item": item, "action": action }).to_string();
                             emit(events, &l.id, "action", value);
                         }
                         crate::components::ListEvent::PostfixClicked(i) => {

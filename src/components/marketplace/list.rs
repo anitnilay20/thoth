@@ -1,8 +1,8 @@
 use eframe::egui;
 
 use thoth_plugin_sdk::components::{
-    Button, ButtonColor, ButtonSize, IconButton, Input, List, ListEvent, ListItem,
-    ListItemPostfix, ListItemPrefix, Select, SelectOption, SelectSize, Separator, SidebarHeader,
+    Button, ButtonColor, ButtonSize, IconButton, Input, List, ListEvent, ListItem, ListItemPostfix,
+    ListItemPrefix, Select, SelectOption, SelectSize, Separator, SidebarHeader,
 };
 use thoth_plugin_sdk::theme::color_to_hex;
 
@@ -357,7 +357,12 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                 .description(row.desc.clone())
                 .prefix(prefix)
                 .selected(row.is_selected)
-                .tags(row.tag_labels.iter().map(|t| t.to_string()).collect::<Vec<_>>())
+                .tags(
+                    row.tag_labels
+                        .iter()
+                        .map(|t| t.to_string())
+                        .collect::<Vec<_>>(),
+                )
                 .maybe_postfix(postfix)
                 .build()
         })

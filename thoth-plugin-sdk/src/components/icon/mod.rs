@@ -33,6 +33,10 @@ impl egui::Widget for Icon {
             .and_then(|c| resolve_color(c, &colors))
             .unwrap_or(colors.fg_muted);
         let size = self.size.unwrap_or(13.0);
-        ui.label(egui::RichText::new(&self.glyph).font(phosphor_font_id(size)).color(color))
+        ui.label(
+            egui::RichText::new(&self.glyph)
+                .font(phosphor_font_id(size))
+                .color(color),
+        )
     }
 }

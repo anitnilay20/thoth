@@ -126,10 +126,16 @@ fn results_table(result: &Value) -> RenderNode {
                     .gap(4.0)
                     .children(vec![
                         RenderNode::Table(
-                            TableView::builder().headers(headers).rows(table_rows).build(),
+                            TableView::builder()
+                                .headers(headers)
+                                .rows(table_rows)
+                                .build(),
                         ),
                         RenderNode::Row(
-                            Row::builder().padding(6.0).children(vec![muted(&footer)]).build(),
+                            Row::builder()
+                                .padding(6.0)
+                                .children(vec![muted(&footer)])
+                                .build(),
                         ),
                     ])
                     .build(),
@@ -143,4 +149,3 @@ fn results_table(result: &Value) -> RenderNode {
         ),
     }
 }
-

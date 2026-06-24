@@ -65,7 +65,9 @@ fn ui_out(node: thoth_plugin_sdk::render_node::RenderNode) -> UiOutput {
 /// A plain text [`RenderNode`] (used for settings / empty placeholders).
 fn text_node(value: &str) -> thoth_plugin_sdk::render_node::RenderNode {
     thoth_plugin_sdk::render_node::RenderNode::Text(
-        thoth_plugin_sdk::components::Typography::builder().text(value).build(),
+        thoth_plugin_sdk::components::Typography::builder()
+            .text(value)
+            .build(),
     )
 }
 
@@ -86,7 +88,7 @@ fn to_json<T: Serialize>(result: Result<T, String>) -> Result<String, PluginErro
 
 impl LifecycleGuest for Seshat {
     fn on_load(_setting: String) {
-        STATE.with_mut(|s| load_state(s));
+        STATE.with_mut(load_state);
     }
     fn on_close() {}
     fn on_setting_change(_setting: String) {}
@@ -118,9 +120,7 @@ impl TabHostGuest for Seshat {
     }
     /// Snapshot the editor tab so the host can restore it across restarts.
     fn get_state() -> Result<String, PluginError> {
-        Ok(STATE.with(|st| {
-            json!({ "connection": st.active, "sql": st.sql }).to_string()
-        }))
+        Ok(STATE.with(|st| json!({ "connection": st.active, "sql": st.sql }).to_string()))
     }
     /// Seed a freshly-opened editor tab with its connection (and SQL).
     fn init_with_state(state: String) -> Result<(), PluginError> {

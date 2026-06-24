@@ -112,7 +112,10 @@ pub fn build_sidebar(st: &State) -> RenderNode {
                         .color(method_badge_hex(&req.method))
                         .build(),
                 )
-                .actions(vec![ListItemAction::builder().icon("x").tooltip("Delete").build()])
+                .actions(vec![ListItemAction::builder()
+                    .icon("x")
+                    .tooltip("Delete")
+                    .build()])
                 .build()
         })
         .collect();
@@ -260,7 +263,10 @@ fn build_request_column(st: &State) -> RenderNode {
         Scroll::builder()
             .id("request-scroll")
             .child(RenderNode::Column(
-                Column::builder().gap(6.0).children(vec![build_req_tabs(st)]).build(),
+                Column::builder()
+                    .gap(6.0)
+                    .children(vec![build_req_tabs(st)])
+                    .build(),
             ))
             .build(),
     )
@@ -289,7 +295,10 @@ fn build_response_column(st: &State) -> RenderNode {
 
     if let Some(resp) = &st.response {
         RenderNode::Scroll(
-            Scroll::builder().id("response-scroll").child(build_response_panel(resp)).build(),
+            Scroll::builder()
+                .id("response-scroll")
+                .child(build_response_panel(resp))
+                .build(),
         )
     } else {
         RenderNode::Row(
@@ -388,10 +397,22 @@ fn build_req_tabs(st: &State) -> RenderNode {
 
 fn build_auth_panel(st: &State) -> RenderNode {
     let type_opts = vec![
-        SelectOption::builder().value("none").label("No Auth").build(),
-        SelectOption::builder().value("bearer").label("Bearer Token").build(),
-        SelectOption::builder().value("basic").label("Basic Auth").build(),
-        SelectOption::builder().value("api-key").label("API Key").build(),
+        SelectOption::builder()
+            .value("none")
+            .label("No Auth")
+            .build(),
+        SelectOption::builder()
+            .value("bearer")
+            .label("Bearer Token")
+            .build(),
+        SelectOption::builder()
+            .value("basic")
+            .label("Basic Auth")
+            .build(),
+        SelectOption::builder()
+            .value("api-key")
+            .label("API Key")
+            .build(),
     ];
 
     let mut rows: Vec<RenderNode> = vec![RenderNode::Radio(
@@ -437,12 +458,22 @@ fn build_auth_panel(st: &State) -> RenderNode {
                     .label("Add Key To")
                     .value(st.auth_key_in.clone())
                     .options(vec![
-                        SelectOption::builder().value("header").label("Header").build(),
-                        SelectOption::builder().value("query").label("Query Params").build(),
+                        SelectOption::builder()
+                            .value("header")
+                            .label("Header")
+                            .build(),
+                        SelectOption::builder()
+                            .value("query")
+                            .label("Query Params")
+                            .build(),
                     ])
                     .build(),
             ));
-            let ph = if st.auth_key_in == "header" { "X-API-Key" } else { "api_key" };
+            let ph = if st.auth_key_in == "header" {
+                "X-API-Key"
+            } else {
+                "api_key"
+            };
             rows.push(field("auth-key-name", "Key Name", &st.auth_key_name, ph));
             rows.push(password("auth-key-value", "Value", &st.auth_key_value));
         }
@@ -516,7 +547,10 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
     let pretty = match &resp.parsed_body {
         Some(val) => RenderNode::JsonTree(JsonTree::builder().value(val.clone()).build()),
         None => RenderNode::Code(
-            Code::builder().value(resp.body.clone()).language("text").build(),
+            Code::builder()
+                .value(resp.body.clone())
+                .language("text")
+                .build(),
         ),
     };
 
@@ -529,11 +563,18 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
     let resp_tabs = RenderNode::Tabs(
         Tabs::builder()
             .id("resp-tabs")
-            .headers(vec!["Pretty".to_string(), "Raw".to_string(), "Headers".to_string()])
+            .headers(vec![
+                "Pretty".to_string(),
+                "Raw".to_string(),
+                "Headers".to_string(),
+            ])
             .children(vec![
                 pretty,
                 RenderNode::Code(
-                    Code::builder().value(resp.body.clone()).language("json").build(),
+                    Code::builder()
+                        .value(resp.body.clone())
+                        .language("json")
+                        .build(),
                 ),
                 RenderNode::Table(
                     TableView::builder()
@@ -545,7 +586,12 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
             .build(),
     );
 
-    RenderNode::Column(Column::builder().gap(0.0).children(vec![status_row, resp_tabs]).build())
+    RenderNode::Column(
+        Column::builder()
+            .gap(0.0)
+            .children(vec![status_row, resp_tabs])
+            .build(),
+    )
 }
 
 // =============================================================================
@@ -596,7 +642,11 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
 
     if let Some(ok) = val.get("ok") {
         let status = ok.get("status").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-        let body_raw = ok.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let body_raw = ok
+            .get("body")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let headers: Vec<KvPair> = ok
             .get("headers")
             .and_then(|v| v.as_array())

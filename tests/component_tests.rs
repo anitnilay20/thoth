@@ -116,7 +116,11 @@ fn test_data_row_tree_chrome_renders() {
             .key_token(TextToken::Key)
             .indent(2)
             .caret(true)
-            .leading_icon(DataRowIcon::builder().glyph(egui_phosphor::regular::FOLDER).build())
+            .leading_icon(
+                DataRowIcon::builder()
+                    .glyph(egui_phosphor::regular::FOLDER)
+                    .build(),
+            )
             .trailing("12")
             .build()
             .show(ui);
@@ -217,7 +221,10 @@ fn test_mock_context_component_multiple_renders() {
 #[test]
 fn test_sidebar_header_title_only() {
     run_ui_test(|ui| {
-        let out = SidebarHeader::builder().title("CONNECTIONS").build().show(ui);
+        let out = SidebarHeader::builder()
+            .title("CONNECTIONS")
+            .build()
+            .show(ui);
         assert!(out.inner.is_none());
     });
 }
@@ -268,7 +275,10 @@ fn test_render_ui_node_covers_many_variants() {
                 UiNode::Spacer(Spacer::builder().size(6.0).build()),
                 UiNode::Badge(Badge::builder().label("GET").color("#89b4fa").build()),
                 UiNode::Icon(
-                    Icon::builder().glyph(egui_phosphor::regular::DATABASE).color("info").build(),
+                    Icon::builder()
+                        .glyph(egui_phosphor::regular::DATABASE)
+                        .color("info")
+                        .build(),
                 ),
                 UiNode::DataRow(
                     DataRow::builder()

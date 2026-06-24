@@ -22,7 +22,11 @@ impl Breadcrumbs {
             ui.add_space(8.0);
             match self.path.as_deref() {
                 None => {
-                    ui.label(RichText::new("No selection").size(12.0).color(colors.fg_muted));
+                    ui.label(
+                        RichText::new("No selection")
+                            .size(12.0)
+                            .color(colors.fg_muted),
+                    );
                 }
                 Some("") => {
                     ui.label(RichText::new("Root").size(12.0).color(colors.fg));
@@ -47,9 +51,7 @@ impl Breadcrumbs {
                                 .color(colors.fg_muted),
                         );
                         if i == last {
-                            ui.label(
-                                RichText::new(segment).size(12.0).color(colors.fg).strong(),
-                            );
+                            ui.label(RichText::new(segment).size(12.0).color(colors.fg).strong());
                         } else {
                             let path = segments[..=i].join(delim);
                             let resp = ui

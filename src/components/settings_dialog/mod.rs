@@ -33,12 +33,12 @@ pub use viewer::ViewerTab;
 
 use crate::components::settings_dialog::plugins::{PluginsTab, PluginsTabEvent, PluginsTabProps};
 use crate::components::traits::ContextComponent;
-use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType, IconButton, Input};
 use crate::notification::{Notification, NotificationManager, NotificationStatus};
 use crate::settings::Settings;
 use crate::theme::{self, Theme, ThemeColors, icon_rich_text, phosphor_font_id};
 use eframe::egui;
 use std::sync::{Arc, Mutex};
+use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType, IconButton, Input};
 
 /// Settings dialog with modern UI
 pub struct SettingsDialog {

@@ -248,8 +248,13 @@ impl Row {
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         let colors = crate::theme::ThemeColors::from_ctx(ui.ctx());
         let fill = self.bg_color.resolve(&colors);
-        let (gap, padding, align, max_width, height) =
-            (self.gap, self.padding, self.align, self.max_width, self.height);
+        let (gap, padding, align, max_width, height) = (
+            self.gap,
+            self.padding,
+            self.align,
+            self.max_width,
+            self.height,
+        );
 
         let mut frame = egui::Frame::new().inner_margin(egui::Margin::same(padding as i8));
         if let Some(f) = fill {
@@ -394,7 +399,10 @@ impl Split {
                 if self.separator {
                     let sep_x = x + gap / 2.0;
                     ui.painter().line_segment(
-                        [egui::pos2(sep_x, cursor.top()), egui::pos2(sep_x, cursor.top() + avail_h)],
+                        [
+                            egui::pos2(sep_x, cursor.top()),
+                            egui::pos2(sep_x, cursor.top() + avail_h),
+                        ],
                         egui::Stroke::new(1.0, sep_color),
                     );
                 }

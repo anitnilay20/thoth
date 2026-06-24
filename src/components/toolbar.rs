@@ -5,8 +5,7 @@ use eframe::egui;
 use thoth_plugin_sdk::components::IconButton;
 
 use crate::{
-    components::traits::ContextComponent, file::lazy_loader::FileKind,
-    shortcuts::KeyboardShortcuts,
+    components::traits::ContextComponent, file::lazy_loader::FileKind, shortcuts::KeyboardShortcuts,
 };
 
 // pick_file is only used by the Linux in-window menu bar.
@@ -131,10 +130,7 @@ impl Toolbar {
                         let back_btn = ui.add(
                             IconButton::builder()
                                 .icon(egui_phosphor::regular::CARET_LEFT)
-                                .tooltip(format!(
-                                    "Go back ({})",
-                                    props.shortcuts.nav_back.format()
-                                ))
+                                .tooltip(format!("Go back ({})", props.shortcuts.nav_back.format()))
                                 .size(button_size.x)
                                 .disabled(!props.can_go_back)
                                 .build(),

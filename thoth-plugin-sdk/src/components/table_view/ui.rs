@@ -296,5 +296,9 @@ fn paint_cell_borders(ui: &egui::Ui, right: Color32, bottom: Color32) {
     let rect = ui.max_rect();
     let painter = ui.painter();
     painter.vline(rect.right() - 0.5, rect.y_range(), Stroke::new(1.0, right));
-    painter.hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, bottom));
+    painter.hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        Stroke::new(1.0, bottom),
+    );
 }

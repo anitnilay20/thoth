@@ -174,14 +174,24 @@ impl RenderNode {
         use serde_json::Value;
         match value {
             Value::Null => RenderNode::Text(
-                Typography::builder().text("null").italic(true).color("muted").build(),
+                Typography::builder()
+                    .text("null")
+                    .italic(true)
+                    .color("muted")
+                    .build(),
             ),
-            Value::Bool(b) => {
-                RenderNode::Text(Typography::builder().text(b.to_string()).color("boolean").build())
-            }
-            Value::Number(n) => {
-                RenderNode::Text(Typography::builder().text(n.to_string()).color("number").build())
-            }
+            Value::Bool(b) => RenderNode::Text(
+                Typography::builder()
+                    .text(b.to_string())
+                    .color("boolean")
+                    .build(),
+            ),
+            Value::Number(n) => RenderNode::Text(
+                Typography::builder()
+                    .text(n.to_string())
+                    .color("number")
+                    .build(),
+            ),
             // Strings use the default foreground colour (no syntax tint).
             Value::String(s) => RenderNode::text(s.clone()),
             Value::Array(_) | Value::Object(_) => {

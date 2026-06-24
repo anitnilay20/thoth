@@ -14,11 +14,18 @@ impl Modal {
     /// `RenderNode` renderer) turns that into the close event.
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) -> bool {
         let children = &mut self.children;
-        Self::frame(&self.id, &self.title, self.width_pct, self.height_pct, ui, |ui| {
-            for child in children {
-                child.show(ui, events);
-            }
-        })
+        Self::frame(
+            &self.id,
+            &self.title,
+            self.width_pct,
+            self.height_pct,
+            ui,
+            |ui| {
+                for child in children {
+                    child.show(ui, events);
+                }
+            },
+        )
     }
 
     /// Render the modal overlay, drawing its content with the `body` closure
@@ -29,7 +36,14 @@ impl Modal {
     where
         F: FnOnce(&mut egui::Ui),
     {
-        Self::frame(&self.id, &self.title, self.width_pct, self.height_pct, ui, body)
+        Self::frame(
+            &self.id,
+            &self.title,
+            self.width_pct,
+            self.height_pct,
+            ui,
+            body,
+        )
     }
 
     /// Draw the backdrop + centered window chrome and run `body` for content.

@@ -3,7 +3,6 @@ use eframe::egui;
 use std::path::Path;
 
 use crate::components::traits::ContextComponent;
-use thoth_plugin_sdk::components::Breadcrumbs;
 use crate::consent::{
     manager::ConsentManager,
     modal::{ConsentModal, ConsentModalProps},
@@ -11,6 +10,7 @@ use crate::consent::{
 use crate::file::loaders::FileKind;
 use crate::notification::notification_dropdown::{NotificationDropdown, NotificationDropdownProps};
 use crate::settings::Settings;
+use thoth_plugin_sdk::components::Breadcrumbs;
 
 /// Status bar component displaying file info and application status
 #[derive(Default)]

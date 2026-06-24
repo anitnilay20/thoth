@@ -171,7 +171,14 @@ impl egui::Widget for Button {
                     )
                 }
                 ButtonType::Text => Self::text_button(
-                    ui, &self.label, icon, size, bg_color, colors.fg, width, height,
+                    ui,
+                    &self.label,
+                    icon,
+                    size,
+                    bg_color,
+                    colors.fg,
+                    width,
+                    height,
                 ),
             })
             .inner;

@@ -25,8 +25,18 @@ impl Tabs {
         let content_gap = self.content_gap.unwrap_or(10.0).round() as i8;
         egui::Frame::new()
             .fill(colors.bg_panel)
-            .outer_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: content_gap })
-            .inner_margin(egui::Margin { left: 8, right: 8, top: 0, bottom: 0 })
+            .outer_margin(egui::Margin {
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: content_gap,
+            })
+            .inner_margin(egui::Margin {
+                left: 8,
+                right: 8,
+                top: 0,
+                bottom: 0,
+            })
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.set_height(40.0);
@@ -42,8 +52,8 @@ impl Tabs {
                         // Icon-only tab (label as tooltip): a 34×30 frameless
                         // button with an 18px glyph; otherwise a text button.
                         let resp = if let Some(glyph) = icon {
-                            let (rect, resp) =
-                                ui.allocate_exact_size(egui::vec2(34.0, 30.0), egui::Sense::click());
+                            let (rect, resp) = ui
+                                .allocate_exact_size(egui::vec2(34.0, 30.0), egui::Sense::click());
                             if resp.hovered() {
                                 let hover_bg = egui::Color32::from_rgba_premultiplied(
                                     colors.surface_raised.r(),

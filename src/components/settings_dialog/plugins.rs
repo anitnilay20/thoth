@@ -3,9 +3,6 @@ use eframe::egui;
 use crate::PLUGIN_MANAGER;
 use crate::components::common::traits::StatelessComponent;
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
-use thoth_plugin_sdk::components::{
-    Card, CardAction, CardEvent, CardIcon, IconButton, Input, Separator, ToggleSwitch,
-};
 use crate::error::ErrorHandler;
 use crate::error::ThothError;
 use crate::notification::Notification;
@@ -15,6 +12,9 @@ use crate::plugin::render_node::render_ui_node;
 use crate::plugin::{Capability, Plugin};
 use crate::settings::{PluginNetworkPolicy, PluginSettings};
 use crate::theme::{Theme, ThemeColors};
+use thoth_plugin_sdk::components::{
+    Card, CardAction, CardEvent, CardIcon, IconButton, Input, Separator, ToggleSwitch,
+};
 
 pub struct PluginsTab;
 

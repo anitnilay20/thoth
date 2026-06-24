@@ -7,8 +7,8 @@ mod ui;
 
 use serde_json::Value;
 
-use thoth_plugin_sdk::PluginMeta;
 use thoth_plugin_sdk::state::PluginState;
+use thoth_plugin_sdk::PluginMeta;
 
 use bindings::exports::thoth::plugin::{
     data_source::{
@@ -290,7 +290,7 @@ impl DataSourceGuest for UrlSourcePlugin {
                     return Err(plugin_err(1, resp.error.clone().unwrap()));
                 }
             } else {
-                let raw = http_fetch(&st)?;
+                let raw = http_fetch(st)?;
                 String::from_utf8_lossy(&raw).to_string()
             };
 
@@ -335,7 +335,7 @@ impl DataSourceGuest for UrlSourcePlugin {
             }
 
             // No cache — fresh request
-            let raw = http_fetch(&st)?;
+            let raw = http_fetch(st)?;
             let body_str = String::from_utf8_lossy(&raw).to_string();
             let val: Value = serde_json::from_str(&body_str)
                 .map_err(|e| plugin_err(3, format!("Invalid JSON: {e}")))?;
@@ -814,7 +814,7 @@ impl TabHostGuest for UrlSourcePlugin {
     /// Show the saved request name (or method+url) in the tab label so tabs are
     /// distinguishable.
     fn tab_title() -> String {
-        STATE.with(|s| tab_title_for(s))
+        STATE.with(tab_title_for)
     }
 
     fn tab_icon() -> Option<String> {

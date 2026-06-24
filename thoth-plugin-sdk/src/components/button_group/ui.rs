@@ -66,7 +66,11 @@ fn render_segment(
             );
         }
 
-        let text_color = if is_active || response.hovered() { colors.fg } else { colors.fg_muted };
+        let text_color = if is_active || response.hovered() {
+            colors.fg
+        } else {
+            colors.fg_muted
+        };
         ui.painter().text(
             rect.center(),
             Align2::CENTER_CENTER,

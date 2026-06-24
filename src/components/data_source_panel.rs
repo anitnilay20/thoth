@@ -75,14 +75,16 @@ impl StatefulComponent for DataSourcePanel {
         }
 
         // Deserialise the cached node tree for rendering.
-        let mut node: UiNode = serde_json::from_str(&self.cached_output.as_ref().unwrap().node_json)
-            .unwrap_or_else(|_| {
-                UiNode::Text(
-                    thoth_plugin_sdk::components::Typography::builder()
-                        .text("UI parse error")
-                        .build(),
-                )
-            });
+        let mut node: UiNode = serde_json::from_str(
+            &self.cached_output.as_ref().unwrap().node_json,
+        )
+        .unwrap_or_else(|_| {
+            UiNode::Text(
+                thoth_plugin_sdk::components::Typography::builder()
+                    .text("UI parse error")
+                    .build(),
+            )
+        });
 
         // Render the tree and collect widget events for this frame.
         let mut ui_events = Vec::new();
