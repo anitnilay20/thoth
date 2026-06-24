@@ -7,20 +7,29 @@
 #[rustfmt::skip]
 mod bindings;
 
-use std::cell::RefCell;
 use std::path::PathBuf;
+
+use thoth_plugin_sdk::prelude::*;
 
 use bindings::exports::thoth::plugin::{
     file_loader::Guest as FileLoaderGuest,
     file_viewer::{DisplayMode, Guest as FileViewerGuest},
     plugin_lifecycle::Guest as LifecycleGuest,
-    plugin_meta::Guest as MetaGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
 };
-use bindings::thoth::plugin::types::{Capability, PluginError};
+use bindings::thoth::plugin::types::PluginError;
 use csv::ReaderBuilder;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
+#[derive(PluginMeta)]
+#[plugin(
+    id = "com.thoth.csv-loader",
+    name = "CSV Loader",
+    version = "0.1.0",
+    description = "Load CSV and TSV files as tabular JSON records",
+    capabilities = [FileLoader, FileViewer],
+    author = "Thoth contributors",
+)]
 struct CsvPlugin;
 
 // ── per-instance state stored inside the WASM sandbox ────────────────────────
@@ -32,26 +41,7 @@ struct State {
     delimiter: u8,
 }
 
-thread_local! {
-    static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
-}
-
-// ── plugin-meta ───────────────────────────────────────────────────────────────
-
-impl MetaGuest for CsvPlugin {
-    fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-        bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-            id: "com.thoth.csv-loader".to_string(),
-            name: "CSV Loader".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Load CSV and TSV files as tabular JSON records".to_string(),
-            capabilities: vec![Capability::FileLoader, Capability::FileViewer],
-            author: Some("Thoth contributors".to_string()),
-            homepage: None,
-            icon: None,
-        }
-    }
-}
+static STATE: PluginState<State> = PluginState::new();
 
 // ── plugin-lifecycle ──────────────────────────────────────────────────────────
 
@@ -62,7 +52,7 @@ impl LifecycleGuest for CsvPlugin {
     }
 
     fn on_close() {
-        STATE.with(|s| *s.borrow_mut() = None);
+        STATE.reset();
     }
 
     fn on_setting_change(_setting: String) {
@@ -96,77 +86,76 @@ impl FileLoaderGuest for CsvPlugin {
         // Count records without loading them all into memory.
         let count = rdr.records().count() as u64;
 
-        STATE.with(|s| {
-            *s.borrow_mut() = Some(State {
-                headers,
-                file: PathBuf::from(path),
-                delimiter,
-            })
+        STATE.set(State {
+            headers,
+            file: PathBuf::from(path),
+            delimiter,
         });
 
         Ok(count)
     }
 
     fn get(idx: u64) -> Result<String, PluginError> {
-        STATE.with(|s| {
-            let guard = s.borrow();
-            let state = guard
-                .as_ref()
-                .ok_or_else(|| plugin_err(2, "file not opened"))?;
+        STATE
+            .try_with(|state| {
+                let mut rdr = ReaderBuilder::new()
+                    .delimiter(state.delimiter)
+                    .has_headers(true)
+                    .from_path(&state.file)
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            let mut rdr = ReaderBuilder::new()
-                .delimiter(state.delimiter)
-                .has_headers(true)
-                .from_path(&state.file)
-                .map_err(|e| plugin_err(1, e.to_string()))?;
+                let row = usize::try_from(idx).map_err(|_| plugin_err(2, "index out of range"))?;
+                let record = rdr
+                    .records()
+                    .nth(row)
+                    .ok_or_else(|| plugin_err(2, "index out of range"))?
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            let record = rdr
-                .records()
-                .nth(idx as usize)
-                .ok_or_else(|| plugin_err(2, "index out of range"))?
-                .map_err(|e| plugin_err(1, e.to_string()))?;
+                let obj: Map<String, Value> = state
+                    .headers
+                    .iter()
+                    .zip(record.iter())
+                    .map(|(k, v)| (k.clone(), Value::String(v.to_owned())))
+                    .collect();
 
-            let obj: Map<String, Value> = state
-                .headers
-                .iter()
-                .zip(record.iter())
-                .map(|(k, v)| (k.clone(), Value::String(v.to_owned())))
-                .collect();
-
-            serde_json::to_string(&Value::Object(obj)).map_err(|e| plugin_err(3, e.to_string()))
-        })
+                serde_json::to_string(&Value::Object(obj)).map_err(|e| plugin_err(3, e.to_string()))
+            })
+            .unwrap_or_else(|| Err(plugin_err(2, "file not opened")))
     }
 
     fn raw_bytes(idx: u64) -> Result<Vec<u8>, PluginError> {
-        STATE.with(|s| {
-            let guard = s.borrow();
-            let state = guard
-                .as_ref()
-                .ok_or_else(|| plugin_err(2, "file not opened"))?;
+        STATE
+            .try_with(|state| {
+                // Return the original (unparsed) CSV/TSV bytes for this record by
+                // reading the ByteRecord at `idx` and reconstructing the delimited line.
+                let mut rdr = ReaderBuilder::new()
+                    .delimiter(state.delimiter)
+                    .has_headers(true)
+                    .from_path(&state.file)
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            // Return the original (unparsed) CSV/TSV bytes for this record by
-            // reading the ByteRecord at `idx` and reconstructing the delimited line.
-            let mut rdr = ReaderBuilder::new()
-                .delimiter(state.delimiter)
-                .has_headers(true)
-                .from_path(&state.file)
-                .map_err(|e| plugin_err(1, e.to_string()))?;
+                let row = usize::try_from(idx).map_err(|_| plugin_err(2, "index out of range"))?;
+                let record = rdr
+                    .byte_records()
+                    .nth(row)
+                    .ok_or_else(|| plugin_err(2, "index out of range"))?
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
 
-            let record = rdr
-                .byte_records()
-                .nth(idx as usize)
-                .ok_or_else(|| plugin_err(2, "index out of range"))?
-                .map_err(|e| plugin_err(1, e.to_string()))?;
-
-            let mut out = Vec::new();
-            for (i, field) in record.iter().enumerate() {
-                if i > 0 {
-                    out.push(state.delimiter);
+                // Re-serialize through the CSV writer so fields containing the
+                // delimiter, quotes, or newlines stay properly escaped.
+                let mut wtr = csv::WriterBuilder::new()
+                    .delimiter(state.delimiter)
+                    .from_writer(Vec::new());
+                wtr.write_byte_record(&record)
+                    .map_err(|e| plugin_err(1, e.to_string()))?;
+                let mut out = wtr.into_inner().map_err(|e| plugin_err(1, e.to_string()))?;
+                // Drop the trailing line terminator to keep this API newline-free.
+                while out.last() == Some(&b'\n') || out.last() == Some(&b'\r') {
+                    out.pop();
                 }
-                out.extend_from_slice(field);
-            }
-            Ok(out)
-        })
+                Ok(out)
+            })
+            .unwrap_or_else(|| Err(plugin_err(2, "file not opened")))
     }
 }
 
@@ -178,7 +167,7 @@ impl FileViewerGuest for CsvPlugin {
     }
 
     fn column_headers() -> Option<Vec<String>> {
-        STATE.with(|s| s.borrow().as_ref().map(|state| state.headers.clone()))
+        STATE.try_with(|state| state.headers.clone())
     }
 
     fn render_record(
@@ -194,12 +183,17 @@ impl FileViewerGuest for CsvPlugin {
 
 impl SettingsGuest for CsvPlugin {
     fn render_settings() -> Result<SettingsOutput, bindings::thoth::plugin::types::PluginError> {
+        use thoth_plugin_sdk::components::Typography;
+        use thoth_plugin_sdk::render_node::RenderNode;
+        use thoth_plugin_sdk::ToNodeJson;
+
+        let node = RenderNode::Text(
+            Typography::builder()
+                .text("This plugin has no settings.")
+                .build(),
+        );
         Ok(SettingsOutput {
-            node_json: json!({
-                "type": "text",
-                "value": "This plugin has no settings.",
-            })
-            .to_string(),
+            node_json: node.to_json().to_string(),
             height_hint: 0,
         })
     }

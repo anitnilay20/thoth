@@ -1,0 +1,51 @@
+[package]
+name = "thoth-plugin-sdk"
+version = "0.1.0"
+edition = "2024"
+description = "Type-safe UI component builders, a serializable render-node DSL, and plugin helpers (state, settings) for authoring Thoth plugins."
+authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/anitnilay20/thoth"
+homepage = "https://github.com/anitnilay20/thoth"
+readme = "README.md"
+keywords = ["thoth", "plugin", "egui", "ui", "wasm"]
+categories = ["gui", "wasm"]
+rust-version = "1.92"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bon = "3.9"
+egui = { version = "0.34.3", optional = true }
+egui-phosphor = { version = "0.12", optional = true }
+egui_extras = { version = "0.34", optional = true }
+egui_code_editor = { version = "0.2.24", optional = true }
+egui_commonmark = { version = "0.23", optional = true }
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "ico",
+], optional = true }
+thoth-plugin-sdk-macros = { path = "../thoth-plugin-sdk-macros", version = "0.1.0", optional = true }
+
+[features]
+default = []
+plugin = ["dep:thoth-plugin-sdk-macros"]
+egui = [
+    "dep:egui",
+    "dep:egui-phosphor",
+    "dep:egui_extras",
+    "dep:egui_code_editor",
+    "dep:egui_commonmark",
+    "dep:image",
+]
+
+[dev-dependencies]
+# Drives the component gallery example (examples/gallery.rs).
+eframe = "0.34"
+egui-phosphor = "0.12"
+
+# A live, Storybook-style showcase of the SDK's egui widgets.
+# Run with: cargo run -p thoth-plugin-sdk --example gallery --features egui
+[[example]]
+name = "gallery"
+required-features = ["egui"]

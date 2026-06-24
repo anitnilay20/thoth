@@ -3,7 +3,7 @@ use eframe::egui;
 use crate::{
     components::traits::StatefulComponent,
     plugin::{
-        render_node::{TextSize, UiNode, UiOutput, render_ui_node},
+        render_node::{UiNode, UiOutput, render_ui_node},
         wasm_data_source::{ConsentRequest, WasmDataSourceLoader},
     },
 };
@@ -75,16 +75,20 @@ impl StatefulComponent for DataSourcePanel {
         }
 
         // Deserialise the cached node tree for rendering.
-        let node: UiNode = serde_json::from_str(&self.cached_output.as_ref().unwrap().node_json)
-            .unwrap_or(UiNode::Text {
-                value: "UI parse error".into(),
-                size: TextSize::Md,
-                muted: false,
-            });
+        let mut node: UiNode = serde_json::from_str(
+            &self.cached_output.as_ref().unwrap().node_json,
+        )
+        .unwrap_or_else(|e| {
+            UiNode::Text(
+                thoth_plugin_sdk::components::Typography::builder()
+                    .text(format!("UI parse error: {e}"))
+                    .build(),
+            )
+        });
 
         // Render the tree and collect widget events for this frame.
         let mut ui_events = Vec::new();
-        render_ui_node(ui, &node, &mut ui_events);
+        render_ui_node(ui, &mut node, &mut ui_events);
 
         for evt in ui_events {
             // Track URL changes so QueryResult has a readable display_url.

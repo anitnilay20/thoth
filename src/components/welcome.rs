@@ -1,8 +1,7 @@
 use eframe::egui;
 use egui_phosphor::regular as ph;
+use thoth_plugin_sdk::components::{Typography, TypographyVariant};
 
-use crate::components::common::traits::StatelessComponent;
-use crate::components::common::typography::{Typography, TypographyProps, TypographyVariant};
 use crate::theme::ThemeColors;
 
 pub enum WelcomeEvent {
@@ -43,25 +42,21 @@ impl WelcomePanel {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
                     // Title — --primary (mauve), --fs-2xl (20px), weight 700
-                    Typography::render(
-                        ui,
-                        TypographyProps {
-                            text: "Welcome to Thoth",
-                            variant: TypographyVariant::Heading,
-                            color: Some(c.accent_secondary),
-                            size_override: Some(22.0),
-                            bold: true,
-                            ..Default::default()
-                        },
+                    ui.add(
+                        Typography::builder()
+                            .text("Welcome to Thoth")
+                            .variant(TypographyVariant::Heading)
+                            .color(thoth_plugin_sdk::theme::color_to_hex(c.accent_secondary))
+                            .size(22.0)
+                            .bold(true)
+                            .build(),
                     );
                     // Subtitle — --overlay1, --fs-md (13px), baseline-aligned
-                    Typography::render(
-                        ui,
-                        TypographyProps {
-                            text: "Wisdom for your JSON.",
-                            variant: TypographyVariant::Subtitle,
-                            ..Default::default()
-                        },
+                    ui.add(
+                        Typography::builder()
+                            .text("Wisdom for your JSON.")
+                            .variant(TypographyVariant::Subtitle)
+                            .build(),
                     );
                 });
             });
@@ -111,13 +106,11 @@ impl WelcomePanel {
                                 ui.add_space(8.0);
 
                                 if recent_files.is_empty() {
-                                    Typography::render(
-                                        ui,
-                                        TypographyProps {
-                                            text: "No recent files",
-                                            variant: TypographyVariant::BodyMuted,
-                                            ..Default::default()
-                                        },
+                                    ui.add(
+                                        Typography::builder()
+                                            .text("No recent files")
+                                            .variant(TypographyVariant::BodyMuted)
+                                            .build(),
                                     );
                                 } else {
                                     for path_str in recent_files.iter().take(8) {
@@ -171,13 +164,11 @@ impl WelcomePanel {
 
 /// `.t-section` — bold 12px content-area section label
 fn t_section(ui: &mut egui::Ui, text: &str, _c: ThemeColors) {
-    Typography::render(
-        ui,
-        TypographyProps {
-            text,
-            variant: TypographyVariant::SectionHeader,
-            ..Default::default()
-        },
+    ui.add(
+        Typography::builder()
+            .text(text)
+            .variant(TypographyVariant::SectionHeader)
+            .build(),
     );
 }
 
@@ -276,15 +267,13 @@ fn tip_row(ui: &mut egui::Ui, kbd: &str, body: &str, c: ThemeColors) {
         }
 
         // Body: 13px --overlay1
-        Typography::render(
-            ui,
-            TypographyProps {
-                text: body,
-                variant: TypographyVariant::BodyMuted,
-                color: Some(c.fg_muted),
-                size_override: Some(13.0),
-                ..Default::default()
-            },
+        ui.add(
+            Typography::builder()
+                .text(body)
+                .variant(TypographyVariant::BodyMuted)
+                .color(thoth_plugin_sdk::theme::color_to_hex(c.fg_muted))
+                .size(13.0)
+                .build(),
         );
     });
     ui.add_space(4.0);

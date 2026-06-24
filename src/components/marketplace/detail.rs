@@ -3,10 +3,9 @@ use std::sync::{Arc, Mutex};
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
-use crate::components::common::button::{Button, ButtonColor, ButtonProps, ButtonSize};
+use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonSize, Typography};
+
 use crate::components::common::helpers::load_icon_texture;
-use crate::components::common::typography::{Typography, TypographyProps};
-use crate::components::traits::StatelessComponent;
 use crate::plugin::marketplace::MarketPlacePlugin;
 use crate::theme::{ThemeColors, icon_rich_text, phosphor_font_id};
 
@@ -191,14 +190,12 @@ fn render_header(
                         // Row 1: name · version · state badge
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing.x = 10.0;
-                            Typography::render(
-                                ui,
-                                TypographyProps {
-                                    text: &plugin.name,
-                                    bold: true,
-                                    size_override: Some(22.0),
-                                    ..Default::default()
-                                },
+                            ui.add(
+                                Typography::builder()
+                                    .text(&plugin.name)
+                                    .bold(true)
+                                    .size(22.0)
+                                    .build(),
                             );
                             ui.label(
                                 egui::RichText::new(format!("v{}", plugin.version))
@@ -313,17 +310,16 @@ fn render_action_buttons(
     let _ = colors;
     match install_state {
         InstallState::NotInstalled => {
-            if Button::render(
-                ui,
-                ButtonProps {
-                    label: "Install".to_string(),
-                    color: ButtonColor::Primary,
-                    icon: Some(egui_phosphor::regular::DOWNLOAD_SIMPLE.to_string()),
-                    button_size: ButtonSize::Small,
-                    ..Default::default()
-                },
-            )
-            .clicked
+            if ui
+                .add(
+                    Button::builder()
+                        .label("Install")
+                        .color(ButtonColor::Primary)
+                        .icon(egui_phosphor::regular::DOWNLOAD_SIMPLE)
+                        .button_size(ButtonSize::Small)
+                        .build(),
+                )
+                .clicked()
             {
                 *action = Some(DetailAction::Install);
             }
@@ -332,30 +328,28 @@ fn render_action_buttons(
         InstallState::Installed => {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                if Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Disable".to_string(),
-                        color: ButtonColor::Default,
-                        button_size: ButtonSize::Small,
-                        ..Default::default()
-                    },
-                )
-                .clicked
+                if ui
+                    .add(
+                        Button::builder()
+                            .label("Disable")
+                            .color(ButtonColor::Default)
+                            .button_size(ButtonSize::Small)
+                            .build(),
+                    )
+                    .clicked()
                 {
                     *action = Some(DetailAction::Disable);
                 }
-                if Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Uninstall".to_string(),
-                        color: ButtonColor::Default,
-                        icon: Some(egui_phosphor::regular::TRASH.to_string()),
-                        button_size: ButtonSize::Small,
-                        ..Default::default()
-                    },
-                )
-                .clicked
+                if ui
+                    .add(
+                        Button::builder()
+                            .label("Uninstall")
+                            .color(ButtonColor::Default)
+                            .icon(egui_phosphor::regular::TRASH)
+                            .button_size(ButtonSize::Small)
+                            .build(),
+                    )
+                    .clicked()
                 {
                     *action = Some(DetailAction::Uninstall);
                 }
@@ -365,31 +359,29 @@ fn render_action_buttons(
         InstallState::Disabled => {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                if Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Enable".to_string(),
-                        color: ButtonColor::Primary,
-                        icon: Some(egui_phosphor::regular::PLAY.to_string()),
-                        button_size: ButtonSize::Small,
-                        ..Default::default()
-                    },
-                )
-                .clicked
+                if ui
+                    .add(
+                        Button::builder()
+                            .label("Enable")
+                            .color(ButtonColor::Primary)
+                            .icon(egui_phosphor::regular::PLAY)
+                            .button_size(ButtonSize::Small)
+                            .build(),
+                    )
+                    .clicked()
                 {
                     *action = Some(DetailAction::Enable);
                 }
-                if Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Uninstall".to_string(),
-                        color: ButtonColor::Default,
-                        icon: Some(egui_phosphor::regular::TRASH.to_string()),
-                        button_size: ButtonSize::Small,
-                        ..Default::default()
-                    },
-                )
-                .clicked
+                if ui
+                    .add(
+                        Button::builder()
+                            .label("Uninstall")
+                            .color(ButtonColor::Default)
+                            .icon(egui_phosphor::regular::TRASH)
+                            .button_size(ButtonSize::Small)
+                            .build(),
+                    )
+                    .clicked()
                 {
                     *action = Some(DetailAction::Uninstall);
                 }
@@ -397,34 +389,32 @@ fn render_action_buttons(
         }
 
         InstallState::Installing(_) => {
-            if Button::render(
-                ui,
-                ButtonProps {
-                    label: "Cancel".to_string(),
-                    color: ButtonColor::Default,
-                    icon: Some(egui_phosphor::regular::X.to_string()),
-                    button_size: ButtonSize::Small,
-                    ..Default::default()
-                },
-            )
-            .clicked
+            if ui
+                .add(
+                    Button::builder()
+                        .label("Cancel")
+                        .color(ButtonColor::Default)
+                        .icon(egui_phosphor::regular::X)
+                        .button_size(ButtonSize::Small)
+                        .build(),
+                )
+                .clicked()
             {
                 *action = Some(DetailAction::Retry); // reuse as cancel signal
             }
         }
 
         InstallState::Failed(_) => {
-            if Button::render(
-                ui,
-                ButtonProps {
-                    label: "Retry install".to_string(),
-                    color: ButtonColor::Danger,
-                    icon: Some(egui_phosphor::regular::ARROW_CLOCKWISE.to_string()),
-                    button_size: ButtonSize::Small,
-                    ..Default::default()
-                },
-            )
-            .clicked
+            if ui
+                .add(
+                    Button::builder()
+                        .label("Retry install")
+                        .color(ButtonColor::Danger)
+                        .icon(egui_phosphor::regular::ARROW_CLOCKWISE)
+                        .button_size(ButtonSize::Small)
+                        .build(),
+                )
+                .clicked()
             {
                 *action = Some(DetailAction::Retry);
             }
@@ -432,44 +422,41 @@ fn render_action_buttons(
         InstallState::Update => {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                if Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Update".to_string(),
-                        color: ButtonColor::Secondary,
-                        icon: Some(egui_phosphor::regular::UPLOAD.to_string()),
-                        button_size: ButtonSize::Small,
-                        ..Default::default()
-                    },
-                )
-                .clicked
+                if ui
+                    .add(
+                        Button::builder()
+                            .label("Update")
+                            .color(ButtonColor::Secondary)
+                            .icon(egui_phosphor::regular::UPLOAD)
+                            .button_size(ButtonSize::Small)
+                            .build(),
+                    )
+                    .clicked()
                 {
                     *action = Some(DetailAction::Install);
                 }
-                if Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Disable".to_string(),
-                        color: ButtonColor::Default,
-                        button_size: ButtonSize::Small,
-                        ..Default::default()
-                    },
-                )
-                .clicked
+                if ui
+                    .add(
+                        Button::builder()
+                            .label("Disable")
+                            .color(ButtonColor::Default)
+                            .button_size(ButtonSize::Small)
+                            .build(),
+                    )
+                    .clicked()
                 {
                     *action = Some(DetailAction::Disable);
                 }
-                if Button::render(
-                    ui,
-                    ButtonProps {
-                        label: "Uninstall".to_string(),
-                        color: ButtonColor::Default,
-                        icon: Some(egui_phosphor::regular::TRASH.to_string()),
-                        button_size: ButtonSize::Small,
-                        ..Default::default()
-                    },
-                )
-                .clicked
+                if ui
+                    .add(
+                        Button::builder()
+                            .label("Uninstall")
+                            .color(ButtonColor::Default)
+                            .icon(egui_phosphor::regular::TRASH)
+                            .button_size(ButtonSize::Small)
+                            .build(),
+                    )
+                    .clicked()
                 {
                     *action = Some(DetailAction::Uninstall);
                 }
@@ -503,30 +490,27 @@ fn render_banner_error(
                 ui.spacing_mut().item_spacing.x = 10.0;
                 ui.label(icon_rich_text(egui_phosphor::regular::WARNING, 16.0).color(err));
                 ui.vertical(|ui| {
-                    Typography::render(
-                        ui,
-                        TypographyProps {
-                            text: "Install failed",
-                            bold: true,
-                            color: Some(err),
-                            ..Default::default()
-                        },
+                    ui.add(
+                        Typography::builder()
+                            .text("Install failed")
+                            .bold(true)
+                            .color(thoth_plugin_sdk::theme::color_to_hex(err))
+                            .build(),
                     );
                     ui.add_space(2.0);
                     ui.label(egui::RichText::new(msg).size(12.0).color(colors.fg_muted));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if Button::render(
-                        ui,
-                        ButtonProps {
-                            label: "Retry".to_string(),
-                            color: ButtonColor::Danger,
-                            icon: Some(egui_phosphor::regular::ARROW_CLOCKWISE.to_string()),
-                            button_size: ButtonSize::Small,
-                            ..Default::default()
-                        },
-                    )
-                    .clicked
+                    if ui
+                        .add(
+                            Button::builder()
+                                .label("Retry")
+                                .color(ButtonColor::Danger)
+                                .icon(egui_phosphor::regular::ARROW_CLOCKWISE)
+                                .button_size(ButtonSize::Small)
+                                .build(),
+                        )
+                        .clicked()
                     {
                         *action = Some(DetailAction::Retry);
                     }

@@ -17,6 +17,8 @@ serde_json = "1"
 postgres-protocol = "0.6"
 bytes = "1"
 fallible-iterator = "0.2"
+# Type-safe UI DSL builders (no egui — plugins only describe UI, never render).
+thoth-plugin-sdk = { path = "../../thoth-plugin-sdk", features = ["plugin"] }
 
 [package.metadata.component]
 package = "thoth:seshat"

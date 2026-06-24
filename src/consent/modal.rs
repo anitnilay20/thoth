@@ -1,12 +1,11 @@
 use eframe::egui::{self, Align2, Color32, CornerRadius, Frame, Layout, Margin, Stroke};
 
 use crate::{
-    components::{
-        button::{Button, ButtonColor, ButtonProps, ButtonSize, ButtonType},
-        traits::{ContextComponent, StatelessComponent},
-        typography::{Typography, TypographyProps, TypographyVariant},
-    },
+    components::traits::ContextComponent,
     theme::{ThemeColors, phosphor_font_id},
+};
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonSize, ButtonType, Typography, TypographyVariant,
 };
 
 use super::manager::{ConsentRequest, PermissionEntry};
@@ -134,14 +133,12 @@ fn render_header(ui: &mut egui::Ui, request: &ConsentRequest, colors: &ThemeColo
 
                 ui.add_space(12.0);
                 ui.vertical(|ui| {
-                    Typography::render(
-                        ui,
-                        TypographyProps {
-                            text: "PERMISSION REQUESTED",
-                            variant: TypographyVariant::GroupLabel,
-                            color: Some(colors.warning),
-                            ..Default::default()
-                        },
+                    ui.add(
+                        Typography::builder()
+                            .text("PERMISSION REQUESTED")
+                            .variant(TypographyVariant::GroupLabel)
+                            .color(thoth_plugin_sdk::theme::color_to_hex(colors.warning))
+                            .build(),
                     );
                     ui.add_space(2.0);
                     Typography::heading(ui, &request.title);
@@ -235,48 +232,44 @@ fn render_footer(
                     );
                 }
                 ui.add_space(6.0);
-                Typography::render(
-                    ui,
-                    TypographyProps {
-                        text: "Remember this choice",
-                        variant: TypographyVariant::Subtitle,
-                        ..Default::default()
-                    },
+                ui.add(
+                    Typography::builder()
+                        .text("Remember this choice")
+                        .variant(TypographyVariant::Subtitle)
+                        .build(),
                 );
 
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
 
-                    if Button::render(
-                        ui,
-                        ButtonProps {
-                            label: "Allow".to_string(),
-                            button_type: ButtonType::Elevated,
-                            color: ButtonColor::Primary,
-                            button_size: ButtonSize::Medium,
-                            height: Some(32.0),
-                            width: Some(100.0),
-                            ..Default::default()
-                        },
-                    )
-                    .clicked
+                    if ui
+                        .add(
+                            Button::builder()
+                                .label("Allow")
+                                .button_type(ButtonType::Elevated)
+                                .color(ButtonColor::Primary)
+                                .button_size(ButtonSize::Medium)
+                                .height(32.0)
+                                .width(100.0)
+                                .build(),
+                        )
+                        .clicked()
                     {
                         *accepted = true;
                     }
 
-                    if Button::render(
-                        ui,
-                        ButtonProps {
-                            label: "Cancel".to_string(),
-                            button_type: ButtonType::Elevated,
-                            color: ButtonColor::Default,
-                            button_size: ButtonSize::Medium,
-                            height: Some(32.0),
-                            width: Some(100.0),
-                            ..Default::default()
-                        },
-                    )
-                    .clicked
+                    if ui
+                        .add(
+                            Button::builder()
+                                .label("Cancel")
+                                .button_type(ButtonType::Elevated)
+                                .color(ButtonColor::Default)
+                                .button_size(ButtonSize::Medium)
+                                .height(32.0)
+                                .width(100.0)
+                                .build(),
+                        )
+                        .clicked()
                     {
                         *cancelled = true;
                     }
@@ -300,15 +293,13 @@ fn render_permission_row(ui: &mut egui::Ui, entry: &PermissionEntry, colors: &Th
         ui.add_space(8.0);
         Typography::body_large(ui, &entry.label);
         ui.add_space(6.0);
-        Typography::render(
-            ui,
-            TypographyProps {
-                text: &entry.scope,
-                variant: TypographyVariant::Mono,
-                size_override: Some(11.0),
-                color: Some(colors.fg_muted),
-                ..Default::default()
-            },
+        ui.add(
+            Typography::builder()
+                .text(&entry.scope)
+                .variant(TypographyVariant::Mono)
+                .size(11.0)
+                .color(thoth_plugin_sdk::theme::color_to_hex(colors.fg_muted))
+                .build(),
         );
         if entry.sensitive {
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
@@ -322,15 +313,13 @@ fn render_permission_row(ui: &mut egui::Ui, entry: &PermissionEntry, colors: &Th
                         bottom: 2,
                     })
                     .show(ui, |ui| {
-                        Typography::render(
-                            ui,
-                            TypographyProps {
-                                text: "SENSITIVE",
-                                variant: TypographyVariant::Label,
-                                bold: true,
-                                color: Some(colors.warning),
-                                ..Default::default()
-                            },
+                        ui.add(
+                            Typography::builder()
+                                .text("SENSITIVE")
+                                .variant(TypographyVariant::Label)
+                                .bold(true)
+                                .color(thoth_plugin_sdk::theme::color_to_hex(colors.warning))
+                                .build(),
                         );
                     });
             });

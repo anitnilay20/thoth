@@ -1,14 +1,7 @@
 use eframe::egui;
 
 use crate::PLUGIN_MANAGER;
-use crate::components::common::card::{Card, CardAction, CardActionVariant, CardEvent, CardIcon};
-use crate::components::common::input::{Input, InputProps};
-use crate::components::common::separator::Separator;
-use crate::components::common::toggle_switch::{
-    ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps,
-};
 use crate::components::common::traits::StatelessComponent;
-use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::error::ErrorHandler;
 use crate::error::ThothError;
@@ -19,6 +12,9 @@ use crate::plugin::render_node::render_ui_node;
 use crate::plugin::{Capability, Plugin};
 use crate::settings::{PluginNetworkPolicy, PluginSettings};
 use crate::theme::{Theme, ThemeColors};
+use thoth_plugin_sdk::components::{
+    Card, CardAction, CardEvent, CardIcon, IconButton, Input, Separator, ToggleSwitch,
+};
 
 pub struct PluginsTab;
 
@@ -116,26 +112,21 @@ impl PluginsTab {
                 egui::Frame::new().inner_margin(20).show(ui, |ui| {
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        let back_button_response = IconButton::render(
-                            ui,
-                            IconButtonProps {
-                                icon: egui_phosphor::regular::ARROW_LEFT,
-                                frame: false,
-                                tooltip: Some("Go Back"),
-                                badge_color: None,
-                                size: Some(egui::Vec2::new(20.0, 20.0)),
-                                disabled: false,
-                                icon_size: None,
-                                selected: false,
-                            },
+                        let back_button_response = ui.add(
+                            IconButton::builder()
+                                .icon(egui_phosphor::regular::ARROW_LEFT)
+                                .frame(false)
+                                .tooltip("Go Back")
+                                .size(20.0)
+                                .build(),
                         );
                         ui.heading("Settings for plugin: ".to_string() + &plugin.name);
 
-                        if back_button_response.clicked {
+                        if back_button_response.clicked() {
                             events.push(PluginsTabEvent::OpenSettingsForPlugin(None));
                         }
                     });
-                    Separator::plain(ui);
+                    ui.add(Separator::plain());
 
                     if plugin.network.is_some() {
                         ui.add_space(8.0);
@@ -186,8 +177,12 @@ impl PluginsTab {
                         }
                     });
 
-                    if let Some(ref node) = node {
-                        render_ui_node(ui, node, &mut vec![]);
+                    if let Some(mut node) = node {
+                        // The renderer mutates stateful widget state in-place;
+                        // persist the mutated node so inputs/selects keep their
+                        // values across frames instead of resetting.
+                        render_ui_node(ui, &mut node, &mut vec![]);
+                        ui.ctx().data_mut(|d| d.insert_temp(cache_id, node));
                     }
 
                     // Clear cache when navigating away so stale data isn't shown
@@ -236,16 +231,12 @@ impl PluginsTab {
                         None,
                         colors,
                         |ui| {
-                            let toggle = ToggleSwitch::render(
-                                ui,
-                                ToggleSwitchProps {
-                                    enabled: props.plugin_settings.enabled,
-                                    hover_text: None,
-                                },
-                            );
-                            for event in toggle.events {
-                                let ToggleSwitchEvent::Toggled(v) = event;
-                                events.push(PluginsTabEvent::EnablePlugins(v));
+                            let on = props.plugin_settings.enabled;
+                            if ui
+                                .add(ToggleSwitch::builder().enabled(on).build())
+                                .clicked()
+                            {
+                                events.push(PluginsTabEvent::EnablePlugins(!on));
                             }
                         },
                     );
@@ -290,48 +281,42 @@ impl PluginsTab {
 
                             let meta = format!("v{}  •  by {}", plugin.version, plugin.author);
 
-                            let cap_tag_strings: Vec<String> =
+                            let cap_tags: Vec<String> =
                                 plugin.capabilities.iter().map(|c| c.to_string()).collect();
-                            let cap_tags: Vec<&str> =
-                                cap_tag_strings.iter().map(String::as_str).collect();
 
-                            let icon = match &plugin.icon_path {
-                                Some(p) => CardIcon::Path(p.as_path()),
-                                None => CardIcon::Color(colors.fg_muted),
-                            };
+                            let icon_opt: Option<CardIcon> = plugin.icon_path.as_ref().map(|p| {
+                                CardIcon::IconFile {
+                                    path: p.to_string_lossy().into_owned(),
+                                }
+                            });
 
+                            let has_settings = !plugin.capabilities.contains(&Capability::Theme);
+                            let has_uninstall = !plugin.bundled;
                             let mut actions: Vec<CardAction> = vec![];
 
-                            if !plugin.capabilities.contains(&Capability::Theme) {
+                            if has_settings {
                                 actions.push(
-                                    CardAction {
-                                        label: "Settings",
-                                        variant: CardActionVariant::Default,
-                                    }
+                                    CardAction::builder().label("Settings").danger(false).build(),
                                 );
                             }
 
-                            if !plugin.bundled {
-                                actions.push(CardAction {
-                                    label: "Uninstall",
-                                    variant: CardActionVariant::Danger,
-                                });
+                            if has_uninstall {
+                                actions.push(
+                                    CardAction::builder().label("Uninstall").danger(true).build(),
+                                );
                             }
 
-                            let card_output = Card::render(
-                                ui,
-                                crate::components::common::card::CardProps {
-                                    title: &plugin.name,
-                                    subtitle: &plugin.description,
-                                    meta: Some(&meta),
-                                    tags: &cap_tags,
-                                    is_enabled: Some(is_enabled),
-                                    icon,
-                                    actions: &actions,
-                                },
-                            );
+                            let mut card = Card::builder()
+                                .title(&plugin.name)
+                                .subtitle(&plugin.description)
+                                .meta(&meta)
+                                .tags(cap_tags)
+                                .enabled(is_enabled)
+                                .maybe_icon(icon_opt)
+                                .actions(actions)
+                                .build();
 
-                            for event in card_output.events {
+                            if let Some(event) = card.show(ui, &mut Vec::new()) {
                                 match event {
                                     CardEvent::Toggled(v) => {
                                         events.push(PluginsTabEvent::TogglePlugin {
@@ -339,12 +324,14 @@ impl PluginsTab {
                                             enabled: v,
                                         });
                                     }
-                                    CardEvent::ActionClicked(0) => {
+                                    CardEvent::ActionClicked(0) if has_settings => {
                                         events.push(PluginsTabEvent::OpenSettingsForPlugin(
                                             Some(plugin.id.clone()),
                                         ));
                                     }
-                                    CardEvent::ActionClicked(1) if !plugin.bundled => {
+                                    CardEvent::ActionClicked(i)
+                                        if has_uninstall && i == (has_settings as usize) =>
+                                    {
                                         events.push(PluginsTabEvent::UninstallPlugin(
                                             plugin.id.clone(),
                                         ));
@@ -388,7 +375,7 @@ impl PluginsTab {
                         .color(colors.warning)
                         .size(12.0),
                     );
-                    Separator::with_margin(ui, 12.0);
+                    ui.add(Separator::with_margin(12.0));
 
                     Self::render_network_policy_form(
                         ui,
@@ -412,38 +399,19 @@ impl PluginsTab {
 
         for (i, domain) in domains.iter_mut().enumerate() {
             ui.horizontal(|ui| {
-                if Input::render(
-                    ui,
-                    InputProps {
-                        value: domain,
-                        placeholder: "",
-                        icon: None,
-                        password: false,
-                        disabled: false,
-                        multiline: false,
-                        rows: 1,
-                        desired_width: None,
-                        id_salt: None,
-                    },
-                )
-                .changed
-                {
+                let mut input = Input::builder().value(domain.clone()).rows(1).build();
+                if input.show(ui).inner {
+                    *domain = input.value.clone();
                     changed = true;
                 }
-                if IconButton::render(
-                    ui,
-                    IconButtonProps {
-                        icon: egui_phosphor::regular::MINUS,
-                        frame: false,
-                        tooltip: None,
-                        badge_color: None,
-                        size: None,
-                        disabled: false,
-                        icon_size: None,
-                        selected: false,
-                    },
-                )
-                .clicked
+                if ui
+                    .add(
+                        IconButton::builder()
+                            .icon(egui_phosphor::regular::MINUS)
+                            .frame(false)
+                            .build(),
+                    )
+                    .clicked()
                 {
                     remove_idx = Some(i);
                 }
@@ -455,20 +423,14 @@ impl PluginsTab {
             changed = true;
         }
 
-        if IconButton::render(
-            ui,
-            IconButtonProps {
-                icon: egui_phosphor::regular::PLUS,
-                frame: false,
-                tooltip: None,
-                badge_color: None,
-                size: None,
-                disabled: false,
-                icon_size: None,
-                selected: false,
-            },
-        )
-        .clicked
+        if ui
+            .add(
+                IconButton::builder()
+                    .icon(egui_phosphor::regular::PLUS)
+                    .frame(false)
+                    .build(),
+            )
+            .clicked()
         {
             domains.push(String::new());
             changed = true;
@@ -573,29 +535,17 @@ impl PluginsTab {
                 .size(11.0),
             );
 
-            let mut rate_limit_text = policy.rate_limit_rpm.to_string();
-            if Input::render(
-                ui,
-                InputProps {
-                    value: &mut rate_limit_text,
-                    placeholder: "",
-                    icon: None,
-                    password: false,
-                    disabled: false,
-                    multiline: false,
-                    rows: 1,
-                    desired_width: None,
-                    id_salt: None,
-                },
-            )
-            .changed
-                && let Ok(value) = rate_limit_text.parse::<u32>() {
-                    policy.rate_limit_rpm = value;
-                    events.push(PluginsTabEvent::UpdateNetworkPolicy {
-                        plugin_id: plugin.id.clone(),
-                        policy: policy.clone(),
-                    });
-                }
+            let rate_limit_text = policy.rate_limit_rpm.to_string();
+            let mut rate_limit_input = Input::builder().value(rate_limit_text).rows(1).build();
+            if rate_limit_input.show(ui).inner
+                && let Ok(value) = rate_limit_input.value.parse::<u32>()
+            {
+                policy.rate_limit_rpm = value;
+                events.push(PluginsTabEvent::UpdateNetworkPolicy {
+                    plugin_id: plugin.id.clone(),
+                    policy: policy.clone(),
+                });
+            }
             ui.add_space(8.0);
 
             ui.group(|ui| {

@@ -61,7 +61,15 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         return;
     }
 
-    match event.widget_id.as_str() {
+    // The dialog is rendered on two surfaces (editor tab + sidebar panel); the
+    // sidebar copy scopes its ids with an "sb-" prefix to avoid egui id
+    // collisions. Strip it so both surfaces route to the same handlers.
+    let widget_id = event
+        .widget_id
+        .strip_prefix("sb-")
+        .unwrap_or(&event.widget_id);
+
+    match widget_id {
         // dialog form fields (also accept bare ids so the integration test can
         // populate a profile without going through the dialog)
         "f-name" => st.form.name = parse_str(&event.value),

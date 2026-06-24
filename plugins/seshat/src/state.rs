@@ -1,10 +1,10 @@
 //! Connection model, runtime + persisted state, and the async request envelope.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use thoth_plugin_sdk::state::PluginState;
 
 use crate::bindings::thoth::plugin::{db_runtime, plugin_storage};
 use crate::db::{self, ColumnInfo, Engine};
@@ -126,7 +126,6 @@ pub(crate) struct HistoryEntry {
 
 // ── runtime state ─────────────────────────────────────────────────────────────
 
-#[derive(Default)]
 pub(crate) struct State {
     pub loaded: bool,
     pub connections: Vec<Connection>,
@@ -168,12 +167,34 @@ pub(crate) struct State {
     pub password_cache: HashMap<String, String>,
 }
 
+impl Default for State {
+    fn default() -> Self {
+        State::fresh()
+    }
+}
+
 impl State {
     pub(crate) fn fresh() -> Self {
         Self {
-            sql: "SELECT 1 AS one;".into(),
+            loaded: false,
+            connections: Vec::new(),
+            active: None,
+            active_profile: None,
+            dialog_open: false,
+            editing: None,
             form: Form::default(),
-            ..Default::default()
+            test_status: None,
+            sql: "SELECT 1 AS one;".into(),
+            loading: false,
+            pending: Vec::new(),
+            result: None,
+            schema_loaded: false,
+            schema_error: None,
+            schemas: Vec::new(),
+            history: Vec::new(),
+            error: None,
+            failed: None,
+            password_cache: HashMap::new(),
         }
     }
 
@@ -194,9 +215,7 @@ impl State {
     }
 }
 
-thread_local! {
-    pub(crate) static STATE: RefCell<State> = RefCell::new(State::fresh());
-}
+pub(crate) static STATE: PluginState<State> = PluginState::new();
 
 // ── engine helpers ──────────────────────────────────────────────────────────
 

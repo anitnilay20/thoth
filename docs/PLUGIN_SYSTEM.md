@@ -847,7 +847,197 @@ The host automatically calls `ctx.request_repaint()` while any `submit()` reques
 
 ---
 
+## Building Plugin UI with the SDK (recommended)
+
+Plugins describe their UI as a tree of nodes serialized to JSON (the `node-json`
+string returned by `render-ui` / `render-record` / `render-settings` /
+`render-pane` / `handle-event`). Rather than hand-writing that JSON, depend on
+the **`thoth-plugin-sdk`** crate and build the tree with type-safe builders. The
+host renders the *same* `RenderNode` types, so the SDK is a single source of
+truth for both sides — plugin authors get autocomplete, compile-time checking,
+and no field-name typos.
+
+### Add the dependency
+
+```toml
+[dependencies]
+# Plugins only *describe* UI; they never render, so no egui feature.
+thoth-plugin-sdk = { path = "../../thoth-plugin-sdk", features = ["plugin"] }
+```
+
+Cargo features:
+- **default** — the DSL component types + `bon` builders (all a wasm plugin needs).
+- **`plugin`** — adds the `ToNodeJson` wire-protocol trait (`node.to_json()`) and the `PluginMeta` derive.
+- **`egui`** — the host-only renderer; **do not** enable it in plugins.
+
+One glob brings in everything a plugin author needs (components + builders,
+`RenderNode`, `PluginState`, `SettingsMap`, and — with the `plugin` feature —
+`PluginMeta` and `ToNodeJson`):
+
+```rust
+use thoth_plugin_sdk::prelude::*;
+```
+
+### Build a tree and serialize it
+
+```rust
+use thoth_plugin_sdk::components::{Button, ButtonColor, Column, Input, Typography};
+use thoth_plugin_sdk::render_node::RenderNode;
+
+fn build_ui(state: &State) -> RenderNode {
+    RenderNode::Column(
+        Column::builder()
+            .gap(8.0)
+            .children(vec![
+                RenderNode::Text(Typography::builder().text("Endpoint").build()),
+                RenderNode::Input(
+                    Input::builder().id("url").value(state.url.clone()).grow(true).build(),
+                ),
+                RenderNode::Button(
+                    Button::builder().id("send").label("Send").color(ButtonColor::Primary).build(),
+                ),
+            ])
+            .build(),
+    )
+}
+
+// In render-ui / handle-event:
+fn ui_out(node: RenderNode) -> UiOutput {
+    UiOutput { node_json: serde_json::to_string(&node).unwrap_or_default(), height_hint: 0 }
+}
+```
+
+`RenderNode` is an internally-tagged enum (`{"type":"button", ...}`), so a node
+serializes to the same JSON the host deserializes. Containers (`Row`, `Column`,
+`Split`, `Scroll`, `Tabs`, `Modal`, …) hold `children: Vec<RenderNode>`; leaf
+widgets wrap a component struct (`RenderNode::Button(Button)`).
+
+### Interaction & events
+
+Interactive widgets carry an `id`. When the user interacts, the host renders the
+tree, collects events, and calls your `handle-event` with a `ui-event`
+(`widget-id`, `kind`, `value`):
+
+| Widget | `kind` | `value` |
+|---|---|---|
+| `Button`, `IconButton`, list item, `DataRow` body, `Modal` close | `click` | empty (list item: index) |
+| `Input`, `Select`, `Checkbox`, `Slider`, `NumberInput`, `Radio`, `Toggle`, `CodeEditor` | `change` | the new value |
+| `MultiSelect`, `KeyValueList` | `change` | JSON (array / entries) |
+| `ButtonGroups`, `Tabs` | `change` | selected index / header label |
+| `DataRow` caret | `toggle` | empty |
+| list action button | `action` | JSON `{"item":i,"action":j}` |
+
+Your `handle-event` matches on `widget_id`, mutates state, and re-renders the
+full tree (the standard immediate-mode flow):
+
+```rust
+fn handle_event(event: UiEvent) -> Result<UiOutput, PluginError> {
+    match event.widget_id.as_str() {
+        "url"  => state.url = event.value.clone(),
+        "send" => { /* submit */ }
+        _ => {}
+    }
+    Ok(ui_out(build_ui(&state)))
+}
+```
+
+### Worked examples
+
+The bundled plugins are built entirely with the SDK and are the best reference:
+- **`plugins/csv-loader`** — minimal (`render-settings` only).
+- **`plugins/url-source`** — a full request/response UI: rows with layout props,
+  tabs with actions, modals (`open`/`close-id`/`width-pct`), inputs, key-value
+  lists, a code editor, badges, and a JSON-tree response view.
+- **`plugins/seshat`** — a Postgres browser: a tabbed sidebar, a schema tree of
+  `DataRow`s, a SQL `CodeEditor`, a results table, and connection modals.
+
+The component builders and a live gallery of every widget are in the
+`thoth-plugin-sdk` crate (`cargo run -p thoth-plugin-sdk --example gallery
+--features egui`).
+
+### Plugin state (`thoth_plugin_sdk::state`)
+
+WIT exports are free functions with no `self`, so plugins keep their runtime
+state in a global. Instead of hand-rolling `thread_local! { static STATE:
+RefCell<Option<T>> }` and repeating the borrow dance, use `PluginState<T>` — a
+lazily-initialised cell usable directly as a `static`:
+
+```rust
+use thoth_plugin_sdk::state::PluginState;
+
+#[derive(Default)]
+struct State { url: String }
+
+static STATE: PluginState<State> = PluginState::new();
+
+// read (auto-inits from Default) / mutate:
+let url = STATE.with(|s| s.url.clone());
+STATE.with_mut(|s| s.url = new_url);
+
+// when "absent" is meaningful (e.g. a file that hasn't been opened):
+STATE.set(State { url });          // store explicitly
+STATE.try_with(|s| s.url.clone()); // -> Option, None if unset
+STATE.reset();                     // drop it (e.g. from on-close)
+```
+
+`with`/`with_mut`/`get` require `T: Default`; `set`/`reset`/`try_with`/
+`is_initialised` do not. Don't call `with`/`with_mut` re-entrantly (they borrow
+internally, like `RefCell`). All three bundled plugins use this.
+
+### Settings (`thoth_plugin_sdk::settings`)
+
+The host passes settings to `on-load` / `on-setting-change` as a JSON array of
+`{key, value}` records. `SettingsMap` reads and builds that payload:
+
+```rust
+use thoth_plugin_sdk::settings::SettingsMap;
+
+fn on_load(setting: String) {
+    let s = SettingsMap::from_json(&setting);
+    let url    = s.get("url").unwrap_or_default();
+    let method = s.get_or("method", "GET");
+    // ...
+}
+
+// build a payload back out
+let json = SettingsMap::new().with("url", &url).with("method", &method).to_json();
+```
+
+### Plugin metadata (`#[derive(PluginMeta)]`)
+
+Every plugin must implement `plugin-meta`'s `get_info()` — pure boilerplate. The
+`PluginMeta` derive generates it from a declarative attribute:
+
+```rust
+use thoth_plugin_sdk::PluginMeta;
+
+#[derive(PluginMeta)]
+#[plugin(
+    id          = "com.example.my-plugin",
+    name        = "My Plugin",
+    version     = env!("CARGO_PKG_VERSION"),
+    description = "Does useful things",
+    capabilities = [DataSource, NewUiComponent],
+    author      = "Me",        // optional
+    icon        = "\u{E28C}",  // optional (homepage also optional)
+)]
+struct MyPlugin;
+```
+
+`id`/`name`/`version`/`description` are required; `author`/`homepage`/`icon` are
+optional. Values are any `ToString` expression (string literal, `env!(...)`, or a
+glyph const). `capabilities` lists the binding `Capability` variant names
+(`FileLoader`, `FileViewer`, `DataSource`, `Exporter`, `SearchProvider`,
+`NewUiComponent`). The derive expands to the `get_info()` impl against your
+`cargo component` bindings, so it expects the conventional top-level
+`mod bindings;`. (Lifecycle hooks — `on-load`/`on-close`/`on-setting-change` —
+are still written by hand; only the static metadata is derived.)
+
 ## UiNode DSL Reference
+
+> The tables below document the on-the-wire JSON shape. With the SDK
+> (recommended, see above) you build these via component builders rather than
+> writing JSON by hand — the field names map 1:1 to the builder methods.
 
 Used by `ui-component` (via `render-ui` / `handle-event`) and `plugin-settings` (via `render-settings`). Every node is a JSON object with a mandatory `"type"` field.
 

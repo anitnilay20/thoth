@@ -5,7 +5,6 @@ use crate::components::bookmarks::{Bookmarks, BookmarksEvent, BookmarksProps};
 use crate::components::data_source_panel::{
     DataSourcePanel, DataSourcePanelEvent, DataSourcePanelProps,
 };
-use crate::components::icon_button::{IconButton, IconButtonProps};
 use crate::components::marketplace::{Marketplace, MarketplaceProps};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 use crate::components::search::{Search, SearchEvent, SearchProps};
@@ -15,6 +14,7 @@ use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
 use crate::plugin::{Plugin, render_node::render_ui_node, wasm_data_source::ConsentRequest};
 use crate::search::SearchMessage;
 use eframe::egui::{self, Margin};
+use thoth_plugin_sdk::components::IconButton;
 
 /// Which sidebar section is currently selected
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,11 +134,11 @@ impl Default for Sidebar {
 /// Render a sidebar rail icon button and, when it's the selected section, paint
 /// a 2px accent stripe down its left edge — the active-section indicator from
 /// the design (RailButton: a `--primary` bar inset top/bottom at the left edge).
-fn rail_button(ui: &mut egui::Ui, props: IconButtonProps<'_>, accent: egui::Color32) -> bool {
-    let selected = props.selected;
-    let out = IconButton::render(ui, props);
+fn rail_button(ui: &mut egui::Ui, button: IconButton, accent: egui::Color32) -> bool {
+    let selected = button.selected;
+    let response = ui.add(button);
     if selected {
-        let r = out.response.rect;
+        let r = response.rect;
         let half = (r.height() * 0.34).min(16.0);
         let bar = egui::Rect::from_min_max(
             egui::pos2(r.min.x, r.center().y - half),
@@ -146,7 +146,7 @@ fn rail_button(ui: &mut egui::Ui, props: IconButtonProps<'_>, accent: egui::Colo
         );
         ui.painter().rect_filled(bar, 1.0, accent);
     }
-    out.clicked
+    response.clicked()
 }
 
 impl Sidebar {
@@ -248,9 +248,9 @@ impl Sidebar {
                     match serde_json::from_str::<crate::plugin::render_node::UiNode>(
                         &info.output.node_json,
                     ) {
-                        Ok(node) => {
+                        Ok(mut node) => {
                             let mut ui_events = Vec::new();
-                            render_ui_node(ui, &node, &mut ui_events);
+                            render_ui_node(ui, &mut node, &mut ui_events);
                             for evt in ui_events {
                                 events.push(SidebarEvent::PluginSidebarEvent(evt));
                             }
@@ -275,7 +275,7 @@ impl Sidebar {
         props: &SidebarProps<'_>,
         events: &mut Vec<SidebarEvent>,
     ) {
-        let button_size = egui::vec2(48.0, 48.0);
+        let button_size = 48.0_f32;
 
         let accent = ui
             .ctx()
@@ -286,15 +286,14 @@ impl Sidebar {
             .map(|c| c.accent)
             .unwrap_or_else(|| ui.visuals().selection.bg_fill);
 
-        let sidebar_btn = |icon, tooltip, selected| IconButtonProps {
-            icon,
-            tooltip: Some(tooltip),
-            size: Some(button_size),
-            icon_size: Some(20.0),
-            selected,
-            frame: false,
-            badge_color: None,
-            disabled: false,
+        let sidebar_btn = |icon: &str, tooltip: &str, selected: bool| {
+            IconButton::builder()
+                .icon(icon)
+                .tooltip(tooltip)
+                .size(button_size)
+                .icon_size(20.0)
+                .selected(selected)
+                .build()
         };
 
         if rail_button(
@@ -347,7 +346,7 @@ impl Sidebar {
 
         // Plugin icons in a scroll area capped to leave room for the settings button,
         // so settings is never pushed off screen regardless of how many plugins exist.
-        let plugins_max_h = (ui.available_height() - button_size.y).max(0.0);
+        let plugins_max_h = (ui.available_height() - button_size).max(0.0);
         egui::ScrollArea::vertical()
             .id_salt("sidebar_plugin_icons")
             .max_height(plugins_max_h)
@@ -371,16 +370,13 @@ impl Sidebar {
                         .unwrap_or(egui_phosphor::regular::DATABASE);
                     if rail_button(
                         ui,
-                        IconButtonProps {
-                            icon,
-                            tooltip: Some(plugin.name.as_str()),
-                            size: Some(button_size),
-                            icon_size: Some(20.0),
-                            selected,
-                            frame: false,
-                            badge_color: None,
-                            disabled: false,
-                        },
+                        IconButton::builder()
+                            .icon(icon)
+                            .tooltip(plugin.name.as_str())
+                            .size(button_size)
+                            .icon_size(20.0)
+                            .selected(selected)
+                            .build(),
                         accent,
                     ) {
                         events.push(SidebarEvent::SectionToggled(section));
@@ -393,20 +389,16 @@ impl Sidebar {
                         .icon
                         .as_deref()
                         .unwrap_or(egui_phosphor::regular::PUZZLE_PIECE);
-                    if IconButton::render(
-                        ui,
-                        IconButtonProps {
-                            icon,
-                            tooltip: Some(plugin.name.as_str()),
-                            size: Some(button_size),
-                            icon_size: Some(20.0),
-                            selected: false,
-                            frame: false,
-                            badge_color: None,
-                            disabled: false,
-                        },
-                    )
-                    .clicked
+                    if ui
+                        .add(
+                            IconButton::builder()
+                                .icon(icon)
+                                .tooltip(plugin.name.as_str())
+                                .size(button_size)
+                                .icon_size(20.0)
+                                .build(),
+                        )
+                        .clicked()
                     {
                         events.push(SidebarEvent::OpenUiComponentTab(plugin.id.clone()));
                     }
@@ -415,16 +407,14 @@ impl Sidebar {
 
         // Push settings to the absolute bottom of the strip
         let remaining = ui.available_height();
-        if remaining > button_size.y {
-            ui.add_space(remaining - button_size.y);
+        if remaining > button_size {
+            ui.add_space(remaining - button_size);
         }
 
         // Settings icon pinned to the bottom of the icon strip
-        if IconButton::render(
-            ui,
-            sidebar_btn(egui_phosphor::regular::GEAR, "Settings", false),
-        )
-        .clicked
+        if ui
+            .add(sidebar_btn(egui_phosphor::regular::GEAR, "Settings", false))
+            .clicked()
         {
             events.push(SidebarEvent::OpenSettings);
         }

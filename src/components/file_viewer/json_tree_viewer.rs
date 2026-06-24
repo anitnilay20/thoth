@@ -1,16 +1,16 @@
-use crate::components::data_row::{DataRow, DataRowProps, RowHighlights};
-use crate::components::traits::StatelessComponent;
 use crate::file::loaders::FileType;
 use crate::helpers::{
     LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_search_target,
     scroll_to_selection, split_root_rel,
 };
 use crate::search::results::{FieldComponent, MatchFragment, MatchTarget};
-use crate::theme::{ROW_HEIGHT, TextToken, row_fill, selected_row_bg};
+use crate::theme::{ROW_HEIGHT, row_fill, selected_row_bg};
 use eframe::egui::{self, Ui};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use thoth_plugin_sdk::components::{DataRow, RowHighlights};
+use thoth_plugin_sdk::tokens::TextToken;
 
 use super::context_menu::{
     ContextMenuConfig, ContextMenuHandler, execute_context_menu_action, render_context_menu,
@@ -559,25 +559,21 @@ impl JsonTreeViewer {
                     }
 
                     // Render the full tree row — DataRow owns indent + caret.
-                    let output = DataRow::render(
-                        ui,
-                        DataRowProps {
-                            indent: row.indent,
-                            caret: if row.is_expandable {
-                                Some(row.is_expanded)
-                            } else {
-                                None
-                            },
-                            ..DataRowProps::new(
-                                display,
-                                row.text_token,
-                                bg,
-                                path,
-                                row.highlights.clone(),
-                                syntax_highlighting,
-                            )
-                        },
-                    );
+                    let output = DataRow::builder()
+                        .display_text(display.clone())
+                        .row_id(path.clone())
+                        .key_token(row.text_token.0)
+                        .maybe_value_token(row.text_token.1)
+                        .maybe_background(
+                            (bg != egui::Color32::TRANSPARENT)
+                                .then(|| thoth_plugin_sdk::theme::color_to_hex(bg)),
+                        )
+                        .highlights(row.highlights.clone())
+                        .syntax_highlighting(syntax_highlighting)
+                        .indent(row.indent)
+                        .maybe_caret(row.is_expandable.then_some(row.is_expanded))
+                        .build()
+                        .show(ui);
 
                     if output.caret_clicked {
                         toggles.push(path.clone());

@@ -4,12 +4,11 @@ use eframe::egui;
 use serde_json::Value;
 
 use crate::components::file_viewer::viewer_trait::FileFormatViewer;
-use crate::components::table_view::{TableCell, TableView, TableViewProps};
-use crate::components::traits::StatelessComponent;
 use crate::file::loaders::FileType;
 use crate::helpers::LruCache;
-use crate::plugin::render_node::{UiNode, render_ui_node};
 use crate::plugin::wasm_file_viewer_loader::DisplayMode;
+use thoth_plugin_sdk::components::TableView;
+use thoth_plugin_sdk::render_node::RenderNode;
 
 pub struct PluginTableViewer {
     headers: Vec<String>,
@@ -95,86 +94,60 @@ impl FileFormatViewer for PluginTableViewer {
         let num_rows = indices.len();
         let render_cache = &mut self.render_cache;
 
-        TableView::render(
-            ui,
-            TableViewProps {
-                headers: &headers,
-                row_count: num_rows,
-                min_col_width: None,
-                build_row: Box::new(move |i| {
-                    let idx = indices[i];
+        TableView::show_rows(ui, &headers, num_rows, None, &mut Vec::new(), move |i| {
+            let idx = indices[i];
 
-                    match display_mode {
-                        DisplayMode::Table => {
-                            let cached = cache.get(&idx).cloned();
-                            let record = match cached {
-                                Some(v) => Some(v),
-                                None => loader.get(idx).ok().inspect(|v| {
-                                    cache.put(idx, v.clone());
-                                }),
-                            };
-                            headers_for_closure
-                                .iter()
-                                .map(|h| {
-                                    let text = record
-                                        .as_ref()
-                                        .and_then(|v| v.get(h))
-                                        .map(|v| v.as_str().unwrap_or(&v.to_string()).to_owned())
-                                        .unwrap_or_default();
-                                    TableCell::custom(move |ui| {
-                                        ui.label(&text);
-                                    })
-                                })
-                                .collect()
-                        }
+            match display_mode {
+                DisplayMode::Table => {
+                    let cached = cache.get(&idx).cloned();
+                    let record = match cached {
+                        Some(v) => Some(v),
+                        None => loader.get(idx).ok().inspect(|v| {
+                            cache.put(idx, v.clone());
+                        }),
+                    };
+                    headers_for_closure
+                        .iter()
+                        .map(|h| match record.as_ref().and_then(|v| v.get(h)) {
+                            // Colour each cell by its JSON type, like the tree.
+                            Some(v) => RenderNode::json_cell(v),
+                            None => RenderNode::text(""),
+                        })
+                        .collect()
+                }
 
-                        DisplayMode::Custom => {
-                            if let std::collections::hash_map::Entry::Vacant(e) =
-                                render_cache.entry(idx)
-                            {
-                                let cached = cache.get(&idx).cloned();
-                                let record = match cached {
-                                    Some(v) => Some(v),
-                                    None => loader.get(idx).ok().inspect(|v| {
-                                        cache.put(idx, v.clone());
-                                    }),
-                                };
-                                if let Some(r) = record {
-                                    let json = serde_json::to_string(&r).unwrap_or_default();
-                                    if let Some(node_json) = loader.render_record(&json) {
-                                        e.insert(node_json);
-                                    }
-                                }
-                            }
-
-                            if let Some(node_json) = render_cache.get(&idx) {
-                                match serde_json::from_str::<UiNode>(node_json) {
-                                    Ok(UiNode::Row { children, .. }) => children
-                                        .into_iter()
-                                        .map(|child| {
-                                            TableCell::custom(move |ui| {
-                                                render_ui_node(ui, &child, &mut Vec::new());
-                                            })
-                                        })
-                                        .collect(),
-                                    Ok(other) => {
-                                        vec![TableCell::custom(move |ui| {
-                                            render_ui_node(ui, &other, &mut Vec::new());
-                                        })]
-                                    }
-                                    Err(_) => vec![TableCell::text("—")],
-                                }
-                            } else {
-                                headers_for_closure
-                                    .iter()
-                                    .map(|_| TableCell::text("—"))
-                                    .collect()
+                DisplayMode::Custom => {
+                    if let std::collections::hash_map::Entry::Vacant(e) = render_cache.entry(idx) {
+                        let cached = cache.get(&idx).cloned();
+                        let record = match cached {
+                            Some(v) => Some(v),
+                            None => loader.get(idx).ok().inspect(|v| {
+                                cache.put(idx, v.clone());
+                            }),
+                        };
+                        if let Some(r) = record {
+                            let json = serde_json::to_string(&r).unwrap_or_default();
+                            if let Some(node_json) = loader.render_record(&json) {
+                                e.insert(node_json);
                             }
                         }
                     }
-                }),
-            },
-        );
+
+                    if let Some(node_json) = render_cache.get(&idx) {
+                        match serde_json::from_str::<RenderNode>(node_json) {
+                            Ok(RenderNode::Row(row)) => row.children,
+                            Ok(other) => vec![other],
+                            Err(_) => vec![RenderNode::text("—")],
+                        }
+                    } else {
+                        headers_for_closure
+                            .iter()
+                            .map(|_| RenderNode::text("—"))
+                            .collect()
+                    }
+                }
+            }
+        });
 
         false
     }

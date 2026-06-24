@@ -1,14 +1,12 @@
 use eframe::egui::{self, RichText};
 
-use crate::components::button::{Button, ButtonColor, ButtonProps, ButtonType};
-#[cfg(feature = "profiling")]
-use crate::components::common::toggle_switch::{
-    ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps,
-};
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::components::traits::StatelessComponent;
 use crate::settings::DeveloperSettings;
 use crate::theme::ThemeColors;
+#[cfg(feature = "profiling")]
+use thoth_plugin_sdk::components::ToggleSwitch;
+use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType};
 
 pub struct AdvancedTab;
 
@@ -59,16 +57,12 @@ impl StatelessComponent for AdvancedTab {
                         None,
                         colors,
                         |ui| {
-                            let out = ToggleSwitch::render(
-                                ui,
-                                ToggleSwitchProps {
-                                    enabled: props.dev_settings.show_profiler,
-                                    hover_text: None,
-                                },
-                            );
-                            for evt in out.events {
-                                let ToggleSwitchEvent::Toggled(v) = evt;
-                                events.push(AdvancedTabEvent::ShowProfilerChanged(v));
+                            let on = props.dev_settings.show_profiler;
+                            if ui
+                                .add(ToggleSwitch::builder().enabled(on).build())
+                                .clicked()
+                            {
+                                events.push(AdvancedTabEvent::ShowProfilerChanged(!on));
                             }
                         },
                     );
@@ -101,17 +95,16 @@ impl StatelessComponent for AdvancedTab {
                         None,
                         colors,
                         |ui| {
-                            if Button::render(
-                                ui,
-                                ButtonProps {
-                                    label: "Open".to_string(),
-                                    button_type: ButtonType::Elevated,
-                                    color: ButtonColor::Default,
-                                    size: Some(12.0),
-                                    ..Default::default()
-                                },
-                            )
-                            .clicked
+                            if ui
+                                .add(
+                                    Button::builder()
+                                        .label("Open")
+                                        .button_type(ButtonType::Elevated)
+                                        .color(ButtonColor::Default)
+                                        .size(12.0)
+                                        .build(),
+                                )
+                                .clicked()
                                 && let Ok(path) = crate::settings::Settings::settings_file_path()
                             {
                                 let _ = open::that(path);
@@ -143,32 +136,30 @@ impl StatelessComponent for AdvancedTab {
                         colors,
                         |ui| {
                             if props.is_in_path {
-                                if Button::render(
-                                    ui,
-                                    ButtonProps {
-                                        label: "Remove from PATH".to_string(),
-                                        button_type: ButtonType::Elevated,
-                                        color: ButtonColor::Danger,
-                                        size: Some(12.0),
-                                        ..Default::default()
-                                    },
-                                )
-                                .clicked
+                                if ui
+                                    .add(
+                                        Button::builder()
+                                            .label("Remove from PATH")
+                                            .button_type(ButtonType::Elevated)
+                                            .color(ButtonColor::Danger)
+                                            .size(12.0)
+                                            .build(),
+                                    )
+                                    .clicked()
                                 {
                                     events.push(AdvancedTabEvent::UnregisterFromPath);
                                 }
                             } else {
-                                if Button::render(
-                                    ui,
-                                    ButtonProps {
-                                        label: "Add to PATH".to_string(),
-                                        button_type: ButtonType::Elevated,
-                                        color: ButtonColor::Success,
-                                        size: Some(12.0),
-                                        ..Default::default()
-                                    },
-                                )
-                                .clicked
+                                if ui
+                                    .add(
+                                        Button::builder()
+                                            .label("Add to PATH")
+                                            .button_type(ButtonType::Elevated)
+                                            .color(ButtonColor::Success)
+                                            .size(12.0)
+                                            .build(),
+                                    )
+                                    .clicked()
                                 {
                                     events.push(AdvancedTabEvent::RegisterInPath);
                                 }

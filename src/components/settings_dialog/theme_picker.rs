@@ -1,11 +1,9 @@
 use eframe::egui::{self, Color32, RichText};
 
+use thoth_plugin_sdk::components::Input;
+
 use crate::{
-    components::{
-        common::input::{Input, InputProps},
-        settings_dialog::helpers::setting_row,
-        traits::StatelessComponent,
-    },
+    components::{settings_dialog::helpers::setting_row, traits::StatelessComponent},
     settings::Settings,
     theme::{Theme, ThemeColors},
 };
@@ -164,20 +162,14 @@ impl StatelessComponent for ThemePicker {
                 ui.add_space(8.0);
 
                 // Search input fills the remaining width (left of tabs)
-                Input::render(
-                    ui,
-                    InputProps {
-                        value: &mut filter,
-                        placeholder: "Filter themes…",
-                        icon: Some(egui_phosphor::regular::MAGNIFYING_GLASS),
-                        password: false,
-                        disabled: false,
-                        multiline: false,
-                        rows: 1,
-                        desired_width: None,
-                        id_salt: None,
-                    },
-                );
+                let mut input = Input::builder()
+                    .value(filter.clone())
+                    .placeholder("Filter themes…")
+                    .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
+                    .rows(1)
+                    .build();
+                input.show(ui);
+                filter = input.value;
             });
         });
 

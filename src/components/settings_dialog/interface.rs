@@ -1,12 +1,10 @@
 use eframe::egui;
 
-use crate::components::common::toggle_switch::{
-    ToggleSwitch, ToggleSwitchEvent, ToggleSwitchProps,
-};
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::components::traits::StatelessComponent;
 use crate::settings::UiSettings;
 use crate::theme::ThemeColors;
+use thoth_plugin_sdk::components::ToggleSwitch;
 
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)]
@@ -83,16 +81,12 @@ impl StatelessComponent for InterfaceTab {
                         None,
                         colors,
                         |ui| {
-                            let out = ToggleSwitch::render(
-                                ui,
-                                ToggleSwitchProps {
-                                    enabled: s.remember_sidebar_state,
-                                    hover_text: None,
-                                },
-                            );
-                            for evt in out.events {
-                                let ToggleSwitchEvent::Toggled(v) = evt;
-                                events.push(InterfaceTabEvent::RememberSidebarStateChanged(v));
+                            let on = s.remember_sidebar_state;
+                            if ui
+                                .add(ToggleSwitch::builder().enabled(on).build())
+                                .clicked()
+                            {
+                                events.push(InterfaceTabEvent::RememberSidebarStateChanged(!on));
                             }
                         },
                     );
@@ -108,16 +102,12 @@ impl StatelessComponent for InterfaceTab {
                         None,
                         colors,
                         |ui| {
-                            let out = ToggleSwitch::render(
-                                ui,
-                                ToggleSwitchProps {
-                                    enabled: s.show_toolbar,
-                                    hover_text: None,
-                                },
-                            );
-                            for evt in out.events {
-                                let ToggleSwitchEvent::Toggled(v) = evt;
-                                events.push(InterfaceTabEvent::ShowToolbarChanged(v));
+                            let on = s.show_toolbar;
+                            if ui
+                                .add(ToggleSwitch::builder().enabled(on).build())
+                                .clicked()
+                            {
+                                events.push(InterfaceTabEvent::ShowToolbarChanged(!on));
                             }
                         },
                     );
@@ -130,16 +120,12 @@ impl StatelessComponent for InterfaceTab {
                         None,
                         colors,
                         |ui| {
-                            let out = ToggleSwitch::render(
-                                ui,
-                                ToggleSwitchProps {
-                                    enabled: s.show_status_bar,
-                                    hover_text: None,
-                                },
-                            );
-                            for evt in out.events {
-                                let ToggleSwitchEvent::Toggled(v) = evt;
-                                events.push(InterfaceTabEvent::ShowStatusBarChanged(v));
+                            let on = s.show_status_bar;
+                            if ui
+                                .add(ToggleSwitch::builder().enabled(on).build())
+                                .clicked()
+                            {
+                                events.push(InterfaceTabEvent::ShowStatusBarChanged(!on));
                             }
                         },
                     );
@@ -155,16 +141,12 @@ impl StatelessComponent for InterfaceTab {
                         None,
                         colors,
                         |ui| {
-                            let out = ToggleSwitch::render(
-                                ui,
-                                ToggleSwitchProps {
-                                    enabled: s.enable_animations,
-                                    hover_text: None,
-                                },
-                            );
-                            for evt in out.events {
-                                let ToggleSwitchEvent::Toggled(v) = evt;
-                                events.push(InterfaceTabEvent::EnableAnimationsChanged(v));
+                            let on = s.enable_animations;
+                            if ui
+                                .add(ToggleSwitch::builder().enabled(on).build())
+                                .clicked()
+                            {
+                                events.push(InterfaceTabEvent::EnableAnimationsChanged(!on));
                             }
                         },
                     );

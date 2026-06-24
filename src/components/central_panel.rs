@@ -1,4 +1,3 @@
-use crate::components::common::separator::Separator;
 use crate::components::file_viewer::FileViewer;
 use crate::components::traits::ContextComponent;
 use crate::error::{ErrorHandler, ThothError};
@@ -7,6 +6,7 @@ use crate::plugin::render_node::{UiEvent, UiNode, UiOutput, render_ui_node};
 use crate::search;
 use eframe::egui;
 use std::path::PathBuf;
+use thoth_plugin_sdk::components::Separator;
 
 /// Props passed down to the CentralPanel (immutable, one-way binding)
 pub struct CentralPanelProps<'a> {
@@ -169,7 +169,7 @@ impl CentralPanel {
                 if let Some(err) = props.error.as_ref().or(self.last_open_err.as_ref()) {
                     let message = ErrorHandler::get_user_message(err);
                     ui.colored_label(egui::Color32::RED, message);
-                    Separator::plain(ui);
+                    ui.add(Separator::plain());
                 }
 
                 if self.searching {
@@ -184,9 +184,9 @@ impl CentralPanel {
                 // Plugin pane takes priority over the file viewer.
                 if let Some(output) = props.plugin_ui {
                     match serde_json::from_str::<UiNode>(&output.node_json) {
-                        Ok(node) => {
+                        Ok(mut node) => {
                             let mut ui_events = Vec::new();
-                            render_ui_node(ui, &node, &mut ui_events);
+                            render_ui_node(ui, &mut node, &mut ui_events);
                             for evt in ui_events {
                                 events.push(CentralPanelEvent::PluginUiEvent(evt));
                             }

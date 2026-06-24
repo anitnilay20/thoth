@@ -2,8 +2,7 @@ use crate::theme::icon_rich_text;
 use eframe::egui;
 use std::path::Path;
 
-use crate::components::breadcrumbs::{Breadcrumbs, BreadcrumbsEvent, BreadcrumbsProps};
-use crate::components::traits::{ContextComponent, StatelessComponent};
+use crate::components::traits::ContextComponent;
 use crate::consent::{
     manager::ConsentManager,
     modal::{ConsentModal, ConsentModalProps},
@@ -11,6 +10,7 @@ use crate::consent::{
 use crate::file::loaders::FileKind;
 use crate::notification::notification_dropdown::{NotificationDropdown, NotificationDropdownProps};
 use crate::settings::Settings;
+use thoth_plugin_sdk::components::Breadcrumbs;
 
 /// Status bar component displaying file info and application status
 #[derive(Default)]
@@ -238,20 +238,15 @@ impl ContextComponent for StatusBar {
                     // Breadcrumbs navigation
                     if props.selected_path.is_some() {
                         ui.separator();
-                        let breadcrumbs_output = Breadcrumbs::render(
-                            ui,
-                            BreadcrumbsProps {
-                                current_path: props.selected_path,
-                            },
-                        );
+                        let clicked = Breadcrumbs::builder()
+                            .maybe_path(props.selected_path.map(|s| s.to_string()))
+                            .build()
+                            .show(ui)
+                            .inner;
 
-                        // Convert breadcrumb events to status bar events
-                        for event in breadcrumbs_output.events {
-                            match event {
-                                BreadcrumbsEvent::NavigateToPath(path) => {
-                                    events.push(StatusBarEvent::NavigateToPath(path));
-                                }
-                            }
+                        // Convert breadcrumb click to status bar event
+                        if let Some(path) = clicked {
+                            events.push(StatusBarEvent::NavigateToPath(path));
                         }
                     }
 

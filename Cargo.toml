@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "plugins/csv-loader", "plugins/url-source", "plugins/seshat"]
+members = [".", "plugins/csv-loader", "plugins/url-source", "plugins/seshat", "thoth-plugin-sdk", "thoth-plugin-sdk-macros"]
 # Plugins are wasm32 crates built separately with `cargo component build`.
 # default-members restricts `cargo build` / `cargo check` at the workspace
 # root to the host application only, so plugins are not compiled for the
@@ -99,6 +99,7 @@ desktop_template = "assets/thoth.desktop"
 
 
 [dependencies]
+thoth-plugin-sdk = { path = "thoth-plugin-sdk", features = ["egui"] }
 eframe = "0.34"
 egui-phosphor = "0.12"
 image = { version = "0.25", default-features = false, features = [

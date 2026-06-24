@@ -13,12 +13,11 @@ use serde_json::json;
 use bindings::exports::thoth::plugin::{
     data_source::{ConfigEntry, Guest as DataSourceGuest, PaneOutput, PluginError, SourceSchema},
     plugin_lifecycle::Guest as LifecycleGuest,
-    plugin_meta::Guest as MetaGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
     tab_host::Guest as TabHostGuest,
     ui_component::{Guest as UiComponentGuest, UiEvent, UiOutput},
 };
-use bindings::thoth::plugin::types::Capability;
+use thoth_plugin_sdk::PluginMeta;
 
 use events::apply_event;
 use state::{load_state, reload_persisted, Request, STATE};
@@ -42,15 +41,34 @@ pub(crate) const ICON_EYE: &str = "\u{E220}";
 pub(crate) const ICON_KEY: &str = "\u{E2D6}";
 pub(crate) const ICON_CIRCLE: &str = "\u{E18A}";
 
+#[derive(PluginMeta)]
+#[plugin(
+    id = "com.thoth.seshat",
+    name = "Seshat",
+    version = "0.1.0",
+    description = "Database client for Thoth",
+    capabilities = [DataSource, NewUiComponent],
+    author = "Thoth contributors",
+    icon = ICON_DATABASE,
+)]
 struct Seshat;
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 
-fn ui_out(node: serde_json::Value) -> UiOutput {
+fn ui_out(node: thoth_plugin_sdk::render_node::RenderNode) -> UiOutput {
     UiOutput {
-        node_json: node.to_string(),
+        node_json: serde_json::to_string(&node).unwrap_or_default(),
         height_hint: 0,
     }
+}
+
+/// A plain text [`RenderNode`] (used for settings / empty placeholders).
+fn text_node(value: &str) -> thoth_plugin_sdk::render_node::RenderNode {
+    thoth_plugin_sdk::render_node::RenderNode::Text(
+        thoth_plugin_sdk::components::Typography::builder()
+            .text(value)
+            .build(),
+    )
 }
 
 fn err(code: u32, message: impl Into<String>) -> PluginError {
@@ -68,34 +86,23 @@ fn to_json<T: Serialize>(result: Result<T, String>) -> Result<String, PluginErro
 
 // ── meta / lifecycle / settings / tab-host ───────────────────────────────────
 
-impl MetaGuest for Seshat {
-    fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-        bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-            id: "com.thoth.seshat".to_string(),
-            name: "Seshat".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Database client for Thoth".to_string(),
-            capabilities: vec![Capability::DataSource, Capability::NewUiComponent],
-            author: Some("Thoth contributors".to_string()),
-            homepage: None,
-            icon: Some(ICON_DATABASE.to_string()),
-        }
-    }
-}
-
 impl LifecycleGuest for Seshat {
     fn on_load(_setting: String) {
-        STATE.with(|s| load_state(&mut s.borrow_mut()));
+        STATE.with_mut(load_state);
     }
-    fn on_close() {}
+    fn on_close() {
+        // Drop in-memory runtime state (active_profile, password_cache) on
+        // lifecycle close, matching url-source / csv-loader.
+        STATE.reset();
+    }
     fn on_setting_change(_setting: String) {}
 }
 
 impl SettingsGuest for Seshat {
     fn render_settings() -> Result<SettingsOutput, PluginError> {
+        let node = text_node("No configurable settings yet.");
         Ok(SettingsOutput {
-            node_json: json!({"type":"text","value":"No configurable settings yet.","muted":true})
-                .to_string(),
+            node_json: serde_json::to_string(&node).unwrap_or_default(),
             height_hint: 0,
         })
     }
@@ -103,8 +110,7 @@ impl SettingsGuest for Seshat {
 
 impl TabHostGuest for Seshat {
     fn tab_title() -> String {
-        STATE.with(|s| {
-            let st = s.borrow();
+        STATE.with(|st| {
             st.active
                 .as_deref()
                 .and_then(|id| st.connections.iter().find(|c| c.id == id))
@@ -118,17 +124,13 @@ impl TabHostGuest for Seshat {
     }
     /// Snapshot the editor tab so the host can restore it across restarts.
     fn get_state() -> Result<String, PluginError> {
-        Ok(STATE.with(|s| {
-            let st = s.borrow();
-            json!({ "connection": st.active, "sql": st.sql }).to_string()
-        }))
+        Ok(STATE.with(|st| json!({ "connection": st.active, "sql": st.sql }).to_string()))
     }
     /// Seed a freshly-opened editor tab with its connection (and SQL).
     fn init_with_state(state: String) -> Result<(), PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow_mut();
-            load_state(&mut st);
-            events::activate_from_state(&mut st, &state);
+        STATE.with_mut(|st| {
+            load_state(st);
+            events::activate_from_state(st, &state);
         });
         Ok(())
     }
@@ -152,10 +154,7 @@ impl DataSourceGuest for Seshat {
 
     /// Dispatch one [`Request`] against the active profile and return its JSON.
     fn query(_handle: String, q: String) -> Result<String, PluginError> {
-        let (profile, engine) = STATE.with(|s| {
-            let st = s.borrow();
-            (st.query_profile(), st.engine())
-        });
+        let (profile, engine) = STATE.with(|st| (st.query_profile(), st.engine()));
         let adapter = db::adapter(engine);
         let req: Request =
             serde_json::from_str(&q).map_err(|e| err(2, format!("bad request: {e}")))?;
@@ -175,7 +174,7 @@ impl DataSourceGuest for Seshat {
 
     fn render_pane(_handle: String) -> Result<PaneOutput, PluginError> {
         Ok(PaneOutput {
-            node_json: json!({"type":"text","value":""}).to_string(),
+            node_json: serde_json::to_string(&text_node("")).unwrap_or_default(),
             height_hint: 0,
         })
     }
@@ -185,29 +184,26 @@ impl DataSourceGuest for Seshat {
 
 impl UiComponentGuest for Seshat {
     fn render_sidebar() -> Result<Option<UiOutput>, PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow_mut();
+        STATE.with_mut(|st| {
             // Re-read persisted connections + history so entries written by editor
             // tabs (a separate instance) show up in the always-visible sidebar.
-            reload_persisted(&mut st);
-            Ok(Some(ui_out(build_sidebar(&st))))
+            reload_persisted(st);
+            Ok(Some(ui_out(build_sidebar(st))))
         })
     }
 
     fn render_ui() -> Result<UiOutput, PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow_mut();
-            load_state(&mut st);
-            Ok(ui_out(build_ui(&st)))
+        STATE.with_mut(|st| {
+            load_state(st);
+            Ok(ui_out(build_ui(st)))
         })
     }
 
     fn handle_event(event: UiEvent) -> Result<UiOutput, PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow_mut();
-            load_state(&mut st);
-            apply_event(&mut st, &event);
-            Ok(ui_out(build_ui(&st)))
+        STATE.with_mut(|st| {
+            load_state(st);
+            apply_event(st, &event);
+            Ok(ui_out(build_ui(st)))
         })
     }
 }

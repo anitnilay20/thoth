@@ -1,10 +1,9 @@
 use crate::app::persistent_state::Bookmark;
-use crate::components::common::input::{Input, InputProps};
-use crate::components::common::list::{List, ListItem, ListProps};
-use crate::components::common::separator::Separator;
-use crate::components::common::sidebar_header::{SidebarHeader, SidebarHeaderProps};
-use crate::components::traits::{StatefulComponent, StatelessComponent};
+use crate::components::traits::StatefulComponent;
 use eframe::egui;
+use thoth_plugin_sdk::components::{
+    Input, List, ListEvent, ListItem, ListItemPrefix, Separator, SidebarHeader,
+};
 
 pub struct BookmarksProps<'a> {
     pub bookmarks: &'a [Bookmark],
@@ -41,26 +40,22 @@ impl StatefulComponent for Bookmarks {
         }
 
         // Header
-        SidebarHeader::render(ui, SidebarHeaderProps::new("BOOKMARKS"));
+        ui.add(SidebarHeader::builder().title("BOOKMARKS").build());
         ui.add_space(8.0);
 
         // Jump-to-path input
         {
-            let input_out = Input::render(
-                ui,
-                InputProps {
-                    value: &mut self.jump_input,
-                    placeholder: "Jump to path (e.g., 0.user.name)",
-                    icon: Some(egui_phosphor::regular::CROSSHAIR),
-                    password: false,
-                    disabled: false,
-                    multiline: false,
-                    rows: 1,
-                    desired_width: None,
-                    id_salt: None,
-                },
-            );
-            let response = input_out.response;
+            let mut input = Input::builder()
+                .id("jump_input")
+                .value(self.jump_input.clone())
+                .placeholder("Jump to path (e.g., 0.user.name)")
+                .icon(egui_phosphor::regular::CROSSHAIR)
+                .build();
+            let r = input.show(ui);
+            if r.inner {
+                self.jump_input = input.value.clone();
+            }
+            let response = r.response;
             if response.lost_focus()
                 && ui.input(|i| i.key_pressed(egui::Key::Enter))
                 && !self.jump_input.is_empty()
@@ -73,7 +68,7 @@ impl StatefulComponent for Bookmarks {
             }
         }
 
-        Separator::with_margins(ui, (8.0, 4.0));
+        ui.add(Separator::with_margins(8.0, 4.0));
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -84,7 +79,7 @@ impl StatefulComponent for Bookmarks {
                     .map(|b| props.current_file_path != Some(&b.file_path))
                     .collect();
 
-                let items: Vec<ListItem<'_>> = props
+                let items: Vec<ListItem> = props
                     .bookmarks
                     .iter()
                     .enumerate()
@@ -95,40 +90,28 @@ impl StatefulComponent for Bookmarks {
                                 std::path::Path::new(&b.file_path)
                                     .file_name()
                                     .and_then(|n| n.to_str())
-                                    .unwrap_or(b.file_path.as_str()),
+                                    .unwrap_or(b.file_path.as_str())
+                                    .to_string(),
                             )
                         } else {
                             None
                         };
-                        ListItem {
-                            title,
-                            description,
-                            prefix: Some(crate::components::common::list::ListItemPrefix::Icon {
-                                glyph: egui_phosphor::regular::BOOKMARK_SIMPLE,
+                        ListItem::builder()
+                            .title(title.to_string())
+                            .maybe_description(description)
+                            .prefix(ListItemPrefix::Icon {
+                                glyph: egui_phosphor::regular::BOOKMARK_SIMPLE.to_string(),
                                 color: None,
-                            }),
-                            badge: None,
-                            postfix: None,
-                            selected: false,
-                            accent: None,
-                            tags: &[],
-                        }
+                            })
+                            .build()
                     })
                     .collect();
 
-                let output = List::render(
-                    ui,
-                    ListProps {
-                        items: &items,
-                        empty_label: Some("No bookmarks — press Cmd+D to add one"),
-                        shrink_to_fit: false,
-                        show_separators: true,
-                        compact: false,
-                        max_height: None,
-                    },
-                );
-
-                if let Some(item_idx) = output.row_clicked
+                if let Some(ListEvent::ItemClicked(item_idx)) = List::builder()
+                    .items(items)
+                    .empty_label("No bookmarks — press Cmd+D to add one")
+                    .build()
+                    .show(ui)
                     && let Some(b) = props.bookmarks.get(item_idx)
                 {
                     events.push(BookmarksEvent::NavigateToBookmark {

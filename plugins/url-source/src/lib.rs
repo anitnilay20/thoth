@@ -5,30 +5,39 @@ mod bindings;
 mod http;
 mod ui;
 
-use std::cell::RefCell;
+use serde_json::Value;
 
-use serde_json::{json, Value};
+use thoth_plugin_sdk::state::PluginState;
+use thoth_plugin_sdk::PluginMeta;
 
 use bindings::exports::thoth::plugin::{
     data_source::{
         ConfigEntry, FieldSchema, Guest as DataSourceGuest, PaneOutput, PluginError, SourceSchema,
     },
     plugin_lifecycle::Guest as LifecycleGuest,
-    plugin_meta::Guest as MetaGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
     tab_host::Guest as TabHostGuest,
     ui_component::{Guest as UiComponentGuest, UiEvent, UiOutput},
 };
-use bindings::thoth::plugin::types::Capability;
 
 use crate::{
     helper::{ce, normalise_array, plugin_err, request_is_non_empty, type_hint, ui_out},
     http::http_fetch,
 };
 
+#[derive(PluginMeta)]
+#[plugin(
+    id = "com.thoth.url-source",
+    name = "URL Source",
+    version = "0.1.0",
+    description = "Fetch JSON data from any HTTP endpoint",
+    capabilities = [DataSource, NewUiComponent],
+    author = "Thoth contributors",
+    icon = "\u{E28C}",
+)]
 struct UrlSourcePlugin;
 
-#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct State {
     // ── Saved requests ────────────────────────────────────────────────────
     request_name: String, // name input in the sidebar
@@ -81,13 +90,35 @@ struct State {
 impl State {
     fn fresh() -> Self {
         Self {
+            request_name: String::new(),
+            saved_requests: Vec::new(),
+            url: String::new(),
             method: "GET".to_string(),
+            params: Vec::new(),
+            req_headers: Vec::new(),
+            body: String::new(),
             auth_type: "none".to_string(),
+            auth_token: String::new(),
+            auth_username: String::new(),
+            auth_password: String::new(),
+            auth_key_name: String::new(),
+            auth_key_value: String::new(),
             auth_key_in: "header".to_string(),
             resp_tab: "pretty".to_string(),
+            show_export_modal: false,
+            show_import_modal: false,
             curl_import_input: String::new(),
-            ..Default::default()
+            loading: false,
+            consent_pending: false,
+            pending_request_id: None,
+            response: None,
         }
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        State::fresh()
     }
 }
 
@@ -95,7 +126,7 @@ impl State {
 struct ResponseState {
     status: u16,
     headers: Vec<KvPair>,
-    body: String, // pretty-printed if JSON, raw otherwise
+    body: String, // raw response payload, exactly as received
     /// Pre-parsed JSON value, populated when the body is valid JSON so
     /// build_response_panel doesn't need to re-parse on every render frame.
     parsed_body: Option<serde_json::Value>,
@@ -154,24 +185,7 @@ struct StoredData {
     requests: Vec<SavedRequest>,
 }
 
-thread_local! {
-    static STATE: RefCell<State> = RefCell::new(State::fresh());
-}
-
-impl MetaGuest for UrlSourcePlugin {
-    fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-        bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-            id: "com.thoth.url-source".to_string(),
-            name: "URL Source".to_string(),
-            version: "0.1.0".to_string(),
-            description: "Fetch JSON data from any HTTP endpoint".to_string(),
-            capabilities: vec![Capability::DataSource, Capability::NewUiComponent],
-            author: Some("Thoth contributors".to_string()),
-            homepage: None,
-            icon: Some("\u{E28C}".to_string()),
-        }
-    }
-}
+static STATE: PluginState<State> = PluginState::new();
 
 impl LifecycleGuest for UrlSourcePlugin {
     fn on_load(setting: String) {
@@ -184,18 +198,18 @@ impl LifecycleGuest for UrlSourcePlugin {
             return;
         }
         if let Ok(data) = serde_json::from_str::<StoredData>(&raw) {
-            STATE.with(|s| {
-                s.borrow_mut().saved_requests = data.requests;
+            STATE.with_mut(|s| {
+                s.saved_requests = data.requests;
             });
         }
     }
     fn on_close() {
-        STATE.with(|s| *s.borrow_mut() = State::fresh());
+        STATE.reset();
     }
     fn on_setting_change(_setting: String) {
         // Persist current saved requests so host-driven reloads see fresh state.
         STATE.with(|s| {
-            persist_requests(&s.borrow().saved_requests);
+            persist_requests(&s.saved_requests);
         });
     }
 }
@@ -228,9 +242,7 @@ impl DataSourceGuest for UrlSourcePlugin {
     }
 
     fn connect(config: Vec<ConfigEntry>) -> Result<String, PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow().clone();
-
+        STATE.with_mut(|st| {
             for entry in &config {
                 match entry.name.as_str() {
                     "url" => st.url = entry.value.clone(),
@@ -264,15 +276,12 @@ impl DataSourceGuest for UrlSourcePlugin {
             if st.url.is_empty() {
                 return Err(plugin_err(1, "url is required"));
             }
-            *s.borrow_mut() = st;
             Ok("connected".to_string())
         })
     }
 
     fn schema(_handle: String) -> Result<Vec<SourceSchema>, PluginError> {
-        STATE.with(|s| {
-            let st = s.borrow().clone();
-
+        STATE.with(|st| {
             // Use cached response if available, otherwise make a request
             let body_str = if let Some(resp) = &st.response {
                 if resp.error.is_none() {
@@ -281,7 +290,7 @@ impl DataSourceGuest for UrlSourcePlugin {
                     return Err(plugin_err(1, resp.error.clone().unwrap()));
                 }
             } else {
-                let raw = http_fetch(&st)?;
+                let raw = http_fetch(st)?;
                 String::from_utf8_lossy(&raw).to_string()
             };
 
@@ -314,9 +323,7 @@ impl DataSourceGuest for UrlSourcePlugin {
     }
 
     fn query(_handle: String, _q: String) -> Result<String, PluginError> {
-        STATE.with(|s| {
-            let st = s.borrow().clone();
-
+        STATE.with(|st| {
             // Return cached result from last UI "Send" if available
             if let Some(resp) = &st.response {
                 if resp.error.is_none() {
@@ -328,7 +335,7 @@ impl DataSourceGuest for UrlSourcePlugin {
             }
 
             // No cache — fresh request
-            let raw = http_fetch(&st)?;
+            let raw = http_fetch(st)?;
             let body_str = String::from_utf8_lossy(&raw).to_string();
             let val: Value = serde_json::from_str(&body_str)
                 .map_err(|e| plugin_err(3, format!("Invalid JSON: {e}")))?;
@@ -338,23 +345,31 @@ impl DataSourceGuest for UrlSourcePlugin {
     }
 
     fn close(_handle: String) {
-        STATE.with(|s| *s.borrow_mut() = State::fresh());
+        // A per-handle close must not wipe shared plugin UI data (the sidebar
+        // saved-requests collection). Reset only the per-request/response form.
+        STATE.with_mut(|st| {
+            let saved_requests = std::mem::take(&mut st.saved_requests);
+            *st = State::fresh();
+            st.saved_requests = saved_requests;
+        });
     }
 
     fn render_pane(_handle: String) -> Result<PaneOutput, PluginError> {
-        STATE.with(|s| {
-            let st = s.borrow();
+        STATE.with(|st| {
             Ok(PaneOutput {
-                node_json: build_pane_node(&st).to_string(),
+                node_json: serde_json::to_string(&build_pane_node(st)).unwrap_or_default(),
                 height_hint: 0,
             })
         })
     }
 }
 
-/// Build a RenderNode tree (JSON) for the main pane.
-fn build_pane_node(_st: &State) -> Value {
-    json!({})
+/// Build a RenderNode tree for the main pane. (Currently unused — the UI lives
+/// in the ui-component surface; render_pane returns an empty column.)
+fn build_pane_node(_st: &State) -> thoth_plugin_sdk::render_node::RenderNode {
+    thoth_plugin_sdk::render_node::RenderNode::Column(
+        thoth_plugin_sdk::components::Column::builder().build(),
+    )
 }
 
 /// Persist the current list of saved requests to plugin storage.
@@ -684,29 +699,21 @@ fn apply_curl_import(st: &mut State, curl: &str) {
 
 impl UiComponentGuest for UrlSourcePlugin {
     fn render_sidebar() -> Result<Option<UiOutput>, PluginError> {
-        STATE.with(|s| {
-            let st = s.borrow().clone();
-            Ok(Some(ui_out(ui::build_sidebar(&st))))
-        })
+        STATE.with(|st| Ok(Some(ui_out(ui::build_sidebar(st)))))
     }
 
     fn render_ui() -> Result<UiOutput, PluginError> {
-        STATE.with(|s| {
-            let st = s.borrow().clone();
-            Ok(ui_out(ui::build_ui(&st)))
-        })
+        STATE.with(|st| Ok(ui_out(ui::build_ui(st))))
     }
 
     fn handle_event(event: UiEvent) -> Result<UiOutput, PluginError> {
-        STATE.with(|s| {
-            let mut st = s.borrow().clone();
-
+        STATE.with_mut(|st| {
             if event.widget_id == "clear" {
                 let saved = st.saved_requests.clone();
-                st = State::fresh();
+                *st = State::fresh();
                 st.saved_requests = saved;
             } else if event.widget_id == "save" {
-                save_current_request(&mut st);
+                save_current_request(st);
             } else if event.widget_id == "saved-requests" {
                 match event.kind.as_str() {
                     "click" => {
@@ -746,7 +753,7 @@ impl UiComponentGuest for UrlSourcePlugin {
             } else if event.widget_id == "open-new-tab" {
                 // Open a fresh url-source tab seeded with this request's form.
                 let initial_state = serde_json::to_string(&st).ok();
-                let title = tab_title_for(&st);
+                let title = tab_title_for(st);
                 bindings::thoth::plugin::ui_tabs::open_tab(
                     &title,
                     Some("\u{E28C}"),
@@ -772,7 +779,7 @@ impl UiComponentGuest for UrlSourcePlugin {
                 let curl = st.curl_import_input.clone();
                 st.show_import_modal = false;
                 st.curl_import_input = String::new();
-                if request_is_non_empty(&st) {
+                if request_is_non_empty(st) {
                     // Don't clobber the current request — open the imported one
                     // in a fresh tab seeded with the parsed cURL.
                     let mut seed = st.clone();
@@ -786,14 +793,13 @@ impl UiComponentGuest for UrlSourcePlugin {
                         initial_state.as_deref(),
                     );
                 } else {
-                    apply_curl_import(&mut st, &curl);
+                    apply_curl_import(st, &curl);
                 }
             } else {
-                ui::apply_event(&mut st, &event);
+                ui::apply_event(st, &event);
             }
 
-            *s.borrow_mut() = st.clone();
-            Ok(ui_out(ui::build_ui(&st)))
+            Ok(ui_out(ui::build_ui(st)))
         })
     }
 }
@@ -814,7 +820,7 @@ impl TabHostGuest for UrlSourcePlugin {
     /// Show the saved request name (or method+url) in the tab label so tabs are
     /// distinguishable.
     fn tab_title() -> String {
-        STATE.with(|s| tab_title_for(&s.borrow()))
+        STATE.with(tab_title_for)
     }
 
     fn tab_icon() -> Option<String> {
@@ -824,8 +830,7 @@ impl TabHostGuest for UrlSourcePlugin {
     /// Snapshot the per-tab request form so the host can persist it. Transient
     /// fields (response, loading, modals) are `#[serde(skip)]` and not included.
     fn get_state() -> Result<String, PluginError> {
-        STATE
-            .with(|s| serde_json::to_string(&*s.borrow()).map_err(|e| plugin_err(3, e.to_string())))
+        STATE.with(|s| serde_json::to_string(s).map_err(|e| plugin_err(3, e.to_string())))
     }
 
     /// Restore the request form from a previously saved snapshot.
@@ -834,7 +839,7 @@ impl TabHostGuest for UrlSourcePlugin {
             return Ok(());
         }
         match serde_json::from_str::<State>(&state) {
-            Ok(restored) => STATE.with(|s| *s.borrow_mut() = restored),
+            Ok(restored) => STATE.set(restored),
             Err(e) => eprintln!("[url-source] init_with_state: invalid state blob: {e}"),
         }
         Ok(())
@@ -855,12 +860,13 @@ impl TabHostGuest for UrlSourcePlugin {
 
 impl SettingsGuest for UrlSourcePlugin {
     fn render_settings() -> Result<SettingsOutput, PluginError> {
+        let node = thoth_plugin_sdk::render_node::RenderNode::Text(
+            thoth_plugin_sdk::components::Typography::builder()
+                .text("URL Source is configured per-request in its panel.")
+                .build(),
+        );
         Ok(SettingsOutput {
-            node_json: json!({
-                "type": "text",
-                "value": "",
-            })
-            .to_string(),
+            node_json: serde_json::to_string(&node).unwrap_or_default(),
             height_hint: 0,
         })
     }

@@ -12,6 +12,8 @@ crate-type = ["cdylib"]   # required for WASM component output
 wit-bindgen-rt = "0.41"
 serde_json     = "1"
 csv            = "1"
+# Type-safe UI DSL builders (no egui — plugins only describe UI, never render).
+thoth-plugin-sdk = { path = "../../thoth-plugin-sdk", features = ["plugin"] }
 
 [package.metadata.component]
 package = "thoth:csv-loader"

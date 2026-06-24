@@ -1,13 +1,11 @@
 use eframe::egui;
 
-use crate::components::common::button::{ButtonColor, ButtonProps, ButtonSize};
-use crate::components::common::input::{Input, InputProps};
-use crate::components::common::list::{List, ListItem, ListItemPostfix, ListItemPrefix, ListProps};
-use crate::components::common::select::{Select, SelectOption, SelectProps, SelectSize};
-use crate::components::common::separator::Separator;
-use crate::components::common::sidebar_header::{SidebarHeader, SidebarHeaderProps};
-use crate::components::icon_button::{IconButton, IconButtonProps};
-use crate::components::traits::StatelessComponent;
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonSize, IconButton, Input, List, ListEvent, ListItem, ListItemPostfix,
+    ListItemPrefix, Select, SelectOption, SelectSize, Separator, SidebarHeader,
+};
+use thoth_plugin_sdk::theme::color_to_hex;
+
 use crate::theme::ThemeColors;
 
 use super::state::{InstallState, MarketplaceUiState, SortOrder, category_glyph, category_label};
@@ -17,13 +15,11 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
     let total = state.plugins.len();
     let visible_count = count_filtered(state);
     let count_text = format!("{visible_count} of {total}");
-    SidebarHeader::render(
-        ui,
-        SidebarHeaderProps {
-            title: "PLUGIN STORE",
-            trailing_text: Some(&count_text),
-            actions: &[],
-        },
+    ui.add(
+        SidebarHeader::builder()
+            .title("PLUGIN STORE")
+            .trailing_text(count_text)
+            .build(),
     );
 
     // ── Search bar + sort row ──────────────────────────────────────────────
@@ -36,20 +32,15 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         })
         .show(ui, |ui| {
             // Row 1: search input
-            Input::render(
-                ui,
-                InputProps {
-                    value: &mut state.search_query,
-                    placeholder: "Search plugins…",
-                    icon: Some(egui_phosphor::regular::MAGNIFYING_GLASS),
-                    password: false,
-                    disabled: false,
-                    multiline: false,
-                    rows: 1,
-                    desired_width: None,
-                    id_salt: None,
-                },
-            );
+            let mut search_input = Input::builder()
+                .value(state.search_query.clone())
+                .placeholder("Search plugins…")
+                .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
+                .rows(1)
+                .build();
+            if search_input.show(ui).inner {
+                state.search_query = search_input.value.clone();
+            }
 
             ui.add_space(8.0);
 
@@ -59,36 +50,32 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                 let gap = 6.0;
                 let select_w = (ui.available_width() - icon_btn_w - gap).max(60.0);
 
-                let sort_opts = [
-                    SelectOption {
-                        value: "name_az".into(),
-                        label: "Name (A–Z)".into(),
-                    },
-                    SelectOption {
-                        value: "name_za".into(),
-                        label: "Name (Z–A)".into(),
-                    },
-                ];
                 let sort_val = match state.sort {
                     SortOrder::NameAZ => "name_az",
                     SortOrder::NameZA => "name_za",
                 };
 
                 // Constrain to the select width before rendering
-                let select_resp = ui.allocate_ui(egui::vec2(select_w, 22.0), |ui| {
-                    Select::render(
-                        ui,
-                        SelectProps {
-                            id_salt: "mp_sort_select",
-                            value: sort_val,
-                            options: &sort_opts,
-                            prefix_label: Some("Sort: "),
-                            size: SelectSize::Small,
-                            width: None,
-                        },
-                    )
-                });
-                if let Some(new_val) = select_resp.inner.changed {
+                let mut sort_select = Select::builder()
+                    .id("mp_sort_select")
+                    .value(sort_val.to_string())
+                    .options(vec![
+                        SelectOption::builder()
+                            .value("name_az")
+                            .label("Name (A–Z)")
+                            .build(),
+                        SelectOption::builder()
+                            .value("name_za")
+                            .label("Name (Z–A)")
+                            .build(),
+                    ])
+                    .prefix_label("Sort: ")
+                    .size(SelectSize::Small)
+                    .build();
+                let new_val = ui
+                    .allocate_ui(egui::vec2(select_w, 22.0), |ui| sort_select.show(ui).inner)
+                    .inner;
+                if let Some(new_val) = new_val {
                     state.sort = match new_val.as_str() {
                         "name_za" => SortOrder::NameZA,
                         _ => SortOrder::NameAZ,
@@ -97,15 +84,13 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
 
                 ui.add_space(gap);
 
-                let resp = IconButton::render(
-                    ui,
-                    IconButtonProps {
-                        icon: egui_phosphor::regular::ARROWS_CLOCKWISE,
-                        tooltip: Some("Refresh Registry"),
-                        ..Default::default()
-                    },
+                let resp = ui.add(
+                    IconButton::builder()
+                        .icon(egui_phosphor::regular::ARROWS_CLOCKWISE)
+                        .tooltip("Refresh Registry")
+                        .build(),
                 );
-                if resp.clicked {
+                if resp.clicked() {
                     state.load_if_needed(ui.ctx(), true);
                 }
             });
@@ -175,60 +160,45 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         }
     }
 
-    let cat_count_strs: Vec<String> = cat_defs.iter().map(|c| c.count.to_string()).collect();
-    let cat_items: Vec<ListItem<'_>> = cat_defs
+    let cat_items: Vec<ListItem> = cat_defs
         .iter()
-        .enumerate()
-        .map(|(i, cat)| {
+        .map(|cat| {
             let is_active = state.selected_category == cat.id;
             let icon_color = if is_active {
                 colors.accent
             } else {
                 colors.fg_muted
             };
-            ListItem {
-                title: &cat.label,
-                description: None,
-                prefix: Some(ListItemPrefix::Icon {
-                    glyph: cat.glyph,
-                    color: Some(icon_color),
-                }),
-                badge: None,
-                postfix: if cat.count > 0 {
-                    Some(ListItemPostfix::Badge {
-                        text: &cat_count_strs[i],
-                        bg: colors.bg_sunken,
-                        fg: colors.fg_muted,
-                    })
-                } else {
-                    None
-                },
-                selected: is_active,
-                accent: None,
-                tags: &[],
-            }
+            let badge = (cat.count > 0).then(|| ListItemPostfix::Badge {
+                text: cat.count.to_string(),
+                bg: Some(color_to_hex(colors.bg_sunken)),
+                fg: Some(color_to_hex(colors.fg_muted)),
+            });
+            ListItem::builder()
+                .title(cat.label.clone())
+                .prefix(ListItemPrefix::Icon {
+                    glyph: cat.glyph.to_string(),
+                    color: Some(color_to_hex(icon_color)),
+                })
+                .selected(is_active)
+                .maybe_postfix(badge)
+                .build()
         })
         .collect();
 
-    let cat_out = List::render(
-        ui,
-        ListProps {
-            items: &cat_items,
-            empty_label: None,
-            shrink_to_fit: true,
-            show_separators: false,
-            compact: true,
-            max_height: None,
-        },
-    );
-
-    if let Some(idx) = cat_out.row_clicked
+    if let Some(ListEvent::ItemClicked(idx)) = List::builder()
+        .items(cat_items)
+        .shrink_to_fit(true)
+        .show_separators(false)
+        .compact(true)
+        .build()
+        .show(ui)
         && let Some(cat) = cat_defs.get(idx)
     {
         state.selected_category = cat.id.clone();
     }
 
-    Separator::plain(ui);
+    ui.add(Separator::plain());
 
     // ── Plugin list ────────────────────────────────────────────────────────
     if state.loading {
@@ -325,40 +295,44 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         SortOrder::NameZA => rows.sort_by(|a, b| b.name.cmp(&a.name)),
     }
 
-    let items: Vec<ListItem<'_>> = rows
+    let items: Vec<ListItem> = rows
         .iter()
         .map(|row| {
             let postfix = match &row.install_state {
-                InstallState::NotInstalled => Some(ListItemPostfix::ActionButton(ButtonProps {
-                    label: "Install".to_string(),
-                    color: ButtonColor::Primary,
-                    button_size: ButtonSize::Small,
-                    icon: Some(egui_phosphor::regular::DOWNLOAD_SIMPLE.to_string()),
-                    ..Default::default()
-                })),
+                InstallState::NotInstalled => Some(ListItemPostfix::Button(
+                    Button::builder()
+                        .label("Install")
+                        .color(ButtonColor::Primary)
+                        .button_size(ButtonSize::Small)
+                        .icon(egui_phosphor::regular::DOWNLOAD_SIMPLE)
+                        .build(),
+                )),
                 InstallState::Installed => None,
-                InstallState::Disabled => Some(ListItemPostfix::ActionButton(ButtonProps {
-                    label: "Enable".to_string(),
-                    color: ButtonColor::Primary,
-                    button_size: ButtonSize::Small,
-                    icon: Some(egui_phosphor::regular::PLAY.to_string()),
-                    ..Default::default()
-                })),
-                InstallState::Failed(_) => Some(ListItemPostfix::ActionButton(ButtonProps {
-                    label: "Retry".to_string(),
-                    color: ButtonColor::Danger,
-                    button_size: ButtonSize::Small,
-                    icon: Some(egui_phosphor::regular::ARROW_CLOCKWISE.to_string()),
-                    ..Default::default()
-                })),
+                InstallState::Disabled => Some(ListItemPostfix::Button(
+                    Button::builder()
+                        .label("Enable")
+                        .color(ButtonColor::Primary)
+                        .button_size(ButtonSize::Small)
+                        .icon(egui_phosphor::regular::PLAY)
+                        .build(),
+                )),
+                InstallState::Failed(_) => Some(ListItemPostfix::Button(
+                    Button::builder()
+                        .label("Retry")
+                        .color(ButtonColor::Danger)
+                        .button_size(ButtonSize::Small)
+                        .icon(egui_phosphor::regular::ARROW_CLOCKWISE)
+                        .build(),
+                )),
                 InstallState::Installing(pct) => Some(ListItemPostfix::ProgressBar(*pct)),
-                InstallState::Update => Some(ListItemPostfix::ActionButton(ButtonProps {
-                    label: "Update".to_string(),
-                    color: ButtonColor::Secondary,
-                    button_size: ButtonSize::Small,
-                    icon: Some(egui_phosphor::regular::UPLOAD.to_string()),
-                    ..Default::default()
-                })),
+                InstallState::Update => Some(ListItemPostfix::Button(
+                    Button::builder()
+                        .label("Update")
+                        .color(ButtonColor::Secondary)
+                        .button_size(ButtonSize::Small)
+                        .icon(egui_phosphor::regular::UPLOAD)
+                        .build(),
+                )),
             };
 
             let icon_color = if row.is_selected {
@@ -369,71 +343,70 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
 
             let prefix = if let Some(icon_path) = &row.icon_file {
                 ListItemPrefix::IconFile {
-                    path: icon_path.to_path_buf(),
+                    path: icon_path.to_string_lossy().into_owned(),
                 }
             } else {
                 ListItemPrefix::IconTile {
-                    glyph: egui_phosphor::regular::PUZZLE_PIECE,
-                    color: icon_color,
+                    glyph: egui_phosphor::regular::PUZZLE_PIECE.to_string(),
+                    color: color_to_hex(icon_color),
                 }
             };
 
-            ListItem {
-                title: &row.name,
-                description: Some(&row.desc),
-                prefix: Some(prefix),
-                badge: None,
-                postfix,
-                selected: row.is_selected,
-                accent: None,
-                tags: &row.tag_labels,
-            }
+            ListItem::builder()
+                .title(row.name.clone())
+                .description(row.desc.clone())
+                .prefix(prefix)
+                .selected(row.is_selected)
+                .tags(
+                    row.tag_labels
+                        .iter()
+                        .map(|t| t.to_string())
+                        .collect::<Vec<_>>(),
+                )
+                .maybe_postfix(postfix)
+                .build()
         })
         .collect();
 
-    let list_output = List::render(
-        ui,
-        ListProps {
-            items: &items,
-            empty_label: Some("No plugins found"),
-            shrink_to_fit: false,
-            show_separators: true,
-            compact: false,
-            max_height: None,
-        },
-    );
+    let list_event = List::builder()
+        .items(items)
+        .empty_label("No plugins found")
+        .build()
+        .show(ui);
 
-    if let Some(idx) = list_output.row_clicked
-        && let Some(row) = rows.get(idx)
-    {
-        state.selected_id = Some(row.id.clone());
-    }
-
-    if let Some(item_idx) = list_output.postfix_clicked
-        && let Some(row) = rows.get(item_idx)
-    {
-        state.selected_id = Some(row.id.clone());
-        match &row.install_state {
-            InstallState::NotInstalled | InstallState::Update => {
-                if let Some(plugin) = state.plugins.iter().find(|p| p.id == row.id) {
-                    let slot = plugin.download_and_install(ui.ctx().clone());
-                    state.install_handles.insert(row.id.clone(), slot);
-                    state
-                        .install_states
-                        .insert(row.id.clone(), InstallState::Installing(0));
+    match list_event {
+        Some(ListEvent::ItemClicked(idx)) => {
+            if let Some(row) = rows.get(idx) {
+                state.selected_id = Some(row.id.clone());
+            }
+        }
+        Some(ListEvent::PostfixClicked(item_idx)) => {
+            if let Some(row) = rows.get(item_idx) {
+                state.selected_id = Some(row.id.clone());
+                match &row.install_state {
+                    InstallState::NotInstalled | InstallState::Update => {
+                        if let Some(plugin) = state.plugins.iter().find(|p| p.id == row.id) {
+                            let slot = plugin.download_and_install(ui.ctx().clone());
+                            state.install_handles.insert(row.id.clone(), slot);
+                            state
+                                .install_states
+                                .insert(row.id.clone(), InstallState::Installing(0));
+                        }
+                    }
+                    InstallState::Disabled => {
+                        state
+                            .install_states
+                            .insert(row.id.clone(), InstallState::Installed);
+                    }
+                    InstallState::Failed(_) | InstallState::Installing(_) => {
+                        state.install_handles.remove(&row.id);
+                        state.install_states.remove(&row.id);
+                    }
+                    _ => {}
                 }
             }
-            InstallState::Disabled => {
-                state
-                    .install_states
-                    .insert(row.id.clone(), InstallState::Installed);
-            }
-            InstallState::Failed(_) | InstallState::Installing(_) => {
-                state.install_handles.remove(&row.id);
-                state.install_states.remove(&row.id);
-            }
-            _ => {}
         }
+        _ => {}
     }
 }
 
