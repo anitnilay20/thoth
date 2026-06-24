@@ -156,8 +156,7 @@ mod tests {
 
     #[test]
     fn from_json_preserves_multiple_entries() {
-        let map =
-            SettingsMap::from_json(r#"[{"key":"a","value":"1"},{"key":"b","value":"2"}]"#);
+        let map = SettingsMap::from_json(r#"[{"key":"a","value":"1"},{"key":"b","value":"2"}]"#);
         assert_eq!(map.get("a"), Some("1"));
         assert_eq!(map.get("b"), Some("2"));
         assert_eq!(map.len(), 2);
@@ -179,9 +178,8 @@ mod tests {
 
     #[test]
     fn get_returns_first_value_for_duplicate_keys() {
-        let map = SettingsMap::from_json(
-            r#"[{"key":"x","value":"first"},{"key":"x","value":"second"}]"#,
-        );
+        let map =
+            SettingsMap::from_json(r#"[{"key":"x","value":"first"},{"key":"x","value":"second"}]"#);
         assert_eq!(map.get("x"), Some("first"));
     }
 
@@ -248,9 +246,7 @@ mod tests {
 
     #[test]
     fn to_json_round_trips_single_entry() {
-        let json = SettingsMap::new()
-            .with("url", "https://x")
-            .to_json();
+        let json = SettingsMap::new().with("url", "https://x").to_json();
         assert_eq!(json, r#"[{"key":"url","value":"https://x"}]"#);
     }
 

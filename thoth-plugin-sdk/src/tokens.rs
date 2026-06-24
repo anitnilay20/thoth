@@ -37,7 +37,7 @@ impl From<&Value> for TextToken {
 #[cfg(test)]
 mod tests {
     use super::TextToken;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     // ── From<&Value> conversions ──────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn float_value_yields_number_token() {
-        let v = json!(3.14);
+        let v = json!(1.5);
         assert_eq!(TextToken::from(&v), TextToken::Number);
     }
 

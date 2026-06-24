@@ -164,11 +164,7 @@ mod tests {
         ] {
             let json = serde_json::to_string(&variant).unwrap();
             let restored: TypographyVariant = serde_json::from_str(&json).unwrap();
-            assert_eq!(
-                restored, variant,
-                "round-trip failed for {:?}",
-                variant
-            );
+            assert_eq!(restored, variant, "round-trip failed for {:?}", variant);
         }
     }
 

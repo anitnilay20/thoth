@@ -34,7 +34,7 @@ impl<T: Serialize + ?Sized> ToNodeJson for T {}
 mod tests {
     use super::ToNodeJson;
     use serde::Serialize;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[derive(Serialize)]
     struct Simple {
@@ -46,7 +46,10 @@ mod tests {
 
     #[test]
     fn to_json_serialises_struct_to_value() {
-        let s = Simple { x: 7, label: "hi".into() };
+        let s = Simple {
+            x: 7,
+            label: "hi".into(),
+        };
         let v = s.to_json();
         assert_eq!(v, json!({"x": 7, "label": "hi"}));
     }
@@ -86,34 +89,49 @@ mod tests {
 
     #[test]
     fn try_to_json_returns_ok_for_valid_value() {
-        let s = Simple { x: 1, label: "ok".into() };
+        let s = Simple {
+            x: 1,
+            label: "ok".into(),
+        };
         assert!(s.try_to_json().is_ok());
     }
 
     #[test]
     fn try_to_json_matches_to_json_for_normal_values() {
-        let s = Simple { x: 99, label: "test".into() };
+        let s = Simple {
+            x: 99,
+            label: "test".into(),
+        };
         let expected = s.to_json();
         let actual = s.try_to_json().unwrap();
         assert_eq!(expected, actual);
     }
 
     #[test]
-    fn try_to_json_fails_for_nan_float() {
-        // f32/f64 NaN is not representable as JSON — try_to_json returns Err.
+    fn try_to_json_maps_nan_float_to_null() {
+        // serde_json's `Value` model can't represent NaN/∞, so non-finite
+        // floats serialize to JSON `null` via `to_value` — it does NOT error
+        // (only the string writer rejects them). This is why `to_json` can be
+        // infallible.
         #[derive(Serialize)]
         struct WithFloat {
             v: f32,
         }
-        let bad = WithFloat { v: f32::NAN };
-        assert!(bad.try_to_json().is_err());
+        let out = WithFloat { v: f32::NAN }
+            .try_to_json()
+            .expect("to_value never errors");
+        assert_eq!(out["v"], Value::Null);
     }
 
     // ── blanket impl covers &T ────────────────────────────────────────────────
 
     #[test]
+    #[allow(clippy::needless_borrow)] // the point is to exercise the blanket impl on `&T`
     fn to_json_works_on_ref() {
-        let s = Simple { x: 3, label: "ref".into() };
+        let s = Simple {
+            x: 3,
+            label: "ref".into(),
+        };
         let v = (&s).to_json();
         assert_eq!(v["x"], json!(3));
     }

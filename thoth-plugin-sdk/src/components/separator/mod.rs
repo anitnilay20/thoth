@@ -44,6 +44,20 @@ impl Separator {
     }
 }
 
+#[cfg(feature = "egui")]
+impl egui::Widget for Separator {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        if self.margin_top > 0.0 {
+            ui.add_space(self.margin_top);
+        }
+        let response = ui.separator();
+        if self.margin_bottom > 0.0 {
+            ui.add_space(self.margin_bottom);
+        }
+        response
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Separator;
@@ -104,19 +118,5 @@ mod tests {
         let restored: Separator = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.margin_top, original.margin_top);
         assert_eq!(restored.margin_bottom, original.margin_bottom);
-    }
-}
-
-#[cfg(feature = "egui")]
-impl egui::Widget for Separator {
-    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
-        if self.margin_top > 0.0 {
-            ui.add_space(self.margin_top);
-        }
-        let response = ui.separator();
-        if self.margin_bottom > 0.0 {
-            ui.add_space(self.margin_bottom);
-        }
-        response
     }
 }

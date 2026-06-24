@@ -298,3 +298,75 @@ pub fn color_to_hex(c: Color32) -> String {
 pub fn phosphor_font_id(size: f32) -> egui::FontId {
     egui::FontId::new(size, egui::FontFamily::Name("phosphor".into()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hex_color_6_digit_is_opaque() {
+        assert_eq!(
+            parse_hex_color("#ff8800"),
+            Some(Color32::from_rgb(255, 136, 0))
+        );
+        assert_eq!(parse_hex_color("#ffffff"), Some(Color32::WHITE));
+    }
+
+    #[test]
+    fn parse_hex_color_8_digit_carries_alpha() {
+        // 8-digit hex is parsed as unmultiplied RGBA (egui then premultiplies).
+        assert_eq!(
+            parse_hex_color("#11223380"),
+            Some(Color32::from_rgba_unmultiplied(0x11, 0x22, 0x33, 0x80)),
+        );
+        assert_eq!(parse_hex_color("#11223380").map(|c| c.a()), Some(0x80));
+    }
+
+    #[test]
+    fn parse_hex_color_rejects_garbage() {
+        assert_eq!(parse_hex_color("not-a-color"), None);
+        assert_eq!(parse_hex_color("#xyz"), None);
+        assert_eq!(parse_hex_color(""), None);
+    }
+
+    #[test]
+    fn color_to_hex_round_trips_through_parse() {
+        // Opaque colours round-trip exactly (premultiplied == unmultiplied at a=255).
+        let original = Color32::from_rgb(0x12, 0x34, 0x56);
+        let hex = color_to_hex(original);
+        assert_eq!(hex, "#123456ff");
+        assert_eq!(parse_hex_color(&hex), Some(original));
+    }
+
+    #[test]
+    fn resolve_color_maps_semantic_tokens_to_palette() {
+        let c = ThemeColors {
+            syntax_string: Color32::from_rgb(1, 2, 3),
+            syntax_number: Color32::from_rgb(4, 5, 6),
+            syntax_bool: Color32::from_rgb(7, 8, 9),
+            fg_muted: Color32::from_rgb(10, 11, 12),
+            accent: Color32::from_rgb(13, 14, 15),
+            ..Default::default()
+        };
+
+        assert_eq!(resolve_color("string", &c), Some(c.syntax_string));
+        assert_eq!(resolve_color("number", &c), Some(c.syntax_number));
+        assert_eq!(resolve_color("bool", &c), Some(c.syntax_bool));
+        assert_eq!(resolve_color("boolean", &c), Some(c.syntax_bool));
+        assert_eq!(resolve_color("muted", &c), Some(c.fg_muted));
+        assert_eq!(resolve_color("blue", &c), Some(c.accent));
+    }
+
+    #[test]
+    fn resolve_color_passes_through_hex_and_rejects_unknown() {
+        let c = ThemeColors::default();
+        assert_eq!(resolve_color("#010203", &c), parse_hex_color("#010203"));
+        assert_eq!(resolve_color("definitely-not-a-token", &c), None);
+    }
+
+    #[test]
+    fn contrast_text_color_is_white_on_dark_and_black_on_light() {
+        assert_eq!(get_contrast_text_color(Color32::BLACK), Color32::WHITE);
+        assert_eq!(get_contrast_text_color(Color32::WHITE), Color32::BLACK);
+    }
+}

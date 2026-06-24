@@ -242,7 +242,7 @@ mod tests {
     use crate::components::{
         Button, ButtonColor, Column, Row, Separator, Typography, TypographyVariant,
     };
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     // ── type tag serialisation ────────────────────────────────────────────────
 
@@ -451,5 +451,117 @@ mod tests {
         } else {
             panic!("expected RenderNode::Text for bool false");
         }
+    }
+}
+
+/// Wire-format guards for components whose serde renames / enum tags are part of
+/// the plugin↔host contract (a rename here is a breaking protocol change).
+#[cfg(test)]
+mod wire_format_tests {
+    use super::RenderNode;
+    use crate::components::*;
+    use serde_json::json;
+
+    #[test]
+    fn row_renames_bg_color_and_max_width() {
+        let v = serde_json::to_value(
+            Row::builder()
+                .bg_color(BgColor::BgPanel)
+                .max_width(true)
+                .build(),
+        )
+        .unwrap();
+        assert_eq!(v["bg-color"], json!("bg-panel"));
+        assert_eq!(v["max-width"], json!(true));
+    }
+
+    #[test]
+    fn tabs_renames_content_gap() {
+        let v = serde_json::to_value(Tabs::builder().id("t").content_gap(0.0).build()).unwrap();
+        assert_eq!(v["content-gap"], json!(0.0));
+    }
+
+    #[test]
+    fn key_value_list_renames_add_label() {
+        let v =
+            serde_json::to_value(KeyValueList::builder().add_label("Add header").build()).unwrap();
+        assert_eq!(v["add-label"], json!("Add header"));
+    }
+
+    #[test]
+    fn select_size_serialises_kebab_case() {
+        assert_eq!(
+            serde_json::to_value(SelectSize::Default).unwrap(),
+            json!("default")
+        );
+        assert_eq!(
+            serde_json::to_value(SelectSize::Small).unwrap(),
+            json!("small")
+        );
+    }
+
+    #[test]
+    fn card_icon_file_uses_kebab_tag() {
+        let v = serde_json::to_value(CardIcon::IconFile {
+            path: "/x.png".into(),
+        })
+        .unwrap();
+        assert_eq!(v["icon-file"]["path"], json!("/x.png"));
+    }
+
+    #[test]
+    fn list_item_postfix_progress_bar_is_externally_tagged() {
+        let v = serde_json::to_value(ListItemPostfix::ProgressBar(50)).unwrap();
+        assert_eq!(v["ProgressBar"], json!(50));
+    }
+
+    #[test]
+    fn list_item_prefix_icon_carries_glyph() {
+        let v = serde_json::to_value(ListItemPrefix::Icon {
+            glyph: "\u{e1de}".into(),
+            color: Some("muted".into()),
+        })
+        .unwrap();
+        assert_eq!(v["Icon"]["glyph"], json!("\u{e1de}"));
+        assert_eq!(v["Icon"]["color"], json!("muted"));
+    }
+
+    #[test]
+    fn render_node_table_round_trips() {
+        let node = RenderNode::Table(
+            TableView::builder()
+                .headers(vec!["a".to_string(), "b".to_string()])
+                .build(),
+        );
+        let v = serde_json::to_value(&node).unwrap();
+        assert_eq!(v["type"], json!("table"));
+        let back: RenderNode = serde_json::from_value(v).unwrap();
+        assert!(matches!(back, RenderNode::Table(_)));
+    }
+
+    #[test]
+    fn render_node_scroll_preserves_id_salt() {
+        let node = RenderNode::Scroll(
+            Scroll::builder()
+                .id("results")
+                .child(RenderNode::text("x"))
+                .build(),
+        );
+        let v = serde_json::to_value(&node).unwrap();
+        assert_eq!(v["type"], json!("scroll"));
+        assert_eq!(v["id"], json!("results"));
+    }
+
+    #[test]
+    fn button_group_serialises_value_and_active() {
+        let node = ButtonGroups::builder()
+            .items(vec![
+                ButtonGroupItem::builder().value("get").label("GET").build(),
+            ])
+            .active("get")
+            .build();
+        let v = serde_json::to_value(node).unwrap();
+        assert_eq!(v["active"], json!("get"));
+        assert_eq!(v["items"][0]["value"], json!("get"));
     }
 }

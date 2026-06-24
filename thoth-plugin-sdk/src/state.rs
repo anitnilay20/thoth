@@ -150,14 +150,20 @@ mod tests {
     #[test]
     fn set_marks_initialised() {
         let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter { count: 1, name: "a".into() });
+        state.set(Counter {
+            count: 1,
+            name: "a".into(),
+        });
         assert!(state.is_initialised());
     }
 
     #[test]
     fn reset_clears_value() {
         let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter { count: 5, name: "x".into() });
+        state.set(Counter {
+            count: 5,
+            name: "x".into(),
+        });
         state.reset();
         assert!(!state.is_initialised());
     }
@@ -172,8 +178,14 @@ mod tests {
     #[test]
     fn set_replaces_existing_value() {
         let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter { count: 1, name: "first".into() });
-        state.set(Counter { count: 2, name: "second".into() });
+        state.set(Counter {
+            count: 1,
+            name: "first".into(),
+        });
+        state.set(Counter {
+            count: 2,
+            name: "second".into(),
+        });
         let name = state.try_with(|s| s.name.clone()).unwrap();
         assert_eq!(name, "second");
     }
@@ -189,7 +201,10 @@ mod tests {
     #[test]
     fn try_with_returns_some_when_set() {
         let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter { count: 42, name: "hello".into() });
+        state.set(Counter {
+            count: 42,
+            name: "hello".into(),
+        });
         let count = state.try_with(|s| s.count);
         assert_eq!(count, Some(42));
     }
@@ -210,7 +225,10 @@ mod tests {
     #[test]
     fn try_with_mut_mutates_when_set() {
         let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter { count: 0, name: String::new() });
+        state.set(Counter {
+            count: 0,
+            name: String::new(),
+        });
         state.try_with_mut(|s| s.count += 10);
         let count = state.try_with(|s| s.count).unwrap();
         assert_eq!(count, 10);
@@ -229,7 +247,10 @@ mod tests {
     #[test]
     fn with_reads_existing_value() {
         let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter { count: 7, name: "test".into() });
+        state.set(Counter {
+            count: 7,
+            name: "test".into(),
+        });
         let count = state.with(|s| s.count);
         assert_eq!(count, 7);
     }
@@ -237,7 +258,10 @@ mod tests {
     #[test]
     fn with_nested_reads_are_allowed() {
         let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter { count: 3, name: "n".into() });
+        state.set(Counter {
+            count: 3,
+            name: "n".into(),
+        });
         let (a, b) = state.with(|s| (s.count, state.with(|t| t.count)));
         assert_eq!(a, 3);
         assert_eq!(b, 3);
@@ -256,7 +280,10 @@ mod tests {
     #[test]
     fn with_mut_mutates_existing_value() {
         let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter { count: 5, name: "start".into() });
+        state.set(Counter {
+            count: 5,
+            name: "start".into(),
+        });
         state.with_mut(|s| {
             s.count += 10;
             s.name = "changed".into();
@@ -291,7 +318,10 @@ mod tests {
     #[test]
     fn get_returns_clone_of_stored_value() {
         let state: PluginState<Counter> = PluginState::new();
-        state.set(Counter { count: 77, name: "clone".into() });
+        state.set(Counter {
+            count: 77,
+            name: "clone".into(),
+        });
         let c = state.get();
         assert_eq!(c.count, 77);
         assert_eq!(c.name, "clone");
