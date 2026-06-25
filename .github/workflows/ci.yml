@@ -42,12 +42,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
 
-      # `cargo test --all-features` already builds & runs unit, integration
-      # (tests/*) and doc tests. A separate `cargo test --test '*'` step used to
-      # follow, but it ran with a *different* (default) feature set, forcing a
-      # full second recompile of the workspace for no extra coverage.
+      # Test the host plus the SDK crates. `cargo test` runs unit, integration
+      # (tests/*) and doc tests in one pass — the workspace `default-members` is
+      # just the host crate, so the SDK + macros are named explicitly (the wasm
+      # plugins are excluded: they only build for the wasm32 target). A separate
+      # `cargo test --test '*'` step used to follow but ran with a different
+      # (default) feature set, forcing a full second recompile for no coverage.
       - name: Run tests
-        run: cargo test --all-features
+        run: cargo test -p thoth -p thoth-plugin-sdk -p thoth-plugin-sdk-macros --all-features
 
   clippy:
     name: Clippy
