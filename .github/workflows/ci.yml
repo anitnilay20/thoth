@@ -32,6 +32,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.os }}-${{ matrix.rust }}
+          cache-on-failure: true
 
       # keyring's Linux secret-service backend links libdbus (libdbus-sys), which
       # needs the dbus dev headers + pkg-config at build time.
@@ -41,11 +42,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
 
+      # `cargo test --all-features` already builds & runs unit, integration
+      # (tests/*) and doc tests. A separate `cargo test --test '*'` step used to
+      # follow, but it ran with a *different* (default) feature set, forcing a
+      # full second recompile of the workspace for no extra coverage.
       - name: Run tests
         run: cargo test --all-features
-
-      - name: Run integration tests
-        run: cargo test --test '*'
 
   clippy:
     name: Clippy
@@ -105,19 +107,13 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Cache tarpaulin
-        uses: actions/cache@v4
+      # Fetch a prebuilt cargo-tarpaulin binary instead of `cargo install`
+      # compiling it from source. The old install was cached on the project's
+      # Cargo.lock hash, so every dependency change re-compiled tarpaulin (minutes).
+      - name: Install cargo-tarpaulin
+        uses: taiki-e/install-action@v2
         with:
-          path: ~/.cargo/bin/cargo-tarpaulin
-          key: ${{ runner.os }}-cargo-tarpaulin-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-tarpaulin-
-
-      - name: Install tarpaulin
-        run: |
-          if [ ! -f ~/.cargo/bin/cargo-tarpaulin ]; then
-            cargo install cargo-tarpaulin
-          fi
+          tool: cargo-tarpaulin
 
       - name: Generate coverage
         run: cargo tarpaulin --out Xml --all-features
