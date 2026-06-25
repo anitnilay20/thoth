@@ -1,148 +1,185 @@
-<svg version="1.2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1850 1000" width="1850" height="1000"><defs><linearGradient id="P" gradientUnits="userSpaceOnUse"/><linearGradient id="g1" x2="1" href="#P" gradientTransform="matrix(1300,160,-38.542,313.153,100,140)"><stop stop-color="#1e293b"/><stop offset="1" stop-color="#0f172a"/></linearGradient><linearGradient id="g2" x2="1" href="#P" gradientTransform="matrix(1300,180,-48.602,351.013,100,400)"><stop stop-color="#1e1b4b"/><stop offset="1" stop-color="#0f172a"/></linearGradient><linearGradient id="g3" x2="1" href="#P" gradientTransform="matrix(1300,160,-38.542,313.153,100,660)"><stop stop-color="#134e4a"/><stop offset="1" stop-color="#0f172a"/></linearGradient></defs><style>tspan{white-space:pre}.a{fill:#0a0a0a}.b{font-size: 32px;fill: #f8fafc;font-family: "Inter"}.c{font-size: 14px;fill: #64748b;font-family: "Inter"}.d{fill:url(#g1);stroke:#374151;stroke-width:2}.e{fill:#1e293b;stroke:#60a5fa;stroke-width:2}.f{font-size: 16px;fill: #60a5fa;font-family: "Inter"}.g{font-size: 12px;fill: #cbd5e1;font-family: "Inter"}.h{fill:#1e293b;stroke:#10b981;stroke-width:2}.i{font-size: 16px;fill: #10b981;font-family: "Inter"}.j{fill:#1e293b;stroke:#f59e0b;stroke-width:2}.k{font-size: 16px;fill: #f59e0b;font-family: "Inter"}.l{fill:#1e293b;stroke:#8b5cf6;stroke-width:2}.m{font-size: 16px;fill: #8b5cf6;font-family: "Inter"}.n{fill:#1e293b;stroke:#06b6d4;stroke-width:2}.o{font-size: 16px;fill: #06b6d4;font-family: "Inter"}.p{fill:url(#g2);stroke:#6366f1;stroke-width:3}.q{fill:#312e81;stroke:#a78bfa;stroke-width:2}.r{font-size: 16px;fill: #a78bfa;font-family: "Inter"}.s{font-size: 11px;fill: #e2e8f0;font-family: "Inter"}.t{fill:#312e81;stroke:#6ee7b7;stroke-width:2}.u{font-size: 16px;fill: #6ee7b7;font-family: "Inter"}.v{fill:#312e81;stroke:#10b981;stroke-width:2}.w{fill:#312e81;stroke:#14b8a6;stroke-width:2}.x{font-size: 16px;fill: #14b8a6;font-family: "Inter"}.y{fill:#312e81;stroke:#f472b6;stroke-width:2}.z{font-size: 16px;fill: #f472b6;font-family: "Inter"}.A{fill:#312e81;stroke:#ef4444;stroke-width:2}.B{font-size: 16px;fill: #ef4444;font-family: "Inter"}.C{fill:url(#g3);stroke:#059669;stroke-width:3}.D{fill:#064e3b;stroke:#6ee7b7;stroke-width:2}.E{font-size: 12px;fill: #d1fae5;font-family: "Inter"}.F{fill:#064e3b;stroke:#34d399;stroke-width:2}.G{font-size: 16px;fill: #34d399;font-family: "Inter"}.H{fill:#064e3b;stroke:#14b8a6;stroke-width:2}.I{fill:#064e3b;stroke:#047857;stroke-width:2}.J{font-size: 16px;fill: #047857;font-family: "Inter"}.K{fill:#064e3b;stroke:#10b981;stroke-width:2}.L{stroke:#60a5fa;stroke-width:2}.M{font-size: 11px;fill: #60a5fa;font-family: "Inter"}.N{stroke:#14b8a6;stroke-width:2}.O{font-size: 11px;fill: #14b8a6;font-family: "Inter"}.P{stroke:#6ee7b7;stroke-width:2}.Q{font-size: 10px;fill: #6ee7b7;font-family: "Inter"}.R{stroke:#10b981;stroke-width:2}.S{font-size: 10px;fill: #10b981;font-family: "Inter"}.T{font-size: 10px;fill: #14b8a6;font-family: "Inter"}.U{stroke:#f472b6;stroke-width:2}.V{font-size: 10px;fill: #f472b6;font-family: "Inter"}.W{font-size: 11px;fill: #6ee7b7;font-family: "Inter"}.X{stroke:#34d399;stroke-width:2}.Y{font-size: 11px;fill: #34d399;font-family: "Inter"}.Z{stroke:#047857;stroke-width:2}.a0{font-size: 11px;fill: #047857;font-family: "Inter"}.a1{stroke:#f472b6;stroke-width:2;stroke-dasharray:5,5}.a2{font-size: 11px;fill: #f472b6;font-family: "Inter"}.a3{font-size: 10px;fill: #34d399;font-family: "Inter"}.a4{font-size: 10px;fill: #047857;font-family: "Inter"}.a5{fill:#0f1419;stroke:#374151}.a6{font-size: 16px;fill: #f8fafc;font-family: "Inter"}.a7{font-size: 13px;fill: #60a5fa;font-family: "Inter"}.a8{font-size: 11px;fill: #cbd5e1;font-family: "Inter"}.a9{font-size: 10px;fill: #94a3b8;font-family: "Inter"}.aa{font-size: 13px;fill: #a78bfa;font-family: "Inter"}.ab{font-size: 13px;fill: #34d399;font-family: "Inter"}.ac{font-size: 13px;fill: #fbbf24;font-family: "Inter"}.ad{font-size: 14px;fill: #f8fafc;font-family: "Inter"}.ae{font-size: 10px;fill: #60a5fa;font-family: "Inter"}.af{stroke:#14b8a6;stroke-width:2;stroke-dasharray:3,3}.ag{fill:#1e293b;stroke:#475569;stroke-dasharray:5,5}.ah{font-size: 14px;fill: #94a3b8;font-family: "Inter"}</style><path fill-rule="evenodd" class="a" d="m0 0h1850v1000h-1850z"/><text style="transform:matrix(1,0,0,1,700,50)" ><tspan x="-307.6" y="0" class="b">Thoth Architecture — Clean &amp; Layered
-</tspan></text><text style="transform:matrix(1,0,0,1,50,120)" ><tspan x="0" y="0" class="c">PRESENTATION LAYER
-</tspan></text><text style="transform:matrix(1,0,0,1,50,380)" ><tspan x="0" y="0" class="c">APPLICATION LAYER
-</tspan></text><text style="transform:matrix(1,0,0,1,50,640)" ><tspan x="0" y="0" class="c">DATA LAYER
-</tspan></text><path fill-rule="evenodd" class="d" d="m112 140h1276c6.6 0 12 5.4 12 12v136c0 6.6-5.4 12-12 12h-1276c-6.6 0-12-5.4-12-12v-136c0-6.6 5.4-12 12-12z"/><path fill-rule="evenodd" class="e" d="m138 170h164c4.4 0 8 3.6 8 8v84c0 4.4-3.6 8-8 8h-164c-4.4 0-8-3.6-8-8v-84c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,140,195)" ><tspan x="0" y="0" class="f">TopBar
-</tspan></text><text style="transform:matrix(1,0,0,1,140,215)" ><tspan x="0" y="0" class="g">• File operations
-</tspan></text><text style="transform:matrix(1,0,0,1,140,230)" ><tspan x="0" y="0" class="g">• Search input
-</tspan></text><text style="transform:matrix(1,0,0,1,140,245)" ><tspan x="0" y="0" class="g">• Theme toggle
-</tspan></text><text style="transform:matrix(1,0,0,1,140,260)" ><tspan x="0" y="0" class="g">• Type selection
-</tspan></text><path fill-rule="evenodd" class="h" d="m348 170h184c4.4 0 8 3.6 8 8v84c0 4.4-3.6 8-8 8h-184c-4.4 0-8-3.6-8-8v-84c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,350,195)" ><tspan x="0" y="0" class="i">CentralPanel
-</tspan></text><text style="transform:matrix(1,0,0,1,350,215)" ><tspan x="0" y="0" class="g">• Layout container
-</tspan></text><text style="transform:matrix(1,0,0,1,350,230)" ><tspan x="0" y="0" class="g">• Component host
-</tspan></text><text style="transform:matrix(1,0,0,1,350,245)" ><tspan x="0" y="0" class="g">• Error display
-</tspan></text><path fill-rule="evenodd" class="j" d="m578 170h184c4.4 0 8 3.6 8 8v84c0 4.4-3.6 8-8 8h-184c-4.4 0-8-3.6-8-8v-84c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,580,195)" ><tspan x="0" y="0" class="k">JsonViewer
-</tspan></text><text style="transform:matrix(1,0,0,1,580,215)" ><tspan x="0" y="0" class="g">• Tree rendering
-</tspan></text><text style="transform:matrix(1,0,0,1,580,230)" ><tspan x="0" y="0" class="g">• Expand/collapse
-</tspan></text><text style="transform:matrix(1,0,0,1,580,245)" ><tspan x="0" y="0" class="g">• Selection
-</tspan></text><text style="transform:matrix(1,0,0,1,580,260)" ><tspan x="0" y="0" class="g">• Context menu
-</tspan></text><path fill-rule="evenodd" class="l" d="m808 170h144c4.4 0 8 3.6 8 8v84c0 4.4-3.6 8-8 8h-144c-4.4 0-8-3.6-8-8v-84c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,810,195)" ><tspan x="0" y="0" class="m">Theme System
-</tspan></text><text style="transform:matrix(1,0,0,1,810,215)" ><tspan x="0" y="0" class="g">• Dark/Light mode
-</tspan></text><text style="transform:matrix(1,0,0,1,810,230)" ><tspan x="0" y="0" class="g">• Color palette
-</tspan></text><text style="transform:matrix(1,0,0,1,810,245)" ><tspan x="0" y="0" class="g">• Typography
-</tspan></text><path fill-rule="evenodd" class="n" d="m998 170h144c4.4 0 8 3.6 8 8v84c0 4.4-3.6 8-8 8h-144c-4.4 0-8-3.6-8-8v-84c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,1000,195)" ><tspan x="0" y="0" class="o">Drag &amp; Drop
-</tspan></text><text style="transform:matrix(1,0,0,1,1000,215)" ><tspan x="0" y="0" class="g">• File drop handler
-</tspan></text><text style="transform:matrix(1,0,0,1,1000,230)" ><tspan x="0" y="0" class="g">• Type detection
-</tspan></text><text style="transform:matrix(1,0,0,1,1000,245)" ><tspan x="0" y="0" class="g">• Error handling
-</tspan></text><path fill-rule="evenodd" class="p" d="m112 400h1276c6.6 0 12 5.4 12 12v156c0 6.6-5.4 12-12 12h-1276c-6.6 0-12-5.4-12-12v-156c0-6.6 5.4-12 12-12z"/><path fill-rule="evenodd" class="q" d="m138 430h184c4.4 0 8 3.6 8 8v104c0 4.4-3.6 8-8 8h-184c-4.4 0-8-3.6-8-8v-104c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,140,455)" ><tspan x="0" y="0" class="r">ThothApp (main.rs)
-</tspan></text><text style="transform:matrix(1,0,0,1,140,475)" ><tspan x="0" y="0" class="s">• Application state
-</tspan></text><text style="transform:matrix(1,0,0,1,140,490)" ><tspan x="0" y="0" class="s">• Event coordination
-</tspan></text><text style="transform:matrix(1,0,0,1,140,505)" ><tspan x="0" y="0" class="s">• Component lifecycle
-</tspan></text><text style="transform:matrix(1,0,0,1,140,520)" ><tspan x="0" y="0" class="s">• Message passing
-</tspan></text><text style="transform:matrix(1,0,0,1,140,535)" ><tspan x="0" y="0" class="s">• UI orchestration
-</tspan></text><path fill-rule="evenodd" class="t" d="m368 430h164c4.4 0 8 3.6 8 8v104c0 4.4-3.6 8-8 8h-164c-4.4 0-8-3.6-8-8v-104c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,370,455)" ><tspan x="0" y="0" class="u">File Controller
-</tspan></text><text style="transform:matrix(1,0,0,1,370,475)" ><tspan x="0" y="0" class="s">• File type routing
-</tspan></text><text style="transform:matrix(1,0,0,1,370,490)" ><tspan x="0" y="0" class="s">• Lazy load coordination
-</tspan></text><text style="transform:matrix(1,0,0,1,370,505)" ><tspan x="0" y="0" class="s">• Parser selection
-</tspan></text><text style="transform:matrix(1,0,0,1,370,520)" ><tspan x="0" y="0" class="s">• Load orchestration
-</tspan></text><text style="transform:matrix(1,0,0,1,370,535)" ><tspan x="0" y="0" class="s">• Error propagation
-</tspan></text><path fill-rule="evenodd" class="v" d="m578 430h164c4.4 0 8 3.6 8 8v104c0 4.4-3.6 8-8 8h-164c-4.4 0-8-3.6-8-8v-104c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,580,455)" ><tspan x="0" y="0" class="i">Parser Controller
-</tspan></text><text style="transform:matrix(1,0,0,1,580,475)" ><tspan x="0" y="0" class="s">• NDJSON coordination
-</tspan></text><text style="transform:matrix(1,0,0,1,580,490)" ><tspan x="0" y="0" class="s">• JSON coordination
-</tspan></text><text style="transform:matrix(1,0,0,1,580,505)" ><tspan x="0" y="0" class="s">• Parse orchestration
-</tspan></text><text style="transform:matrix(1,0,0,1,580,520)" ><tspan x="0" y="0" class="s">• Data validation
-</tspan></text><text style="transform:matrix(1,0,0,1,580,535)" ><tspan x="0" y="0" class="s">• Stream management
-</tspan></text><path fill-rule="evenodd" class="w" d="m788 430h144c4.4 0 8 3.6 8 8v104c0 4.4-3.6 8-8 8h-144c-4.4 0-8-3.6-8-8v-104c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,790,455)" ><tspan x="0" y="0" class="x">Cache Controller
-</tspan></text><text style="transform:matrix(1,0,0,1,790,475)" ><tspan x="0" y="0" class="s">• LRU management
-</tspan></text><text style="transform:matrix(1,0,0,1,790,490)" ><tspan x="0" y="0" class="s">• Cache hits/misses
-</tspan></text><text style="transform:matrix(1,0,0,1,790,505)" ><tspan x="0" y="0" class="s">• Memory bounds
-</tspan></text><text style="transform:matrix(1,0,0,1,790,520)" ><tspan x="0" y="0" class="s">• Eviction policy
-</tspan></text><text style="transform:matrix(1,0,0,1,790,535)" ><tspan x="0" y="0" class="s">• Performance opts
-</tspan></text><path fill-rule="evenodd" class="y" d="m978 430h144c4.4 0 8 3.6 8 8v104c0 4.4-3.6 8-8 8h-144c-4.4 0-8-3.6-8-8v-104c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,980,455)" ><tspan x="0" y="0" class="z">Search Engine
-</tspan></text><text style="transform:matrix(1,0,0,1,980,475)" ><tspan x="0" y="0" class="s">• Query modes (Text / JSONPath)
-</tspan></text><text style="transform:matrix(1,0,0,1,980,490)" ><tspan x="0" y="0" class="s">• Parallel memmem + JSON walkers
-</tspan></text><text style="transform:matrix(1,0,0,1,980,505)" ><tspan x="0" y="0" class="s">• MatchFragment &amp; preview builder
-</tspan></text><text style="transform:matrix(1,0,0,1,980,520)" ><tspan x="0" y="0" class="s">• Highlight map (path + ranges)
-</tspan></text><text style="transform:matrix(1,0,0,1,980,535)" ><tspan x="0" y="0" class="s">• Background workers / progress
-</tspan></text><path fill-rule="evenodd" class="A" d="m1168 430h124c4.4 0 8 3.6 8 8v104c0 4.4-3.6 8-8 8h-124c-4.4 0-8-3.6-8-8v-104c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,1170,455)" ><tspan x="0" y="0" class="B">Error Handler
-</tspan></text><text style="transform:matrix(1,0,0,1,1170,475)" ><tspan x="0" y="0" class="s">• Error types
-</tspan></text><text style="transform:matrix(1,0,0,1,1170,490)" ><tspan x="0" y="0" class="s">• User messages
-</tspan></text><text style="transform:matrix(1,0,0,1,1170,505)" ><tspan x="0" y="0" class="s">• Recovery logic
-</tspan></text><text style="transform:matrix(1,0,0,1,1170,520)" ><tspan x="0" y="0" class="s">• Logging
-</tspan></text><text style="transform:matrix(1,0,0,1,1170,535)" ><tspan x="0" y="0" class="s">• State cleanup
-</tspan></text><path fill-rule="evenodd" class="C" d="m112 660h1276c6.6 0 12 5.4 12 12v136c0 6.6-5.4 12-12 12h-1276c-6.6 0-12-5.4-12-12v-136c0-6.6 5.4-12 12-12z"/><path fill-rule="evenodd" class="D" d="m366.9 690h166.2c3.8 0 6.9 3.1 6.9 6.9v86.2c0 3.8-3.1 6.9-6.9 6.9h-166.2c-3.8 0-6.9-3.1-6.9-6.9v-86.2c0-3.8 3.1-6.9 6.9-6.9z"/><text style="transform:matrix(1,0,0,1,370,715)" ><tspan x="0" y="0" class="u">File Detection
-</tspan></text><text style="transform:matrix(1,0,0,1,370,735)" ><tspan x="0" y="0" class="E">• NDJSON detection
-</tspan></text><text style="transform:matrix(1,0,0,1,370,750)" ><tspan x="0" y="0" class="E">• JSON array/object
-</tspan></text><text style="transform:matrix(1,0,0,1,370,765)" ><tspan x="0" y="0" class="E">• Content sniffing
-</tspan></text><text style="transform:matrix(1,0,0,1,370,780)" ><tspan x="0" y="0" class="E">• Format validation
-</tspan></text><path fill-rule="evenodd" class="F" d="m578 690h164c4.4 0 8 3.6 8 8v84c0 4.4-3.6 8-8 8h-164c-4.4 0-8-3.6-8-8v-84c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,580,715)" ><tspan x="0" y="0" class="G">Lazy Loader
-</tspan></text><text style="transform:matrix(1,0,0,1,580,735)" ><tspan x="0" y="0" class="E">• On-demand parsing
-</tspan></text><text style="transform:matrix(1,0,0,1,580,750)" ><tspan x="0" y="0" class="E">• Memory offsets
-</tspan></text><text style="transform:matrix(1,0,0,1,580,765)" ><tspan x="0" y="0" class="E">• Streaming reads
-</tspan></text><text style="transform:matrix(1,0,0,1,580,780)" ><tspan x="0" y="0" class="E">• Platform I/O
-</tspan></text><path fill-rule="evenodd" class="H" d="m788 690h144c4.4 0 8 3.6 8 8v84c0 4.4-3.6 8-8 8h-144c-4.4 0-8-3.6-8-8v-84c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,790,715)" ><tspan x="0" y="0" class="x">Cache System
-</tspan></text><text style="transform:matrix(1,0,0,1,790,735)" ><tspan x="0" y="0" class="E">• LRU eviction
-</tspan></text><text style="transform:matrix(1,0,0,1,790,750)" ><tspan x="0" y="0" class="E">• Hot data storage
-</tspan></text><text style="transform:matrix(1,0,0,1,790,765)" ><tspan x="0" y="0" class="E">• Memory bounds
-</tspan></text><text style="transform:matrix(1,0,0,1,790,780)" ><tspan x="0" y="0" class="E">• Performance opts
-</tspan></text><path fill-rule="evenodd" class="I" d="m978 690h144c4.4 0 8 3.6 8 8v84c0 4.4-3.6 8-8 8h-144c-4.4 0-8-3.6-8-8v-84c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,980,715)" ><tspan x="0" y="0" class="J">File System
-</tspan></text><text style="transform:matrix(1,0,0,1,980,735)" ><tspan x="0" y="0" class="E">• Cross-platform I/O
-</tspan></text><text style="transform:matrix(1,0,0,1,980,750)" ><tspan x="0" y="0" class="E">• Raw file access
-</tspan></text><text style="transform:matrix(1,0,0,1,980,765)" ><tspan x="0" y="0" class="E">• Permissions
-</tspan></text><text style="transform:matrix(1,0,0,1,980,780)" ><tspan x="0" y="0" class="E">• Disk operations
-</tspan></text><path fill-rule="evenodd" class="K" d="m1168 690h124c4.4 0 8 3.6 8 8v84c0 4.4-3.6 8-8 8h-124c-4.4 0-8-3.6-8-8v-84c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,1170,715)" ><tspan x="0" y="0" class="i">Format Handlers
-</tspan></text><text style="transform:matrix(1,0,0,1,1170,735)" ><tspan x="0" y="0" class="E">• NDJSON parser
-</tspan></text><text style="transform:matrix(1,0,0,1,1170,750)" ><tspan x="0" y="0" class="E">• JSON parser
-</tspan></text><text style="transform:matrix(1,0,0,1,1170,765)" ><tspan x="0" y="0" class="E">• Line indexing
-</tspan></text><text style="transform:matrix(1,0,0,1,1170,780)" ><tspan x="0" y="0" class="E">• Element spans
-</tspan></text><path fill-rule="evenodd" class="L" d="m220 300v130"/><text style="transform:matrix(1,0,0,1,230,360)" ><tspan x="0" y="0" class="M">User Events
-</tspan></text><path fill-rule="evenodd" class="N" d="m670 300l190 130"/><text style="transform:matrix(1,0,0,1,745.05,346.108)" ><tspan x="0" y="0" class="O">Cache Requests
-</tspan></text><path fill-rule="evenodd" class="P" d="m330 490h30"/><text style="transform:matrix(1,0,0,1,335,480)" ><tspan x="0" y="0" class="Q">File ops
-</tspan></text><path fill-rule="evenodd" class="R" d="m540 490h30"/><text style="transform:matrix(1,0,0,1,545,480)" ><tspan x="0" y="0" class="S">Parse ops
-</tspan></text><path fill-rule="evenodd" class="N" d="m750 490h30"/><text style="transform:matrix(1,0,0,1,755,480)" ><tspan x="0" y="0" class="T">Cache
-</tspan></text><path fill-rule="evenodd" class="U" d="m940 490h30"/><text style="transform:matrix(1,0,0,1,945,480)" ><tspan x="0" y="0" class="V">Search
-</tspan></text><path fill-rule="evenodd" class="P" d="m450 550v140"/><text style="transform:matrix(1,0,0,1,460,620)" ><tspan x="0" y="0" class="W">File Detection
-</tspan></text><path fill-rule="evenodd" class="X" d="m660 550v140"/><text style="transform:matrix(1,0,0,1,670,620)" ><tspan x="0" y="0" class="Y">Lazy Loading
-</tspan></text><path fill-rule="evenodd" class="N" d="m860 550v140"/><text style="transform:matrix(1,0,0,1,870,620)" ><tspan x="0" y="0" class="O">Cache Storage
-</tspan></text><path fill-rule="evenodd" class="Z" d="m1050 550v140"/><text style="transform:matrix(1,0,0,1,1005.59,607.266)" ><tspan x="0" y="0" class="a0">File I/O
-</tspan></text><path fill-rule="evenodd" class="a1" d="m1126.4 554.8l80.8 135.4"/><text style="transform:matrix(1,0,0,1,1132.73,634.731)" ><tspan x="0" y="0" class="a2">Format Processing
-</tspan></text><path fill-rule="evenodd" class="a1" d="m1110.3 544.4l-53.4 150.2"/><text style="transform:matrix(1,0,0,1,1064.95,598.523)" ><tspan x="0" y="0" class="a2">Direct Access
-</tspan></text><path fill-rule="evenodd" class="P" d="m540 740h30"/><text style="transform:matrix(1,0,0,1,545,730)" ><tspan x="0" y="0" class="Q">Type→Load
-</tspan></text><path fill-rule="evenodd" class="X" d="m750 740h30"/><text style="transform:matrix(1,0,0,1,755,730)" ><tspan x="0" y="0" class="a3">Load→Cache
-</tspan></text><path fill-rule="evenodd" class="Z" d="m940 740h30"/><text style="transform:matrix(1,0,0,1,945,730)" ><tspan x="0" y="0" class="a4">Cache→I/O
-</tspan></text><path fill-rule="evenodd" class="R" d="m1130 740h30"/><text style="transform:matrix(1,0,0,1,1135,730)" ><tspan x="0" y="0" class="S">I/O→Parse
-</tspan></text><path fill-rule="evenodd" class="a5" d="m1428 140h364c4.4 0 8 4.1 8 9.1v664.8c0 5-3.6 9.1-8 9.1h-364c-4.4 0-8-4.1-8-9.1v-664.8c0-5 3.6-9.1 8-9.1z"/><text style="transform:matrix(1,0,0,1,1430,170)" ><tspan x="0" y="0" class="a6">Module Dependencies &amp; Flow
-</tspan></text><text style="transform:matrix(1,0,0,1,1430,200)" ><tspan x="0" y="0" class="a7">📱 Presentation Layer
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,220)" ><tspan x="0" y="0" class="a8">TopBar → ThothApp
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,235)" ><tspan x="0" y="0" class="a9">Sends user events (file open, search)
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,250)" ><tspan x="0" y="0" class="a8">JsonViewer → Helpers
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,265)" ><tspan x="0" y="0" class="a9">Uses LRU cache for parsed data
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,280)" ><tspan x="0" y="0" class="a8">Theme → All UI Components
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,295)" ><tspan x="0" y="0" class="a9">Provides consistent styling
-</tspan></text><text style="transform:matrix(1,0,0,1,1430,320)" ><tspan x="0" y="0" class="aa">⚡ Application Layer
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,340)" ><tspan x="0" y="0" class="a8">ThothApp → Search Engine
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,355)" ><tspan x="0" y="0" class="a9">Dispatches Text/JSONPath jobs
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,370)" ><tspan x="0" y="0" class="a8">Search → Lazy Loader
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,385)" ><tspan x="0" y="0" class="a9">Reads slices, emits paths + ranges
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,400)" ><tspan x="0" y="0" class="a8">Search → JsonViewer
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,415)" ><tspan x="0" y="0" class="a9">Highlight map drives RowHighlights
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,430)" ><tspan x="0" y="0" class="a8">Helpers → Cache System
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,445)" ><tspan x="0" y="0" class="a9">LRU cache prevents re-parsing
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,470)" ><tspan x="0" y="0" class="a8">Error Handler ← All Modules
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,485)" ><tspan x="0" y="0" class="a9">Receives and formats all errors
-</tspan></text><text style="transform:matrix(1,0,0,1,1430,520)" ><tspan x="0" y="0" class="ab">💾 Data Layer
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,540)" ><tspan x="0" y="0" class="a8">File Detection → Lazy Loader
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,555)" ><tspan x="0" y="0" class="a9">Determines file type for parser
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,570)" ><tspan x="0" y="0" class="a8">Lazy Loader → File Handlers
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,585)" ><tspan x="0" y="0" class="a9">Routes to NDJSON/JSON parsers
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,600)" ><tspan x="0" y="0" class="a8">Handlers → File System
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,615)" ><tspan x="0" y="0" class="a9">Cross-platform disk I/O operations
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,630)" ><tspan x="0" y="0" class="a8">Cache ↔ All Parsers
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,645)" ><tspan x="0" y="0" class="a9">Bidirectional: store &amp; retrieve
-</tspan></text><text style="transform:matrix(1,0,0,1,1430,690)" ><tspan x="0" y="0" class="ac">⚡ Why This Design?
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,710)" ><tspan x="0" y="0" class="a8">Lazy Loading
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,725)" ><tspan x="0" y="0" class="a9">Parse only visible nodes → 500MB files
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,740)" ><tspan x="0" y="0" class="a8">Parallel Search
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,755)" ><tspan x="0" y="0" class="a9">Background threads → responsive UI
-</tspan></text><text style="transform:matrix(1,0,0,1,1435,770)" ><tspan x="0" y="0" class="a8">Memory Offsets
-</tspan></text><text style="transform:matrix(1,0,0,1,1440,785)" ><tspan x="0" y="0" class="a9">Track positions → avoid full load
-</tspan></text><path fill-rule="evenodd" class="a5" d="m1428 60h364c4.4 0 8 3.6 8 8v54c0 4.4-3.6 8-8 8h-364c-4.4 0-8-3.6-8-8v-54c0-4.4 3.6-8 8-8z"/><text style="transform:matrix(1,0,0,1,1430,85)" ><tspan x="0" y="0" class="ad">Connection Types
-</tspan></text><path fill-rule="evenodd" class="L" d="m1430 95h30"/><text style="transform:matrix(1,0,0,1,1470,100)" ><tspan x="0" y="0" class="ae">Direct Dependencies
-</tspan></text><path fill-rule="evenodd" class="a1" d="m1430 105h30"/><text style="transform:matrix(1,0,0,1,1470,110)" ><tspan x="0" y="0" class="V">Background Tasks
-</tspan></text><path fill-rule="evenodd" class="af" d="m1430 115h30"/><text style="transform:matrix(1,0,0,1,1470,120)" ><tspan x="0" y="0" class="T">Cache Operations
-</tspan></text><path fill-rule="evenodd" class="ag" d="m110.2 869.1h1557.9c5.7 0 10.3 4.6 10.3 10.2v107.2c0 5.6-4.6 10.2-10.3 10.2h-1557.9c-5.6 0-10.2-4.6-10.2-10.2v-107.2c0-5.6 4.6-10.2 10.2-10.2z"/><text style="transform:matrix(1,0,0,1,120,890)" ><tspan x="0" y="0" class="ah">Key Performance Features
-</tspan></text><text style="transform:matrix(1,0,0,1,120,910)" ><tspan x="0" y="0" class="g">• Lazy loading: Parse visible/expanded nodes only → 500MB+ files stay responsive
-</tspan></text><text style="transform:matrix(1,0,0,1,120,930)" ><tspan x="0" y="0" class="g">• Dual query modes: memmem substring scan + JSONPath walkers share highlight pipeline
-</tspan></text><text style="transform:matrix(1,0,0,1,120,950)" ><tspan x="0" y="0" class="g">• Precomputed RowHighlights: LayoutJob paints ranges, no per-frame substring scanning
-</tspan></text><text style="transform:matrix(1,0,0,1,120,970)" ><tspan x="0" y="0" class="g">• Fragment caps &amp; Arc highlight maps: bounded allocations reused across UI
-</tspan></text></svg>
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1850 1180" width="1850" height="1180">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#475569"/>
+    </marker>
+    <style>
+      text { font-family: "Inter", system-ui, -apple-system, sans-serif; }
+      .title { font-size: 30px; fill: #f8fafc; font-weight: 700; }
+      .sub { font-size: 14px; fill: #64748b; }
+      .cap { font-size: 13px; letter-spacing: 1.5px; }
+      .h { font-size: 15px; font-weight: 600; }
+      .b { font-size: 11px; fill: #cbd5e1; }
+      .band-h { font-size: 19px; font-weight: 700; fill: #a78bfa; }
+      .band-1 { font-size: 12.5px; fill: #e2e8f0; }
+      .band-2 { font-size: 12px; fill: #94a3b8; }
+      .note { font-size: 12.5px; fill: #cbd5e1; }
+      .note-h { font-size: 14px; fill: #94a3b8; letter-spacing: 1px; }
+      .lbl { font-size: 11px; fill: #64748b; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1850" height="1180" fill="#0a0a0a"/>
+  <text x="925" y="46" text-anchor="middle" class="title">Thoth Architecture</text>
+  <text x="925" y="70" text-anchor="middle" class="sub">egui desktop app · sandboxed WebAssembly plugins · one shared UI SDK</text>
+
+  <!-- ============================ PRESENTATION ============================ -->
+  <text x="60" y="98" class="cap" fill="#60a5fa">PRESENTATION · egui UI panels</text>
+  <rect x="60" y="106" width="1730" height="120" rx="12" fill="#0c1322" stroke="#60a5fa" stroke-opacity="0.35" stroke-width="2"/>
+
+  <rect x="80" y="124" width="270" height="86" rx="8" fill="#131c2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="96" y="150" class="h" fill="#60a5fa">Toolbar</text>
+  <text x="96" y="172" class="b">• File ops · history nav</text>
+  <text x="96" y="190" class="b">• Search box · theme toggle</text>
+
+  <rect x="364" y="124" width="270" height="86" rx="8" fill="#131c2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="380" y="150" class="h" fill="#60a5fa">Sidebar</text>
+  <text x="380" y="172" class="b">• Data sources · plugin tabs</text>
+  <text x="380" y="190" class="b">• Recent files · bookmarks</text>
+
+  <rect x="648" y="124" width="270" height="86" rx="8" fill="#131c2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="664" y="150" class="h" fill="#60a5fa">Central Panel</text>
+  <text x="664" y="172" class="b">• JSON tree viewer</text>
+  <text x="664" y="190" class="b">• Plugin table viewer · welcome</text>
+
+  <rect x="932" y="124" width="270" height="86" rx="8" fill="#131c2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="948" y="150" class="h" fill="#60a5fa">Settings &amp; Marketplace</text>
+  <text x="948" y="172" class="b">• Preferences dialog</text>
+  <text x="948" y="190" class="b">• Plugin install / manage</text>
+
+  <rect x="1216" y="124" width="270" height="86" rx="8" fill="#131c2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="1232" y="150" class="h" fill="#60a5fa">Status &amp; Notifications</text>
+  <text x="1232" y="172" class="b">• Breadcrumbs · toasts</text>
+  <text x="1232" y="190" class="b">• Consent prompts</text>
+
+  <rect x="1500" y="124" width="270" height="86" rx="8" fill="#131c2e" stroke="#60a5fa" stroke-width="1.5"/>
+  <text x="1516" y="150" class="h" fill="#60a5fa">Theme System</text>
+  <text x="1516" y="172" class="b">• Dark / light tokens</text>
+  <text x="1516" y="190" class="b">• Andromeda palette</text>
+
+  <line x1="925" y1="226" x2="925" y2="250" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ====================== SHARED SDK BAND ====================== -->
+  <text x="60" y="272" class="cap" fill="#a78bfa">SHARED UI LIBRARY · used by host AND plugins</text>
+  <rect x="60" y="280" width="1730" height="92" rx="12" fill="#1a1535" stroke="#a78bfa" stroke-width="2.5"/>
+  <text x="84" y="316" class="band-h">thoth-plugin-sdk</text>
+  <text x="320" y="316" class="band-1">type-safe component builders · serializable RenderNode DSL · theme tokens · PluginState / SettingsMap · #[derive(PluginMeta)]</text>
+  <text x="84" y="346" class="band-2">Built once in Rust, rendered by both the host panels above and the WASM plugins below — a single source of truth for every widget and the wire format.</text>
+
+  <line x1="925" y1="372" x2="925" y2="396" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ============================ APPLICATION ============================ -->
+  <text x="60" y="418" class="cap" fill="#34d399">APPLICATION CORE</text>
+  <rect x="60" y="426" width="1730" height="120" rx="12" fill="#0c1322" stroke="#34d399" stroke-opacity="0.35" stroke-width="2"/>
+
+  <rect x="80" y="444" width="270" height="86" rx="8" fill="#131c2e" stroke="#34d399" stroke-width="1.5"/>
+  <text x="96" y="470" class="h" fill="#34d399">ThothApp + Tab Manager</text>
+  <text x="96" y="492" class="b">• App state · window/tab orchestration</text>
+  <text x="96" y="510" class="b">• Component lifecycle</text>
+
+  <rect x="364" y="444" width="270" height="86" rx="8" fill="#131c2e" stroke="#34d399" stroke-width="1.5"/>
+  <text x="380" y="470" class="h" fill="#34d399">File Controller</text>
+  <text x="380" y="492" class="b">• Type routing · parser select</text>
+  <text x="380" y="510" class="b">• Lazy-load coordination</text>
+
+  <rect x="648" y="444" width="270" height="86" rx="8" fill="#131c2e" stroke="#34d399" stroke-width="1.5"/>
+  <text x="664" y="470" class="h" fill="#34d399">Search Engine</text>
+  <text x="664" y="492" class="b">• Text + JSONPath · parallel</text>
+  <text x="664" y="510" class="b">• Highlight map (path + ranges)</text>
+
+  <rect x="932" y="444" width="270" height="86" rx="8" fill="#131c2e" stroke="#34d399" stroke-width="1.5"/>
+  <text x="948" y="470" class="h" fill="#34d399">Settings &amp; Theme Store</text>
+  <text x="948" y="492" class="b">• Persisted preferences</text>
+  <text x="948" y="510" class="b">• Palette management</text>
+
+  <rect x="1216" y="444" width="270" height="86" rx="8" fill="#131c2e" stroke="#34d399" stroke-width="1.5"/>
+  <text x="1232" y="470" class="h" fill="#34d399">MCP Server</text>
+  <text x="1232" y="492" class="b">• AI-assistant tools</text>
+  <text x="1232" y="510" class="b">• stdio transport</text>
+
+  <rect x="1500" y="444" width="270" height="86" rx="8" fill="#131c2e" stroke="#34d399" stroke-width="1.5"/>
+  <text x="1516" y="470" class="h" fill="#34d399">Error Handler</text>
+  <text x="1516" y="492" class="b">• Typed errors · recovery</text>
+  <text x="1516" y="510" class="b">• User-facing messages</text>
+
+  <line x1="925" y1="546" x2="925" y2="570" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ============================ PLUGIN SYSTEM ============================ -->
+  <text x="60" y="592" class="cap" fill="#f59e0b">PLUGIN SYSTEM · sandboxed WebAssembly (wasmtime)</text>
+  <rect x="60" y="600" width="1730" height="188" rx="12" fill="#0c1322" stroke="#f59e0b" stroke-opacity="0.35" stroke-width="2"/>
+
+  <rect x="80" y="618" width="270" height="154" rx="8" fill="#131c2e" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="96" y="644" class="h" fill="#f59e0b">Plugin Manager</text>
+  <text x="96" y="666" class="b">• Discovery · registry</text>
+  <text x="96" y="684" class="b">• Marketplace install / update</text>
+  <text x="96" y="702" class="b">• Per-plugin state windows</text>
+
+  <rect x="364" y="618" width="270" height="154" rx="8" fill="#131c2e" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="380" y="644" class="h" fill="#f59e0b">WASM Runtime</text>
+  <text x="380" y="666" class="b">• wasmtime engine</text>
+  <text x="380" y="684" class="b">• Fuel limits · sandbox</text>
+  <text x="380" y="702" class="b">• Component model (WIT)</text>
+
+  <rect x="648" y="618" width="270" height="154" rx="8" fill="#131c2e" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="664" y="644" class="h" fill="#f59e0b">Capabilities (exports)</text>
+  <text x="664" y="666" class="b">• file-loader · file-viewer</text>
+  <text x="664" y="684" class="b">• data-source · ui-component</text>
+  <text x="664" y="702" class="b">• exporter · theme · tab-host</text>
+
+  <rect x="932" y="618" width="270" height="154" rx="8" fill="#131c2e" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="948" y="644" class="h" fill="#f59e0b">Host Imports</text>
+  <text x="948" y="666" class="b">• http-client · tcp-client</text>
+  <text x="948" y="684" class="b">• plugin-storage · secure-storage</text>
+  <text x="948" y="702" class="b">• db-runtime · ui-tabs</text>
+
+  <rect x="1216" y="618" width="270" height="154" rx="8" fill="#131c2e" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="1232" y="644" class="h" fill="#f59e0b">Policy &amp; Consent</text>
+  <text x="1232" y="666" class="b">• Host allowlist · SSRF guard</text>
+  <text x="1232" y="684" class="b">• Rate limits</text>
+  <text x="1232" y="702" class="b">• User approval prompts</text>
+
+  <rect x="1500" y="618" width="270" height="154" rx="8" fill="#131c2e" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="1516" y="644" class="h" fill="#f59e0b">Bundled Plugins</text>
+  <text x="1516" y="666" class="b">• csv-loader (loader/viewer)</text>
+  <text x="1516" y="684" class="b">• url-source (HTTP) · seshat (DB)</text>
+  <text x="1516" y="702" class="b">• material-theme</text>
+
+  <line x1="925" y1="788" x2="925" y2="812" stroke="#475569" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ============================ DATA ============================ -->
+  <text x="60" y="834" class="cap" fill="#f472b6">DATA</text>
+  <rect x="60" y="842" width="1730" height="120" rx="12" fill="#0c1322" stroke="#f472b6" stroke-opacity="0.35" stroke-width="2"/>
+
+  <rect x="80" y="860" width="325" height="86" rx="8" fill="#131c2e" stroke="#f472b6" stroke-width="1.5"/>
+  <text x="96" y="886" class="h" fill="#f472b6">File Detection</text>
+  <text x="96" y="908" class="b">• NDJSON · JSON array / object</text>
+  <text x="96" y="926" class="b">• Content sniffing</text>
+
+  <rect x="421" y="860" width="325" height="86" rx="8" fill="#131c2e" stroke="#f472b6" stroke-width="1.5"/>
+  <text x="437" y="886" class="h" fill="#f472b6">Lazy Loader</text>
+  <text x="437" y="908" class="b">• On-demand parse · byte offsets</text>
+  <text x="437" y="926" class="b">• Streaming reads</text>
+
+  <rect x="762" y="860" width="325" height="86" rx="8" fill="#131c2e" stroke="#f472b6" stroke-width="1.5"/>
+  <text x="778" y="886" class="h" fill="#f472b6">LRU Cache</text>
+  <text x="778" y="908" class="b">• Bounded hot-node cache</text>
+  <text x="778" y="926" class="b">• Eviction policy</text>
+
+  <rect x="1103" y="860" width="325" height="86" rx="8" fill="#131c2e" stroke="#f472b6" stroke-width="1.5"/>
+  <text x="1119" y="886" class="h" fill="#f472b6">Format Handlers</text>
+  <text x="1119" y="908" class="b">• NDJSON &amp; JSON parsers</text>
+  <text x="1119" y="926" class="b">• Line / element span index</text>
+
+  <rect x="1444" y="860" width="325" height="86" rx="8" fill="#131c2e" stroke="#f472b6" stroke-width="1.5"/>
+  <text x="1460" y="886" class="h" fill="#f472b6">File System</text>
+  <text x="1460" y="908" class="b">• Cross-platform I/O</text>
+  <text x="1460" y="926" class="b">• Permissions</text>
+
+  <!-- ============================ FOOTER ============================ -->
+  <rect x="60" y="992" width="1730" height="150" rx="12" fill="#0f1419" stroke="#374151" stroke-dasharray="5,5" stroke-width="2"/>
+  <text x="84" y="1022" class="note-h">KEY DESIGN PRINCIPLES</text>
+  <text x="84" y="1052" class="note">• Lazy loading — parse only visible / expanded nodes, so 500 MB+ files stay responsive.</text>
+  <text x="84" y="1076" class="note">• One source of truth — host panels and WASM plugins share the thoth-plugin-sdk widgets &amp; RenderNode DSL.</text>
+  <text x="84" y="1100" class="note">• Capability sandbox — plugins are WASM components; every host access (HTTP, TCP, storage) is an explicit, policy-gated import.</text>
+  <text x="84" y="1124" class="note">• Parallel search — background memmem + JSONPath workers and precomputed highlights keep the UI smooth.</text>
+</svg>

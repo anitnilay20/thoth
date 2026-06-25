@@ -6,10 +6,15 @@ Plugins describe their UI as a tree of nodes serialized to JSON. Instead of
 hand-writing that JSON, build it with type-safe builders — the host renders the
 *same* types, so the SDK is a single source of truth for both sides.
 
+Not yet published to crates.io — depend on it via git (pin a tag/`rev` for
+reproducible builds):
+
 ```toml
 [dependencies]
-thoth-plugin-sdk = { version = "0.1", features = ["plugin"] }
+thoth-plugin-sdk = { git = "https://github.com/anitnilay20/thoth", tag = "v0.3.25", features = ["plugin"] }
 ```
+
+> Once published this becomes `thoth-plugin-sdk = { version = "0.1", features = ["plugin"] }`.
 
 ```rust
 use thoth_plugin_sdk::prelude::*;

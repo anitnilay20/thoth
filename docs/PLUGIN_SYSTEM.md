@@ -859,9 +859,30 @@ and no field-name typos.
 
 ### Add the dependency
 
+The SDK is **not yet published to crates.io**, so depend on it via git. Pin a
+tag (or `rev`) for reproducible builds:
+
 ```toml
 [dependencies]
 # Plugins only *describe* UI; they never render, so no egui feature.
+thoth-plugin-sdk = { git = "https://github.com/anitnilay20/thoth", tag = "v0.3.25", features = ["plugin"] }
+```
+
+A few things that "just work" with this git form:
+
+- **Monorepo resolution** — the SDK is a workspace member of the main app repo;
+  Cargo finds it by package name. (Add `package = "thoth-plugin-sdk"` if a future
+  workspace ever defines another crate by a colliding name.)
+- **The derive macro** — `thoth-plugin-sdk` depends on `thoth-plugin-sdk-macros`
+  by an in-repo path. Inside a git source that path resolves against the checked
+  out repo, so `#[derive(PluginMeta)]` works with no extra setup.
+
+> Once the SDK is published, this becomes `thoth-plugin-sdk = { version = "0.1", features = ["plugin"] }`.
+
+The **bundled** plugins under `plugins/` live in the same repo, so they use a
+relative path dependency instead:
+
+```toml
 thoth-plugin-sdk = { path = "../../thoth-plugin-sdk", features = ["plugin"] }
 ```
 

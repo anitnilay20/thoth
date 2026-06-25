@@ -191,11 +191,16 @@ For a complete list of keyboard shortcuts, see the [Keyboard Shortcuts Guide](do
 ## Project Structure
 
 - `src/main.rs`: Application entry point and core logic
-- `src/components/`: UI components including the JSON viewer
+- `src/components/`: Host UI panels (compose the SDK widgets via the component traits)
 - `src/file/`: File handling, lazy loading, and type detection
 - `src/search/`: Search functionality
+- `src/plugin/`: WebAssembly plugin runtime (loading, sandboxing, host imports)
 - `src/helpers/`: Utility functions and shared code
 - `src/mcp/`: MCP server for AI assistant integration
+- `thoth-plugin-sdk/`: Plugin authoring SDK — the shared UI component library + `RenderNode` DSL and plugin helpers (also rendered by the host)
+- `thoth-plugin-sdk-macros/`: Derive macros for the SDK (`PluginMeta`)
+- `plugins/`: Bundled example plugins (csv-loader, url-source, seshat)
+- `wit/`: WIT interface definitions for the plugin ABI
 - `docs/`: Documentation for architecture and design patterns
 
 ---
@@ -203,6 +208,8 @@ For a complete list of keyboard shortcuts, see the [Keyboard Shortcuts Guide](do
 ## Documentation
 
 - **[Component Architecture](docs/COMPONENT_ARCHITECTURE.md)**: Detailed guide on Thoth's component system and one-way data binding pattern
+- **[Plugin System](docs/PLUGIN_SYSTEM.md)**: Authoring WebAssembly plugins with the `thoth-plugin-sdk` (UI builders, state/settings helpers, lifecycle)
+- **[Database Plugins](docs/DATABASE_PLUGINS.md)**: Building data-source plugins that talk to databases
 - **[File Associations](docs/FILE_ASSOCIATIONS.md)**: How to open JSON files directly from your file manager and set Thoth as default viewer
 - **[Keyboard Shortcuts](docs/KEYBOARD_SHORTCUTS.md)**: Complete reference of all keyboard shortcuts
 - **[Design System](docs/DESIGN_SYSTEM.md)**: UI design guidelines and patterns
@@ -237,6 +244,12 @@ Thoth is built with a modular architecture that emphasizes performance and flexi
    - Parallel processing for fast searching across large files
    - Background scanning to maintain UI responsiveness
    - Uses Rayon for parallel iteration and memchr for optimized substring searching
+
+5. **Plugin System**:
+   - Plugins are sandboxed **WebAssembly components** (file loaders, file viewers, data sources, UI components)
+   - Authored with the **`thoth-plugin-sdk`**: type-safe builders for a serializable `RenderNode` UI tree the host renders, plus state/settings/metadata helpers
+   - The host and plugins share the *same* component types, so the SDK is one source of truth for both sides
+   - See [Plugin System](docs/PLUGIN_SYSTEM.md) and [Database Plugins](docs/DATABASE_PLUGINS.md)
 
 ### Data Flow
 
@@ -281,7 +294,6 @@ Key features planned for future development:
 - Data visualization for numerical values
 - JSON editing capabilities
 - Cross-platform packages (macOS, Windows, Linux)
-- Plugin system for extensibility
 
 ---
 

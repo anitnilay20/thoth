@@ -6,6 +6,22 @@ This document explains Thoth's component architecture and the one-way data bindi
 
 Thoth uses a **trait-based component system** inspired by React's component model, adapted to work with Rust's ownership system and egui's immediate mode GUI pattern.
 
+> **Two tiers of UI.** Since the SDK migration, Thoth's UI is split in two:
+>
+> 1. **Reusable widgets** (Button, Input, Select, List, Card, DataRow, Tabs, …)
+>    live in the **[`thoth-plugin-sdk`](../thoth-plugin-sdk)** crate as owned,
+>    serializable `bon` builders, rendered via `ui.add(widget)` (stateless) or
+>    `widget.show(&mut ui, …)` (stateful). The same types are shared by the host
+>    *and* by plugins (which serialize them to JSON). See
+>    [PLUGIN_SYSTEM.md](PLUGIN_SYSTEM.md).
+> 2. **Feature panels** (Toolbar, Sidebar, Status bar, Settings tabs, Search,
+>    the file viewers, …) remain **host** components implementing the
+>    `Stateless`/`Stateful`/`ContextComponent` traits below, *composing* the SDK
+>    widgets. The one-way data-binding pattern documented here applies to these.
+>
+> Rule of thumb: a small reusable widget → add it to the SDK; a panel that wires
+> widgets to app state and events → use the trait pattern here.
+
 ## Component Traits
 
 We have two main component traits, each serving a different purpose:
@@ -23,20 +39,33 @@ pub trait StatelessComponent {
 }
 ```
 
-**Use cases**: Simple buttons, labels, icons, static UI elements
+**Use cases**: small host-only panels that just read props and render (no state).
 
-**Example**:
+> Reusable widgets like buttons, icons, inputs, and lists are **not** written as
+> `StatelessComponent`s anymore — they live in the SDK and are added with
+> `ui.add(Button::builder()…build())`. Reach for `StatelessComponent` only for a
+> host panel that has no internal state of its own.
+
+**Example** (illustrative — a stateless host panel composing an SDK widget):
 
 ```rust
-struct IconButton;
+use thoth_plugin_sdk::components::{Button, ButtonColor};
 
-impl StatelessComponent for IconButton {
-    type Props = (&'static str, &'static str); // (icon, tooltip)
+struct ClearRow;
+
+impl StatelessComponent for ClearRow {
+    type Props = bool; // enabled
     type Output = bool; // clicked
 
-    fn render(ui: &mut egui::Ui, props: Self::Props) -> Self::Output {
-        let (icon, tooltip) = props;
-        ui.button(icon).on_hover_text(tooltip).clicked()
+    fn render(ui: &mut egui::Ui, enabled: Self::Props) -> Self::Output {
+        ui.add(
+            Button::builder()
+                .label("Clear")
+                .color(ButtonColor::Danger)
+                .enabled(enabled)
+                .build(),
+        )
+        .clicked()
     }
 }
 ```
@@ -562,8 +591,11 @@ for event in output.events {
 ## Examples in Codebase
 
 - **Toolbar**: `src/components/toolbar.rs` - Full example of ContextComponent
+- **Settings tabs**: `src/components/settings_dialog/*.rs` - StatelessComponent panels
+- **Search / Bookmarks**: `src/components/search.rs`, `bookmarks.rs` - StatefulComponent panels
 - **FileFormatViewer**: `src/components/file_viewer/viewer_trait.rs` - Specialized trait pattern
-- **Component Traits**: `src/components/traits.rs` - Trait definitions
+- **Component Traits**: `src/components/common/traits.rs` - Trait definitions
+- **Reusable widgets**: `thoth-plugin-sdk/src/components/` - the shared widget library these panels compose (run the gallery: `cargo run -p thoth-plugin-sdk --example gallery --features egui`)
 
 ## Contributing
 
