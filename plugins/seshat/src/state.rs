@@ -90,13 +90,27 @@ impl Form {
 }
 
 /// What a pending async request will produce, so `query-result` can be routed.
+/// Schema-introspection kinds carry the `database` they target, because a
+/// connection can browse multiple databases (Postgres reconnects per database).
 #[derive(Clone, PartialEq)]
 pub(crate) enum Kind {
     Query,
+    QueryExplain,
     Test,
-    Schemas,
-    Tables { schema: String },
-    Columns { schema: String, table: String },
+    Databases,
+    Schemas { database: String },
+    Tables { database: String, schema: String },
+    Columns { database: String, schema: String, table: String },
+}
+
+/// A database node in the browser tree (schemas loaded lazily on expand). The
+/// server's default database is auto-expanded on connect.
+#[derive(Clone)]
+pub(crate) struct DatabaseNode {
+    pub name: String,
+    pub expanded: bool,
+    /// `None` until this database's schemas have been fetched.
+    pub schemas: Option<Vec<SchemaNode>>,
 }
 
 /// A schema node in the browser tree (tables loaded lazily on expand).
@@ -148,11 +162,18 @@ pub(crate) struct State {
     /// introspection can run concurrently with (and alongside) a query.
     pub pending: Vec<(String, Kind)>,
     pub result: Option<Result<Value, String>>,
+    pub explain: Option<Result<Value, String>>,
+    /// The SQL that [`explain`](State::explain) was computed for, so switching to
+    /// the Explain tab re-runs `EXPLAIN ANALYZE` only when the query changed.
+    pub explain_for: Option<String>,
+    /// True while an `EXPLAIN ANALYZE` request is in flight.
+    pub explain_loading: bool,
+    pub messages: Vec<String>,
 
     // schema browser
-    pub schema_loaded: bool,
+    pub databases_loaded: bool,
     pub schema_error: Option<String>,
-    pub schemas: Vec<SchemaNode>,
+    pub databases: Vec<DatabaseNode>,
 
     // query history (persisted; newest last)
     pub history: Vec<HistoryEntry>,
@@ -188,9 +209,13 @@ impl State {
             loading: false,
             pending: Vec::new(),
             result: None,
-            schema_loaded: false,
+            explain: None,
+            explain_for: None,
+            explain_loading: false,
+            messages: Vec::new(),
+            databases_loaded: false,
             schema_error: None,
-            schemas: Vec::new(),
+            databases: Vec::new(),
             history: Vec::new(),
             error: None,
             failed: None,
@@ -355,9 +380,13 @@ pub(crate) enum Request {
     Query { sql: String },
     TestConnection,
     ListDatabases,
-    ListSchemas,
-    ListTables { schema: String },
-    ListColumns { schema: String, table: String },
+    ListSchemas { database: String },
+    ListTables { database: String, schema: String },
+    ListColumns {
+        database: String,
+        schema: String,
+        table: String,
+    },
 }
 
 /// Enqueue `req` on the host query worker and record the pending request id.

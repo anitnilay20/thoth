@@ -140,3 +140,17 @@ impl DbAdapter for UnsupportedEngine {
         self.unsupported()
     }
 }
+
+impl Engine {
+    /// The engine-specific `EXPLAIN` statement that yields a machine-readable
+    /// plan **with actual run-time stats** for `sql`. Postgres `ANALYZE`
+    /// executes the statement, so callers must only run this on demand.
+    pub fn explain_sql(&self, sql: &str) -> String {
+        match self {
+            Engine::Postgres => format!("EXPLAIN (ANALYZE, FORMAT JSON) {sql}"),
+            // MySQL's ANALYZE only emits TREE format; JSON stays estimate-only.
+            // (The MySQL adapter is still a stub, so this isn't executed yet.)
+            Engine::Mysql => format!("EXPLAIN FORMAT=JSON {sql}"),
+        }
+    }
+}

@@ -539,8 +539,11 @@ mod wire_format_tests {
 
     #[test]
     fn list_item_postfix_progress_bar_is_externally_tagged() {
-        let v = serde_json::to_value(ListItemPostfix::ProgressBar(50)).unwrap();
-        assert_eq!(v["ProgressBar"], json!(50));
+        let v = serde_json::to_value(ListItemPostfix::Progress(
+            crate::components::Progress::builder().value(0.5).build(),
+        ))
+        .unwrap();
+        assert_eq!(v["Progress"]["value"], json!(0.5));
     }
 
     #[test]

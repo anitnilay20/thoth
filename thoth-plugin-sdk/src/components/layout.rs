@@ -109,6 +109,11 @@ pub struct Column {
     #[builder(default)]
     #[serde(default)]
     pub gap: f32,
+    /// Wrap the column in a bordered, filled card (panel background + surface
+    /// border + rounded corners + margin). Defaults to `false`.
+    #[builder(default)]
+    #[serde(default)]
+    pub framed: bool,
 }
 
 /// A scrollable region wrapping a single child.
@@ -121,6 +126,11 @@ pub struct Scroll {
     /// Optional fixed max height, in points.
     #[serde(default)]
     pub max_height: Option<f32>,
+    /// Scroll horizontally as well as vertically. Defaults to `false`
+    /// (vertical only).
+    #[builder(default)]
+    #[serde(default)]
+    pub both: bool,
     /// Optional id salt to disambiguate this scroll area from sibling scroll
     /// areas (egui derives a scroll id from tree position, which can collide
     /// between two scrolls at equivalent positions, e.g. split columns).
@@ -158,6 +168,11 @@ pub struct Split {
     #[builder(default)]
     #[serde(default)]
     pub separator: bool,
+    /// Vertical alignment of each column's content within the row height.
+    /// Defaults to [`Align::Start`] (top); [`Align::Center`] centers vertically.
+    #[builder(default)]
+    #[serde(default)]
+    pub align: Align,
 }
 
 /// A collapsible section, open by default.
@@ -338,6 +353,21 @@ impl Row {
 impl Column {
     /// Render the column.
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
+        if self.framed {
+            let colors = crate::theme::ThemeColors::from_ctx(ui.ctx());
+            egui::Frame::new()
+                .fill(colors.bg_panel)
+                .stroke(egui::Stroke::new(1.0, colors.surface))
+                .corner_radius(6)
+                .inner_margin(egui::Margin::same(4))
+                .outer_margin(egui::Margin::same(8))
+                .show(ui, |ui| self.body(ui, events));
+        } else {
+            self.body(ui, events);
+        }
+    }
+
+    fn body(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = self.gap;
             for child in &mut self.children {
@@ -354,7 +384,11 @@ impl Scroll {
         // Claim the full available area so the scroll region fills its slot
         // (and its content can fill it too) rather than collapsing to content.
         ui.set_min_size(ui.available_size());
-        let mut area = egui::ScrollArea::vertical();
+        let mut area = if self.both {
+            egui::ScrollArea::both()
+        } else {
+            egui::ScrollArea::vertical()
+        };
         if let Some(id) = &self.id {
             area = area.id_salt(id);
         }
@@ -394,35 +428,48 @@ impl Split {
             vec![usable / n as f32; n]
         };
 
-        let sep_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
-        let cursor = ui.cursor();
-        let avail_h = ui.available_height();
-        let mut x = cursor.left();
-        let mut max_h = 0.0_f32;
-
-        for (i, child) in self.children.iter_mut().enumerate() {
-            let col_w = col_widths[i];
-            let col_rect =
-                egui::Rect::from_min_size(egui::pos2(x, cursor.top()), egui::vec2(col_w, avail_h));
-            let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(col_rect));
-            child.show(&mut child_ui, events);
-            max_h = max_h.max(child_ui.min_rect().height());
-            x += col_w;
-            if i + 1 < n {
-                if self.separator {
-                    let sep_x = x + gap / 2.0;
-                    ui.painter().line_segment(
-                        [
-                            egui::pos2(sep_x, cursor.top()),
-                            egui::pos2(sep_x, cursor.top() + avail_h),
-                        ],
-                        egui::Stroke::new(1.0, sep_color),
-                    );
-                }
-                x += gap;
+        // Lay the columns out in a content-height horizontal row. For centred
+        // alignment, give the row a uniform min-height and use `horizontal`
+        // (which centres its children on the vertical axis within that height),
+        // so every cell — text or a short bar — sits on one centreline. Start
+        // alignment keeps the columns top-aligned via `horizontal_top`.
+        let separator = self.separator;
+        let center = self.align == Align::Center;
+        let row_min = ui.spacing().interact_size.y;
+        let children = &mut self.children;
+        let body = |ui: &mut egui::Ui| {
+            if center {
+                ui.set_min_height(row_min);
             }
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for (i, child) in children.iter_mut().enumerate() {
+                let col_w = col_widths[i];
+                ui.allocate_ui_with_layout(
+                    egui::vec2(col_w, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_min_width(col_w);
+                        ui.set_max_width(col_w);
+                        // Keep each cell to one line; extend past the column
+                        // rather than wrapping to a second row.
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                        child.show(ui, events);
+                    },
+                );
+                if i + 1 < n {
+                    if separator {
+                        ui.add(egui::Separator::default().vertical());
+                    } else {
+                        ui.add_space(gap);
+                    }
+                }
+            }
+        };
+        if center {
+            ui.horizontal(body);
+        } else {
+            ui.horizontal_top(body);
         }
-        ui.allocate_space(egui::vec2(available, max_h));
     }
 }
 

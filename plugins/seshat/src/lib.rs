@@ -6,6 +6,7 @@ mod pg;
 mod shim;
 mod state;
 mod ui;
+mod constants;
 
 use serde::Serialize;
 use serde_json::json;
@@ -124,7 +125,14 @@ impl TabHostGuest for Seshat {
     }
     /// Snapshot the editor tab so the host can restore it across restarts.
     fn get_state() -> Result<String, PluginError> {
-        Ok(STATE.with(|st| json!({ "connection": st.active, "sql": st.sql }).to_string()))
+        Ok(STATE.with(|st| {
+            json!({
+                "connection": st.active,
+                "database": st.active_profile.as_ref().map(|p| p.database.clone()),
+                "sql": st.sql,
+            })
+            .to_string()
+        }))
     }
     /// Seed a freshly-opened editor tab with its connection (and SQL).
     fn init_with_state(state: String) -> Result<(), PluginError> {
@@ -158,15 +166,25 @@ impl DataSourceGuest for Seshat {
         let adapter = db::adapter(engine);
         let req: Request =
             serde_json::from_str(&q).map_err(|e| err(2, format!("bad request: {e}")))?;
+        // Queries and database listing use the connection's configured database;
+        // schema/table/column introspection targets a specific database, so we
+        // reconnect there by overriding `database` (Postgres can't introspect a
+        // database other than the one it's connected to).
         match req {
             Request::Query { sql } => to_json(adapter.run_query(&profile, &sql)),
             Request::TestConnection => to_json(adapter.test_connection(&profile)),
             Request::ListDatabases => to_json(adapter.list_databases(&profile)),
-            Request::ListSchemas => to_json(adapter.list_schemas(&profile)),
-            Request::ListTables { schema } => to_json(adapter.list_tables(&profile, &schema)),
-            Request::ListColumns { schema, table } => {
-                to_json(adapter.list_columns(&profile, &schema, &table))
+            Request::ListSchemas { database } => {
+                to_json(adapter.list_schemas(&db::Profile { database, ..profile }))
             }
+            Request::ListTables { database, schema } => {
+                to_json(adapter.list_tables(&db::Profile { database, ..profile }, &schema))
+            }
+            Request::ListColumns {
+                database,
+                schema,
+                table,
+            } => to_json(adapter.list_columns(&db::Profile { database, ..profile }, &schema, &table)),
         }
     }
 

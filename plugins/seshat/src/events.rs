@@ -8,7 +8,7 @@ use crate::bindings::thoth::plugin::{secure_storage, ui_tabs};
 use crate::db::{self, ColumnInfo, TableInfo};
 use crate::state::{
     default_port, engine_from_value, make_id, pw_key, record_history, save_connections, submit,
-    Connection, Form, Kind, Request, SchemaNode, State, TableNode,
+    Connection, DatabaseNode, Form, Kind, Request, SchemaNode, State, TableNode,
 };
 
 /// Parse a widget value that may be a JSON-encoded string or a bare string.
@@ -124,45 +124,110 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             st.active = None;
             st.active_profile = None;
             st.result = None;
-            st.schemas.clear();
-            st.schema_loaded = false;
+            st.databases.clear();
+            st.databases_loaded = false;
             st.schema_error = None;
         }
-        // Schema-tree data-rows. Schema: any interaction toggles it. Table: the
-        // caret ("toggle") expands columns, a body "click" opens a SELECT. Column
-        // (leaf, id "col:<i>:<j>:<k>"): clicking opens its table's SELECT.
+        // Schema-tree data-rows, addressed by their path of indices:
+        //   db:<i>            database          — toggles its schemas
+        //   sch:<i>:<j>       schema            — toggles its tables
+        //   tbl:<i>:<j>:<k>   table/view        — caret ("toggle") expands
+        //                                         columns; a body "click" opens a SELECT
+        //   col:<i>:<j>:<k>:<l>  column (leaf)  — clicking opens its table's SELECT
+        id if id.starts_with("db:") => {
+            if let Ok(i) = id[3..].parse::<usize>() {
+                toggle_database(st, i);
+            }
+        }
         id if id.starts_with("sch:") => {
-            if let Ok(i) = id[4..].parse::<usize>() {
-                toggle_schema(st, i);
+            if let [i, j] = parse_indices(&id[4..])[..] {
+                toggle_schema(st, i, j);
             }
         }
         id if id.starts_with("tbl:") => {
-            if let Some((i, j)) = parse_pair(&id[4..]) {
+            if let [i, j, k] = parse_indices(&id[4..])[..] {
                 if event.kind == "toggle" {
-                    toggle_table(st, i, j);
+                    toggle_table(st, i, j, k);
                 } else {
-                    open_table_data(st, i, j);
+                    open_table_data(st, i, j, k);
                 }
             }
         }
         id if id.starts_with("col:") => {
-            let idx: Vec<usize> = id[4..].split(':').filter_map(|s| s.parse().ok()).collect();
-            if let [i, j, ..] = idx[..] {
-                open_table_data(st, i, j);
+            if let [i, j, k, ..] = parse_indices(&id[4..])[..] {
+                open_table_data(st, i, j, k);
             }
         }
-        "sql" => st.sql = parse_str(&event.value),
-        "run" if !st.loading => {
-            st.loading = true;
-            st.result = None;
-            let sql = st.sql.clone();
-            if let Some(id) = st.active.clone() {
-                record_history(&id, &sql);
+        // Editor-tab connection switcher: re-point this tab at another saved
+        // connection. Keeps the SQL text; resets results and reloads the schema
+        // (so autocomplete reflects the new target).
+        "switch-connection" => {
+            let id = parse_str(&event.value);
+            if st.active.as_deref() != Some(id.as_str()) {
+                if let Some(conn) = st.connections.iter().find(|c| c.id == id).cloned() {
+                    activate_connection(st, &conn);
+                }
             }
-            submit(&Request::Query { sql }, Kind::Query, st);
+        }
+        // Editor-tab database switcher: re-point this tab's queries + autocomplete
+        // at another database in the current connection.
+        "switch-database" => select_database(st, &parse_str(&event.value)),
+        // Editor text changes carry the new SQL; a "submit" event (⌘/Ctrl+Enter
+        // in the editor) also runs the query.
+        "sql" => {
+            st.sql = parse_str(&event.value);
+            if event.kind == "submit" {
+                run_query(st);
+            }
+        }
+        "run" => run_query(st),
+        // Results/Explain tab switch: opening Explain lazily runs EXPLAIN ANALYZE
+        // for the current SQL (it executes the query, so only on demand).
+        "query-output" if event.kind == "change" && parse_str(&event.value) == "Explain" => {
+            load_explain(st)
         }
         _ => {}
     }
+}
+
+/// Run the current editor SQL against the active connection (no-op while a query
+/// is already in flight). Shared by the Run button and the ⌘/Ctrl+Enter submit.
+fn run_query(st: &mut State) {
+    if st.loading {
+        return;
+    }
+    st.loading = true;
+    st.result = None;
+    // Invalidate any previous plan; it's re-run lazily when the user opens the
+    // Explain tab (EXPLAIN ANALYZE executes the query, so we don't run it here).
+    st.explain = None;
+    st.explain_for = None;
+    st.explain_loading = false;
+    let sql = st.sql.clone();
+    if let Some(id) = st.active.clone() {
+        record_history(&id, &sql);
+    }
+    submit(&Request::Query { sql }, Kind::Query, st);
+}
+
+/// Lazily run `EXPLAIN ANALYZE` for the current editor SQL — triggered when the
+/// user opens the Explain tab. Cached per-SQL so re-opening the tab doesn't
+/// re-execute unless the query changed. Engine-specific via [`Engine::explain_sql`].
+fn load_explain(st: &mut State) {
+    let sql = st.sql.trim().to_string();
+    if sql.is_empty() {
+        return;
+    }
+    // Already have (or are fetching) the plan for this exact SQL.
+    if st.explain_for.as_deref() == Some(sql.as_str()) && (st.explain.is_some() || st.explain_loading)
+    {
+        return;
+    }
+    st.explain = None;
+    st.explain_loading = true;
+    st.explain_for = Some(sql.clone());
+    let explain_sql = st.engine().explain_sql(&sql);
+    submit(&Request::Query { sql: explain_sql }, Kind::QueryExplain, st);
 }
 
 /// Open an editor tab seeded with a connection (and optionally its password +
@@ -221,33 +286,119 @@ fn activate_connection(st: &mut State, conn: &Connection) {
     });
     st.active = Some(conn.id.clone());
     st.result = None;
-    st.schemas.clear();
-    st.schema_loaded = false;
+    st.databases.clear();
+    st.databases_loaded = false;
     st.schema_error = None;
     st.failed = None;
     st.error = None;
-    load_schemas(st);
+    load_databases(st);
 }
 
 // ── schema browser ────────────────────────────────────────────────────────────
 
-fn parse_pair(s: &str) -> Option<(usize, usize)> {
-    let (a, b) = s.split_once(':')?;
-    Some((a.parse().ok()?, b.parse().ok()?))
+/// Parse a `:`-separated path of tree indices (e.g. `"1:0:3"` → `[1, 0, 3]`).
+fn parse_indices(s: &str) -> Vec<usize> {
+    s.split(':').filter_map(|p| p.parse().ok()).collect()
 }
 
-/// Kick off the schema list for the active connection (once).
-fn load_schemas(st: &mut State) {
-    if st.schema_loaded {
+/// Kick off the database list for the active connection (once). Listing
+/// databases doubles as the connection probe on select.
+fn load_databases(st: &mut State) {
+    if st.databases_loaded {
         return;
     }
-    st.schema_loaded = true;
+    st.databases_loaded = true;
     st.schema_error = None;
-    submit(&Request::ListSchemas, Kind::Schemas, st);
+    submit(&Request::ListDatabases, Kind::Databases, st);
 }
 
-fn toggle_schema(st: &mut State, i: usize) {
-    let Some(sch) = st.schemas.get_mut(i) else {
+/// Eagerly load tables for the next schema in `database` that doesn't have them
+/// yet — one at a time. The `Kind::Tables` handler calls this again, so the
+/// active database's tables load sequentially (for autocomplete) without ever
+/// spawning a storm of concurrent query workers that would block the UI.
+fn load_next_pending_tables(st: &mut State, database: &str) {
+    let next = st
+        .databases
+        .iter()
+        .find(|d| d.name == database)
+        .and_then(|d| d.schemas.as_ref())
+        .and_then(|ss| ss.iter().find(|s| s.tables.is_none()))
+        .map(|s| s.name.clone());
+    if let Some(schema) = next {
+        submit(
+            &Request::ListTables {
+                database: database.to_string(),
+                schema: schema.clone(),
+            },
+            Kind::Tables {
+                database: database.to_string(),
+                schema,
+            },
+            st,
+        );
+    }
+}
+
+/// Switch this instance's active database (queries + autocomplete target it).
+/// Loads the database's schemas/tables for autocomplete if not already cached.
+/// No-op if it's already active or there's no active connection.
+fn select_database(st: &mut State, database: &str) {
+    match st.active_profile.as_mut() {
+        Some(p) if p.database != database => p.database = database.to_string(),
+        _ => return,
+    }
+    // The previous database's results no longer apply.
+    st.result = None;
+
+    // Make sure the new database's tables are loaded for autocomplete. If its
+    // schemas aren't fetched yet, request them (the Schemas handler kicks off the
+    // sequential table load for the now-active database); otherwise resume that
+    // sequential load for any schema still missing tables.
+    let schemas_loaded = st
+        .databases
+        .iter()
+        .find(|d| d.name == database)
+        .map(|d| d.schemas.is_some())
+        .unwrap_or(false);
+    if !schemas_loaded {
+        submit(
+            &Request::ListSchemas {
+                database: database.to_string(),
+            },
+            Kind::Schemas {
+                database: database.to_string(),
+            },
+            st,
+        );
+    } else {
+        load_next_pending_tables(st, database);
+    }
+}
+
+fn toggle_database(st: &mut State, i: usize) {
+    let Some(db) = st.databases.get_mut(i) else {
+        return;
+    };
+    db.expanded = !db.expanded;
+    let need_load = db.expanded && db.schemas.is_none();
+    let database = db.name.clone();
+    if need_load {
+        submit(
+            &Request::ListSchemas {
+                database: database.clone(),
+            },
+            Kind::Schemas { database },
+            st,
+        );
+    }
+}
+
+fn toggle_schema(st: &mut State, i: usize, j: usize) {
+    let Some(db) = st.databases.get_mut(i) else {
+        return;
+    };
+    let database = db.name.clone();
+    let Some(sch) = db.schemas.as_mut().and_then(|ss| ss.get_mut(j)) else {
         return;
     };
     sch.expanded = !sch.expanded;
@@ -256,20 +407,25 @@ fn toggle_schema(st: &mut State, i: usize) {
     if need_load {
         submit(
             &Request::ListTables {
+                database: database.clone(),
                 schema: schema.clone(),
             },
-            Kind::Tables { schema },
+            Kind::Tables { database, schema },
             st,
         );
     }
 }
 
-fn toggle_table(st: &mut State, i: usize, j: usize) {
-    let Some(sch) = st.schemas.get_mut(i) else {
+fn toggle_table(st: &mut State, i: usize, j: usize, k: usize) {
+    let Some(db) = st.databases.get_mut(i) else {
+        return;
+    };
+    let database = db.name.clone();
+    let Some(sch) = db.schemas.as_mut().and_then(|ss| ss.get_mut(j)) else {
         return;
     };
     let schema = sch.name.clone();
-    let Some(tbl) = sch.tables.as_mut().and_then(|t| t.get_mut(j)) else {
+    let Some(tbl) = sch.tables.as_mut().and_then(|t| t.get_mut(k)) else {
         return;
     };
     tbl.expanded = !tbl.expanded;
@@ -278,24 +434,36 @@ fn toggle_table(st: &mut State, i: usize, j: usize) {
     if need_load {
         submit(
             &Request::ListColumns {
+                database: database.clone(),
                 schema: schema.clone(),
                 table: table.clone(),
             },
-            Kind::Columns { schema, table },
+            Kind::Columns {
+                database,
+                schema,
+                table,
+            },
             st,
         );
     }
 }
 
 /// Open a table's data in a new editor tab: `SELECT *` run immediately so the
-/// tab lands on the results grid (a "view data" action).
-fn open_table_data(st: &State, i: usize, j: usize) {
-    let target = st.schemas.get(i).and_then(|sch| {
-        sch.tables
-            .as_ref()
-            .and_then(|t| t.get(j))
-            .map(|tbl| (sch.name.clone(), tbl.name.clone()))
-    });
+/// tab lands on the results grid (a "view data" action). The query runs against
+/// the connection's default database (browse-only), so this is meaningful for
+/// tables in that database.
+fn open_table_data(st: &State, i: usize, j: usize, k: usize) {
+    let target = st
+        .databases
+        .get(i)
+        .and_then(|db| db.schemas.as_ref())
+        .and_then(|ss| ss.get(j))
+        .and_then(|sch| {
+            sch.tables
+                .as_ref()
+                .and_then(|t| t.get(k))
+                .map(|tbl| (sch.name.clone(), tbl.name.clone()))
+        });
     let Some((schema, table)) = target else {
         return;
     };
@@ -342,9 +510,10 @@ fn open_history_entry(st: &State, display_index: usize) {
 
 /// Seed an editor-tab instance from its initial-state blob
 /// (`{connection, password?, sql?}`). Uses a handed-in password when present to
-/// avoid a keychain read, falling back to the keychain otherwise. Does NOT load
-/// the schema — that lives in the sidebar — so opening a tab makes no connection
-/// until the user runs a query.
+/// avoid a keychain read, falling back to the keychain otherwise. Loads the
+/// schema/table list in the background (schemas live per-instance, and this tab
+/// is a separate instance from the sidebar) so the editor's autocomplete knows
+/// the connection's table names.
 pub(crate) fn activate_from_state(st: &mut State, state: &str) {
     let Ok(v) = serde_json::from_str::<Value>(state) else {
         return;
@@ -373,6 +542,19 @@ pub(crate) fn activate_from_state(st: &mut State, state: &str) {
             tls: conn.tls,
         });
         st.active = Some(conn.id);
+        // Restore the previously-selected database (if the snapshot carried one),
+        // so reopening a tab keeps its database — not just the connection default.
+        if let Some(database) = v.get("database").and_then(|d| d.as_str()) {
+            if !database.is_empty() {
+                if let Some(p) = st.active_profile.as_mut() {
+                    p.database = database.to_string();
+                }
+            }
+        }
+        // Fetch databases (then the active database's schemas/tables) for this
+        // instance so the editor's autocomplete is populated — the sidebar's
+        // copy lives in a different instance.
+        load_databases(st);
     }
     if let Some(sql) = v.get("sql").and_then(|s| s.as_str()) {
         if !sql.is_empty() {
@@ -523,45 +705,110 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                 _ => Err("query failed".into()),
             });
         }
-        Kind::Schemas => match (ok, err) {
+        Kind::QueryExplain => {
+            st.explain_loading = false;
+            st.explain = Some(match (ok, err) {
+                (Some(v), _) => Ok(decode_inner(v)),
+                (None, Some(m)) => Err(m),
+                _ => Err("query failed".into()),
+            });
+        }
+        Kind::Databases => match (ok, err) {
             (Some(v), _) => {
-                let names: Vec<String> = decode_inner(v)
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|x| x.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                st.schemas = names
-                    .into_iter()
-                    .map(|name| SchemaNode {
-                        name,
+                let names = decode_str_array(v);
+                st.databases = names
+                    .iter()
+                    .map(|name| DatabaseNode {
+                        name: name.clone(),
                         expanded: false,
-                        tables: None,
+                        schemas: None,
                     })
                     .collect();
                 st.schema_error = None;
                 st.error = None;
                 st.failed = None;
+                // Load the connection's configured database's schemas (then, in
+                // the Schemas handler, its tables — one at a time) so the SQL
+                // editor's autocomplete is populated. The tree stays collapsed:
+                // the user expands databases themselves. Other databases load
+                // lazily on expand. Browse-only: queries run against this database.
+                let default_db = st
+                    .active_profile
+                    .as_ref()
+                    .map(|p| p.database.clone())
+                    .unwrap_or_default();
+                if st.databases.iter().any(|d| d.name == default_db) {
+                    submit(
+                        &Request::ListSchemas {
+                            database: default_db.clone(),
+                        },
+                        Kind::Schemas {
+                            database: default_db,
+                        },
+                        st,
+                    );
+                }
             }
             (None, m) => {
-                // Listing schemas is our connection probe on select. On failure,
+                // Listing databases is our connection probe on select. On failure,
                 // surface it in the error modal and mark the connection as errored
                 // instead of leaving it active.
                 let msg = m.unwrap_or_else(|| "failed to connect".into());
                 st.failed = st.active.take();
                 st.active_profile = None;
-                st.schemas.clear();
+                st.databases.clear();
                 st.schema_error = Some(msg.clone());
                 st.error = Some(msg);
             }
         },
-        Kind::Tables { schema } => {
+        Kind::Schemas { database } => {
+            match (ok, err) {
+                (Some(v), _) => {
+                    let names = decode_str_array(v);
+                    if let Some(db) = st.databases.iter_mut().find(|d| d.name == database) {
+                        db.schemas = Some(
+                            names
+                                .iter()
+                                .map(|name| SchemaNode {
+                                    name: name.clone(),
+                                    expanded: false,
+                                    tables: None,
+                                })
+                                .collect(),
+                        );
+                    }
+                    st.schema_error = None;
+                    // For the active database, eagerly fetch tables so autocomplete
+                    // has table names without the user expanding the tree — but one
+                    // schema at a time (the Tables handler chains to the next), so we
+                    // never spawn a storm of concurrent query workers that would
+                    // block the UI. Other databases load tables lazily on expand.
+                    let is_default = st
+                        .active_profile
+                        .as_ref()
+                        .is_some_and(|p| p.database == database);
+                    if is_default {
+                        load_next_pending_tables(st, &database);
+                    }
+                }
+                (None, m) => {
+                    if let Some(m) = m {
+                        st.schema_error = Some(m);
+                    }
+                }
+            }
+        }
+        Kind::Tables { database, schema } => {
             let tables: Vec<TableInfo> = ok
                 .map(|v| serde_json::from_value(decode_inner(v)).unwrap_or_default())
                 .unwrap_or_default();
-            if let Some(node) = st.schemas.iter_mut().find(|s| s.name == schema) {
+            if let Some(node) = st
+                .databases
+                .iter_mut()
+                .find(|d| d.name == database)
+                .and_then(|d| d.schemas.as_mut())
+                .and_then(|ss| ss.iter_mut().find(|s| s.name == schema))
+            {
                 node.tables = Some(
                     tables
                         .into_iter()
@@ -577,15 +824,31 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
             if let Some(m) = err {
                 st.schema_error = Some(m);
             }
+            // Continue the sequential eager-load of the active database's tables
+            // (for autocomplete). `node.tables` was set above (even on error), so
+            // this advances to the next not-yet-loaded schema rather than looping.
+            let is_default = st
+                .active_profile
+                .as_ref()
+                .is_some_and(|p| p.database == database);
+            if is_default {
+                load_next_pending_tables(st, &database);
+            }
         }
-        Kind::Columns { schema, table } => {
+        Kind::Columns {
+            database,
+            schema,
+            table,
+        } => {
             let cols: Vec<ColumnInfo> = ok
                 .map(|v| serde_json::from_value(decode_inner(v)).unwrap_or_default())
                 .unwrap_or_default();
             if let Some(node) = st
-                .schemas
+                .databases
                 .iter_mut()
-                .find(|s| s.name == schema)
+                .find(|d| d.name == database)
+                .and_then(|d| d.schemas.as_mut())
+                .and_then(|ss| ss.iter_mut().find(|s| s.name == schema))
                 .and_then(|s| s.tables.as_mut())
                 .and_then(|ts| ts.iter_mut().find(|t| t.name == table))
             {
@@ -593,6 +856,19 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
             }
         }
     }
+}
+
+/// Decode a host `ok` payload that wraps a JSON array of strings (database or
+/// schema names) into a `Vec<String>`.
+fn decode_str_array(v: &Value) -> Vec<String> {
+    decode_inner(v)
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The host wraps `query()`'s String return as `{"ok": "<json-string>"}`; unwrap

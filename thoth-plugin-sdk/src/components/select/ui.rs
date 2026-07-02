@@ -14,8 +14,8 @@ impl Select {
         let colors = ThemeColors::from_ctx(ui.ctx());
 
         let (trigger_h, font_size) = match self.size {
-            SelectSize::Small => (22.0_f32, 10.0_f32),
-            SelectSize::Default => (26.0_f32, 11.0_f32),
+            SelectSize::Small => (24.0_f32, 10.0_f32),
+            SelectSize::Default => (28.0_f32, 11.0_f32),
         };
 
         let id = egui::Id::new(&self.id);

@@ -10,6 +10,7 @@ pub(crate) mod history;
 pub(crate) mod schema;
 pub(crate) mod sidebar;
 pub(crate) mod widgets;
+pub(crate) mod results;
 
 use thoth_plugin_sdk::components::Column;
 use thoth_plugin_sdk::render_node::RenderNode;

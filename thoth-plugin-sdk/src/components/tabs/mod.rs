@@ -6,6 +6,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::render_node::RenderNode;
 
+/// Size preset for a [`Tabs`] header strip, mirroring button sizing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TabsSize {
+    /// 40px strip, 13pt labels — the default.
+    #[default]
+    Default,
+    /// Compact 30px strip, 11pt labels (matches [`ButtonSize::Small`]).
+    ///
+    /// [`ButtonSize::Small`]: crate::components::ButtonSize::Small
+    Small,
+}
+
 /// A right-aligned icon action on a [`Tabs`] header line.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
@@ -43,11 +56,21 @@ pub struct Tabs {
     #[builder(default)]
     #[serde(default)]
     pub headers: Vec<String>,
-    /// Optional per-tab icon glyphs (parallel to `headers`). When a tab's glyph
-    /// is set, it renders as an icon-only tab with the header text as tooltip.
+    /// Optional per-tab icon glyphs (parallel to `headers`). A tab shows its
+    /// icon *and* label when both are given; an icon with an empty header
+    /// renders icon-only. See also [`icon_only`](Tabs::icon_only).
     #[builder(default)]
     #[serde(default)]
     pub icons: Vec<String>,
+    /// Force icon-only tabs (labels shown as tooltips) even when headers are set.
+    /// Tabs without an icon still fall back to their label. Defaults to `false`.
+    #[builder(default)]
+    #[serde(default, rename = "icon-only")]
+    pub icon_only: bool,
+    /// Header size preset. Defaults to [`TabsSize::Default`].
+    #[builder(default)]
+    #[serde(default)]
+    pub size: TabsSize,
     /// Right-aligned icon actions on the header line.
     #[builder(default)]
     #[serde(default)]

@@ -64,7 +64,21 @@ impl List {
     /// Render the list. Returns the user's action this frame, if any.
     pub fn show(&self, ui: &mut egui::Ui) -> Option<ListEvent> {
         let colors = ThemeColors::from_ctx(ui.ctx());
+        if self.framed {
+            egui::Frame::new()
+                .fill(colors.bg_panel)
+                .stroke(egui::Stroke::new(1.0, colors.surface))
+                .corner_radius(6)
+                .inner_margin(egui::Margin::same(4))
+                .outer_margin(egui::Margin::same(8))
+                .show(ui, |ui| self.render(ui, colors))
+                .inner
+        } else {
+            self.render(ui, colors)
+        }
+    }
 
+    fn render(&self, ui: &mut egui::Ui, colors: ThemeColors) -> Option<ListEvent> {
         if self.items.is_empty() {
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
@@ -301,15 +315,13 @@ impl List {
                     *postfix_clicked = true;
                 }
             }
-            Some(ListItemPostfix::ProgressBar(pct)) => {
+            Some(ListItemPostfix::Progress(bar)) => {
                 ui.add_space(8.0);
-                let (track, _) = ui.allocate_exact_size(egui::vec2(80.0, 4.0), Sense::hover());
-                ui.painter().rect_filled(track, 2.0, colors.surface);
-                let fill = egui::Rect::from_min_size(
-                    track.min,
-                    egui::vec2(track.width() * (*pct as f32 / 100.0), 4.0),
-                );
-                ui.painter().rect_filled(fill, 2.0, colors.info);
+                // Keep list bars compact; the Progress component fills the width
+                // it's given and carries its own colour/height.
+                ui.allocate_ui(egui::vec2(80.0, 6.0), |ui| {
+                    ui.add(bar.clone());
+                });
             }
             None => {}
         }

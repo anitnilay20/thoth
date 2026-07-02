@@ -19,10 +19,14 @@ pub struct SelectOption {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SelectSize {
-    /// 26px trigger, 11pt text — the default.
+    /// 28px trigger, 11pt text — the default (matches [`ButtonSize::Medium`]).
+    ///
+    /// [`ButtonSize::Medium`]: crate::components::ButtonSize::Medium
     #[default]
     Default,
-    /// 22px trigger, 10pt text.
+    /// 24px trigger, 10pt text (matches [`ButtonSize::Small`]).
+    ///
+    /// [`ButtonSize::Small`]: crate::components::ButtonSize::Small
     Small,
 }
 

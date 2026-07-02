@@ -1,11 +1,23 @@
 //! The schema-browser tree (lazy schema → table → columns), built from the
 //! shared `data-row` component so it matches the file-viewer tree styling.
 
-use thoth_plugin_sdk::components::{Colored, Column, Row, Typography, TypographyVariant};
+use thoth_plugin_sdk::components::{Colored, Column, Row, Spinner, Typography, TypographyVariant};
 use thoth_plugin_sdk::render_node::RenderNode;
 
-use crate::state::{SchemaNode, State};
+use crate::state::{DatabaseNode, SchemaNode, State};
 use crate::ui::widgets::{data_row, muted};
+
+/// A small inline spinner row, shown while a tree level is still loading.
+fn loading_row() -> RenderNode {
+    RenderNode::Row(
+        Row::builder()
+            .padding(6.0)
+            .children(vec![RenderNode::Spinner(
+                Spinner::builder().size(12.0).build(),
+            )])
+            .build(),
+    )
+}
 use crate::{ICON_CIRCLE, ICON_DATABASE, ICON_EYE, ICON_FOLDER, ICON_KEY, ICON_TABLE};
 
 pub(crate) fn schema_panel(st: &State) -> RenderNode {
@@ -13,7 +25,7 @@ pub(crate) fn schema_panel(st: &State) -> RenderNode {
         .active
         .as_deref()
         .and_then(|id| st.connections.iter().find(|c| c.id == id));
-    let Some(conn) = active else {
+    if active.is_none() {
         return RenderNode::Row(
             Row::builder()
                 .padding(8.0)
@@ -22,12 +34,7 @@ pub(crate) fn schema_panel(st: &State) -> RenderNode {
         );
     };
 
-    let mut nodes: Vec<RenderNode> = vec![RenderNode::Row(
-        Row::builder()
-            .padding(4.0)
-            .children(vec![muted(&conn.database)])
-            .build(),
-    )];
+    let mut nodes: Vec<RenderNode> = Vec::new();
 
     if let Some(e) = &st.schema_error {
         nodes.push(RenderNode::Colored(
@@ -42,66 +49,91 @@ pub(crate) fn schema_panel(st: &State) -> RenderNode {
                 .build(),
         ));
     }
-    if st.schemas.is_empty() && st.schema_error.is_none() {
-        nodes.push(muted("Loading schemas…"));
+    if st.databases.is_empty() && st.schema_error.is_none() {
+        nodes.push(loading_row());
     }
 
-    for (i, sch) in st.schemas.iter().enumerate() {
-        let count = sch.tables.as_ref().map(|t| t.len().to_string());
+    for (i, db) in st.databases.iter().enumerate() {
+        let count = db.schemas.as_ref().map(|s| s.len().to_string());
         nodes.push(data_row(
-            &format!("sch:{i}"),
-            &sch.name,
+            &format!("db:{i}"),
+            &db.name,
             0,
-            Some(sch.expanded),
-            Some((ICON_FOLDER, "muted")),
+            Some(db.expanded),
+            Some((ICON_DATABASE, "muted")),
             count.as_deref(),
         ));
-        if sch.expanded {
-            push_tables(&mut nodes, i, sch);
+        if db.expanded {
+            push_schemas(&mut nodes, i, db);
         }
     }
 
     RenderNode::Column(Column::builder().gap(2.0).children(nodes).build())
 }
 
-fn push_tables(nodes: &mut Vec<RenderNode>, i: usize, sch: &SchemaNode) {
+fn push_schemas(nodes: &mut Vec<RenderNode>, i: usize, db: &DatabaseNode) {
+    let Some(schemas) = &db.schemas else {
+        nodes.push(loading_row());
+        return;
+    };
+    if schemas.is_empty() {
+        nodes.push(muted("(no schemas)"));
+        return;
+    }
+    for (j, sch) in schemas.iter().enumerate() {
+        let count = sch.tables.as_ref().map(|t| t.len().to_string());
+        nodes.push(data_row(
+            &format!("sch:{i}:{j}"),
+            &sch.name,
+            1,
+            Some(sch.expanded),
+            Some((ICON_FOLDER, "muted")),
+            count.as_deref(),
+        ));
+        if sch.expanded {
+            push_tables(nodes, i, j, sch);
+        }
+    }
+}
+
+fn push_tables(nodes: &mut Vec<RenderNode>, i: usize, j: usize, sch: &SchemaNode) {
     let Some(tables) = &sch.tables else {
-        nodes.push(muted("Loading…"));
+        nodes.push(loading_row());
         return;
     };
     if tables.is_empty() {
         nodes.push(muted("(no tables)"));
         return;
     }
-    for (j, tbl) in tables.iter().enumerate() {
+    for (k, tbl) in tables.iter().enumerate() {
         let icon = match tbl.kind.as_str() {
             "view" => (ICON_EYE, "secondary"),
             "matview" => (ICON_DATABASE, "number"),
             _ => (ICON_TABLE, "string"),
         };
         nodes.push(data_row(
-            &format!("tbl:{i}:{j}"),
+            &format!("tbl:{i}:{j}:{k}"),
             &tbl.name,
-            1,
+            2,
             Some(tbl.expanded),
             Some(icon),
             None,
         ));
         if tbl.expanded {
             match &tbl.columns {
-                None => nodes.push(muted("Loading…")),
+                None => nodes.push(loading_row()),
                 Some(cols) if cols.is_empty() => nodes.push(muted("(no columns)")),
                 Some(cols) => {
-                    for (k, c) in cols.iter().enumerate() {
+                    for (l, c) in cols.iter().enumerate() {
                         let marker = if c.primary_key {
                             (ICON_KEY, "warning")
                         } else {
                             (ICON_CIRCLE, "muted")
                         };
                         nodes.push(data_row(
-                            &format!("col:{i}:{j}:{k}"),
+                            &format!("col:{i}:{j}:{k}:{l}"),
                             &c.name,
-                            2,
+                            3,
                             None,
                             Some(marker),
                             Some(&c.data_type),

@@ -932,13 +932,19 @@ impl ThothApp {
             let Some(pane) = tab.active_plugin_pane.as_ref() else {
                 continue;
             };
-            for (request_id, outcome) in pane.loader.drain_http_results() {
-                http_dispatch.push((*id, build_http_response_event(request_id, outcome)));
-            }
-            // Spawn workers for newly-submitted queries, then deliver completed ones.
+            // Spawn workers for newly-submitted queries (always — just enqueues).
             pane.loader.pump_queries();
-            for (request_id, result) in pane.loader.drain_query_results() {
-                query_dispatch.push((*id, build_query_result_event(request_id, result)));
+            // Fold async results only when no query worker holds the Store mutex:
+            // dispatching calls `handle_event`, which takes that mutex, so draining
+            // while busy would block the UI thread. Results stay queued (and
+            // `has_pending_*` keeps a repaint scheduled) until the worker frees it.
+            if !pane.loader.busy() {
+                for (request_id, outcome) in pane.loader.drain_http_results() {
+                    http_dispatch.push((*id, build_http_response_event(request_id, outcome)));
+                }
+                for (request_id, result) in pane.loader.drain_query_results() {
+                    query_dispatch.push((*id, build_query_result_event(request_id, result)));
+                }
             }
             for (request_id, req) in pane.loader.drain_retry_requests() {
                 retry_dispatch.push((*id, request_id, req));
@@ -954,12 +960,16 @@ impl ThothApp {
         let mut sidebar_query: Vec<UiEvent> = Vec::new();
         let mut sidebar_retry: Vec<(String, PluginHttpRequest)> = Vec::new();
         if let Some(rt) = self.sidebar_plugin.as_ref() {
-            for (request_id, outcome) in rt.loader.drain_http_results() {
-                sidebar_http.push(build_http_response_event(request_id, outcome));
-            }
             rt.loader.pump_queries();
-            for (request_id, result) in rt.loader.drain_query_results() {
-                sidebar_query.push(build_query_result_event(request_id, result));
+            // Same as the tab panes: defer folding async results while a query
+            // worker owns the Store, so the sidebar never blocks the UI thread.
+            if !rt.loader.busy() {
+                for (request_id, outcome) in rt.loader.drain_http_results() {
+                    sidebar_http.push(build_http_response_event(request_id, outcome));
+                }
+                for (request_id, result) in rt.loader.drain_query_results() {
+                    sidebar_query.push(build_query_result_event(request_id, result));
+                }
             }
             // Consent-approved retries must be replayed here too, or a sidebar
             // plugin's submit()/query stalls after the user approves the host.

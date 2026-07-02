@@ -14,6 +14,7 @@ impl Tabs {
     /// label) when the active tab changes, and a `"click"` event for each action
     /// (id = the action id). The selected index is kept in egui memory.
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
+        use super::TabsSize;
         use crate::components::{Button, ButtonColor, ButtonSize, ButtonType};
         use crate::theme::phosphor_font_id;
 
@@ -21,6 +22,13 @@ impl Tabs {
         let state_id = egui::Id::new(("sdk_tabs", &self.id));
         let prev: usize = ui.ctx().data(|d| d.get_temp(state_id).unwrap_or(0));
         let mut selected = prev.min(self.headers.len().saturating_sub(1));
+
+        // Size metrics: (strip height, text-button size, icon-only glyph px,
+        // icon-only cell). Small matches the compact button/select sizing.
+        let (strip_h, btn_size, icon_px, icon_cell) = match self.size {
+            TabsSize::Small => (30.0, ButtonSize::Small, 15.0, egui::vec2(28.0, 24.0)),
+            TabsSize::Default => (40.0, ButtonSize::Medium, 18.0, egui::vec2(34.0, 30.0)),
+        };
 
         let content_gap = self.content_gap.unwrap_or(10.0).round() as i8;
         egui::Frame::new()
@@ -39,7 +47,7 @@ impl Tabs {
             })
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.set_height(40.0);
+                ui.set_height(strip_h);
                 let frame_bottom = ui.max_rect().max.y;
 
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
@@ -49,11 +57,14 @@ impl Tabs {
                         let is_active = i == selected;
                         let icon = self.icons.get(i).filter(|s| !s.is_empty());
 
-                        // Icon-only tab (label as tooltip): a 34×30 frameless
-                        // button with an 18px glyph; otherwise a text button.
-                        let resp = if let Some(glyph) = icon {
-                            let (rect, resp) = ui
-                                .allocate_exact_size(egui::vec2(34.0, 30.0), egui::Sense::click());
+                        // Icon-only (label as tooltip) when `icon_only` is set or
+                        // the header is empty — a frameless cell with a glyph.
+                        // Otherwise a text button, with the icon as a leading glyph.
+                        let resp = if let Some(glyph) =
+                            icon.filter(|_| self.icon_only || header.is_empty())
+                        {
+                            let (rect, resp) =
+                                ui.allocate_exact_size(icon_cell, egui::Sense::click());
                             if resp.hovered() {
                                 let hover_bg = egui::Color32::from_rgba_premultiplied(
                                     colors.surface_raised.r(),
@@ -74,11 +85,16 @@ impl Tabs {
                                     rect.center(),
                                     egui::Align2::CENTER_CENTER,
                                     glyph,
-                                    phosphor_font_id(18.0),
+                                    phosphor_font_id(icon_px),
                                     icon_color,
                                 );
                             }
-                            let resp = resp.on_hover_text(header.as_str());
+                            // Header as tooltip (skip when empty).
+                            let resp = if header.is_empty() {
+                                resp
+                            } else {
+                                resp.on_hover_text(header.as_str())
+                            };
                             if resp.clicked() && !is_active {
                                 selected = i;
                             }
@@ -87,13 +103,14 @@ impl Tabs {
                             let resp = ui.add(
                                 Button::builder()
                                     .label(header.as_str())
+                                    .maybe_icon(icon.cloned())
                                     .button_type(ButtonType::Text)
                                     .color(if is_active {
                                         ButtonColor::Primary
                                     } else {
                                         ButtonColor::Default
                                     })
-                                    .button_size(ButtonSize::Medium)
+                                    .button_size(btn_size)
                                     .build(),
                             );
                             if resp.clicked() && !is_active {

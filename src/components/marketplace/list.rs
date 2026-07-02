@@ -2,7 +2,7 @@ use eframe::egui;
 
 use thoth_plugin_sdk::components::{
     Button, ButtonColor, ButtonSize, IconButton, Input, List, ListEvent, ListItem, ListItemPostfix,
-    ListItemPrefix, Select, SelectOption, SelectSize, Separator, SidebarHeader,
+    ListItemPrefix, Progress, Select, SelectOption, SelectSize, Separator, SidebarHeader,
 };
 use thoth_plugin_sdk::theme::color_to_hex;
 
@@ -324,7 +324,9 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                         .icon(egui_phosphor::regular::ARROW_CLOCKWISE)
                         .build(),
                 )),
-                InstallState::Installing(pct) => Some(ListItemPostfix::ProgressBar(*pct)),
+                InstallState::Installing(pct) => Some(ListItemPostfix::Progress(
+                    Progress::builder().value(*pct as f64 / 100.0).build(),
+                )),
                 InstallState::Update => Some(ListItemPostfix::Button(
                     Button::builder()
                         .label("Update")

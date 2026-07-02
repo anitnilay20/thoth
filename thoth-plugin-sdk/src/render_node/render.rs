@@ -63,7 +63,7 @@ impl RenderNode {
                 ui.add(l.clone());
             }
             RenderNode::Progress(p) => {
-                ui.add(*p);
+                ui.add(p.clone());
             }
             RenderNode::Spinner(s) => {
                 ui.add(*s);
@@ -144,8 +144,12 @@ impl RenderNode {
                 }
             }
             RenderNode::CodeEditor(c) => {
-                if c.show(ui) {
+                let out = c.show(ui);
+                if out.changed {
                     emit(events, &c.id, "change", c.value.clone());
+                }
+                if out.submitted {
+                    emit(events, &c.id, "submit", c.value.clone());
                 }
             }
             RenderNode::List(l) => {

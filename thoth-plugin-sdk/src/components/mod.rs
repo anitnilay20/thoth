@@ -49,7 +49,7 @@ pub use card::CardEvent;
 pub use card::{Card, CardAction, CardIcon};
 pub use checkbox::Checkbox;
 pub use code::Code;
-pub use code_editor::CodeEditor;
+pub use code_editor::{CodeEditor, CodeEditorOutput, CustomSyntax};
 #[cfg(feature = "egui")]
 pub use data_row::DataRowOutput;
 pub use data_row::{DataRow, DataRowIcon, RowHighlights};
@@ -78,6 +78,6 @@ pub use sidebar_header::{SidebarHeader, SidebarHeaderAction};
 pub use slider::Slider;
 pub use spinner::Spinner;
 pub use table_view::TableView;
-pub use tabs::{TabAction, Tabs};
+pub use tabs::{TabAction, Tabs, TabsSize};
 pub use toggle_switch::ToggleSwitch;
 pub use typography::{Typography, TypographyVariant};
