@@ -4,20 +4,8 @@ mod ui;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
+use crate::components::Size;
 use crate::render_node::RenderNode;
-
-/// Size preset for a [`Tabs`] header strip, mirroring button sizing.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum TabsSize {
-    /// 40px strip, 13pt labels — the default.
-    #[default]
-    Default,
-    /// Compact 30px strip, 11pt labels (matches [`ButtonSize::Small`]).
-    ///
-    /// [`ButtonSize::Small`]: crate::components::ButtonSize::Small
-    Small,
-}
 
 /// A right-aligned icon action on a [`Tabs`] header line.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
@@ -67,10 +55,10 @@ pub struct Tabs {
     #[builder(default)]
     #[serde(default, rename = "icon-only")]
     pub icon_only: bool,
-    /// Header size preset. Defaults to [`TabsSize::Default`].
+    /// Header size preset. Defaults to [`Size::Medium`].
     #[builder(default)]
     #[serde(default)]
-    pub size: TabsSize,
+    pub size: Size,
     /// Right-aligned icon actions on the header line.
     #[builder(default)]
     #[serde(default)]

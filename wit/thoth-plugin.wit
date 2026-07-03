@@ -344,6 +344,39 @@ interface secure-storage {
 
 
 // ---------------------------------------------------------------------------
+// file-dialog — host-provided native open/save file pickers with I/O.
+//
+// The host shows the OS file picker and performs the read/write on the chosen
+// path, so a plugin never touches the filesystem directly — it only ever sees
+// the contents of a file the user explicitly picked, and only writes to a path
+// the user explicitly chose. Dialogs are modal and run synchronously on the
+// calling thread, so call them from handle-event (the UI thread), not a query.
+// ---------------------------------------------------------------------------
+
+interface file-dialog {
+    use types.{plugin-error};
+
+    /// A file the user picked in an open dialog.
+    record opened-file {
+        /// Absolute path of the chosen file.
+        path: string,
+        /// The file's text contents.
+        contents: string,
+    }
+
+    /// Show a native open-file picker and read the chosen file. `extensions`
+    /// filters by suffix (e.g. ["sql"]); an empty list allows any file. Returns
+    /// none when the user cancels.
+    open-file: func(title: string, extensions: list<string>) -> result<option<opened-file>, plugin-error>;
+
+    /// Show a native save-file picker seeded with `default-name`, then write
+    /// `contents` to the chosen path. `extensions` filters by suffix; an empty
+    /// list allows any file. Returns the saved path, or none when the user cancels.
+    save-file: func(title: string, default-name: string, extensions: list<string>, contents: string) -> result<option<string>, plugin-error>;
+}
+
+
+// ---------------------------------------------------------------------------
 // db-runtime — host-provided async executor for blocking database queries.
 //
 // A DB driver in the plugin blocks on tcp-client reads while a query runs. If
@@ -709,12 +742,20 @@ world ui-component-plugin {
     export tab-host;
 }
 
+/// Grants a plugin native open/save file dialogs, with the host mediating the
+/// read/write. A capability world composed into others via `include` — e.g. a
+/// data-source plugin that saves and opens `.sql` files.
+world file-access {
+    import file-dialog;
+}
+
 /// A plugin that connects Thoth to an external data source and draws its own
 /// connection / query UI panel via the ui-component interface.
 /// The host provides the http-client import so plugins can make HTTP calls
 /// without needing wasi:http or wasm32-wasip2.
 world data-source-plugin {
     include base-plugin;
+    include file-access;
     import http-client;
     import plugin-storage;
     import ui-tabs;

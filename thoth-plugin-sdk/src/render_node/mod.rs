@@ -510,15 +510,9 @@ mod wire_format_tests {
     }
 
     #[test]
-    fn select_size_serialises_kebab_case() {
-        assert_eq!(
-            serde_json::to_value(SelectSize::Default).unwrap(),
-            json!("default")
-        );
-        assert_eq!(
-            serde_json::to_value(SelectSize::Small).unwrap(),
-            json!("small")
-        );
+    fn size_serialises_pascal_case() {
+        assert_eq!(serde_json::to_value(Size::Medium).unwrap(), json!("Medium"));
+        assert_eq!(serde_json::to_value(Size::Small).unwrap(), json!("Small"));
     }
 
     #[test]

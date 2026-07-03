@@ -170,7 +170,7 @@ impl StatefulComponent for Search {
                                     .icon(egui_phosphor::regular::X)
                                     .frame(false)
                                     .tooltip("Clear search history")
-                                    .size(16.0)
+                                    .size_px(16.0)
                                     .build(),
                             )
                             .clicked();

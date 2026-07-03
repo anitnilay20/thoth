@@ -4,6 +4,7 @@ mod db;
 mod events;
 mod pg;
 mod shim;
+mod sql;
 mod state;
 mod ui;
 mod constants;
@@ -41,6 +42,8 @@ pub(crate) const ICON_TABLE: &str = "\u{E476}";
 pub(crate) const ICON_EYE: &str = "\u{E220}";
 pub(crate) const ICON_KEY: &str = "\u{E2D6}";
 pub(crate) const ICON_CIRCLE: &str = "\u{E18A}";
+pub(crate) const ICON_FLOPPY_DISK: &str = "\u{E248}"; // save query to a .sql file
+pub(crate) const ICON_FOLDER_OPEN: &str = "\u{E256}"; // open a .sql file
 
 #[derive(PluginMeta)]
 #[plugin(

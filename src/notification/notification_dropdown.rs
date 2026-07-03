@@ -167,7 +167,7 @@ impl NotificationDropdown {
                                             .icon(egui_phosphor::regular::X)
                                             .tooltip("Close")
                                             .frame(false)
-                                            .size(20.0)
+                                            .size_px(20.0)
                                             .icon_size(13.0)
                                             .build(),
                                     )
@@ -182,7 +182,7 @@ impl NotificationDropdown {
                                             .icon(egui_phosphor::regular::CHECKS)
                                             .tooltip("Mark all as read")
                                             .frame(false)
-                                            .size(20.0)
+                                            .size_px(20.0)
                                             .icon_size(13.0)
                                             .disabled(unread_count == 0)
                                             .build(),
@@ -359,7 +359,7 @@ impl NotificationDropdown {
                                                         .icon(egui_phosphor::regular::X)
                                                         .tooltip("Dismiss")
                                                         .frame(false)
-                                                        .size(18.0)
+                                                        .size_px(18.0)
                                                         .icon_size(11.0)
                                                         .build(),
                                                 ))

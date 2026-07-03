@@ -117,7 +117,7 @@ impl PluginsTab {
                                 .icon(egui_phosphor::regular::ARROW_LEFT)
                                 .frame(false)
                                 .tooltip("Go Back")
-                                .size(20.0)
+                                .size_px(20.0)
                                 .build(),
                         );
                         ui.heading("Settings for plugin: ".to_string() + &plugin.name);

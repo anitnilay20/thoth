@@ -15,28 +15,9 @@ pub enum ButtonType {
     Text,
 }
 
-/// Preset size of a [`Button`], controlling font size and height.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-pub enum ButtonSize {
-    /// Compact: 11pt text, 24px tall.
-    Small,
-    /// Default: 13pt text, 28px tall.
-    #[default]
-    Medium,
-    /// Prominent: 15pt text, 32px tall.
-    Large,
-}
-
-impl ButtonSize {
-    /// Returns this size's `(font_size, height)` in points/pixels.
-    pub fn metrics(self) -> (f32, f32) {
-        match self {
-            ButtonSize::Small => (11.0, 24.0),
-            ButtonSize::Medium => (13.0, 28.0),
-            ButtonSize::Large => (15.0, 32.0),
-        }
-    }
-}
+/// Preset size of a [`Button`] — an alias of the shared [`Size`](crate::components::Size)
+/// so buttons share the same sizing prop as selects, tabs, and icon buttons.
+pub use crate::components::size::Size as ButtonSize;
 
 /// Semantic colour role of a [`Button`].
 ///

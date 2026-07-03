@@ -1,15 +1,15 @@
 //! The SQL editor tab: header, code editor, Run, and the typed results grid.
 
 use thoth_plugin_sdk::components::{
-    Button, ButtonColor, ButtonSize, ButtonType, CodeEditor, Column, CustomSyntax, Row,
-    Scroll, Select, SelectOption, SelectSize, Separator,
+    Button, ButtonColor, ButtonSize, ButtonType, CodeEditor, Column, CustomSyntax, IconButton, Row,
+    Scroll, Select, SelectOption, Separator, Size,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
 use crate::constants::{KEYWORDS, SPECIAL, TYPES};
 use crate::state::State;
 use crate::ui::results::results_view;
-use crate::ICON_PLAY;
+use crate::{ICON_FLOPPY_DISK, ICON_FOLDER_OPEN, ICON_PLAY};
 
 pub(crate) fn editor_view(st: &State) -> RenderNode {
     // The database this editor queries against — also what autocomplete is
@@ -29,6 +29,12 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
         .filter_map(|s| s.tables.as_ref())
         .flatten()
         .map(|t| t.name.clone())
+        .collect();
+
+    // A ▶ run-marker at the start of each top-level statement.
+    let run_markers: Vec<usize> = crate::sql::statements(&st.sql)
+        .into_iter()
+        .map(|s| s.start)
         .collect();
 
     RenderNode::Column(
@@ -58,7 +64,7 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                             })
                                             .collect::<Vec<_>>(),
                                     )
-                                    .size(SelectSize::Small)
+                                    .size(Size::Small)
                                     .width(180.0)
                                     .build(),
                             ),
@@ -79,13 +85,11 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                             })
                                             .collect::<Vec<_>>(),
                                     )
-                                    .size(SelectSize::Small)
+                                    .size(Size::Small)
                                     .width(180.0)
                                     .build(),
                             ),
                             RenderNode::Separator(Separator::plain()),
-                            // Small size so the Run button matches the connection
-                            // select's height.
                             RenderNode::Button(
                                 Button::builder()
                                     .id("run")
@@ -95,6 +99,25 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                     .button_size(ButtonSize::Small)
                                     .icon(ICON_PLAY)
                                     .enabled(!st.loading)
+                                    .build(),
+                            ),
+                            RenderNode::Separator(Separator::plain()),
+                            RenderNode::IconButton(
+                                IconButton::builder()
+                                    .id("save-query")
+                                    .icon(ICON_FLOPPY_DISK)
+                                    .frame(true)
+                                    .size(Size::Small)
+                                    .tooltip("Save query as .sql")
+                                    .build(),
+                            ),
+                            RenderNode::IconButton(
+                                IconButton::builder()
+                                    .id("open-query")
+                                    .icon(ICON_FOLDER_OPEN)
+                                    .frame(true)
+                                    .size(Size::Small)
+                                    .tooltip("Open a .sql file")
                                     .build(),
                             ),
                         ])
@@ -124,6 +147,7 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                 )
                                 .build(),
                         )
+                        .run_markers(run_markers)
                         .bordered(false)
                         .build(),
                 ),

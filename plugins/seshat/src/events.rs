@@ -4,11 +4,12 @@
 use serde_json::Value;
 
 use crate::bindings::exports::thoth::plugin::ui_component::UiEvent;
-use crate::bindings::thoth::plugin::{secure_storage, ui_tabs};
+use crate::bindings::thoth::plugin::{file_dialog, secure_storage, ui_tabs};
 use crate::db::{self, ColumnInfo, TableInfo};
+use crate::sql;
 use crate::state::{
     default_port, engine_from_value, make_id, pw_key, record_history, save_connections, submit,
-    Connection, DatabaseNode, Form, Kind, Request, SchemaNode, State, TableNode,
+    Connection, DatabaseNode, Form, Kind, Request, ResultsTab, SchemaNode, State, TableNode,
 };
 
 /// Parse a widget value that may be a JSON-encoded string or a bare string.
@@ -172,49 +173,125 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         // Editor-tab database switcher: re-point this tab's queries + autocomplete
         // at another database in the current connection.
         "switch-database" => select_database(st, &parse_str(&event.value)),
-        // Editor text changes carry the new SQL; a "submit" event (⌘/Ctrl+Enter
-        // in the editor) also runs the query.
-        "sql" => {
-            st.sql = parse_str(&event.value);
-            if event.kind == "submit" {
-                run_query(st);
+        // Editor events: "change" carries the new SQL; "run" is a keyboard
+        // shortcut (⌘Enter = statement at caret / selection, ⌘⇧Enter = all);
+        // "run-marker" is a ▶ gutter click carrying a statement's char offset.
+        "sql" => match event.kind.as_str() {
+            "change" => st.sql = parse_str(&event.value),
+            "run" => run_editor(st, &event.value),
+            "run-marker" => {
+                if let Ok(offset) = event.value.parse::<usize>() {
+                    if let Some(text) = sql::statement_at(&st.sql, offset) {
+                        run_query_text(st, text);
+                    }
+                }
+            }
+            _ => {}
+        },
+        // Toolbar Run button: run the whole script.
+        "run" => run_query(st),
+        // Results/Explain tab switch. Track the active tab so a later run knows
+        // whether to refresh Explain; opening Explain lazily runs EXPLAIN ANALYZE
+        // for the last-run query (it executes the query, so only on demand).
+        "query-output" if event.kind == "change" => {
+            if parse_str(&event.value) == "Explain" {
+                st.results_tab = ResultsTab::Explain;
+                load_explain(st);
+            } else {
+                st.results_tab = ResultsTab::Results;
             }
         }
-        "run" => run_query(st),
-        // Results/Explain tab switch: opening Explain lazily runs EXPLAIN ANALYZE
-        // for the current SQL (it executes the query, so only on demand).
-        "query-output" if event.kind == "change" && parse_str(&event.value) == "Explain" => {
-            load_explain(st)
-        }
+        // Save the current SQL to a .sql file the user picks (native dialog).
+        "save-query" => save_query(st),
+        // Load a .sql file the user picks into the editor.
+        "open-query" => open_query(st),
         _ => {}
     }
 }
 
-/// Run the current editor SQL against the active connection (no-op while a query
-/// is already in flight). Shared by the Run button and the ⌘/Ctrl+Enter submit.
+/// Save the editor's SQL to a `.sql` file via the host's native save dialog.
+fn save_query(st: &mut State) {
+    match file_dialog::save_file("Save query", "query.sql", &["sql".to_string()], &st.sql) {
+        Ok(_) => {} // Ok(Some(path)) saved, Ok(None) cancelled — nothing to update.
+        Err(e) => st.error = Some(format!("Couldn't save the query: {}", e.message)),
+    }
+}
+
+/// Open a `.sql` file via the host's native open dialog into the editor.
+fn open_query(st: &mut State) {
+    match file_dialog::open_file("Open SQL file", &["sql".to_string()]) {
+        Ok(Some(file)) => {
+            st.sql = file.contents;
+            // The plan no longer matches the loaded SQL.
+            st.explain = None;
+            st.explain_for = None;
+        }
+        Ok(None) => {} // cancelled
+        Err(e) => st.error = Some(format!("Couldn't open the file: {}", e.message)),
+    }
+}
+
+/// Run the whole editor script against the active connection. The Run button.
 fn run_query(st: &mut State) {
-    if st.loading {
+    let sql = st.sql.clone();
+    run_query_text(st, sql);
+}
+
+/// Handle an editor "run" shortcut: ⌘⇧Enter runs everything; otherwise run the
+/// selection if there is one, else the statement under the caret.
+fn run_editor(st: &mut State, value: &str) {
+    let v: Value = serde_json::from_str(value).unwrap_or_default();
+    if v.get("all").and_then(|b| b.as_bool()).unwrap_or(false) {
+        run_query(st);
+        return;
+    }
+    if let Some(sel) = v.get("selection").and_then(|s| s.as_array()) {
+        if let [a, b] = &sel[..] {
+            let (a, b) = (a.as_u64().unwrap_or(0) as usize, b.as_u64().unwrap_or(0) as usize);
+            let text = sql::slice(&st.sql, a, b);
+            if !text.is_empty() {
+                run_query_text(st, text);
+                return;
+            }
+        }
+    }
+    let caret = v.get("caret").and_then(|c| c.as_u64()).unwrap_or(0) as usize;
+    if let Some(text) = sql::statement_at(&st.sql, caret) {
+        run_query_text(st, text);
+    }
+}
+
+/// Run a specific SQL string against the active connection (no-op while a query
+/// is already in flight). Records history and invalidates the cached plan.
+fn run_query_text(st: &mut State, sql: String) {
+    if st.loading || sql.trim().is_empty() {
         return;
     }
     st.loading = true;
     st.result = None;
-    // Invalidate any previous plan; it's re-run lazily when the user opens the
-    // Explain tab (EXPLAIN ANALYZE executes the query, so we don't run it here).
+    st.last_run_sql = Some(sql.clone());
+    // Invalidate any previous plan. If the Explain tab is showing, refresh it now
+    // for this query (below); otherwise it's re-run lazily on tab open.
     st.explain = None;
     st.explain_for = None;
     st.explain_loading = false;
-    let sql = st.sql.clone();
     if let Some(id) = st.active.clone() {
         record_history(&id, &sql);
     }
     submit(&Request::Query { sql }, Kind::Query, st);
+    if st.results_tab == ResultsTab::Explain {
+        load_explain(st);
+    }
 }
 
-/// Lazily run `EXPLAIN ANALYZE` for the current editor SQL — triggered when the
-/// user opens the Explain tab. Cached per-SQL so re-opening the tab doesn't
-/// re-execute unless the query changed. Engine-specific via [`Engine::explain_sql`].
+/// Lazily run `EXPLAIN ANALYZE` for the **last-run** query — triggered when the
+/// user opens the Explain tab, or runs a query while it's already open. Cached
+/// per-SQL so it only re-executes when the last-run query changed. No-op until a
+/// query has actually been run. Engine-specific via [`Engine::explain_sql`].
 fn load_explain(st: &mut State) {
-    let sql = st.sql.trim().to_string();
+    let Some(sql) = st.last_run_sql.as_ref().map(|s| s.trim().to_string()) else {
+        return;
+    };
     if sql.is_empty() {
         return;
     }

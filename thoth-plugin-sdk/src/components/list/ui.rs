@@ -336,7 +336,7 @@ impl List {
                         .icon(action.icon.as_str())
                         .maybe_tooltip(action.tooltip.as_deref())
                         .frame(false)
-                        .size(22.0)
+                        .size_px(22.0)
                         .build(),
                 )
                 .clicked();

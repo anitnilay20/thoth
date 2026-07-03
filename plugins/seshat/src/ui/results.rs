@@ -1,7 +1,7 @@
 use serde_json::Value;
 use thoth_plugin_sdk::{
     components::{
-        Colored, Column, Progress, Row, Separator, Spinner, Split, TableView, Tabs, TabsSize,
+        Colored, Column, Progress, Row, Separator, Size, Spinner, Split, TableView, Tabs,
         Typography, TypographyVariant,
     },
     render_node::RenderNode,
@@ -18,7 +18,7 @@ pub fn results_view(state: &State) -> RenderNode {
                 ICON_TABLE.to_string(),
                 ICON_TREE_STRUCTURE.to_string(),
             ])
-            .size(TabsSize::Small)
+            .size(Size::Small)
             .children(vec![results(state), result_explain(state)])
             .build(),
     )
@@ -160,7 +160,7 @@ fn result_explain(st: &State) -> RenderNode {
             Row::builder()
                 .padding(12.0)
                 .children(vec![muted(
-                    "Open this tab to run EXPLAIN ANALYZE on the current query.",
+                    "Run a query — its EXPLAIN ANALYZE plan shows here.",
                 )])
                 .build(),
         ),

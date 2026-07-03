@@ -88,10 +88,30 @@ pub struct CodeEditor {
     /// [`CodeEditor::syntax`] language name.
     #[serde(default)]
     pub custom_syntax: Option<CustomSyntax>,
+
+    /// Character offsets at which to draw a clickable ▶ run-marker in the left
+    /// gutter (e.g. the start of each SQL statement). A click reports the
+    /// offset via [`CodeEditorOutput::run_marker`]. Empty = no gutter.
+    #[builder(default)]
+    #[serde(default)]
+    pub run_markers: Vec<usize>,
 }
 
 fn default_true() -> bool {
     true
+}
+
+/// A run request raised from the editor via a keyboard shortcut.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RunRequest {
+    /// `true` for the "run everything" shortcut (⌘/Ctrl+Shift+Enter); `false`
+    /// for "run the statement at the caret" (⌘/Ctrl+Enter).
+    pub all: bool,
+    /// Caret position as a character offset into the text.
+    pub caret: usize,
+    /// Selected character range `(start, end)` when the user has a selection —
+    /// callers run exactly this instead of the statement at the caret.
+    pub selection: Option<(usize, usize)>,
 }
 
 /// Outcome of rendering a [`CodeEditor`] for one frame.
@@ -99,9 +119,10 @@ fn default_true() -> bool {
 pub struct CodeEditorOutput {
     /// The text changed this frame.
     pub changed: bool,
-    /// The user pressed the submit shortcut (⌘/Ctrl+Enter) while the editor was
-    /// focused — e.g. to run the query in a SQL editor.
-    pub submitted: bool,
+    /// Set when the user pressed a run shortcut (⌘/Ctrl+Enter, or +Shift for all).
+    pub run: Option<RunRequest>,
+    /// Character offset of a clicked run-marker (▶ gutter button), if any.
+    pub run_marker: Option<usize>,
 }
 
 /// Intern a runtime string into a `&'static str`, deduping so repeated calls
@@ -205,13 +226,19 @@ impl CodeEditor {
         } else {
             egui::Stroke::NONE
         };
-        egui::Frame::new()
+        // Reserve a left gutter for ▶ run-markers when present.
+        let gutter: i8 = if self.run_markers.is_empty() { 0 } else { 18 };
+        // Stable id base for marker hit-testing (computed before `id_source` is
+        // moved into the editor below).
+        let marker_id_base = egui::Id::new(("sdk_code_editor_markers", id_source.as_str()));
+
+        let frame_resp = egui::Frame::new()
             .fill(colors.bg)
             .stroke(stroke)
             .corner_radius(4)
             // Top padding so the first line sits a little below the border.
             .inner_margin(egui::Margin {
-                left: 0,
+                left: gutter,
                 right: 0,
                 top: 6,
                 bottom: 0,
@@ -280,24 +307,90 @@ impl CodeEditor {
                         });
                     }
 
-                    let response = editor
-                        .show_with_completer(ui, &mut self.value, &mut completer)
-                        .response;
-                    let changed = response.changed();
-                    // Submit on ⌘/Ctrl+Enter while focused. `Modifiers::COMMAND`
-                    // is ⌘ on macOS and Ctrl elsewhere. The editor binds newline
-                    // to a plain Enter (no modifiers), so consuming the modified
-                    // combo here doesn't insert a line break.
-                    let submitted = response.has_focus()
-                        && ui.input_mut(|i| {
-                            i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)
-                        });
+                    let output =
+                        editor.show_with_completer(ui, &mut self.value, &mut completer);
+                    let changed = output.response.changed();
+
+                    // Caret + selection as character offsets, for run-at-cursor /
+                    // run-selection.
+                    let (caret, selection) = match &output.cursor_range {
+                        Some(cr) => {
+                            let (p, s) = (cr.primary.index, cr.secondary.index);
+                            let sel = (p != s).then(|| (p.min(s), p.max(s)));
+                            (p, sel)
+                        }
+                        None => (self.value.chars().count(), None),
+                    };
+
+                    // Run shortcuts while focused: ⌘/Ctrl+Shift+Enter runs
+                    // everything; ⌘/Ctrl+Enter runs the statement at the caret.
+                    // `Modifiers::COMMAND` is ⌘ on macOS and Ctrl elsewhere. The
+                    // editor binds newline to a plain Enter, so consuming these
+                    // modified combos doesn't insert a line break.
+                    let run = if output.response.has_focus() {
+                        let all_mods = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+                        if ui.input_mut(|i| i.consume_key(all_mods, egui::Key::Enter)) {
+                            Some(RunRequest { all: true, caret, selection })
+                        } else if ui
+                            .input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter))
+                        {
+                            Some(RunRequest { all: false, caret, selection })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
                     ui.ctx()
                         .memory_mut(|m| m.data.insert_temp(completer_id, (words_fingerprint, completer)));
-                    CodeEditorOutput { changed, submitted }
+                    (
+                        CodeEditorOutput { changed, run, run_marker: None },
+                        output.galley.clone(),
+                        output.galley_pos,
+                    )
                 })
                 .inner
-            })
-            .inner
+            });
+
+        let (mut out, galley, galley_pos) = frame_resp.inner;
+
+        // ▶ run-markers: paint a clickable play glyph in the left gutter at each
+        // marker offset, positioned from the galley (so it tracks scrolling) and
+        // clipped to the editor's visible area. Painted after the frame so it
+        // isn't clipped to the inner content rect.
+        if !self.run_markers.is_empty() {
+            let frame_rect = frame_resp.response.rect;
+            let gutter_x = frame_rect.left() + gutter as f32 / 2.0;
+            for &off in &self.run_markers {
+                let local = galley.pos_from_cursor(egui::text::CCursor::new(off));
+                let cy = galley_pos.y + local.center().y;
+                if cy < frame_rect.top() + 2.0 || cy > frame_rect.bottom() - 2.0 {
+                    continue;
+                }
+                let rect = egui::Rect::from_center_size(
+                    egui::pos2(gutter_x, cy),
+                    egui::vec2(16.0, 16.0),
+                );
+                let resp = ui.interact(rect, marker_id_base.with(off), egui::Sense::click());
+                let color = if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    colors.accent
+                } else {
+                    colors.fg_muted
+                };
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    egui_phosphor::regular::PLAY,
+                    crate::theme::phosphor_font_id(11.0),
+                    color,
+                );
+                if resp.clicked() {
+                    out.run_marker = Some(off);
+                }
+            }
+        }
+        out
     }
 }

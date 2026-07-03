@@ -1458,6 +1458,363 @@ pub mod thoth {
                 }
             }
         }
+        /// ---------------------------------------------------------------------------
+        /// file-dialog — host-provided native open/save file pickers with I/O.
+        ///
+        /// The host shows the OS file picker and performs the read/write on the chosen
+        /// path, so a plugin never touches the filesystem directly — it only ever sees
+        /// the contents of a file the user explicitly picked, and only writes to a path
+        /// the user explicitly chose. Dialogs are modal and run synchronously on the
+        /// calling thread, so call them from handle-event (the UI thread), not a query.
+        /// ---------------------------------------------------------------------------
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod file_dialog {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            pub type PluginError = super::super::super::thoth::plugin::types::PluginError;
+            /// A file the user picked in an open dialog.
+            #[derive(Clone)]
+            pub struct OpenedFile {
+                /// Absolute path of the chosen file.
+                pub path: _rt::String,
+                /// The file's text contents.
+                pub contents: _rt::String,
+            }
+            impl ::core::fmt::Debug for OpenedFile {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    f.debug_struct("OpenedFile")
+                        .field("path", &self.path)
+                        .field("contents", &self.contents)
+                        .finish()
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Show a native open-file picker and read the chosen file. `extensions`
+            /// filters by suffix (e.g. ["sql"]); an empty list allows any file. Returns
+            /// none when the user cancels.
+            pub fn open_file(
+                title: &str,
+                extensions: &[_rt::String],
+            ) -> Result<Option<OpenedFile>, PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 6 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 6
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = title;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let vec2 = extensions;
+                    let len2 = vec2.len();
+                    let layout2 = _rt::alloc::Layout::from_size_align_unchecked(
+                        vec2.len() * (2 * ::core::mem::size_of::<*const u8>()),
+                        ::core::mem::size_of::<*const u8>(),
+                    );
+                    let result2 = if layout2.size() != 0 {
+                        let ptr = _rt::alloc::alloc(layout2).cast::<u8>();
+                        if ptr.is_null() {
+                            _rt::alloc::handle_alloc_error(layout2);
+                        }
+                        ptr
+                    } else {
+                        ::core::ptr::null_mut()
+                    };
+                    for (i, e) in vec2.into_iter().enumerate() {
+                        let base = result2
+                            .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                        {
+                            let vec1 = e;
+                            let ptr1 = vec1.as_ptr().cast::<u8>();
+                            let len1 = vec1.len();
+                            *base
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len1;
+                            *base.add(0).cast::<*mut u8>() = ptr1.cast_mut();
+                        }
+                    }
+                    let ptr3 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/file-dialog@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "open-file"]
+                        fn wit_import4(
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                        );
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import4(
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import4(ptr0.cast_mut(), len0, result2, len2, ptr3) };
+                    let l5 = i32::from(*ptr3.add(0).cast::<u8>());
+                    let result17 = match l5 {
+                        0 => {
+                            let e = {
+                                let l6 = i32::from(
+                                    *ptr3.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
+                                );
+                                match l6 {
+                                    0 => None,
+                                    1 => {
+                                        let e = {
+                                            let l7 = *ptr3
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l8 = *ptr3
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len9 = l8;
+                                            let bytes9 = _rt::Vec::from_raw_parts(
+                                                l7.cast(),
+                                                len9,
+                                                len9,
+                                            );
+                                            let l10 = *ptr3
+                                                .add(4 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l11 = *ptr3
+                                                .add(5 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len12 = l11;
+                                            let bytes12 = _rt::Vec::from_raw_parts(
+                                                l10.cast(),
+                                                len12,
+                                                len12,
+                                            );
+                                            OpenedFile {
+                                                path: _rt::string_lift(bytes9),
+                                                contents: _rt::string_lift(bytes12),
+                                            }
+                                        };
+                                        Some(e)
+                                    }
+                                    _ => _rt::invalid_enum_discriminant(),
+                                }
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l13 = *ptr3
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l14 = *ptr3
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l15 = *ptr3
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len16 = l15;
+                                let bytes16 = _rt::Vec::from_raw_parts(
+                                    l14.cast(),
+                                    len16,
+                                    len16,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l13 as u32,
+                                    message: _rt::string_lift(bytes16),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    if layout2.size() != 0 {
+                        _rt::alloc::dealloc(result2.cast(), layout2);
+                    }
+                    result17
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Show a native save-file picker seeded with `default-name`, then write
+            /// `contents` to the chosen path. `extensions` filters by suffix; an empty
+            /// list allows any file. Returns the saved path, or none when the user cancels.
+            pub fn save_file(
+                title: &str,
+                default_name: &str,
+                extensions: &[_rt::String],
+                contents: &str,
+            ) -> Result<Option<_rt::String>, PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = title;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let vec1 = default_name;
+                    let ptr1 = vec1.as_ptr().cast::<u8>();
+                    let len1 = vec1.len();
+                    let vec3 = extensions;
+                    let len3 = vec3.len();
+                    let layout3 = _rt::alloc::Layout::from_size_align_unchecked(
+                        vec3.len() * (2 * ::core::mem::size_of::<*const u8>()),
+                        ::core::mem::size_of::<*const u8>(),
+                    );
+                    let result3 = if layout3.size() != 0 {
+                        let ptr = _rt::alloc::alloc(layout3).cast::<u8>();
+                        if ptr.is_null() {
+                            _rt::alloc::handle_alloc_error(layout3);
+                        }
+                        ptr
+                    } else {
+                        ::core::ptr::null_mut()
+                    };
+                    for (i, e) in vec3.into_iter().enumerate() {
+                        let base = result3
+                            .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                        {
+                            let vec2 = e;
+                            let ptr2 = vec2.as_ptr().cast::<u8>();
+                            let len2 = vec2.len();
+                            *base
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len2;
+                            *base.add(0).cast::<*mut u8>() = ptr2.cast_mut();
+                        }
+                    }
+                    let vec4 = contents;
+                    let ptr4 = vec4.as_ptr().cast::<u8>();
+                    let len4 = vec4.len();
+                    let ptr5 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/file-dialog@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "save-file"]
+                        fn wit_import6(
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                        );
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import6(
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import6(
+                            ptr0.cast_mut(),
+                            len0,
+                            ptr1.cast_mut(),
+                            len1,
+                            result3,
+                            len3,
+                            ptr4.cast_mut(),
+                            len4,
+                            ptr5,
+                        )
+                    };
+                    let l7 = i32::from(*ptr5.add(0).cast::<u8>());
+                    let result16 = match l7 {
+                        0 => {
+                            let e = {
+                                let l8 = i32::from(
+                                    *ptr5.add(::core::mem::size_of::<*const u8>()).cast::<u8>(),
+                                );
+                                match l8 {
+                                    0 => None,
+                                    1 => {
+                                        let e = {
+                                            let l9 = *ptr5
+                                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<*mut u8>();
+                                            let l10 = *ptr5
+                                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            let len11 = l10;
+                                            let bytes11 = _rt::Vec::from_raw_parts(
+                                                l9.cast(),
+                                                len11,
+                                                len11,
+                                            );
+                                            _rt::string_lift(bytes11)
+                                        };
+                                        Some(e)
+                                    }
+                                    _ => _rt::invalid_enum_discriminant(),
+                                }
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l12 = *ptr5
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l13 = *ptr5
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l14 = *ptr5
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len15 = l14;
+                                let bytes15 = _rt::Vec::from_raw_parts(
+                                    l13.cast(),
+                                    len15,
+                                    len15,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l12 as u32,
+                                    message: _rt::string_lift(bytes15),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    if layout3.size() != 0 {
+                        _rt::alloc::dealloc(result3.cast(), layout3);
+                    }
+                    result16
+                }
+            }
+        }
     }
 }
 #[rustfmt::skip]
@@ -3664,9 +4021,9 @@ pub(crate) use __export_data_source_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2534] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdd\x12\x01A\x02\x01\
-A\x1c\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2752] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xb7\x14\x01A\x02\x01\
+A\x1e\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x0fsearch-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01\
 ks\x01r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
 uthor\x03\x08homepage\x03\x04icon\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04\
@@ -3691,38 +4048,43 @@ close\x01\x0b\x03\0\x1dthoth:plugin/tcp-client@0.1.0\x05\x05\x01B\x0b\x02\x03\x0
 s\0\x02\x04\0\x05write\x01\x03\x01ks\x01j\x01\x04\x01\x01\x01@\x01\x03keys\0\x05\
 \x04\0\x04read\x01\x06\x01@\x01\x03keys\0\x02\x04\0\x06delete\x01\x07\x03\0!thot\
 h:plugin/secure-storage@0.1.0\x05\x06\x01B\x02\x01@\x02\x06handles\x01qs\0s\x04\0\
-\x0csubmit-query\x01\0\x03\0\x1dthoth:plugin/db-runtime@0.1.0\x05\x07\x01B\x1c\x02\
-\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0bdescriptions\
-\x08required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04names\x09\
-type-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\x02\x04\
-names\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-jsons\x0bh\
-eight-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0frequir\
-ed-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07connec\
-t\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06schem\
-a\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06han\
-dles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\
-\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x08\x01\
-B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04\
-kinds\x05values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hin\
-ty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09rende\
-r-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01\
-j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:pl\
-ugin/ui-component@0.1.0\x05\x09\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-err\
-or\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-\
-icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\
-\x01\x01@\x01\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\
-\x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-close\
-d\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.0\x05\x0a\x02\x03\0\0\x0bplugin-inf\
-o\x01B\x04\x02\x03\x02\x01\x0b\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08\
-get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x0c\x01B\x05\x01@\x01\
-\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08on-close\x01\x01\
-\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x0d\
-\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jso\
-ns\x0bheight-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\
-\0\x04\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.\
-0\x05\x0e\x04\0%thoth:plugin/data-source-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12dat\
-a-source-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\
-\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+\x0csubmit-query\x01\0\x03\0\x1dthoth:plugin/db-runtime@0.1.0\x05\x07\x01B\x0d\x02\
+\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x04paths\x08contentss\x04\
+\0\x0bopened-file\x03\0\x02\x01ps\x01k\x03\x01j\x01\x05\x01\x01\x01@\x02\x05titl\
+es\x0aextensions\x04\0\x06\x04\0\x09open-file\x01\x07\x01ks\x01j\x01\x08\x01\x01\
+\x01@\x04\x05titles\x0cdefault-names\x0aextensions\x04\x08contentss\0\x09\x04\0\x09\
+save-file\x01\x0a\x03\0\x1ethoth:plugin/file-dialog@0.1.0\x05\x08\x01B\x1c\x02\x03\
+\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0bdescriptions\x08\
+required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04names\x09type\
+-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\x02\x04name\
+s\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-jsons\x0bheigh\
+t-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0frequired-c\
+onfig\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07connect\x01\
+\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06schema\x01\
+\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06handles\x01\
+\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\x04\0\x0b\
+render-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x09\x01B\x0f\x02\
+\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04kinds\x05\
+values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x09\
+ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09render-ui\x01\x07\
+\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01j\x01\x09\
+\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:plugin/ui-c\
+omponent@0.1.0\x05\x0a\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\
+\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-icon\x01\x04\
+\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\x01\x01@\x01\
+\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\x0eon-tab-f\
+ocused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-closed\x01\x09\x04\
+\0\x1bthoth:plugin/tab-host@0.1.0\x05\x0b\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\
+\x03\x02\x01\x0c\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\
+\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x0d\x01B\x05\x01@\x01\x07settin\
+gs\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08on-close\x01\x01\x04\0\x11\
+on-setting-change\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x0e\x01B\x07\
+\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jsons\x0bhei\
+ght-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\
+\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x0f\x04\
+\0%thoth:plugin/data-source-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12data-source-plug\
+in\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10\
+wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

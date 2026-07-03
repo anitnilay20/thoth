@@ -148,8 +148,19 @@ impl RenderNode {
                 if out.changed {
                     emit(events, &c.id, "change", c.value.clone());
                 }
-                if out.submitted {
-                    emit(events, &c.id, "submit", c.value.clone());
+                if let Some(run) = out.run {
+                    // Carry the run mode + caret/selection so the plugin can pick
+                    // the statement to run (it owns the text as source of truth).
+                    let value = serde_json::json!({
+                        "all": run.all,
+                        "caret": run.caret,
+                        "selection": run.selection.map(|(a, b)| [a, b]),
+                    })
+                    .to_string();
+                    emit(events, &c.id, "run", value);
+                }
+                if let Some(off) = out.run_marker {
+                    emit(events, &c.id, "run-marker", off.to_string());
                 }
             }
             RenderNode::List(l) => {

@@ -2,7 +2,8 @@ use egui::{InnerResponse, Response};
 
 use crate::theme::{ThemeColors, phosphor_font_id};
 
-use super::{Select, SelectSize};
+use super::Select;
+use crate::components::Size;
 
 impl Select {
     /// Render the select, updating [`value`](Select::value) on selection.
@@ -14,8 +15,9 @@ impl Select {
         let colors = ThemeColors::from_ctx(ui.ctx());
 
         let (trigger_h, font_size) = match self.size {
-            SelectSize::Small => (24.0_f32, 10.0_f32),
-            SelectSize::Default => (28.0_f32, 11.0_f32),
+            Size::Small => (24.0_f32, 10.0_f32),
+            Size::Medium => (28.0_f32, 11.0_f32),
+            Size::Large => (32.0_f32, 12.0_f32),
         };
 
         let id = egui::Id::new(&self.id);

@@ -103,6 +103,15 @@ pub(crate) enum Kind {
     Columns { database: String, schema: String, table: String },
 }
 
+/// Which results-area tab is active, mirrored from the tab-change event so the
+/// plugin knows whether the Explain view is currently showing.
+#[derive(Clone, Copy, PartialEq, Default)]
+pub(crate) enum ResultsTab {
+    #[default]
+    Results,
+    Explain,
+}
+
 /// A database node in the browser tree (schemas loaded lazily on expand). The
 /// server's default database is auto-expanded on connect.
 #[derive(Clone)]
@@ -162,13 +171,18 @@ pub(crate) struct State {
     /// introspection can run concurrently with (and alongside) a query.
     pub pending: Vec<(String, Kind)>,
     pub result: Option<Result<Value, String>>,
+    /// The SQL of the most recently executed query (a single statement, a
+    /// selection, or the whole script) — what the results grid and Explain
+    /// reflect, so Explain analyses exactly what was run, not the whole editor.
+    pub last_run_sql: Option<String>,
+    /// Which results tab is showing, so a run while on Explain refreshes it.
+    pub results_tab: ResultsTab,
     pub explain: Option<Result<Value, String>>,
-    /// The SQL that [`explain`](State::explain) was computed for, so switching to
-    /// the Explain tab re-runs `EXPLAIN ANALYZE` only when the query changed.
+    /// The SQL that [`explain`](State::explain) was computed for, so it only
+    /// re-runs `EXPLAIN ANALYZE` when the last-run query changed.
     pub explain_for: Option<String>,
     /// True while an `EXPLAIN ANALYZE` request is in flight.
     pub explain_loading: bool,
-    pub messages: Vec<String>,
 
     // schema browser
     pub databases_loaded: bool,
@@ -209,10 +223,11 @@ impl State {
             loading: false,
             pending: Vec::new(),
             result: None,
+            last_run_sql: None,
+            results_tab: ResultsTab::Results,
             explain: None,
             explain_for: None,
             explain_loading: false,
-            messages: Vec::new(),
             databases_loaded: false,
             schema_error: None,
             databases: Vec::new(),

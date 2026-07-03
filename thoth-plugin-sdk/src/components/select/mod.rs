@@ -4,6 +4,8 @@ mod ui;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
+use crate::components::Size;
+
 /// A single option in a [`Select`].
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
@@ -13,21 +15,6 @@ pub struct SelectOption {
     pub value: String,
     /// Human-readable label shown in the list.
     pub label: String,
-}
-
-/// Trigger size of a [`Select`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SelectSize {
-    /// 28px trigger, 11pt text — the default (matches [`ButtonSize::Medium`]).
-    ///
-    /// [`ButtonSize::Medium`]: crate::components::ButtonSize::Medium
-    #[default]
-    Default,
-    /// 24px trigger, 10pt text (matches [`ButtonSize::Small`]).
-    ///
-    /// [`ButtonSize::Small`]: crate::components::ButtonSize::Small
-    Small,
 }
 
 /// A dropdown select (combo box) with a custom-painted trigger and popup list.
@@ -68,10 +55,10 @@ pub struct Select {
     /// Optional static prefix shown before the selected label, e.g. `"Sort: "`.
     #[serde(default)]
     pub prefix_label: Option<String>,
-    /// Trigger size. Defaults to [`SelectSize::Default`].
+    /// Trigger size. Defaults to [`Size::Medium`].
     #[builder(default)]
     #[serde(default)]
-    pub size: SelectSize,
+    pub size: Size,
     /// Fixed trigger width. When `None`, the trigger fills the available width.
     #[serde(default)]
     pub width: Option<f32>,

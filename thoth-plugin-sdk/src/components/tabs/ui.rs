@@ -14,8 +14,7 @@ impl Tabs {
     /// label) when the active tab changes, and a `"click"` event for each action
     /// (id = the action id). The selected index is kept in egui memory.
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
-        use super::TabsSize;
-        use crate::components::{Button, ButtonColor, ButtonSize, ButtonType};
+        use crate::components::{Button, ButtonColor, ButtonType, Size};
         use crate::theme::phosphor_font_id;
 
         let colors = ThemeColors::from_ctx(ui.ctx());
@@ -26,8 +25,9 @@ impl Tabs {
         // Size metrics: (strip height, text-button size, icon-only glyph px,
         // icon-only cell). Small matches the compact button/select sizing.
         let (strip_h, btn_size, icon_px, icon_cell) = match self.size {
-            TabsSize::Small => (30.0, ButtonSize::Small, 15.0, egui::vec2(28.0, 24.0)),
-            TabsSize::Default => (40.0, ButtonSize::Medium, 18.0, egui::vec2(34.0, 30.0)),
+            Size::Small => (30.0, Size::Small, 15.0, egui::vec2(28.0, 24.0)),
+            Size::Medium => (40.0, Size::Medium, 18.0, egui::vec2(34.0, 30.0)),
+            Size::Large => (48.0, Size::Large, 20.0, egui::vec2(40.0, 36.0)),
         };
 
         let content_gap = self.content_gap.unwrap_or(10.0).round() as i8;

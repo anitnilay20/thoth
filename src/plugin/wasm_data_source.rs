@@ -701,6 +701,64 @@ impl thoth::plugin::db_runtime::Host for DataSourcePluginState {
     }
 }
 
+// ── file-dialog WIT import — native open/save pickers (host-mediated I/O) ─────
+
+fn fd_err(message: impl Into<String>) -> thoth::plugin::file_dialog::PluginError {
+    thoth::plugin::file_dialog::PluginError {
+        code: 1,
+        message: message.into(),
+    }
+}
+
+/// Apply `title` and an optional single suffix filter to a file dialog.
+fn fd_dialog(title: &str, extensions: &[String]) -> rfd::FileDialog {
+    let mut dialog = rfd::FileDialog::new();
+    if !title.is_empty() {
+        dialog = dialog.set_title(title);
+    }
+    if !extensions.is_empty() {
+        let exts: Vec<&str> = extensions.iter().map(String::as_str).collect();
+        dialog = dialog.add_filter("", &exts);
+    }
+    dialog
+}
+
+impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
+    fn open_file(
+        &mut self,
+        title: String,
+        extensions: Vec<String>,
+    ) -> std::result::Result<Option<thoth::plugin::file_dialog::OpenedFile>, thoth::plugin::file_dialog::PluginError>
+    {
+        let Some(path) = fd_dialog(&title, &extensions).pick_file() else {
+            return Ok(None);
+        };
+        let contents = std::fs::read_to_string(&path).map_err(|e| fd_err(e.to_string()))?;
+        Ok(Some(thoth::plugin::file_dialog::OpenedFile {
+            path: path.to_string_lossy().into_owned(),
+            contents,
+        }))
+    }
+
+    fn save_file(
+        &mut self,
+        title: String,
+        default_name: String,
+        extensions: Vec<String>,
+        contents: String,
+    ) -> std::result::Result<Option<String>, thoth::plugin::file_dialog::PluginError> {
+        let mut dialog = fd_dialog(&title, &extensions);
+        if !default_name.is_empty() {
+            dialog = dialog.set_file_name(&default_name);
+        }
+        let Some(path) = dialog.save_file() else {
+            return Ok(None);
+        };
+        std::fs::write(&path, contents).map_err(|e| fd_err(e.to_string()))?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    }
+}
+
 // ── reqwest bridge ────────────────────────────────────────────────────────────
 
 fn execute_http_request(
@@ -884,6 +942,14 @@ impl WasmDataSourceLoader {
 
         // 6. Register the db-runtime import (async query scheduling).
         thoth::plugin::db_runtime::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+
+        // 7. Register the file-dialog import (native open/save pickers).
+        thoth::plugin::file_dialog::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
             |e| ThothError::PluginLoadError {
                 path: wasm_path.to_path_buf(),
                 reason: e.to_string(),

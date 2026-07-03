@@ -2,7 +2,7 @@ use eframe::egui;
 
 use thoth_plugin_sdk::components::{
     Button, ButtonColor, ButtonSize, IconButton, Input, List, ListEvent, ListItem, ListItemPostfix,
-    ListItemPrefix, Progress, Select, SelectOption, SelectSize, Separator, SidebarHeader,
+    ListItemPrefix, Progress, Select, SelectOption, Separator, SidebarHeader, Size,
 };
 use thoth_plugin_sdk::theme::color_to_hex;
 
@@ -70,7 +70,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                             .build(),
                     ])
                     .prefix_label("Sort: ")
-                    .size(SelectSize::Small)
+                    .size(Size::Small)
                     .build();
                 let new_val = ui
                     .allocate_ui(egui::vec2(select_w, 22.0), |ui| sort_select.show(ui).inner)
