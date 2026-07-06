@@ -167,11 +167,14 @@ fn result_explain(st: &State) -> RenderNode {
     }
 }
 
-/// Render a Postgres `EXPLAIN (ANALYZE, FORMAT JSON)` result: a summary stat
-/// header over a flat, indented list of plan nodes, each with its estimated
-/// rows, cost, a run-time bar, and actual time. Postgres-shaped; other engines
-/// return a different structure and fall back to raw JSON.
+/// Render an `EXPLAIN` result. Postgres (`EXPLAIN (ANALYZE, FORMAT JSON)`) has
+/// actual run-time stats; MySQL (`EXPLAIN FORMAT=JSON`) is estimate-only and
+/// carries a different `query_block` shape, so it's rendered separately.
+/// Anything unrecognised falls back to raw JSON.
 fn explain_plan(result: &Value) -> RenderNode {
+    if let Some(root) = mysql_root(result) {
+        return mysql_plan(&root);
+    }
     let Some(root) = explain_root(result) else {
         return RenderNode::Row(
             Row::builder()
@@ -233,6 +236,166 @@ fn explain_root(result: &Value) -> Option<&Value> {
         .first()?
         .as_array()?
         .first()
+}
+
+// ── MySQL EXPLAIN FORMAT=JSON ───────────────────────────────────────────────
+
+/// The MySQL `EXPLAIN FORMAT=JSON` document, dug out of the single-cell result
+/// (the plan comes back as one JSON string column). `None` when the result
+/// isn't a MySQL plan, so [`explain_plan`] falls through to the Postgres path.
+fn mysql_root(result: &Value) -> Option<Value> {
+    let cell = result.get("rows")?.as_array()?.first()?.as_array()?.first()?;
+    let v = match cell {
+        Value::String(s) => serde_json::from_str::<Value>(s).ok()?,
+        other => other.clone(),
+    };
+    v.get("query_block").is_some().then_some(v)
+}
+
+/// A flattened plan node for MySQL: an operation label, its estimated row
+/// count, and its cumulative cost (all estimates — MySQL's JSON has no timing).
+struct MysqlRow {
+    op: String,
+    rows: Option<i64>,
+    cost: Option<f64>,
+}
+
+/// Render a MySQL plan: an estimate-only stat header (total query cost) over the
+/// same framed, indented rows as Postgres, but with a cost bar instead of a
+/// run-time bar (MySQL's `FORMAT=JSON` never carries actual times).
+fn mysql_plan(root: &Value) -> RenderNode {
+    let qb = root.get("query_block").unwrap_or(root);
+
+    let mut rows: Vec<MysqlRow> = Vec::new();
+    mysql_walk_block(qb, 0, &mut rows);
+
+    let max_cost = rows
+        .iter()
+        .filter_map(|r| r.cost)
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+
+    let mut body: Vec<RenderNode> = Vec::with_capacity(rows.len() * 2);
+    for (i, r) in rows.iter().enumerate() {
+        if i > 0 {
+            body.push(RenderNode::Separator(Separator::plain()));
+        }
+        let rows_txt = r.rows.map(|n| format!("{} rows", fmt_int(n))).unwrap_or_default();
+        let cost_txt = r.cost.map(|c| format!("cost {c:.2}")).unwrap_or_default();
+        body.push(RenderNode::Split(
+            Split::builder()
+                .gap(12.0)
+                .widths(vec![340.0, 90.0, 150.0, 250.0])
+                .align(thoth_plugin_sdk::components::Align::Center)
+                .children(vec![
+                    mono(&r.op),
+                    mono_colored(&rows_txt, "number"),
+                    mono_colored(&cost_txt, "muted"),
+                    RenderNode::Progress(
+                        Progress::builder()
+                            .value((r.cost.unwrap_or(0.0) / max_cost).clamp(0.0, 1.0))
+                            .color("info")
+                            .height(8.0)
+                            .build(),
+                    ),
+                ])
+                .build(),
+        ));
+    }
+
+    RenderNode::Column(
+        Column::builder()
+            .gap(8.0)
+            .children(vec![
+                mysql_stats_header(qb),
+                RenderNode::Column(Column::builder().gap(0.0).framed(true).children(body).build()),
+            ])
+            .build(),
+    )
+}
+
+/// MySQL summary strip: the optimiser's total query cost + an "estimated" note
+/// (there is no run time — `FORMAT=JSON` doesn't execute the query).
+fn mysql_stats_header(qb: &Value) -> RenderNode {
+    let mut stats: Vec<RenderNode> = Vec::new();
+    if let Some(cost) = mysql_cost(qb.get("cost_info")) {
+        stats.push(stat("Query cost", &format!("{cost:.2}"), "success"));
+    }
+    stats.push(stat("Plan", "MySQL · estimated", "info"));
+    RenderNode::Row(Row::builder().padding(12.0).gap(24.0).children(stats).build())
+}
+
+/// Walk a MySQL plan block, appending a [`MysqlRow`] per table access. Blocks
+/// nest through operation wrappers (sort/group/distinct), `nested_loop` joins,
+/// and materialised subqueries — each descends one indent level.
+fn mysql_walk_block(block: &Value, depth: usize, out: &mut Vec<MysqlRow>) {
+    // Operation wrappers (filesort, group, distinct) contain a sub-block.
+    for (key, label) in [
+        ("ordering_operation", "Sort"),
+        ("grouping_operation", "Group"),
+        ("duplicates_removal", "Distinct"),
+    ] {
+        if let Some(inner) = block.get(key) {
+            out.push(MysqlRow {
+                op: format!("{}{label}", "  ".repeat(depth)),
+                rows: None,
+                cost: None,
+            });
+            mysql_walk_block(inner, depth + 1, out);
+            return;
+        }
+    }
+    // A join: an ordered list of sub-blocks, each wrapping a table.
+    if let Some(arr) = block.get("nested_loop").and_then(|v| v.as_array()) {
+        for item in arr {
+            mysql_walk_block(item, depth, out);
+        }
+        return;
+    }
+    // A single table access (also the shape of each nested_loop item).
+    if let Some(t) = block.get("table") {
+        mysql_walk_table(t, depth, out);
+    }
+}
+
+/// Append a table-access row, then descend into any subquery materialised from it.
+fn mysql_walk_table(t: &Value, depth: usize, out: &mut Vec<MysqlRow>) {
+    let name = t.get("table_name").and_then(|v| v.as_str()).unwrap_or("?");
+    let access = t.get("access_type").and_then(|v| v.as_str()).unwrap_or("");
+    let key = t.get("key").and_then(|v| v.as_str());
+    let mut op = format!("{}{access} {name}", "  ".repeat(depth));
+    if let Some(k) = key {
+        op.push_str(&format!(" ({k})"));
+    }
+    let rows = t
+        .get("rows_examined_per_scan")
+        .or_else(|| t.get("rows_produced_per_join"))
+        .and_then(|v| v.as_i64());
+    let cost = mysql_cost(t.get("cost_info"));
+    out.push(MysqlRow { op, rows, cost });
+
+    // A derived/materialised table nests another query block.
+    if let Some(inner) = t
+        .get("materialized_from_subquery")
+        .and_then(|s| s.get("query_block"))
+    {
+        mysql_walk_block(inner, depth + 1, out);
+    }
+}
+
+/// A MySQL `cost_info`'s cumulative `prefix_cost` (or `read_cost`), which the
+/// server encodes as a JSON string like `"20.25"`.
+fn mysql_cost(cost_info: Option<&Value>) -> Option<f64> {
+    let ci = cost_info?;
+    let raw = ci
+        .get("prefix_cost")
+        .or_else(|| ci.get("query_cost"))
+        .or_else(|| ci.get("read_cost"))?;
+    match raw {
+        Value::String(s) => s.parse().ok(),
+        Value::Number(n) => n.as_f64(),
+        _ => None,
+    }
 }
 
 /// The summary strip: total / planning / execution time and the root node type.

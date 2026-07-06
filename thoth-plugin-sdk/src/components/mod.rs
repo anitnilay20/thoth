@@ -73,7 +73,7 @@ pub use multi_select::MultiSelect;
 pub use number_input::NumberInput;
 pub use progress::Progress;
 pub use radio::Radio;
-pub use select::{Select, SelectOption};
+pub use select::{Select, SelectOption, SelectResponse};
 pub use size::Size;
 pub use separator::Separator;
 pub use sidebar_header::{SidebarHeader, SidebarHeaderAction};

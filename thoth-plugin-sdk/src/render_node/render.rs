@@ -94,8 +94,12 @@ impl RenderNode {
                 }
             }
             RenderNode::Select(s) => {
-                if let Some(v) = s.show(ui).inner {
+                let out = s.show(ui).inner;
+                if let Some(v) = out.selected {
                     emit(events, &s.id, "change", v);
+                }
+                if let Some(q) = out.search {
+                    emit(events, &s.id, "search", q);
                 }
             }
             RenderNode::Checkbox(c) => {

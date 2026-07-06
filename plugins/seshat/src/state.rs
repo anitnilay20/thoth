@@ -80,7 +80,7 @@ impl Form {
                 .port
                 .trim()
                 .parse()
-                .unwrap_or_else(|_| default_port(self.engine)),
+                .unwrap_or_else(|_| db::adapter(self.engine).connection_defaults().port),
             database: self.database.clone(),
             user: self.user.clone(),
             password: self.password.clone(),
@@ -159,6 +159,9 @@ pub(crate) struct State {
 
     // new/edit-connection dialog
     pub dialog_open: bool,
+    /// Wizard step: `false` = pick a database engine, `true` = enter credentials.
+    /// New connections start on the engine step; editing jumps to the form.
+    pub dialog_form_step: bool,
     /// `Some(id)` while editing an existing connection; `None` while creating.
     pub editing: Option<String>,
     pub form: Form,
@@ -188,6 +191,10 @@ pub(crate) struct State {
     pub databases_loaded: bool,
     pub schema_error: Option<String>,
     pub databases: Vec<DatabaseNode>,
+    /// How many rows to render per tree level (databases, tables). Servers like
+    /// Ensembl expose thousands of databases; rendering them all at once stalls
+    /// the UI, so we page — a "Show more" row bumps this by [`TREE_PAGE`].
+    pub tree_limit: usize,
 
     // query history (persisted; newest last)
     pub history: Vec<HistoryEntry>,
@@ -216,6 +223,7 @@ impl State {
             active: None,
             active_profile: None,
             dialog_open: false,
+            dialog_form_step: false,
             editing: None,
             form: Form::default(),
             test_status: None,
@@ -231,6 +239,7 @@ impl State {
             databases_loaded: false,
             schema_error: None,
             databases: Vec::new(),
+            tree_limit: TREE_PAGE,
             history: Vec::new(),
             error: None,
             failed: None,
@@ -259,16 +268,18 @@ pub(crate) static STATE: PluginState<State> = PluginState::new();
 
 // ── engine helpers ──────────────────────────────────────────────────────────
 
+/// Engines offered in the connection dialog's engine picker, in display order.
+/// The picker renders these; the click handler maps the row index back to one.
+pub(crate) const SUPPORTED_ENGINES: [Engine; 2] = [Engine::Postgres, Engine::Mysql];
+
+/// Rows rendered per tree level before a "Show more" row appears (and how many
+/// each "Show more" click reveals).
+pub(crate) const TREE_PAGE: usize = 200;
+
 pub(crate) fn engine_from_value(v: &str) -> Engine {
     match v {
         "mysql" => Engine::Mysql,
         _ => Engine::Postgres,
-    }
-}
-pub(crate) fn engine_value(e: Engine) -> &'static str {
-    match e {
-        Engine::Postgres => "postgres",
-        Engine::Mysql => "mysql",
     }
 }
 pub(crate) fn engine_label(e: Engine) -> &'static str {
@@ -281,12 +292,6 @@ pub(crate) fn engine_badge(e: Engine) -> (&'static str, &'static str) {
     match e {
         Engine::Postgres => ("PG", "blue"),
         Engine::Mysql => ("MY", "orange"),
-    }
-}
-pub(crate) fn default_port(e: Engine) -> u16 {
-    match e {
-        Engine::Postgres => 5432,
-        Engine::Mysql => 3306,
     }
 }
 

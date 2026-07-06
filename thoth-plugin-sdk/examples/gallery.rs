@@ -602,7 +602,7 @@ impl Gallery {
         ui.heading("Select");
         ui.add_space(8.0);
         self.select.width = Some(220.0);
-        if let Some(v) = self.select.show(ui).inner {
+        if let Some(v) = self.select.show(ui).inner.selected {
             println!("selected {v}");
         }
         ui.add_space(8.0);

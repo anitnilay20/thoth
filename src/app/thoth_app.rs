@@ -701,6 +701,7 @@ impl ThothApp {
         tab_id: crate::app::tab_manager::TabId,
         event: crate::plugin::render_node::UiEvent,
     ) {
+        let mut handled = false;
         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
             && let Some(pane) = tab.active_plugin_pane.as_mut()
         {
@@ -713,6 +714,7 @@ impl ThothApp {
                     if let Ok(sidebar) = pane.loader.render_sidebar() {
                         tab.plugin_sidebar_output = sidebar;
                     }
+                    handled = true;
                 }
                 Err(e) => {
                     tab.error = Some(crate::error::ThothError::Unknown {
@@ -720,6 +722,12 @@ impl ThothApp {
                     });
                 }
             }
+        }
+        // A plugin interaction may have changed its persisted state (e.g. edited
+        // SQL, switched database), so mark the session dirty. The actual write is
+        // skipped by `save_session_if_dirty` when the serialized tabs are unchanged.
+        if handled {
+            self.session_dirty = true;
         }
     }
 
@@ -1356,6 +1364,16 @@ impl ThothApp {
                 entry
             })
             .collect();
+
+        // Nothing structural or state-wise changed since the last write (a plugin
+        // event that didn't touch persisted state, e.g. opening a dropdown) — clear
+        // the flag without touching disk so typing/interaction doesn't churn I/O.
+        if tabs == self.persistent_state.get_open_tabs()
+            && active_tab_index == self.persistent_state.get_active_tab_index()
+        {
+            self.session_dirty = false;
+            return;
+        }
 
         self.persistent_state.set_open_tabs(tabs, active_tab_index);
         if let Err(e) = self.persistent_state.save() {

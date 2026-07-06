@@ -66,6 +66,7 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                     )
                                     .size(Size::Small)
                                     .width(180.0)
+                                    .searchable(true)
                                     .build(),
                             ),
                             // Database switcher: picks which database in the
@@ -87,6 +88,7 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                     )
                                     .size(Size::Small)
                                     .width(180.0)
+                                    .searchable(true)
                                     .build(),
                             ),
                             RenderNode::Separator(Separator::plain()),

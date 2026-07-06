@@ -4,6 +4,7 @@
 use thoth_plugin_sdk::components::{Colored, Column, Row, Spinner, Typography, TypographyVariant};
 use thoth_plugin_sdk::render_node::RenderNode;
 
+use crate::db::Engine;
 use crate::state::{DatabaseNode, SchemaNode, State};
 use crate::ui::widgets::{data_row, muted};
 
@@ -53,8 +54,23 @@ pub(crate) fn schema_panel(st: &State) -> RenderNode {
         nodes.push(loading_row());
     }
 
-    for (i, db) in st.databases.iter().enumerate() {
-        let count = db.schemas.as_ref().map(|s| s.len().to_string());
+    // MySQL has no schema layer within a database, so render tables directly
+    // under each database (skipping the redundant schema row).
+    let mysql = st.engine() == Engine::Mysql;
+    let limit = st.tree_limit;
+
+    for (i, db) in st.databases.iter().enumerate().take(limit) {
+        // Trailing count: for MySQL show the table count (single schema); for
+        // Postgres show the schema count.
+        let count = if mysql {
+            db.schemas
+                .as_ref()
+                .and_then(|s| s.first())
+                .and_then(|sc| sc.tables.as_ref())
+                .map(|t| t.len().to_string())
+        } else {
+            db.schemas.as_ref().map(|s| s.len().to_string())
+        };
         nodes.push(data_row(
             &format!("db:{i}"),
             &db.name,
@@ -64,14 +80,36 @@ pub(crate) fn schema_panel(st: &State) -> RenderNode {
             count.as_deref(),
         ));
         if db.expanded {
-            push_schemas(&mut nodes, i, db);
+            if mysql {
+                match db.schemas.as_ref().and_then(|s| s.first()) {
+                    Some(sch) => push_tables(&mut nodes, i, 0, sch, 1, limit),
+                    None => nodes.push(loading_row()),
+                }
+            } else {
+                push_schemas(&mut nodes, i, db, limit);
+            }
         }
+    }
+    if st.databases.len() > limit {
+        nodes.push(show_more_row(st.databases.len() - limit, 0));
     }
 
     RenderNode::Column(Column::builder().gap(2.0).children(nodes).build())
 }
 
-fn push_schemas(nodes: &mut Vec<RenderNode>, i: usize, db: &DatabaseNode) {
+/// A clickable "Show more" row that reveals the next page of a capped level.
+fn show_more_row(hidden: usize, indent: usize) -> RenderNode {
+    data_row(
+        "tree-more",
+        &format!("Show {hidden} more…"),
+        indent,
+        None,
+        Some((ICON_CIRCLE, "muted")),
+        None,
+    )
+}
+
+fn push_schemas(nodes: &mut Vec<RenderNode>, i: usize, db: &DatabaseNode, limit: usize) {
     let Some(schemas) = &db.schemas else {
         nodes.push(loading_row());
         return;
@@ -91,12 +129,19 @@ fn push_schemas(nodes: &mut Vec<RenderNode>, i: usize, db: &DatabaseNode) {
             count.as_deref(),
         ));
         if sch.expanded {
-            push_tables(nodes, i, j, sch);
+            push_tables(nodes, i, j, sch, 2, limit);
         }
     }
 }
 
-fn push_tables(nodes: &mut Vec<RenderNode>, i: usize, j: usize, sch: &SchemaNode) {
+fn push_tables(
+    nodes: &mut Vec<RenderNode>,
+    i: usize,
+    j: usize,
+    sch: &SchemaNode,
+    indent: usize,
+    limit: usize,
+) {
     let Some(tables) = &sch.tables else {
         nodes.push(loading_row());
         return;
@@ -105,7 +150,7 @@ fn push_tables(nodes: &mut Vec<RenderNode>, i: usize, j: usize, sch: &SchemaNode
         nodes.push(muted("(no tables)"));
         return;
     }
-    for (k, tbl) in tables.iter().enumerate() {
+    for (k, tbl) in tables.iter().enumerate().take(limit) {
         let icon = match tbl.kind.as_str() {
             "view" => (ICON_EYE, "secondary"),
             "matview" => (ICON_DATABASE, "number"),
@@ -114,7 +159,7 @@ fn push_tables(nodes: &mut Vec<RenderNode>, i: usize, j: usize, sch: &SchemaNode
         nodes.push(data_row(
             &format!("tbl:{i}:{j}:{k}"),
             &tbl.name,
-            2,
+            indent,
             Some(tbl.expanded),
             Some(icon),
             None,
@@ -133,7 +178,7 @@ fn push_tables(nodes: &mut Vec<RenderNode>, i: usize, j: usize, sch: &SchemaNode
                         nodes.push(data_row(
                             &format!("col:{i}:{j}:{k}:{l}"),
                             &c.name,
-                            3,
+                            indent + 1,
                             None,
                             Some(marker),
                             Some(&c.data_type),
@@ -142,5 +187,8 @@ fn push_tables(nodes: &mut Vec<RenderNode>, i: usize, j: usize, sch: &SchemaNode
                 }
             }
         }
+    }
+    if tables.len() > limit {
+        nodes.push(show_more_row(tables.len() - limit, indent));
     }
 }

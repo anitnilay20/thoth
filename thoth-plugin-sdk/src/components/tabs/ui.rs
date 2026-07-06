@@ -18,7 +18,10 @@ impl Tabs {
         use crate::theme::phosphor_font_id;
 
         let colors = ThemeColors::from_ctx(ui.ctx());
-        let state_id = egui::Id::new(("sdk_tabs", &self.id));
+        // Derived from the `ui` (not a global `Id::new`) so two tab bars sharing
+        // a string id — e.g. the same plugin open in two tabs — keep independent
+        // selection state instead of colliding.
+        let state_id = ui.make_persistent_id(("sdk_tabs", &self.id));
         let prev: usize = ui.ctx().data(|d| d.get_temp(state_id).unwrap_or(0));
         let mut selected = prev.min(self.headers.len().saturating_sub(1));
 

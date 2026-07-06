@@ -25,6 +25,15 @@ const READ_CHUNK: usize = 16 * 1024;
 pub struct Postgres;
 
 impl DbAdapter for Postgres {
+    fn connection_defaults(&self) -> crate::db::ConnectionDefaults {
+        crate::db::ConnectionDefaults {
+            port: 5432,
+            user: "postgres",
+            database: "postgres",
+            database_placeholder: "postgres",
+        }
+    }
+
     fn test_connection(&self, p: &Profile) -> Result<String, String> {
         let qr = run_query(p, "SELECT version()")?;
         Ok(qr

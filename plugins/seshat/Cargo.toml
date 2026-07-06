@@ -17,6 +17,14 @@ serde_json = "1"
 postgres-protocol = "0.6"
 bytes = "1"
 fallible-iterator = "0.2"
+# MySQL auth scrambles (mysql_native_password / caching_sha2_password). The
+# MySQL wire protocol itself is hand-rolled in `mysql.rs` over the tcp shim.
+sha1 = "0.10"
+sha2 = "0.10"
+# caching_sha2_password full auth without TLS: RSA-OAEP encrypt the password
+# with the server's public key. `rand` (getrandom's wasi backend) seeds OAEP.
+rsa = { version = "0.9", features = ["pem"] }
+rand = "0.8"
 # Type-safe UI DSL builders (no egui — plugins only describe UI, never render).
 thoth-plugin-sdk = { path = "../../thoth-plugin-sdk", features = ["plugin"] }
 

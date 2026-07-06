@@ -73,7 +73,9 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                     .size(Size::Small)
                     .build();
                 let new_val = ui
-                    .allocate_ui(egui::vec2(select_w, 22.0), |ui| sort_select.show(ui).inner)
+                    .allocate_ui(egui::vec2(select_w, 22.0), |ui| {
+                        sort_select.show(ui).inner.selected
+                    })
                     .inner;
                 if let Some(new_val) = new_val {
                     state.sort = match new_val.as_str() {

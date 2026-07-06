@@ -229,8 +229,11 @@ impl CodeEditor {
         // Reserve a left gutter for ▶ run-markers when present.
         let gutter: i8 = if self.run_markers.is_empty() { 0 } else { 18 };
         // Stable id base for marker hit-testing (computed before `id_source` is
-        // moved into the editor below).
-        let marker_id_base = egui::Id::new(("sdk_code_editor_markers", id_source.as_str()));
+        // moved into the editor below). Derived from the `ui` (not a global
+        // `Id::new`) so two editors sharing a string id — e.g. the same plugin
+        // open in two tabs — don't collide on the same widget id.
+        let marker_id_base =
+            ui.make_persistent_id(("sdk_code_editor_markers", id_source.as_str()));
 
         let frame_resp = egui::Frame::new()
             .fill(colors.bg)
@@ -264,7 +267,8 @@ impl CodeEditor {
                     // change; within a stable set the pop-up/selection state is
                     // preserved.
                     let words_fingerprint = self.words_fingerprint();
-                    let completer_id = egui::Id::new(("sdk_code_editor_completer", id_source.as_str()));
+                    let completer_id =
+                        ui.make_persistent_id(("sdk_code_editor_completer", id_source.as_str()));
                     let mut completer = ui
                         .ctx()
                         .memory(|m| m.data.get_temp::<(u64, Completer)>(completer_id))

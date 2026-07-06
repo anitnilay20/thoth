@@ -17,6 +17,17 @@ pub struct SelectOption {
     pub label: String,
 }
 
+/// The outcome of rendering a [`Select`] for one frame.
+#[derive(Clone, Debug, Default)]
+pub struct SelectResponse {
+    /// A value the user picked this frame (a dropdown item click).
+    pub selected: Option<String>,
+    /// The search query, reported on the frame it changed (searchable selects
+    /// only). Owners can use it to fetch or replace [`Select::options`] on
+    /// demand — the dropdown always also filters the current options locally.
+    pub search: Option<String>,
+}
+
 /// A dropdown select (combo box) with a custom-painted trigger and popup list.
 ///
 /// Stateful: it owns the currently-selected [`value`](Select::value). Render
@@ -62,4 +73,10 @@ pub struct Select {
     /// Fixed trigger width. When `None`, the trigger fills the available width.
     #[serde(default)]
     pub width: Option<f32>,
+    /// When true, the dropdown shows a search box that filters options live
+    /// (and reports query changes via [`SelectResponse::search`]), and the list
+    /// is virtualized so large option sets don't all render at once.
+    #[builder(default)]
+    #[serde(default)]
+    pub searchable: bool,
 }

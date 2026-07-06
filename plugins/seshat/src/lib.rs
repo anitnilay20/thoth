@@ -2,6 +2,7 @@
 mod bindings;
 mod db;
 mod events;
+mod mysql;
 mod pg;
 mod shim;
 mod sql;

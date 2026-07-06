@@ -8,8 +8,8 @@ use crate::bindings::thoth::plugin::{file_dialog, secure_storage, ui_tabs};
 use crate::db::{self, ColumnInfo, TableInfo};
 use crate::sql;
 use crate::state::{
-    default_port, engine_from_value, make_id, pw_key, record_history, save_connections, submit,
-    Connection, DatabaseNode, Form, Kind, Request, ResultsTab, SchemaNode, State, TableNode,
+    engine_from_value, make_id, pw_key, record_history, save_connections, submit, Connection,
+    DatabaseNode, Form, Kind, Request, ResultsTab, SchemaNode, State, TableNode,
 };
 
 /// Parse a widget value that may be a JSON-encoded string or a bare string.
@@ -74,11 +74,7 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         // dialog form fields (also accept bare ids so the integration test can
         // populate a profile without going through the dialog)
         "f-name" => st.form.name = parse_str(&event.value),
-        "f-engine" => {
-            let e = engine_from_value(&parse_str(&event.value));
-            st.form.engine = e;
-            st.form.port = default_port(e).to_string();
-        }
+        "f-engine" => apply_engine_defaults(st, engine_from_value(&parse_str(&event.value))),
         "f-host" | "host" => st.form.host = parse_str(&event.value),
         "f-port" | "port" => st.form.port = parse_str(&event.value),
         "f-database" | "database" => st.form.database = parse_str(&event.value),
@@ -91,7 +87,23 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
             st.form = Form::default();
             st.test_status = None;
             st.dialog_open = true;
+            st.dialog_form_step = false; // start on the engine picker
         }
+        // Engine picked on step 0 (a row in the engine list) → seed engine +
+        // default port, advance to the credentials form.
+        "engine-list" if event.kind == "click" => {
+            if let Some(&engine) = event
+                .value
+                .parse::<usize>()
+                .ok()
+                .and_then(|i| crate::state::SUPPORTED_ENGINES.get(i))
+            {
+                apply_engine_defaults(st, engine);
+                st.dialog_form_step = true;
+            }
+        }
+        // Back to the engine picker.
+        "dialog-back" => st.dialog_form_step = false,
         "dialog-close" | "dialog-cancel" => {
             st.dialog_open = false;
             st.editing = None;
@@ -135,6 +147,7 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         //   tbl:<i>:<j>:<k>   table/view        — caret ("toggle") expands
         //                                         columns; a body "click" opens a SELECT
         //   col:<i>:<j>:<k>:<l>  column (leaf)  — clicking opens its table's SELECT
+        "tree-more" => st.tree_limit = st.tree_limit.saturating_add(crate::state::TREE_PAGE),
         id if id.starts_with("db:") => {
             if let Ok(i) = id[3..].parse::<usize>() {
                 toggle_database(st, i);
@@ -162,7 +175,9 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         // Editor-tab connection switcher: re-point this tab at another saved
         // connection. Keeps the SQL text; resets results and reloads the schema
         // (so autocomplete reflects the new target).
-        "switch-connection" => {
+        // Only "change" (an option pick) acts; the searchable dropdown's "search"
+        // events filter client-side (all names are already loaded), so ignore them.
+        "switch-connection" if event.kind == "change" => {
             let id = parse_str(&event.value);
             if st.active.as_deref() != Some(id.as_str()) {
                 if let Some(conn) = st.connections.iter().find(|c| c.id == id).cloned() {
@@ -172,7 +187,9 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         }
         // Editor-tab database switcher: re-point this tab's queries + autocomplete
         // at another database in the current connection.
-        "switch-database" => select_database(st, &parse_str(&event.value)),
+        "switch-database" if event.kind == "change" => {
+            select_database(st, &parse_str(&event.value))
+        }
         // Editor events: "change" carries the new SQL; "run" is a keyboard
         // shortcut (⌘Enter = statement at caret / selection, ⌘⇧Enter = all);
         // "run-marker" is a ▶ gutter click carrying a statement's char offset.
@@ -364,6 +381,7 @@ fn activate_connection(st: &mut State, conn: &Connection) {
     st.active = Some(conn.id.clone());
     st.result = None;
     st.databases.clear();
+    st.tree_limit = crate::state::TREE_PAGE;
     st.databases_loaded = false;
     st.schema_error = None;
     st.failed = None;
@@ -551,11 +569,17 @@ fn open_table_data(st: &State, i: usize, j: usize, k: usize) {
     else {
         return;
     };
-    // Escape any embedded double-quotes (doubling them) so identifiers can't
-    // break out of the quoted form — `tab"le` becomes `"tab""le"`.
-    let schema = schema.replace('"', "\"\"");
-    let table = table.replace('"', "\"\"");
-    let sql = format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;");
+    // Quote identifiers per engine — backticks for MySQL, double-quotes for
+    // Postgres — doubling the quote char so an identifier can't break out.
+    let sql = if conn.engine == crate::db::Engine::Mysql {
+        let schema = schema.replace('`', "``");
+        let table = table.replace('`', "``");
+        format!("SELECT * FROM `{schema}`.`{table}` LIMIT 100;")
+    } else {
+        let schema = schema.replace('"', "\"\"");
+        let table = table.replace('"', "\"\"");
+        format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;")
+    };
     open_tab(
         &conn.name,
         &conn.id,
@@ -650,6 +674,16 @@ pub(crate) fn activate_from_state(st: &mut State, state: &str) {
     }
 }
 
+/// Seed the connection form with an engine's defaults (port, user, database)
+/// from its [`DbAdapter`](crate::db::DbAdapter).
+fn apply_engine_defaults(st: &mut State, engine: crate::db::Engine) {
+    st.form.engine = engine;
+    let d = crate::db::adapter(engine).connection_defaults();
+    st.form.port = d.port.to_string();
+    st.form.user = d.user.to_string();
+    st.form.database = d.database.to_string();
+}
+
 /// Open the dialog pre-filled with an existing connection, in edit mode.
 fn edit_connection(st: &mut State, index: usize) {
     let Some(conn) = st.connections.get(index).cloned() else {
@@ -669,6 +703,7 @@ fn edit_connection(st: &mut State, index: usize) {
     st.editing = Some(conn.id);
     st.test_status = None;
     st.dialog_open = true;
+    st.dialog_form_step = true; // editing skips the engine picker
 }
 
 fn delete_connection(st: &mut State, index: usize) {
@@ -855,16 +890,16 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                         );
                     }
                     st.schema_error = None;
-                    // For the active database, eagerly fetch tables so autocomplete
-                    // has table names without the user expanding the tree — but one
-                    // schema at a time (the Tables handler chains to the next), so we
-                    // never spawn a storm of concurrent query workers that would
-                    // block the UI. Other databases load tables lazily on expand.
+                    // Eagerly fetch tables (one schema at a time — the Tables
+                    // handler chains to the next) so autocomplete has table names
+                    // and the tree fills in. For the active database always, and
+                    // for MySQL always (its single synthetic schema has no
+                    // separate toggle to load tables on).
                     let is_default = st
                         .active_profile
                         .as_ref()
                         .is_some_and(|p| p.database == database);
-                    if is_default {
+                    if is_default || st.engine() == crate::db::Engine::Mysql {
                         load_next_pending_tables(st, &database);
                     }
                 }

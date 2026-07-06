@@ -11,7 +11,7 @@ const MAX_FILES_WITH_HISTORY: usize = 20; // Keep history for at most 20 files
 const MAX_BOOKMARKS: usize = 100; // Maximum number of bookmarks
 
 /// What kind of content a persisted tab holds.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PersistedTabKind {
     File {
@@ -28,7 +28,7 @@ pub enum PersistedTabKind {
 }
 
 /// A tab entry that can be restored on the next launch.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedTab {
     pub kind: PersistedTabKind,
 }
