@@ -45,7 +45,7 @@ use crate::components::{
     Colored, Column, DataRow, Footer, Group, Icon, IconButton, Input, JsonTree, KeyValue,
     KeyValueList, Link, List, Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row,
     Scroll, Select, Separator, SidebarHeader, Slider, Spacer, Spinner, Split, TableView, Tabs,
-    ToggleSwitch, Typography,
+    ToggleSwitch, Typography, VSplit,
 };
 
 /// A node in the Thoth UI tree.
@@ -68,6 +68,8 @@ pub enum RenderNode {
     Spacer(Spacer),
     /// A proportional [`Split`].
     Split(Split),
+    /// A resizable vertical [`VSplit`] (top over bottom, draggable divider).
+    VSplit(VSplit),
     /// A [`Group`] (collapsible, open by default).
     Group(Group),
     /// A [`Collapsible`] (closed by default).

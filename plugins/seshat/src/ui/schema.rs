@@ -1,8 +1,12 @@
 //! The schema-browser tree (lazy schema → table → columns), built from the
 //! shared `data-row` component so it matches the file-viewer tree styling.
 
-use thoth_plugin_sdk::components::{Colored, Column, Row, Spinner, Typography, TypographyVariant};
+use thoth_plugin_sdk::components::{
+    Colored, Column, DataRow, DataRowIcon, Input, Row, Scroll, Separator, Size, Spinner, Typography,
+    TypographyVariant,
+};
 use thoth_plugin_sdk::render_node::RenderNode;
+use thoth_plugin_sdk::tokens::TextToken;
 
 use crate::db::Engine;
 use crate::state::{DatabaseNode, SchemaNode, State};
@@ -19,7 +23,9 @@ fn loading_row() -> RenderNode {
             .build(),
     )
 }
-use crate::{ICON_CIRCLE, ICON_DATABASE, ICON_EYE, ICON_FOLDER, ICON_KEY, ICON_TABLE};
+use crate::{
+    ICON_CIRCLE, ICON_DATABASE, ICON_EYE, ICON_FOLDER, ICON_KEY, ICON_TABLE, ICON_TREE_STRUCTURE,
+};
 
 pub(crate) fn schema_panel(st: &State) -> RenderNode {
     let active = st
@@ -35,6 +41,87 @@ pub(crate) fn schema_panel(st: &State) -> RenderNode {
         );
     };
 
+    // A non-empty filter switches from the lazy tree to server-side search
+    // results (matching tables across the connected database).
+    let body = if st.schema_filter.trim().is_empty() {
+        schema_tree(st)
+    } else {
+        filter_results(st)
+    };
+
+    RenderNode::Column(
+        Column::builder()
+            .gap(0.0)
+            .children(vec![
+                RenderNode::Row(
+                    Row::builder()
+                        .padding(6.0)
+                        .children(vec![RenderNode::Input(
+                            Input::builder()
+                                .id("schema-filter")
+                                .value(st.schema_filter.clone())
+                                .placeholder("Filter tables…")
+                                .grow(true)
+                                .size(Size::Small)
+                                .build(),
+                        )])
+                        .build(),
+                ),
+                RenderNode::Separator(Separator::plain()),
+                // Vertical scroll only: rows are full-width and truncate long
+                // names (with the count/action pinned right), so there's nothing
+                // to scroll horizontally.
+                RenderNode::Scroll(
+                    Scroll::builder()
+                        .id("schema-scroll")
+                        .child(body)
+                        .both(false)
+                        .build(),
+                ),
+            ])
+            .build(),
+    )
+}
+
+/// The server-side schema-filter results: a flat list of matching tables.
+fn filter_results(st: &State) -> RenderNode {
+    if st.schema_searching && st.schema_matches.is_none() {
+        return loading_row();
+    }
+    let mut nodes: Vec<RenderNode> = Vec::new();
+    match &st.schema_matches {
+        Some(matches) if !matches.is_empty() => {
+            for (i, m) in matches.iter().enumerate() {
+                let icon = if m.kind == "view" {
+                    (ICON_EYE, "secondary")
+                } else {
+                    (ICON_TABLE, "string")
+                };
+                // Qualify by database so cross-database matches are distinguishable
+                // (MySQL: db.table, since schema == db; Postgres: db.schema.table).
+                let label = match &m.database {
+                    Some(db) if *db != m.schema => format!("{db}.{}.{}", m.schema, m.name),
+                    Some(db) => format!("{db}.{}", m.name),
+                    None => format!("{}.{}", m.schema, m.name),
+                };
+                nodes.push(data_row(
+                    &format!("find:{i}"),
+                    &label,
+                    0,
+                    None,
+                    Some(icon),
+                    None,
+                ));
+            }
+        }
+        Some(_) => nodes.push(muted("No tables match.")),
+        None => nodes.push(loading_row()),
+    }
+    RenderNode::Column(Column::builder().gap(2.0).children(nodes).build())
+}
+
+/// The lazy schema tree (database → schema → table/view → columns).
+fn schema_tree(st: &State) -> RenderNode {
     let mut nodes: Vec<RenderNode> = Vec::new();
 
     if let Some(e) = &st.schema_error {
@@ -109,6 +196,28 @@ fn show_more_row(hidden: usize, indent: usize) -> RenderNode {
     )
 }
 
+/// A table/view tree row with a trailing "view structure" action. Clicking the
+/// row opens the table's data; clicking the action icon opens its structure tab.
+fn table_row(id: &str, name: &str, indent: usize, expanded: bool, icon: (&str, &str)) -> RenderNode {
+    RenderNode::DataRow(
+        DataRow::builder()
+            .row_id(id)
+            .display_text(name.to_string())
+            .key_token(TextToken::Key)
+            .indent(indent)
+            .caret(expanded)
+            .leading_icon(
+                DataRowIcon::builder()
+                    .glyph(icon.0)
+                    .color(icon.1)
+                    .build(),
+            )
+            .action_icon(ICON_TREE_STRUCTURE)
+            .action_tooltip("View structure")
+            .build(),
+    )
+}
+
 fn push_schemas(nodes: &mut Vec<RenderNode>, i: usize, db: &DatabaseNode, limit: usize) {
     let Some(schemas) = &db.schemas else {
         nodes.push(loading_row());
@@ -156,13 +265,12 @@ fn push_tables(
             "matview" => (ICON_DATABASE, "number"),
             _ => (ICON_TABLE, "string"),
         };
-        nodes.push(data_row(
+        nodes.push(table_row(
             &format!("tbl:{i}:{j}:{k}"),
             &tbl.name,
             indent,
-            Some(tbl.expanded),
-            Some(icon),
-            None,
+            tbl.expanded,
+            icon,
         ));
         if tbl.expanded {
             match &tbl.columns {

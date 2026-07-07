@@ -61,7 +61,7 @@ pub use json_tree::JsonTree;
 pub use key_value_list::{KeyValueList, KvEntry};
 pub use layout::{
     Align, BgColor, Collapsible, Colored, Column, Footer, Group, KeyValue, Row, Scroll, Spacer,
-    Split,
+    Split, VSplit,
 };
 pub use link::Link;
 #[cfg(feature = "egui")]

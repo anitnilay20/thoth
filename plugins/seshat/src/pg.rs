@@ -75,6 +75,7 @@ impl DbAdapter for Postgres {
             .rows
             .iter()
             .map(|r| TableInfo {
+                database: None,
                 schema: schema.to_string(),
                 name: str_at(r, 0),
                 kind: if str_at(r, 1) == "VIEW" {
@@ -85,6 +86,52 @@ impl DbAdapter for Postgres {
                 .to_string(),
             })
             .collect())
+    }
+
+    fn find_tables(&self, p: &Profile, query: &str) -> Result<Vec<TableInfo>, String> {
+        // A Postgres connection can only introspect the database it's connected
+        // to, so search each database in turn (reconnecting) and merge results,
+        // stopping once the overall cap is reached. Databases scanned is bounded
+        // so a server with very many databases can't stall the search.
+        const TOTAL_CAP: usize = 200;
+        const MAX_DBS: usize = 30;
+        let pattern = quote_literal(&format!("%{query}%"));
+        let mut out: Vec<TableInfo> = Vec::new();
+
+        for db in self.list_databases(p)?.into_iter().take(MAX_DBS) {
+            if out.len() >= TOTAL_CAP {
+                break;
+            }
+            let remaining = TOTAL_CAP - out.len();
+            let sql = format!(
+                "SELECT table_schema, table_name, table_type FROM information_schema.tables \
+                 WHERE table_schema NOT IN ('pg_catalog', 'information_schema') \
+                 AND table_name ILIKE {pattern} \
+                 ORDER BY table_schema, table_name LIMIT {remaining}"
+            );
+            let dp = Profile {
+                database: db.clone(),
+                ..p.clone()
+            };
+            // A database we can't connect to (permissions) is skipped, not fatal.
+            let Ok(qr) = run_query(&dp, &sql) else {
+                continue;
+            };
+            for r in &qr.rows {
+                out.push(TableInfo {
+                    database: Some(db.clone()),
+                    schema: str_at(r, 0),
+                    name: str_at(r, 1),
+                    kind: if str_at(r, 2) == "VIEW" {
+                        "view"
+                    } else {
+                        "table"
+                    }
+                    .to_string(),
+                });
+            }
+        }
+        Ok(out)
     }
 
     fn list_columns(
@@ -122,13 +169,116 @@ impl DbAdapter for Postgres {
                 nullable: str_at(r, 2) == "YES",
                 default: r.get(3).and_then(|v| v.as_str()).map(String::from),
                 primary_key: bool_at(r, 4),
+                unique: false,
+                foreign_key: None,
             })
             .collect())
+    }
+
+    fn describe_table(
+        &self,
+        p: &Profile,
+        schema: &str,
+        table: &str,
+    ) -> Result<crate::db::TableDetail, String> {
+        let s = quote_literal(schema);
+        let t = quote_literal(table);
+
+        // Columns with PK / UNIQUE / FK flags, aggregated per column (a column may
+        // participate in several constraints).
+        let col_sql = format!(
+            "SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, \
+                    COALESCE(bool_or(tc.constraint_type = 'PRIMARY KEY'), false) AS is_pk, \
+                    COALESCE(bool_or(tc.constraint_type = 'UNIQUE'), false) AS is_unique, \
+                    max(CASE WHEN tc.constraint_type = 'FOREIGN KEY' \
+                             THEN ccu.table_name || '.' || ccu.column_name END) AS fk \
+             FROM information_schema.columns c \
+             LEFT JOIN information_schema.key_column_usage kcu \
+               ON kcu.table_schema = c.table_schema AND kcu.table_name = c.table_name \
+              AND kcu.column_name = c.column_name \
+             LEFT JOIN information_schema.table_constraints tc \
+               ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema \
+             LEFT JOIN information_schema.constraint_column_usage ccu \
+               ON ccu.constraint_name = tc.constraint_name AND tc.constraint_type = 'FOREIGN KEY' \
+             WHERE c.table_schema = {s} AND c.table_name = {t} \
+             GROUP BY c.column_name, c.data_type, c.is_nullable, c.column_default, c.ordinal_position \
+             ORDER BY c.ordinal_position"
+        );
+        let columns = run_query(p, &col_sql)?
+            .rows
+            .iter()
+            .map(|r| ColumnInfo {
+                name: str_at(r, 0),
+                data_type: str_at(r, 1),
+                nullable: str_at(r, 2) == "YES",
+                default: r.get(3).and_then(|v| v.as_str()).map(String::from),
+                primary_key: bool_at(r, 4),
+                unique: bool_at(r, 5) && !bool_at(r, 4),
+                foreign_key: r.get(6).and_then(|v| v.as_str()).map(String::from),
+            })
+            .collect();
+
+        // Indexes (non-fatal): name, unique flag, and ordered column list.
+        let idx_sql = format!(
+            "SELECT i.relname, ix.indisunique, \
+                    array_to_string(array_agg(a.attname ORDER BY k.ord), ',') \
+             FROM pg_index ix \
+             JOIN pg_class i ON i.oid = ix.indexrelid \
+             JOIN pg_class tb ON tb.oid = ix.indrelid \
+             JOIN pg_namespace n ON n.oid = tb.relnamespace \
+             JOIN unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true \
+             JOIN pg_attribute a ON a.attrelid = tb.oid AND a.attnum = k.attnum \
+             WHERE n.nspname = {s} AND tb.relname = {t} \
+             GROUP BY i.relname, ix.indisunique ORDER BY i.relname"
+        );
+        let indexes = run_query(p, &idx_sql)
+            .map(|qr| {
+                qr.rows
+                    .iter()
+                    .map(|r| crate::db::IndexInfo {
+                        name: str_at(r, 0),
+                        unique: bool_at(r, 1),
+                        columns: str_at(r, 2)
+                            .split(',')
+                            .filter(|c| !c.is_empty())
+                            .map(String::from)
+                            .collect(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Estimated rows + total size (non-fatal).
+        let stat_sql = format!(
+            "SELECT c.reltuples::bigint, \
+                    pg_size_pretty(pg_total_relation_size(c.oid)) \
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = {s} AND c.relname = {t}"
+        );
+        let (row_estimate, size) = run_query(p, &stat_sql)
+            .ok()
+            .and_then(|qr| qr.rows.into_iter().next())
+            .map(|r| (int_at(&r, 0).max(0), str_at(&r, 1)))
+            .unwrap_or((0, String::new()));
+
+        Ok(crate::db::TableDetail {
+            columns,
+            indexes,
+            row_estimate,
+            size,
+        })
     }
 
     fn run_query(&self, p: &Profile, sql: &str) -> Result<QueryResult, String> {
         run_query(p, sql)
     }
+}
+
+/// Read an integer cell, tolerating either a JSON number or a numeric string.
+fn int_at(row: &[Value], i: usize) -> i64 {
+    row.get(i)
+        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
+        .unwrap_or(0)
 }
 
 fn str_at(row: &[Value], i: usize) -> String {

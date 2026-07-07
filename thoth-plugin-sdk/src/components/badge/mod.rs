@@ -17,6 +17,11 @@ pub struct Badge {
     /// Fill colour as a `#rrggbb` hex string; defaults to the secondary accent.
     #[serde(default)]
     pub color: Option<String>,
+    /// When true, render as an outlined pill (transparent fill, coloured 1px
+    /// border and coloured monospace text) instead of a filled one.
+    #[builder(default)]
+    #[serde(default)]
+    pub outlined: bool,
 }
 
 #[cfg(feature = "egui")]
@@ -24,19 +29,37 @@ impl egui::Widget for Badge {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         use crate::theme::{ThemeColors, get_contrast_text_color, resolve_color};
         let colors = ThemeColors::from_ctx(ui.ctx());
-        let bg = self
+        let color = self
             .color
             .as_deref()
             .and_then(|c| resolve_color(c, &colors))
             .unwrap_or(colors.accent_secondary);
-        let fg = get_contrast_text_color(bg);
-        egui::Frame::new()
-            .fill(bg)
-            .corner_radius(3.0)
-            .inner_margin(egui::Margin::symmetric(4, 2))
-            .show(ui, |ui| {
-                ui.label(egui::RichText::new(&self.label).color(fg));
-            })
-            .response
+        if self.outlined {
+            // Transparent fill, coloured border + coloured monospace text — the
+            // schema/structure constraint-tag style.
+            egui::Frame::new()
+                .stroke(egui::Stroke::new(1.0, color))
+                .corner_radius(3.0)
+                .inner_margin(egui::Margin::symmetric(6, 2))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(&self.label)
+                            .monospace()
+                            .size(9.0)
+                            .color(color),
+                    );
+                })
+                .response
+        } else {
+            let fg = get_contrast_text_color(color);
+            egui::Frame::new()
+                .fill(color)
+                .corner_radius(3.0)
+                .inner_margin(egui::Margin::symmetric(4, 2))
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new(&self.label).color(fg));
+                })
+                .response
+        }
     }
 }

@@ -665,7 +665,6 @@ impl Gallery {
             ui.add(
                 IconButton::builder()
                     .icon(egui_phosphor::regular::PLUS)
-                    .size(28.0)
                     .tooltip("Large")
                     .build(),
             );

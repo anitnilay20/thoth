@@ -45,6 +45,12 @@ pub(crate) const ICON_KEY: &str = "\u{E2D6}";
 pub(crate) const ICON_CIRCLE: &str = "\u{E18A}";
 pub(crate) const ICON_FLOPPY_DISK: &str = "\u{E248}"; // save query to a .sql file
 pub(crate) const ICON_FOLDER_OPEN: &str = "\u{E256}"; // open a .sql file
+                                                      // structure-view glyphs
+pub(crate) const ICON_LINK: &str = "\u{E2E2}"; // foreign key
+pub(crate) const ICON_LIST_NUMBERS: &str = "\u{E2F6}"; // index
+pub(crate) const ICON_FINGERPRINT: &str = "\u{E23E}"; // unique constraint
+pub(crate) const ICON_CHECK_SQUARE: &str = "\u{E186}"; // check constraint
+pub(crate) const ICON_LIGHTNING: &str = "\u{E2DE}"; // triggers (empty state)
 
 #[derive(PluginMeta)]
 #[plugin(
@@ -116,6 +122,11 @@ impl SettingsGuest for Seshat {
 impl TabHostGuest for Seshat {
     fn tab_title() -> String {
         STATE.with(|st| {
+            // A structure tab is titled after its table; an editor tab after its
+            // connection.
+            if let state::View::Structure { table, .. } = &st.view {
+                return table.clone();
+            }
             st.active
                 .as_deref()
                 .and_then(|id| st.connections.iter().find(|c| c.id == id))
@@ -124,17 +135,38 @@ impl TabHostGuest for Seshat {
         })
     }
     fn tab_icon() -> Option<String> {
-        // An editor tab — a terminal/SQL-editor glyph (the sidebar keeps the database icon).
-        Some(ICON_TERMINAL.to_string())
+        // Structure tabs get the table glyph; editor tabs the terminal glyph.
+        Some(
+            STATE
+                .with(|st| match st.view {
+                    state::View::Structure { .. } => ICON_TABLE,
+                    state::View::Editor => ICON_TERMINAL,
+                })
+                .to_string(),
+        )
     }
     /// Snapshot the editor tab so the host can restore it across restarts.
     fn get_state() -> Result<String, PluginError> {
         Ok(STATE.with(|st| {
-            json!({
-                "connection": st.active,
-                "database": st.active_profile.as_ref().map(|p| p.database.clone()),
-                "sql": st.sql,
-            })
+            match &st.view {
+                // A structure tab restores back into the same table view.
+                state::View::Structure {
+                    database,
+                    schema,
+                    table,
+                } => json!({
+                    "connection": st.active,
+                    "view": "structure",
+                    "database": database,
+                    "schema": schema,
+                    "table": table,
+                }),
+                state::View::Editor => json!({
+                    "connection": st.active,
+                    "database": st.active_profile.as_ref().map(|p| p.database.clone()),
+                    "sql": st.sql,
+                }),
+            }
             .to_string()
         }))
     }
@@ -184,6 +216,18 @@ impl DataSourceGuest for Seshat {
             Request::ListTables { database, schema } => {
                 to_json(adapter.list_tables(&db::Profile { database, ..profile }, &schema))
             }
+            // Search scope is the adapter's concern (MySQL is server-wide;
+            // Postgres iterates its databases), so query against the base profile.
+            Request::FindTables { query } => to_json(adapter.find_tables(&profile, &query)),
+            Request::DescribeTable {
+                database,
+                schema,
+                table,
+            } => to_json(adapter.describe_table(
+                &db::Profile { database, ..profile },
+                &schema,
+                &table,
+            )),
             Request::ListColumns {
                 database,
                 schema,

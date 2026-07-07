@@ -23,6 +23,7 @@ impl RenderNode {
             RenderNode::Scroll(s) => s.show(ui, events),
             RenderNode::Spacer(s) => s.show(ui),
             RenderNode::Split(s) => s.show(ui, events),
+            RenderNode::VSplit(s) => s.show(ui, events),
             RenderNode::Group(g) => g.show(ui, events),
             RenderNode::Collapsible(c) => c.show(ui, events),
             RenderNode::Footer(f) => f.show(ui, events),
@@ -143,6 +144,8 @@ impl RenderNode {
                 let out = d.show(ui);
                 if out.caret_clicked {
                     emit(events, &d.row_id, "toggle", String::new());
+                } else if out.action_clicked {
+                    emit(events, &d.row_id, "action", String::new());
                 } else if out.clicked {
                     emit(events, &d.row_id, "click", String::new());
                 }

@@ -7,7 +7,7 @@ use serde_json::Value;
 use thoth_plugin_sdk::state::PluginState;
 
 use crate::bindings::thoth::plugin::{db_runtime, plugin_storage};
-use crate::db::{self, ColumnInfo, Engine};
+use crate::db::{self, ColumnInfo, Engine, TableDetail, TableInfo};
 
 // ── connection + form models ──────────────────────────────────────────────────
 
@@ -101,6 +101,22 @@ pub(crate) enum Kind {
     Schemas { database: String },
     Tables { database: String, schema: String },
     Columns { database: String, schema: String, table: String },
+    /// Server-side schema-filter results (a flat list of matching tables).
+    FindTables,
+    /// Full table detail for a dedicated structure tab.
+    Structure,
+}
+
+/// What an editor-tab instance is showing: the SQL editor, or a read-only
+/// structure view for one table (opened from the schema tree's row action).
+#[derive(Clone, PartialEq)]
+pub(crate) enum View {
+    Editor,
+    Structure {
+        database: String,
+        schema: String,
+        table: String,
+    },
 }
 
 /// Which results-area tab is active, mirrored from the tab-change event so the
@@ -195,6 +211,22 @@ pub(crate) struct State {
     /// Ensembl expose thousands of databases; rendering them all at once stalls
     /// the UI, so we page — a "Show more" row bumps this by [`TREE_PAGE`].
     pub tree_limit: usize,
+    /// Current schema-filter text; empty shows the tree, non-empty shows the
+    /// server-side search results ([`schema_matches`](State::schema_matches)).
+    pub schema_filter: String,
+    /// The last filter text a `FindTables` request was submitted for (dedupes
+    /// per-keystroke queries).
+    pub schema_filter_submitted: String,
+    /// `Some` once server-side filter results have arrived for the current query.
+    pub schema_matches: Option<Vec<TableInfo>>,
+    /// True while a `FindTables` request is in flight.
+    pub schema_searching: bool,
+
+    // structure view (a table's columns, when this tab is a structure tab)
+    /// This instance's view mode — editor or a table's structure.
+    pub view: View,
+    /// The structure tab's detail (`None` = loading; `Err` = failed).
+    pub structure: Option<Result<TableDetail, String>>,
 
     // query history (persisted; newest last)
     pub history: Vec<HistoryEntry>,
@@ -240,6 +272,12 @@ impl State {
             schema_error: None,
             databases: Vec::new(),
             tree_limit: TREE_PAGE,
+            schema_filter: String::new(),
+            schema_filter_submitted: String::new(),
+            schema_matches: None,
+            schema_searching: false,
+            view: View::Editor,
+            structure: None,
             history: Vec::new(),
             error: None,
             failed: None,
@@ -402,6 +440,12 @@ pub(crate) enum Request {
     ListDatabases,
     ListSchemas { database: String },
     ListTables { database: String, schema: String },
+    FindTables { query: String },
+    DescribeTable {
+        database: String,
+        schema: String,
+        table: String,
+    },
     ListColumns {
         database: String,
         schema: String,

@@ -79,6 +79,7 @@ impl DbAdapter for Mysql {
             .rows
             .iter()
             .map(|r| TableInfo {
+                database: None,
                 schema: schema.to_string(),
                 name: str_at(r, 0),
                 kind: if str_at(r, 1).eq_ignore_ascii_case("VIEW") {
@@ -87,6 +88,41 @@ impl DbAdapter for Mysql {
                     "table"
                 }
                 .to_string(),
+            })
+            .collect())
+    }
+
+    fn find_tables(&self, p: &Profile, query: &str) -> Result<Vec<TableInfo>, String> {
+        // MySQL's `information_schema` spans every database on the server, so a
+        // single connection can search them all — filter to matching tables in
+        // any non-system database (results carry their database as the schema).
+        let pattern = quote_literal(&format!("%{query}%"));
+        // Order by table name first so matches interleave across databases
+        // (rather than filling the 200-row cap with the first DB alphabetically).
+        let sql = format!(
+            "SELECT table_schema, table_name, table_type FROM information_schema.tables \
+             WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') \
+             AND table_name LIKE {pattern} \
+             ORDER BY table_name, table_schema LIMIT 200"
+        );
+        let qr = run_query(p, &sql)?;
+        Ok(qr
+            .rows
+            .iter()
+            .map(|r| {
+                // In MySQL the schema *is* the database.
+                let db = str_at(r, 0);
+                TableInfo {
+                    database: Some(db.clone()),
+                    schema: db,
+                    name: str_at(r, 1),
+                    kind: if str_at(r, 2).eq_ignore_ascii_case("VIEW") {
+                        "view"
+                    } else {
+                        "table"
+                    }
+                    .to_string(),
+                }
             })
             .collect())
     }
@@ -115,8 +151,96 @@ impl DbAdapter for Mysql {
                 nullable: str_at(r, 2).eq_ignore_ascii_case("YES"),
                 default: r.get(3).and_then(|v| v.as_str()).map(String::from),
                 primary_key: str_at(r, 4) == "PRI",
+                unique: false,
+                foreign_key: None,
             })
             .collect())
+    }
+
+    fn describe_table(
+        &self,
+        p: &Profile,
+        schema: &str,
+        table: &str,
+    ) -> Result<crate::db::TableDetail, String> {
+        let s = quote_literal(schema);
+        let t = quote_literal(table);
+
+        // Columns with key flags (PRI/UNI) + foreign-key target.
+        let col_sql = format!(
+            "SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, c.column_key, \
+                    k.referenced_table_name, k.referenced_column_name \
+             FROM information_schema.columns c \
+             LEFT JOIN information_schema.key_column_usage k \
+               ON k.table_schema = c.table_schema AND k.table_name = c.table_name \
+              AND k.column_name = c.column_name AND k.referenced_table_name IS NOT NULL \
+             WHERE c.table_schema = {s} AND c.table_name = {t} \
+             ORDER BY c.ordinal_position"
+        );
+        let columns = run_query(p, &col_sql)?
+            .rows
+            .iter()
+            .map(|r| {
+                let key = str_at(r, 4);
+                let fk = match (r.get(5).and_then(|v| v.as_str()), r.get(6).and_then(|v| v.as_str()))
+                {
+                    (Some(rt), Some(rc)) => Some(format!("{rt}.{rc}")),
+                    _ => None,
+                };
+                ColumnInfo {
+                    name: str_at(r, 0),
+                    data_type: str_at(r, 1),
+                    nullable: str_at(r, 2).eq_ignore_ascii_case("YES"),
+                    default: r.get(3).and_then(|v| v.as_str()).map(String::from),
+                    primary_key: key == "PRI",
+                    unique: key == "UNI",
+                    foreign_key: fk,
+                }
+            })
+            .collect();
+
+        // Indexes (non-fatal): group index rows by name, ordered by seq_in_index.
+        let idx_sql = format!(
+            "SELECT index_name, MIN(non_unique) AS non_unique, \
+                    GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS cols \
+             FROM information_schema.statistics \
+             WHERE table_schema = {s} AND table_name = {t} \
+             GROUP BY index_name ORDER BY index_name"
+        );
+        let indexes = run_query(p, &idx_sql)
+            .map(|qr| {
+                qr.rows
+                    .iter()
+                    .map(|r| crate::db::IndexInfo {
+                        name: str_at(r, 0),
+                        unique: int_at(r, 1) == 0,
+                        columns: str_at(r, 2)
+                            .split(',')
+                            .filter(|c| !c.is_empty())
+                            .map(String::from)
+                            .collect(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Estimated rows + total size (non-fatal).
+        let stat_sql = format!(
+            "SELECT table_rows, data_length + index_length FROM information_schema.tables \
+             WHERE table_schema = {s} AND table_name = {t}"
+        );
+        let (row_estimate, size) = run_query(p, &stat_sql)
+            .ok()
+            .and_then(|qr| qr.rows.into_iter().next())
+            .map(|r| (int_at(&r, 0).max(0), human_size(int_at(&r, 1))))
+            .unwrap_or((0, String::new()));
+
+        Ok(crate::db::TableDetail {
+            columns,
+            indexes,
+            row_estimate,
+            size,
+        })
     }
 
     fn run_query(&self, p: &Profile, sql: &str) -> Result<QueryResult, String> {
@@ -129,6 +253,32 @@ fn str_at(row: &[Value], i: usize) -> String {
         .and_then(|v| v.as_str())
         .map(String::from)
         .unwrap_or_default()
+}
+
+/// Read an integer cell, tolerating either a JSON number or a numeric string.
+fn int_at(row: &[Value], i: usize) -> i64 {
+    row.get(i)
+        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
+        .unwrap_or(0)
+}
+
+/// Format a byte count as a compact human-readable size (e.g. `318 MB`).
+fn human_size(bytes: i64) -> String {
+    if bytes <= 0 {
+        return "0 B".to_string();
+    }
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{size:.0} {}", UNITS[unit])
+    }
 }
 
 /// Quote a string as a MySQL SQL literal (backslash + quote escaping).

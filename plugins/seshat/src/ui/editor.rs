@@ -2,7 +2,7 @@
 
 use thoth_plugin_sdk::components::{
     Button, ButtonColor, ButtonSize, ButtonType, CodeEditor, Column, CustomSyntax, IconButton, Row,
-    Scroll, Select, SelectOption, Separator, Size,
+    Scroll, Select, SelectOption, Separator, Size, VSplit,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -126,35 +126,55 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                         .build(),
                 ),
                 RenderNode::Separator(Separator::plain()),
-                RenderNode::CodeEditor(
-                    CodeEditor::builder()
-                        .id("sql")
-                        .value(st.sql.clone())
-                        .font_size(12.0)
-                        .custom_syntax(
-                            CustomSyntax::builder()
-                                .language("sql")
-                                .case_sensitive(false)
-                                .comment("--")
-                                .comment_multiline(("/*".to_string(), "*/".to_string()))
-                                .keywords(KEYWORDS.iter().map(|s| s.to_string()).collect())
-                                .types(TYPES.iter().map(|s| s.to_string()).collect())
-                                // Built-in specials plus the live table names.
-                                .special(
-                                    SPECIAL
-                                        .iter()
-                                        .map(|s| s.to_string())
-                                        .chain(tables)
-                                        .collect(),
+                // Editor over results, with a draggable divider to re-apportion
+                // their heights. Each pane scrolls on its own: the code editor has
+                // its own vertical scroll, and the results grid is wrapped in a
+                // both-axes scroll.
+                RenderNode::VSplit(
+                    VSplit::builder()
+                        .id("editor-results")
+                        .default_ratio(0.45)
+                        .top(RenderNode::CodeEditor(
+                            CodeEditor::builder()
+                                .id("sql")
+                                .value(st.sql.clone())
+                                .font_size(12.0)
+                                .custom_syntax(
+                                    CustomSyntax::builder()
+                                        .language("sql")
+                                        .case_sensitive(false)
+                                        .comment("--")
+                                        .comment_multiline((
+                                            "/*".to_string(),
+                                            "*/".to_string(),
+                                        ))
+                                        .keywords(
+                                            KEYWORDS.iter().map(|s| s.to_string()).collect(),
+                                        )
+                                        .types(TYPES.iter().map(|s| s.to_string()).collect())
+                                        // Built-in specials plus the live table names.
+                                        .special(
+                                            SPECIAL
+                                                .iter()
+                                                .map(|s| s.to_string())
+                                                .chain(tables)
+                                                .collect(),
+                                        )
+                                        .build(),
                                 )
+                                .run_markers(run_markers)
+                                .bordered(false)
                                 .build(),
-                        )
-                        .run_markers(run_markers)
-                        .bordered(false)
+                        ))
+                        .bottom(RenderNode::Scroll(
+                            Scroll::builder()
+                                .id("results-scroll")
+                                .child(results_view(st))
+                                .both(true)
+                                .build(),
+                        ))
                         .build(),
                 ),
-                RenderNode::Separator(Separator::plain()),
-                RenderNode::Scroll(Scroll::builder().child(results_view(st)).both(true).build()),
             ])
             .build(),
     )

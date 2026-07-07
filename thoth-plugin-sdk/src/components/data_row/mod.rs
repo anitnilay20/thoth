@@ -91,6 +91,14 @@ pub struct DataRow {
     /// Optional right-aligned muted text (e.g. a count or type).
     #[serde(default)]
     pub trailing: Option<String>,
+    /// Optional right-aligned action icon (a Phosphor glyph). Clicking it reports
+    /// [`DataRowOutput::action_clicked`] instead of a row click — e.g. an
+    /// "open structure" affordance on a table row.
+    #[serde(default)]
+    pub action_icon: Option<String>,
+    /// Tooltip for [`action_icon`](DataRow::action_icon).
+    #[serde(default)]
+    pub action_tooltip: Option<String>,
     /// Persistent selection highlight.
     #[builder(default)]
     #[serde(default)]

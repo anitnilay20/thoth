@@ -20,6 +20,8 @@ pub struct DataRowOutput {
     pub right_clicked: bool,
     /// The expand/collapse caret was clicked (takes precedence over `clicked`).
     pub caret_clicked: bool,
+    /// The trailing action icon was clicked (takes precedence over `clicked`).
+    pub action_clicked: bool,
     /// The row's interaction response.
     pub response: egui::Response,
 }
@@ -66,6 +68,7 @@ impl DataRow {
         let muted = ui.visuals().weak_text_color();
 
         let mut caret_clicked = false;
+        let mut action_clicked = false;
         let mut body_clicked = false;
         let mut body_secondary = false;
 
@@ -138,42 +141,80 @@ impl DataRow {
                     highlight_bg,
                     highlight_fg,
                 );
-                body_label(ui, key_label, true, &mut body_clicked, &mut body_secondary);
 
-                if let Some(value_token) = self.value_token {
+                let value_label = self.value_token.map(|value_token| {
                     let value_color = palette.color_with_highlighting(
                         value_token,
                         self.syntax_highlighting,
                         base_text_color,
                     );
-                    let value_label = highlighted_text(
+                    highlighted_text(
                         ui,
                         value_part,
                         value_color,
                         &self.highlights.value_ranges,
                         highlight_bg,
                         highlight_fg,
-                    );
-                    body_label(
-                        ui,
-                        value_label,
-                        true,
-                        &mut body_clicked,
-                        &mut body_secondary,
-                    );
-                }
+                    )
+                });
 
-                if let Some(trailing) = &self.trailing {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        body_label(
-                            ui,
-                            RichText::new(trailing).color(muted).size(11.0).into(),
-                            false,
-                            &mut body_clicked,
-                            &mut body_secondary,
+                // Lay the rest of the row out right-to-left within the remaining
+                // width, so the trailing count + action pin to the right edge, and
+                // the key/value text fills the middle and truncates (never bleeds
+                // past the row or shoves the action off-screen).
+                let remaining = egui::vec2(ui.available_width(), ROW_HEIGHT);
+                ui.allocate_ui_with_layout(
+                    remaining,
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        if let Some(glyph) = &self.action_icon {
+                            let clicked = ui
+                                .add(
+                                    IconButton::builder()
+                                        .icon(glyph.as_str())
+                                        .maybe_tooltip(self.action_tooltip.clone())
+                                        .build(),
+                                )
+                                .clicked();
+                            if clicked {
+                                action_clicked = true;
+                            }
+                        }
+                        if let Some(trailing) = &self.trailing {
+                            body_label(
+                                ui,
+                                RichText::new(trailing).color(muted).size(11.0).into(),
+                                false,
+                                &mut body_clicked,
+                                &mut body_secondary,
+                            );
+                        }
+                        // The key/value fills the space left of the trailing items,
+                        // left-aligned and truncated with an ellipsis.
+                        ui.with_layout(
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                body_label(
+                                    ui,
+                                    key_label,
+                                    true,
+                                    &mut body_clicked,
+                                    &mut body_secondary,
+                                );
+                                if let Some(value_label) = value_label {
+                                    body_label(
+                                        ui,
+                                        value_label,
+                                        true,
+                                        &mut body_clicked,
+                                        &mut body_secondary,
+                                    );
+                                }
+                            },
                         );
-                    });
-                }
+                    },
+                );
             });
         });
 
@@ -182,10 +223,12 @@ impl DataRow {
         }
 
         DataRowOutput {
-            // A caret click takes precedence and must not surface as a row click.
-            clicked: !caret_clicked && (resp.clicked() || body_clicked),
+            // A caret or action click takes precedence and must not surface as a
+            // row click.
+            clicked: !caret_clicked && !action_clicked && (resp.clicked() || body_clicked),
             right_clicked: resp.secondary_clicked() || body_secondary,
             caret_clicked,
+            action_clicked,
             response: resp,
         }
     }

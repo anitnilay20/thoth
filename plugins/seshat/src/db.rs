@@ -51,6 +51,10 @@ pub struct QueryResult {
 /// A table or view within a schema.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TableInfo {
+    /// The owning database, when the row comes from a cross-database search
+    /// (`None` for the schema tree, which is already scoped to one database).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
     pub schema: String,
     pub name: String,
     /// `"table"` or `"view"`.
@@ -58,7 +62,7 @@ pub struct TableInfo {
 }
 
 /// One column of a table (schema introspection — distinct from a result [`Column`]).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
@@ -66,6 +70,32 @@ pub struct ColumnInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
     pub primary_key: bool,
+    /// Part of a UNIQUE constraint (and not the primary key).
+    #[serde(default)]
+    pub unique: bool,
+    /// `Some("referenced_table.referenced_column")` when this column is a foreign key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreign_key: Option<String>,
+}
+
+/// One index on a table (for the structure view's Indexes tab).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct IndexInfo {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub unique: bool,
+}
+
+/// Everything the structure view shows for one table: its columns (with
+/// constraint flags), its indexes, an estimated row count, and its on-disk size.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TableDetail {
+    pub columns: Vec<ColumnInfo>,
+    pub indexes: Vec<IndexInfo>,
+    /// Estimated row count (from catalog statistics — cheap, not `COUNT(*)`).
+    pub row_estimate: i64,
+    /// Human-readable total size (e.g. `318 MB`), empty when unavailable.
+    pub size: String,
 }
 
 /// Engine-specific defaults + placeholders used to seed the new-connection form.
@@ -97,6 +127,11 @@ pub trait DbAdapter {
     /// List tables and views in `schema`.
     fn list_tables(&self, p: &Profile, schema: &str) -> Result<Vec<TableInfo>, String>;
 
+    /// Find tables/views in the connected database whose name matches `query`
+    /// (case-insensitive substring), across all user schemas. Capped server-side.
+    /// This is the schema browser's server-side filter.
+    fn find_tables(&self, p: &Profile, query: &str) -> Result<Vec<TableInfo>, String>;
+
     /// Describe the columns of `schema.table`.
     fn list_columns(
         &self,
@@ -104,6 +139,12 @@ pub trait DbAdapter {
         schema: &str,
         table: &str,
     ) -> Result<Vec<ColumnInfo>, String>;
+
+    /// Full detail for the structure view: columns (with PK/UNIQUE/FK flags),
+    /// indexes, an estimated row count, and on-disk size. Enrichments degrade
+    /// gracefully — a failed sub-query yields empty/zero rather than an error.
+    fn describe_table(&self, p: &Profile, schema: &str, table: &str)
+        -> Result<TableDetail, String>;
 
     /// Run an arbitrary SQL statement and return the result set.
     fn run_query(&self, p: &Profile, sql: &str) -> Result<QueryResult, String>;

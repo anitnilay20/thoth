@@ -122,6 +122,7 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
                     &conn.id,
                     active_password(st, &conn.id),
                     None,
+                    None,
                     false,
                 );
             }
@@ -148,6 +149,16 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         //                                         columns; a body "click" opens a SELECT
         //   col:<i>:<j>:<k>:<l>  column (leaf)  — clicking opens its table's SELECT
         "tree-more" => st.tree_limit = st.tree_limit.saturating_add(crate::state::TREE_PAGE),
+        // Schema-browser server-side filter: text change runs a `FindTables`
+        // search against the active database (deduped per keystroke); empty
+        // restores the tree.
+        "schema-filter" if event.kind == "change" => set_schema_filter(st, &parse_str(&event.value)),
+        // A server-side filter result row — open that table's data.
+        id if id.starts_with("find:") => {
+            if let Ok(i) = id[5..].parse::<usize>() {
+                open_filter_match(st, i);
+            }
+        }
         id if id.starts_with("db:") => {
             if let Ok(i) = id[3..].parse::<usize>() {
                 toggle_database(st, i);
@@ -160,10 +171,10 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         }
         id if id.starts_with("tbl:") => {
             if let [i, j, k] = parse_indices(&id[4..])[..] {
-                if event.kind == "toggle" {
-                    toggle_table(st, i, j, k);
-                } else {
-                    open_table_data(st, i, j, k);
+                match event.kind.as_str() {
+                    "toggle" => toggle_table(st, i, j, k),
+                    "action" => open_structure_tab(st, i, j, k),
+                    _ => open_table_data(st, i, j, k),
                 }
             }
         }
@@ -328,10 +339,20 @@ fn load_explain(st: &mut State) {
 /// SQL). Passing the password lets the new instance skip a keychain read — and
 /// therefore the macOS keychain prompt. When `run` is set, the tab executes the
 /// seeded SQL on open (so it lands on the results grid).
-fn open_tab(name: &str, conn_id: &str, password: Option<&str>, sql: Option<&str>, run: bool) {
+fn open_tab(
+    name: &str,
+    conn_id: &str,
+    password: Option<&str>,
+    database: Option<&str>,
+    sql: Option<&str>,
+    run: bool,
+) {
     let mut state = serde_json::json!({ "connection": conn_id });
     if let Some(p) = password {
         state["password"] = Value::from(p);
+    }
+    if let Some(db) = database {
+        state["database"] = Value::from(db);
     }
     if let Some(s) = sql {
         state["sql"] = Value::from(s);
@@ -562,6 +583,54 @@ fn open_table_data(st: &State, i: usize, j: usize, k: usize) {
     let Some((schema, table)) = target else {
         return;
     };
+    open_table_data_named(st, &schema, &table);
+}
+
+/// Minimum query length before a server-side schema search runs (a 1-char
+/// `LIKE %x%` on a huge catalog like Ensembl matches almost everything).
+const SCHEMA_FILTER_MIN: usize = 2;
+
+/// Update the schema-filter text; empty/too-short restores the tree, otherwise
+/// (maybe) start a search. The search is server-side across the connection's
+/// databases (MySQL server-wide, Postgres per-database).
+fn set_schema_filter(st: &mut State, text: &str) {
+    st.schema_filter = text.to_string();
+    if st.schema_filter.trim().chars().count() < SCHEMA_FILTER_MIN {
+        st.schema_matches = None;
+        st.schema_searching = false;
+        st.schema_filter_submitted.clear();
+        return;
+    }
+    maybe_start_filter_search(st);
+}
+
+/// Start a `FindTables` search only if none is in flight — this coalesces rapid
+/// keystrokes into a single request at a time (each catalog scan on a large DB
+/// is slow, so firing one per keystroke would pile up and stall). When the
+/// in-flight search returns, the result handler calls this again to run a
+/// trailing search if the text moved on. No-op when the current text was already
+/// searched.
+fn maybe_start_filter_search(st: &mut State) {
+    let query = st.schema_filter.trim().to_string();
+    if query.chars().count() < SCHEMA_FILTER_MIN || st.schema_searching {
+        return;
+    }
+    if query == st.schema_filter_submitted && st.schema_matches.is_some() {
+        return;
+    }
+    st.schema_filter_submitted = query.clone();
+    st.schema_searching = true;
+    submit(&Request::FindTables { query }, Kind::FindTables, st);
+}
+
+/// Open a server-side filter match (by its display index) as a data tab. The
+/// match carries its own database, so this opens against that database — MySQL
+/// qualifies the table in a single connection, Postgres opens a tab connected to
+/// the match's database (a PG connection can't query across databases).
+fn open_filter_match(st: &State, index: usize) {
+    let Some(m) = st.schema_matches.as_ref().and_then(|v| v.get(index)).cloned() else {
+        return;
+    };
     let Some(conn) = st
         .active
         .as_deref()
@@ -569,8 +638,83 @@ fn open_table_data(st: &State, i: usize, j: usize, k: usize) {
     else {
         return;
     };
-    // Quote identifiers per engine — backticks for MySQL, double-quotes for
-    // Postgres — doubling the quote char so an identifier can't break out.
+    let (target_db, sql) = if conn.engine == crate::db::Engine::Mysql {
+        // MySQL: the schema is the database; qualify in the current connection.
+        let db = m.database.clone().unwrap_or_else(|| m.schema.clone());
+        let db = db.replace('`', "``");
+        let table = m.name.replace('`', "``");
+        (None, format!("SELECT * FROM `{db}`.`{table}` LIMIT 100;"))
+    } else {
+        // Postgres: open a tab connected to the match's database.
+        let schema = m.schema.replace('"', "\"\"");
+        let table = m.name.replace('"', "\"\"");
+        (
+            m.database.clone(),
+            format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;"),
+        )
+    };
+    open_tab(
+        &conn.name,
+        &conn.id,
+        active_password(st, &conn.id),
+        target_db.as_deref(),
+        Some(&sql),
+        true,
+    );
+}
+
+/// Open a table's structure (columns) in a new read-only tab.
+fn open_structure_tab(st: &State, i: usize, j: usize, k: usize) {
+    let target = st
+        .databases
+        .get(i)
+        .and_then(|db| db.schemas.as_ref())
+        .and_then(|ss| ss.get(j))
+        .and_then(|sch| {
+            sch.tables
+                .as_ref()
+                .and_then(|t| t.get(k))
+                .map(|tbl| (sch.name.clone(), tbl.name.clone()))
+        });
+    let Some((schema, table)) = target else {
+        return;
+    };
+    let Some(conn) = st
+        .active
+        .as_deref()
+        .and_then(|id| st.connections.iter().find(|c| c.id == id))
+    else {
+        return;
+    };
+    // The database being browsed (the connection's configured database).
+    let database = st
+        .active_profile
+        .as_ref()
+        .map(|p| p.database.clone())
+        .unwrap_or_else(|| conn.database.clone());
+    let mut state = serde_json::json!({
+        "connection": conn.id,
+        "view": "structure",
+        "database": database,
+        "schema": schema,
+        "table": table,
+    });
+    if let Some(p) = active_password(st, &conn.id) {
+        state["password"] = Value::from(p);
+    }
+    ui_tabs::open_tab(&table, Some(crate::ICON_TABLE), Some(&state.to_string()));
+}
+
+/// Open a table (by schema + name) as a `SELECT *` data tab against the active
+/// connection's browsed database. Shared by the tree and the filter results.
+fn open_table_data_named(st: &State, schema: &str, table: &str) {
+    let Some(conn) = st
+        .active
+        .as_deref()
+        .and_then(|id| st.connections.iter().find(|c| c.id == id))
+    else {
+        return;
+    };
     let sql = if conn.engine == crate::db::Engine::Mysql {
         let schema = schema.replace('`', "``");
         let table = table.replace('`', "``");
@@ -584,6 +728,7 @@ fn open_table_data(st: &State, i: usize, j: usize, k: usize) {
         &conn.name,
         &conn.id,
         active_password(st, &conn.id),
+        None,
         Some(&sql),
         true,
     );
@@ -604,6 +749,7 @@ fn open_history_entry(st: &State, display_index: usize) {
         &title,
         &entry.connection,
         active_password(st, &entry.connection),
+        None,
         Some(&entry.sql),
         true,
     );
@@ -619,6 +765,11 @@ pub(crate) fn activate_from_state(st: &mut State, state: &str) {
     let Ok(v) = serde_json::from_str::<Value>(state) else {
         return;
     };
+    // A structure tab: a read-only columns view for one table, not the editor.
+    if v.get("view").and_then(|x| x.as_str()) == Some("structure") {
+        activate_structure(st, &v);
+        return;
+    }
     if let Some(conn) = v
         .get("connection")
         .and_then(|c| c.as_str())
@@ -672,6 +823,64 @@ pub(crate) fn activate_from_state(st: &mut State, state: &str) {
         }
         submit(&Request::Query { sql }, Kind::Query, st);
     }
+}
+
+/// Seed a structure-tab instance: set its connection/profile and kick off the
+/// `ListColumns` describe for the target table. Doesn't load the schema tree or
+/// autocomplete — a structure tab only needs the one table's columns.
+fn activate_structure(st: &mut State, v: &Value) {
+    let Some(conn) = v
+        .get("connection")
+        .and_then(|c| c.as_str())
+        .and_then(|id| st.connections.iter().find(|c| c.id == id).cloned())
+    else {
+        return;
+    };
+    let (Some(schema), Some(table)) = (
+        v.get("schema").and_then(|x| x.as_str()).map(String::from),
+        v.get("table").and_then(|x| x.as_str()).map(String::from),
+    ) else {
+        return;
+    };
+    let database = v
+        .get("database")
+        .and_then(|x| x.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| conn.database.clone());
+    let password = v
+        .get("password")
+        .and_then(|p| p.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| {
+            secure_storage::read(&pw_key(&conn.id))
+                .ok()
+                .flatten()
+                .unwrap_or_default()
+        });
+    st.active_profile = Some(db::Profile {
+        host: conn.host.clone(),
+        port: conn.port,
+        database: database.clone(),
+        user: conn.user.clone(),
+        password,
+        tls: conn.tls,
+    });
+    st.active = Some(conn.id);
+    st.view = crate::state::View::Structure {
+        database: database.clone(),
+        schema: schema.clone(),
+        table: table.clone(),
+    };
+    st.structure = None;
+    submit(
+        &Request::DescribeTable {
+            database,
+            schema,
+            table,
+        },
+        Kind::Structure,
+        st,
+    );
 }
 
 /// Seed the connection form with an engine's defaults (port, user, database)
@@ -966,6 +1175,33 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
             {
                 node.columns = Some(cols);
             }
+        }
+        Kind::FindTables => {
+            st.schema_searching = false;
+            match (ok, err) {
+                (Some(v), _) => {
+                    let tables: Vec<TableInfo> =
+                        serde_json::from_value(decode_inner(v)).unwrap_or_default();
+                    st.schema_matches = Some(tables);
+                    st.schema_error = None;
+                }
+                (None, m) => {
+                    st.schema_matches = Some(Vec::new());
+                    if let Some(m) = m {
+                        st.schema_error = Some(m);
+                    }
+                }
+            }
+            // The user may have typed more while this was in flight — run the
+            // trailing search now (coalesced).
+            maybe_start_filter_search(st);
+        }
+        Kind::Structure => {
+            st.structure = Some(match (ok, err) {
+                (Some(v), _) => Ok(serde_json::from_value(decode_inner(v)).unwrap_or_default()),
+                (None, Some(m)) => Err(m),
+                _ => Err("failed to describe table".into()),
+            });
         }
     }
 }

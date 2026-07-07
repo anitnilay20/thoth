@@ -164,28 +164,25 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         let syntax_highlighting = self.settings.viewer.syntax_highlighting;
         let plugin_ui = tab.active_plugin_pane.as_ref().map(|p| &p.ui_output);
 
-        // Scope every widget in this tab under its `tab_id` so two tabs showing
-        // the same plugin (which emit identical widget-id strings) don't collide
-        // — egui derives child ids from `ui.id()`, and the SDK builds its ids via
-        // `ui.make_persistent_id`, so this one push disambiguates the whole tree.
-        let output = ui
-            .push_id(*tab_id, |ui| {
-                tab.central_panel.render(
-                    ui,
-                    CentralPanelProps {
-                        file_path: &tab.file_path,
-                        file_type: tab.file_type,
-                        error: &tab.error,
-                        search_message: search_msg,
-                        cache_size,
-                        syntax_highlighting,
-                        plugin_ui,
-                        recent_files: &recent_files,
-                        colors: self.colors,
-                    },
-                )
-            })
-            .inner;
+        // egui_dock already builds each tab's `ui` with a per-tab id
+        // (`TabViewer::id`), and the SDK derives its widget ids from `ui.id()` via
+        // `make_persistent_id` — so two tabs of the same plugin no longer clash
+        // without an extra `push_id` here (which, nested inside egui_dock's tab
+        // ScrollArea, also skewed the plugin pane's available height).
+        let output = tab.central_panel.render(
+            ui,
+            CentralPanelProps {
+                file_path: &tab.file_path,
+                file_type: tab.file_type,
+                error: &tab.error,
+                search_message: search_msg,
+                cache_size,
+                syntax_highlighting,
+                plugin_ui,
+                recent_files: &recent_files,
+                colors: self.colors,
+            },
+        );
 
         // Navigation history: push if selection changed.
         let current_path = tab.central_panel.get_selected_path();
