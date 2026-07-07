@@ -218,6 +218,8 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         },
         // Toolbar Run button: run the whole script.
         "run" => run_query(st),
+        // Results footer "Load more": fetch the next page of the last-run query.
+        "load-more" => load_more(st),
         // Results/Explain tab switch. Track the active tab so a later run knows
         // whether to refresh Explain; opening Explain lazily runs EXPLAIN ANALYZE
         // for the last-run query (it executes the query, so only on demand).
@@ -295,9 +297,8 @@ fn run_query_text(st: &mut State, sql: String) {
     if st.loading || sql.trim().is_empty() {
         return;
     }
-    st.loading = true;
-    st.result = None;
     st.last_run_sql = Some(sql.clone());
+    st.row_limit = crate::state::ROW_PAGE; // fresh run — reset the cap
     // Invalidate any previous plan. If the Explain tab is showing, refresh it now
     // for this query (below); otherwise it's re-run lazily on tab open.
     st.explain = None;
@@ -306,10 +307,36 @@ fn run_query_text(st: &mut State, sql: String) {
     if let Some(id) = st.active.clone() {
         record_history(&id, &sql);
     }
-    submit(&Request::Query { sql }, Kind::Query, st);
+    execute_current(st);
     if st.results_tab == ResultsTab::Explain {
         load_explain(st);
     }
+}
+
+/// Fetch more rows of the last-run query by growing its cap and re-running it.
+fn load_more(st: &mut State) {
+    if st.loading || st.last_run_sql.is_none() {
+        return;
+    }
+    st.row_limit = st.row_limit.saturating_add(crate::state::ROW_PAGE);
+    execute_current(st);
+}
+
+/// Submit the last-run query with the current row cap. A cappable SELECT gets a
+/// `LIMIT row_limit + 1` appended so the extra row signals "more available";
+/// anything else runs unchanged. Shared by fresh runs and "Load more".
+fn execute_current(st: &mut State) {
+    let Some(base) = st.last_run_sql.clone() else {
+        return;
+    };
+    st.loading = true;
+    st.result = None;
+    let (sql, limited) = match sql::add_limit(&base, st.row_limit + 1) {
+        Some(capped) => (capped, true),
+        None => (base, false),
+    };
+    st.run_limited = limited;
+    submit(&Request::Query { sql }, Kind::Query, st);
 }
 
 /// Lazily run `EXPLAIN ANALYZE` for the **last-run** query — triggered when the
@@ -715,14 +742,15 @@ fn open_table_data_named(st: &State, schema: &str, table: &str) {
     else {
         return;
     };
+    // No LIMIT here — the run path caps rows and offers "Load more".
     let sql = if conn.engine == crate::db::Engine::Mysql {
         let schema = schema.replace('`', "``");
         let table = table.replace('`', "``");
-        format!("SELECT * FROM `{schema}`.`{table}` LIMIT 100;")
+        format!("SELECT * FROM `{schema}`.`{table}`")
     } else {
         let schema = schema.replace('"', "\"\"");
         let table = table.replace('"', "\"\"");
-        format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;")
+        format!("SELECT * FROM \"{schema}\".\"{table}\"")
     };
     open_tab(
         &conn.name,
@@ -813,15 +841,10 @@ pub(crate) fn activate_from_state(st: &mut State, state: &str) {
             st.sql = sql.to_string();
         }
     }
-    // Auto-run the seeded query (table "view data" / recent-query reopen).
+    // Auto-run the seeded query (table "view data" / recent-query reopen) through
+    // the normal run path so it gets the row cap + "Load more".
     if v.get("run").and_then(|r| r.as_bool()).unwrap_or(false) && !st.sql.is_empty() {
-        st.loading = true;
-        st.result = None;
-        let sql = st.sql.clone();
-        if let Some(id) = st.active.clone() {
-            record_history(&id, &sql);
-        }
-        submit(&Request::Query { sql }, Kind::Query, st);
+        run_query_text(st, st.sql.clone());
     }
 }
 
@@ -1020,8 +1043,22 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
         }
         Kind::Query => {
             st.loading = false;
+            st.has_more = false;
             st.result = Some(match (ok, err) {
-                (Some(v), _) => Ok(decode_inner(v)),
+                (Some(v), _) => {
+                    let mut value = decode_inner(v);
+                    // A capped run fetches `row_limit + 1` rows; the extra one is
+                    // the "there are more" sentinel — drop it and flag Load more.
+                    if st.run_limited {
+                        if let Some(rows) = value.get_mut("rows").and_then(|r| r.as_array_mut()) {
+                            if rows.len() > st.row_limit {
+                                rows.truncate(st.row_limit);
+                                st.has_more = true;
+                            }
+                        }
+                    }
+                    Ok(value)
+                }
                 (None, Some(m)) => Err(m),
                 _ => Err("query failed".into()),
             });

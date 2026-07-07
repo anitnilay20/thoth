@@ -194,6 +194,14 @@ pub(crate) struct State {
     /// selection, or the whole script) — what the results grid and Explain
     /// reflect, so Explain analyses exactly what was run, not the whole editor.
     pub last_run_sql: Option<String>,
+    /// Current server-side row cap for the last-run query. Reset to [`ROW_PAGE`]
+    /// on a fresh run; grown by [`ROW_PAGE`] on "Load more".
+    pub row_limit: usize,
+    /// True when the last run had a `LIMIT` appended (a cappable SELECT), so the
+    /// result handler can detect the "more rows available" sentinel.
+    pub run_limited: bool,
+    /// True when the last-run query hit the row cap (there are more rows to load).
+    pub has_more: bool,
     /// Which results tab is showing, so a run while on Explain refreshes it.
     pub results_tab: ResultsTab,
     pub explain: Option<Result<Value, String>>,
@@ -264,6 +272,9 @@ impl State {
             pending: Vec::new(),
             result: None,
             last_run_sql: None,
+            row_limit: ROW_PAGE,
+            run_limited: false,
+            has_more: false,
             results_tab: ResultsTab::Results,
             explain: None,
             explain_for: None,
@@ -313,6 +324,10 @@ pub(crate) const SUPPORTED_ENGINES: [Engine; 2] = [Engine::Postgres, Engine::Mys
 /// Rows rendered per tree level before a "Show more" row appears (and how many
 /// each "Show more" click reveals).
 pub(crate) const TREE_PAGE: usize = 200;
+
+/// Rows fetched per query "page" — the server-side cap on a run, grown by this
+/// much each "Load more" (keeps huge tables from streaming everything at once).
+pub(crate) const ROW_PAGE: usize = 100;
 
 pub(crate) fn engine_from_value(v: &str) -> Engine {
     match v {

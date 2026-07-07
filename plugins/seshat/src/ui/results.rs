@@ -39,7 +39,7 @@ fn results(st: &State) -> RenderNode {
         );
     }
     match &st.result {
-        Some(Ok(result)) => results_table(result),
+        Some(Ok(result)) => results_table(result, st.has_more),
         Some(Err(msg)) => RenderNode::Row(
             Row::builder()
                 .padding(12.0)
@@ -63,8 +63,9 @@ fn results(st: &State) -> RenderNode {
 }
 
 /// Render a `QueryResult` ({columns, rows, tag}) as a typed table, or — for a
-/// statement with no result set — its command tag.
-fn results_table(result: &Value) -> RenderNode {
+/// statement with no result set — its command tag. `has_more` shows a "Load
+/// more" affordance when the run hit the row cap.
+fn results_table(result: &Value, has_more: bool) -> RenderNode {
     let columns = result.get("columns").and_then(|c| c.as_array());
     let rows = result.get("rows").and_then(|r| r.as_array());
     let tag = result.get("tag").and_then(|t| t.as_str());
@@ -93,11 +94,27 @@ fn results_table(result: &Value) -> RenderNode {
                 .collect();
 
             let footer = format!(
-                "{} row{}{}",
+                "{} row{}{}{}",
                 rows.len(),
                 if rows.len() == 1 { "" } else { "s" },
+                if has_more { " (capped)" } else { "" },
                 tag.map(|t| format!("  ·  {t}")).unwrap_or_default()
             );
+            let mut footer_row: Vec<RenderNode> = vec![muted(&footer)];
+            if has_more {
+                footer_row.push(RenderNode::Spacer(
+                    thoth_plugin_sdk::components::Spacer::builder().size(8.0).build(),
+                ));
+                footer_row.push(crate::ui::widgets::button(
+                    "load-more",
+                    "Load more",
+                    "Text",
+                    "Default",
+                    None,
+                    true,
+                    false,
+                ));
+            }
             RenderNode::Column(
                 Column::builder()
                     .gap(4.0)
@@ -111,7 +128,9 @@ fn results_table(result: &Value) -> RenderNode {
                         RenderNode::Row(
                             Row::builder()
                                 .padding(6.0)
-                                .children(vec![muted(&footer)])
+                                .gap(8.0)
+                                .align(thoth_plugin_sdk::components::Align::Center)
+                                .children(footer_row)
                                 .build(),
                         ),
                     ])

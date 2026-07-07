@@ -112,6 +112,28 @@ pub(crate) fn statement_at(sql: &str, offset: usize) -> Option<String> {
     Some(slice(sql, stmt.start, stmt.end))
 }
 
+/// If `sql` is a single `SELECT`/`WITH` statement without its own `LIMIT`,
+/// return it with `LIMIT n` appended (trailing `;` stripped) so the server caps
+/// the returned rows. Returns `None` for anything else — multiple statements, a
+/// non-read statement, or a query that already contains a `LIMIT` — which run
+/// unchanged (appending would risk a syntax error or altering intent).
+pub(crate) fn add_limit(sql: &str, n: usize) -> Option<String> {
+    if statements(sql).len() != 1 {
+        return None;
+    }
+    let trimmed = sql.trim().trim_end_matches(';').trim();
+    let lower = trimmed.to_lowercase();
+    if !(lower.starts_with("select") || lower.starts_with("with")) {
+        return None;
+    }
+    // Conservative: any existing `limit` token (even in a subquery) means we
+    // leave the query alone rather than risk a double `LIMIT`.
+    if lower.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == "limit") {
+        return None;
+    }
+    Some(format!("{trimmed} LIMIT {n}"))
+}
+
 /// The trimmed text of a character range `[start, end)` of `sql`.
 pub(crate) fn slice(sql: &str, start: usize, end: usize) -> String {
     sql.chars()
@@ -217,5 +239,21 @@ mod tests {
         assert_eq!(stmts.len(), 2);
         assert_eq!(stmts[0].start, 0);
         assert_eq!(stmts[1].start, 13); // after "SELECT 1;\n   "
+    }
+
+    #[test]
+    fn add_limit_caps_plain_selects_only() {
+        assert_eq!(
+            add_limit("SELECT * FROM t;", 101).as_deref(),
+            Some("SELECT * FROM t LIMIT 101")
+        );
+        assert_eq!(
+            add_limit("WITH x AS (SELECT 1) SELECT * FROM x", 50).as_deref(),
+            Some("WITH x AS (SELECT 1) SELECT * FROM x LIMIT 50")
+        );
+        // Already limited, non-select, or multi-statement → untouched.
+        assert_eq!(add_limit("SELECT * FROM t LIMIT 5", 101), None);
+        assert_eq!(add_limit("UPDATE t SET a = 1", 101), None);
+        assert_eq!(add_limit("SELECT 1; SELECT 2;", 101), None);
     }
 }
