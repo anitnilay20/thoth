@@ -4,6 +4,8 @@ mod ui;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
+use crate::components::Size;
+
 fn default_rows() -> usize {
     4
 }
@@ -71,4 +73,9 @@ pub struct Input {
     /// `None` fills the available width; `Some(w)` fixes the width to `w`.
     #[serde(default)]
     pub desired_width: Option<f32>,
+    /// Control height/font. Defaults to [`Size::Medium`]; [`Size::Small`] gives a
+    /// compact field that lines up with small buttons/selects.
+    #[builder(default)]
+    #[serde(default)]
+    pub size: Size,
 }

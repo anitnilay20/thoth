@@ -187,7 +187,7 @@ impl KeyValueList {
                                 .icon(egui_phosphor::regular::X)
                                 .frame(false)
                                 .tooltip("Remove")
-                                .size(14.0)
+                                .size_px(14.0)
                                 .build(),
                         )
                         .clicked()

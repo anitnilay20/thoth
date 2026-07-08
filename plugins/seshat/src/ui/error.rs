@@ -23,7 +23,7 @@ pub(crate) fn error_modal(st: &State) -> RenderNode {
                     .children(vec![
                         RenderNode::Colored(
                             Colored::builder()
-                                .color("#f38ba8")
+                                .color("error")
                                 .child(RenderNode::Text(
                                     Typography::builder().text(message).build(),
                                 ))

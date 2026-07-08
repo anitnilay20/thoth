@@ -29,6 +29,9 @@ pub struct Modal {
     pub id: String,
     /// Title shown in the modal header.
     pub title: String,
+    /// Optional secondary line under the title (e.g. a step hint).
+    #[serde(default)]
+    pub subtitle: Option<String>,
     /// Whether the modal is shown. Defaults to `false`.
     #[builder(default)]
     #[serde(default)]
@@ -37,6 +40,9 @@ pub struct Modal {
     /// to `id` when unset.
     #[serde(default, rename = "close-id")]
     pub close_id: Option<String>,
+    /// Fixed width in pixels. Takes precedence over [`width_pct`](Modal::width_pct).
+    #[serde(default)]
+    pub width: Option<f32>,
     /// Width as a fraction of the viewport (0.0–1.0). When unset, sizes between
     /// 320–480px.
     #[serde(default, rename = "width-pct")]

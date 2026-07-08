@@ -1,16 +1,42 @@
 //! The SQL editor tab: header, code editor, Run, and the typed results grid.
 
-use serde_json::Value;
 use thoth_plugin_sdk::components::{
-    CodeEditor, Colored, Column, Row, Scroll, Separator, Spinner, TableView, Typography,
+    Button, ButtonColor, ButtonSize, ButtonType, CodeEditor, Column, CustomSyntax, IconButton, Row,
+    Scroll, Select, SelectOption, Separator, Size, VSplit,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
+use crate::constants::{KEYWORDS, SPECIAL, TYPES};
 use crate::state::State;
-use crate::ui::widgets::{button, muted};
-use crate::ICON_PLAY;
+use crate::ui::results::results_view;
+use crate::{ICON_FLOPPY_DISK, ICON_FOLDER_OPEN, ICON_PLAY};
 
 pub(crate) fn editor_view(st: &State) -> RenderNode {
+    // The database this editor queries against — also what autocomplete is
+    // scoped to. Defaults to the connection's database; switchable via the
+    // database dropdown below.
+    let active_db = st.active_profile.as_ref().map(|p| p.database.as_str());
+
+    // Table names from the active database's loaded schemas — fed to the
+    // editor's autocomplete. Scoped to the active database so suggestions match
+    // the database queries run against.
+    let tables: Vec<String> = st
+        .databases
+        .iter()
+        .filter(|d| Some(d.name.as_str()) == active_db)
+        .filter_map(|d| d.schemas.as_ref())
+        .flatten()
+        .filter_map(|s| s.tables.as_ref())
+        .flatten()
+        .map(|t| t.name.clone())
+        .collect();
+
+    // A ▶ run-marker at the start of each top-level statement.
+    let run_markers: Vec<usize> = crate::sql::statements(&st.sql)
+        .into_iter()
+        .map(|s| s.start)
+        .collect();
+
     RenderNode::Column(
         Column::builder()
             .gap(0.0)
@@ -19,133 +45,132 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                     Row::builder()
                         .padding(8.0)
                         .gap(8.0)
-                        .children(vec![button(
-                            "run",
-                            "Run",
-                            "Elevated",
-                            "Primary",
-                            Some(ICON_PLAY),
-                            !st.loading,
-                            false,
-                        )])
+                        .children(vec![
+                            // Connection switcher: re-points this editor tab at a
+                            // different saved connection (keeps the SQL, reloads
+                            // schema/autocomplete for the new target).
+                            RenderNode::Select(
+                                Select::builder()
+                                    .id("switch-connection")
+                                    .value(st.active.clone().unwrap_or_default())
+                                    .options(
+                                        st.connections
+                                            .iter()
+                                            .map(|c| {
+                                                SelectOption::builder()
+                                                    .value(c.id.clone())
+                                                    .label(c.name.clone())
+                                                    .build()
+                                            })
+                                            .collect::<Vec<_>>(),
+                                    )
+                                    .size(Size::Small)
+                                    .width(180.0)
+                                    .searchable(true)
+                                    .build(),
+                            ),
+                            // Database switcher: picks which database in the
+                            // current connection queries + autocomplete target.
+                            RenderNode::Select(
+                                Select::builder()
+                                    .id("switch-database")
+                                    .value(active_db.unwrap_or_default().to_string())
+                                    .options(
+                                        st.databases
+                                            .iter()
+                                            .map(|d| {
+                                                SelectOption::builder()
+                                                    .value(d.name.clone())
+                                                    .label(d.name.clone())
+                                                    .build()
+                                            })
+                                            .collect::<Vec<_>>(),
+                                    )
+                                    .size(Size::Small)
+                                    .width(180.0)
+                                    .searchable(true)
+                                    .build(),
+                            ),
+                            RenderNode::Separator(Separator::plain()),
+                            RenderNode::Button(
+                                Button::builder()
+                                    .id("run")
+                                    .label("Run")
+                                    .button_type(ButtonType::Elevated)
+                                    .color(ButtonColor::Primary)
+                                    .button_size(ButtonSize::Small)
+                                    .icon(ICON_PLAY)
+                                    .enabled(!st.loading)
+                                    .build(),
+                            ),
+                            RenderNode::Separator(Separator::plain()),
+                            RenderNode::IconButton(
+                                IconButton::builder()
+                                    .id("save-query")
+                                    .icon(ICON_FLOPPY_DISK)
+                                    .frame(true)
+                                    .size(Size::Small)
+                                    .tooltip("Save query as .sql")
+                                    .build(),
+                            ),
+                            RenderNode::IconButton(
+                                IconButton::builder()
+                                    .id("open-query")
+                                    .icon(ICON_FOLDER_OPEN)
+                                    .frame(true)
+                                    .size(Size::Small)
+                                    .tooltip("Open a .sql file")
+                                    .build(),
+                            ),
+                        ])
                         .build(),
                 ),
                 RenderNode::Separator(Separator::plain()),
-                RenderNode::CodeEditor(
-                    CodeEditor::builder()
-                        .id("sql")
-                        .value(st.sql.clone())
-                        .font_size(12.0)
-                        .syntax("sql")
-                        .bordered(false)
+                // Editor over results, with a draggable divider to re-apportion
+                // their heights. Each pane scrolls on its own: the code editor has
+                // its own vertical scroll, and the results grid is wrapped in a
+                // both-axes scroll.
+                RenderNode::VSplit(
+                    VSplit::builder()
+                        .id("editor-results")
+                        .default_ratio(0.45)
+                        .top(RenderNode::CodeEditor(
+                            CodeEditor::builder()
+                                .id("sql")
+                                .value(st.sql.clone())
+                                .font_size(12.0)
+                                .custom_syntax(
+                                    CustomSyntax::builder()
+                                        .language("sql")
+                                        .case_sensitive(false)
+                                        .comment("--")
+                                        .comment_multiline(("/*".to_string(), "*/".to_string()))
+                                        .keywords(KEYWORDS.iter().map(|s| s.to_string()).collect())
+                                        .types(TYPES.iter().map(|s| s.to_string()).collect())
+                                        // Built-in specials plus the live table names.
+                                        .special(
+                                            SPECIAL
+                                                .iter()
+                                                .map(|s| s.to_string())
+                                                .chain(tables)
+                                                .collect(),
+                                        )
+                                        .build(),
+                                )
+                                .run_markers(run_markers)
+                                .bordered(false)
+                                .build(),
+                        ))
+                        .bottom(RenderNode::Scroll(
+                            Scroll::builder()
+                                .id("results-scroll")
+                                .child(results_view(st))
+                                .both(true)
+                                .build(),
+                        ))
                         .build(),
                 ),
-                RenderNode::Separator(Separator::plain()),
-                RenderNode::Scroll(Scroll::builder().child(results(st)).build()),
             ])
             .build(),
     )
-}
-
-fn results(st: &State) -> RenderNode {
-    if st.loading {
-        return RenderNode::Row(
-            Row::builder()
-                .padding(16.0)
-                .gap(10.0)
-                .align(thoth_plugin_sdk::components::Align::Center)
-                .children(vec![
-                    RenderNode::Spinner(Spinner::builder().build()),
-                    muted("Running query…"),
-                ])
-                .build(),
-        );
-    }
-    match &st.result {
-        Some(Ok(result)) => results_table(result),
-        Some(Err(msg)) => RenderNode::Row(
-            Row::builder()
-                .padding(12.0)
-                .children(vec![RenderNode::Colored(
-                    Colored::builder()
-                        .color("#f38ba8")
-                        .child(RenderNode::Text(
-                            Typography::builder().text(format!("Error: {msg}")).build(),
-                        ))
-                        .build(),
-                )])
-                .build(),
-        ),
-        None => RenderNode::Row(
-            Row::builder()
-                .padding(12.0)
-                .children(vec![muted("Run a query to see results.")])
-                .build(),
-        ),
-    }
-}
-
-/// Render a `QueryResult` ({columns, rows, tag}) as a typed table, or — for a
-/// statement with no result set — its command tag.
-fn results_table(result: &Value) -> RenderNode {
-    let columns = result.get("columns").and_then(|c| c.as_array());
-    let rows = result.get("rows").and_then(|r| r.as_array());
-    let tag = result.get("tag").and_then(|t| t.as_str());
-
-    match (columns, rows) {
-        (Some(cols), Some(rows)) if !cols.is_empty() => {
-            let headers: Vec<String> = cols
-                .iter()
-                .map(|c| {
-                    let name = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                    let ty = c.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                    if ty.is_empty() {
-                        name.to_string()
-                    } else {
-                        format!("{name}  ·  {ty}")
-                    }
-                })
-                .collect();
-            let table_rows: Vec<Vec<RenderNode>> = rows
-                .iter()
-                .map(|row| {
-                    row.as_array()
-                        .map(|cs| cs.iter().map(RenderNode::json_cell).collect())
-                        .unwrap_or_default()
-                })
-                .collect();
-
-            let footer = format!(
-                "{} row{}{}",
-                rows.len(),
-                if rows.len() == 1 { "" } else { "s" },
-                tag.map(|t| format!("  ·  {t}")).unwrap_or_default()
-            );
-            RenderNode::Column(
-                Column::builder()
-                    .gap(4.0)
-                    .children(vec![
-                        RenderNode::Table(
-                            TableView::builder()
-                                .headers(headers)
-                                .rows(table_rows)
-                                .build(),
-                        ),
-                        RenderNode::Row(
-                            Row::builder()
-                                .padding(6.0)
-                                .children(vec![muted(&footer)])
-                                .build(),
-                        ),
-                    ])
-                    .build(),
-            )
-        }
-        _ => RenderNode::Row(
-            Row::builder()
-                .padding(12.0)
-                .children(vec![muted(tag.unwrap_or("Query OK"))])
-                .build(),
-        ),
-    }
 }

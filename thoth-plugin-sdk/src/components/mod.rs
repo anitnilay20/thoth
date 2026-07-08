@@ -33,6 +33,7 @@ mod radio;
 mod select;
 mod separator;
 mod sidebar_header;
+mod size;
 mod slider;
 mod spinner;
 mod table_view;
@@ -49,7 +50,7 @@ pub use card::CardEvent;
 pub use card::{Card, CardAction, CardIcon};
 pub use checkbox::Checkbox;
 pub use code::Code;
-pub use code_editor::CodeEditor;
+pub use code_editor::{CodeEditor, CodeEditorOutput, CustomSyntax, RunRequest};
 #[cfg(feature = "egui")]
 pub use data_row::DataRowOutput;
 pub use data_row::{DataRow, DataRowIcon, RowHighlights};
@@ -60,7 +61,7 @@ pub use json_tree::JsonTree;
 pub use key_value_list::{KeyValueList, KvEntry};
 pub use layout::{
     Align, BgColor, Collapsible, Colored, Column, Footer, Group, KeyValue, Row, Scroll, Spacer,
-    Split,
+    Split, VSplit,
 };
 pub use link::Link;
 #[cfg(feature = "egui")]
@@ -72,12 +73,13 @@ pub use multi_select::MultiSelect;
 pub use number_input::NumberInput;
 pub use progress::Progress;
 pub use radio::Radio;
-pub use select::{Select, SelectOption, SelectSize};
+pub use select::{Select, SelectOption, SelectResponse};
 pub use separator::Separator;
 pub use sidebar_header::{SidebarHeader, SidebarHeaderAction};
+pub use size::Size;
 pub use slider::Slider;
 pub use spinner::Spinner;
-pub use table_view::TableView;
+pub use table_view::{ColumnType, TableView};
 pub use tabs::{TabAction, Tabs};
 pub use toggle_switch::ToggleSwitch;
 pub use typography::{Typography, TypographyVariant};

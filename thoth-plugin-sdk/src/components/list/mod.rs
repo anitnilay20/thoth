@@ -7,7 +7,7 @@ pub use ui::ListEvent;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
-use crate::components::{Button, IconButton};
+use crate::components::{Button, IconButton, Progress};
 
 fn default_true() -> bool {
     true
@@ -86,8 +86,10 @@ pub enum ListItemPostfix {
     Button(Button),
     /// A single icon button. Reported via [`ListEvent::PostfixClicked`].
     IconButton(IconButton),
-    /// A thin progress bar (0–100), 80px wide.
-    ProgressBar(u8),
+    /// An embedded [`Progress`] bar (constrained to ~80px wide). Carries its own
+    /// value/colour/height, so callers reuse the shared component rather than a
+    /// bespoke bar.
+    Progress(Progress),
 }
 
 /// One row in a [`List`].
@@ -161,6 +163,11 @@ pub struct List {
     #[builder(default = true)]
     #[serde(default = "default_true")]
     pub show_separators: bool,
+    /// Wrap the list in a bordered, filled card (panel background + surface
+    /// border + rounded corners + margin). Defaults to `false`.
+    #[builder(default)]
+    #[serde(default)]
+    pub framed: bool,
     /// Shrink the scroll area to content height instead of filling available
     /// space. Use for inline strips; default `false` for sidebar lists.
     #[builder(default)]

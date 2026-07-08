@@ -20,6 +20,8 @@ pub struct DataRowOutput {
     pub right_clicked: bool,
     /// The expand/collapse caret was clicked (takes precedence over `clicked`).
     pub caret_clicked: bool,
+    /// The trailing action icon was clicked (takes precedence over `clicked`).
+    pub action_clicked: bool,
     /// The row's interaction response.
     pub response: egui::Response,
 }
@@ -66,6 +68,7 @@ impl DataRow {
         let muted = ui.visuals().weak_text_color();
 
         let mut caret_clicked = false;
+        let mut action_clicked = false;
         let mut body_clicked = false;
         let mut body_secondary = false;
 
@@ -138,41 +141,108 @@ impl DataRow {
                     highlight_bg,
                     highlight_fg,
                 );
-                body_label(ui, key_label, true, &mut body_clicked, &mut body_secondary);
 
-                if let Some(value_token) = self.value_token {
+                let value_label = self.value_token.map(|value_token| {
                     let value_color = palette.color_with_highlighting(
                         value_token,
                         self.syntax_highlighting,
                         base_text_color,
                     );
-                    let value_label = highlighted_text(
+                    highlighted_text(
                         ui,
                         value_part,
                         value_color,
                         &self.highlights.value_ranges,
                         highlight_bg,
                         highlight_fg,
-                    );
-                    body_label(
-                        ui,
-                        value_label,
-                        true,
-                        &mut body_clicked,
-                        &mut body_secondary,
-                    );
-                }
+                    )
+                });
 
-                if let Some(trailing) = &self.trailing {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Trailing count + action, added right-to-left so they pin to the
+                // right edge. Flags are passed in (not captured) so the label/
+                // truncate code below can still borrow them.
+                let action_icon = self.action_icon.clone();
+                let action_tooltip = self.action_tooltip.clone();
+                let trailing_text = self.trailing.clone();
+                let render_trailing = |ui: &mut Ui, bc: &mut bool, bs: &mut bool| -> bool {
+                    let mut clicked = false;
+                    if let Some(glyph) = &action_icon {
+                        clicked = ui
+                            .add(
+                                IconButton::builder()
+                                    .icon(glyph.as_str())
+                                    .maybe_tooltip(action_tooltip.clone())
+                                    .build(),
+                            )
+                            .clicked();
+                    }
+                    if let Some(t) = &trailing_text {
                         body_label(
                             ui,
-                            RichText::new(trailing).color(muted).size(11.0).into(),
+                            RichText::new(t).color(muted).size(11.0).into(),
                             false,
+                            bc,
+                            bs,
+                        );
+                    }
+                    clicked
+                };
+
+                if self.truncate {
+                    // Full-width row: pin trailing/action right, and truncate the
+                    // key/value in the middle with an ellipsis so nothing bleeds.
+                    let remaining = egui::vec2(ui.available_width(), ROW_HEIGHT);
+                    ui.allocate_ui_with_layout(
+                        remaining,
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if render_trailing(ui, &mut body_clicked, &mut body_secondary) {
+                                action_clicked = true;
+                            }
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                    body_label(
+                                        ui,
+                                        key_label,
+                                        true,
+                                        &mut body_clicked,
+                                        &mut body_secondary,
+                                    );
+                                    if let Some(value_label) = value_label {
+                                        body_label(
+                                            ui,
+                                            value_label,
+                                            true,
+                                            &mut body_clicked,
+                                            &mut body_secondary,
+                                        );
+                                    }
+                                },
+                            );
+                        },
+                    );
+                } else {
+                    // Extend: key/value keep their full width (so a horizontally
+                    // scrolling container can reveal long JSON), trailing after.
+                    body_label(ui, key_label, true, &mut body_clicked, &mut body_secondary);
+                    if let Some(value_label) = value_label {
+                        body_label(
+                            ui,
+                            value_label,
+                            true,
                             &mut body_clicked,
                             &mut body_secondary,
                         );
-                    });
+                    }
+                    if action_icon.is_some() || trailing_text.is_some() {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if render_trailing(ui, &mut body_clicked, &mut body_secondary) {
+                                action_clicked = true;
+                            }
+                        });
+                    }
                 }
             });
         });
@@ -182,10 +252,12 @@ impl DataRow {
         }
 
         DataRowOutput {
-            // A caret click takes precedence and must not surface as a row click.
-            clicked: !caret_clicked && (resp.clicked() || body_clicked),
+            // A caret or action click takes precedence and must not surface as a
+            // row click.
+            clicked: !caret_clicked && !action_clicked && (resp.clicked() || body_clicked),
             right_clicked: resp.secondary_clicked() || body_secondary,
             caret_clicked,
+            action_clicked,
             response: resp,
         }
     }

@@ -94,6 +94,9 @@ pub(crate) fn data_row(
             .maybe_caret(caret)
             .maybe_leading_icon(leading)
             .maybe_trailing(trailing.map(|s| s.to_string()))
+            // Schema-tree rows are full-width in a vertical-only scroll, so
+            // truncate long names rather than bleeding past the panel.
+            .truncate(true)
             .build(),
     )
 }

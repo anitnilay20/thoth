@@ -4,6 +4,7 @@ mod ui;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
+use crate::components::Size;
 use crate::render_node::RenderNode;
 
 /// A right-aligned icon action on a [`Tabs`] header line.
@@ -43,11 +44,21 @@ pub struct Tabs {
     #[builder(default)]
     #[serde(default)]
     pub headers: Vec<String>,
-    /// Optional per-tab icon glyphs (parallel to `headers`). When a tab's glyph
-    /// is set, it renders as an icon-only tab with the header text as tooltip.
+    /// Optional per-tab icon glyphs (parallel to `headers`). A tab shows its
+    /// icon *and* label when both are given; an icon with an empty header
+    /// renders icon-only. See also [`icon_only`](Tabs::icon_only).
     #[builder(default)]
     #[serde(default)]
     pub icons: Vec<String>,
+    /// Force icon-only tabs (labels shown as tooltips) even when headers are set.
+    /// Tabs without an icon still fall back to their label. Defaults to `false`.
+    #[builder(default)]
+    #[serde(default, rename = "icon-only")]
+    pub icon_only: bool,
+    /// Header size preset. Defaults to [`Size::Medium`].
+    #[builder(default)]
+    #[serde(default)]
+    pub size: Size,
     /// Right-aligned icon actions on the header line.
     #[builder(default)]
     #[serde(default)]

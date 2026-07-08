@@ -16,8 +16,8 @@ use thoth_plugin_sdk::components::{
     Card, CardAction, CardIcon, Checkbox, Code, CodeEditor, Column, DataRow, Icon, IconButton,
     Input, JsonTree, KeyValueList, KvEntry, Link, List, ListItem, ListItemAction, ListItemBadge,
     Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row, Select, SelectOption,
-    Separator, SidebarHeader, SidebarHeaderAction, Slider, Spinner, TableView, Tabs, ToggleSwitch,
-    Typography, TypographyVariant,
+    Separator, SidebarHeader, SidebarHeaderAction, Size, Slider, Spinner, TableView, Tabs,
+    ToggleSwitch, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 use thoth_plugin_sdk::theme::{THEME_MEMORY_ID, TextToken, ThemeColors};
@@ -602,7 +602,7 @@ impl Gallery {
         ui.heading("Select");
         ui.add_space(8.0);
         self.select.width = Some(220.0);
-        if let Some(v) = self.select.show(ui).inner {
+        if let Some(v) = self.select.show(ui).inner.selected {
             println!("selected {v}");
         }
         ui.add_space(8.0);
@@ -665,7 +665,7 @@ impl Gallery {
             ui.add(
                 IconButton::builder()
                     .icon(egui_phosphor::regular::PLUS)
-                    .size(28.0)
+                    .size(Size::Large)
                     .tooltip("Large")
                     .build(),
             );

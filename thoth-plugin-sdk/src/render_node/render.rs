@@ -23,6 +23,7 @@ impl RenderNode {
             RenderNode::Scroll(s) => s.show(ui, events),
             RenderNode::Spacer(s) => s.show(ui),
             RenderNode::Split(s) => s.show(ui, events),
+            RenderNode::VSplit(s) => s.show(ui, events),
             RenderNode::Group(g) => g.show(ui, events),
             RenderNode::Collapsible(c) => c.show(ui, events),
             RenderNode::Footer(f) => f.show(ui, events),
@@ -63,7 +64,7 @@ impl RenderNode {
                 ui.add(l.clone());
             }
             RenderNode::Progress(p) => {
-                ui.add(*p);
+                ui.add(p.clone());
             }
             RenderNode::Spinner(s) => {
                 ui.add(*s);
@@ -94,8 +95,12 @@ impl RenderNode {
                 }
             }
             RenderNode::Select(s) => {
-                if let Some(v) = s.show(ui).inner {
+                let out = s.show(ui).inner;
+                if let Some(v) = out.selected {
                     emit(events, &s.id, "change", v);
+                }
+                if let Some(q) = out.search {
+                    emit(events, &s.id, "search", q);
                 }
             }
             RenderNode::Checkbox(c) => {
@@ -139,13 +144,30 @@ impl RenderNode {
                 let out = d.show(ui);
                 if out.caret_clicked {
                     emit(events, &d.row_id, "toggle", String::new());
+                } else if out.action_clicked {
+                    emit(events, &d.row_id, "action", String::new());
                 } else if out.clicked {
                     emit(events, &d.row_id, "click", String::new());
                 }
             }
             RenderNode::CodeEditor(c) => {
-                if c.show(ui) {
+                let out = c.show(ui);
+                if out.changed {
                     emit(events, &c.id, "change", c.value.clone());
+                }
+                if let Some(run) = out.run {
+                    // Carry the run mode + caret/selection so the plugin can pick
+                    // the statement to run (it owns the text as source of truth).
+                    let value = serde_json::json!({
+                        "all": run.all,
+                        "caret": run.caret,
+                        "selection": run.selection.map(|(a, b)| [a, b]),
+                    })
+                    .to_string();
+                    emit(events, &c.id, "run", value);
+                }
+                if let Some(off) = out.run_marker {
+                    emit(events, &c.id, "run-marker", off.to_string());
                 }
             }
             RenderNode::List(l) => {

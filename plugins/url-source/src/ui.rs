@@ -88,6 +88,7 @@ pub fn build_ui(st: &State) -> RenderNode {
                     Split::builder()
                         .gap(0.0)
                         .separator(true)
+                        .fill_height(true)
                         .children(vec![build_request_column(st), build_response_column(st)])
                         .build(),
                 ),

@@ -51,6 +51,10 @@ pub struct QueryResult {
 /// A table or view within a schema.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TableInfo {
+    /// The owning database, when the row comes from a cross-database search
+    /// (`None` for the schema tree, which is already scoped to one database).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
     pub schema: String,
     pub name: String,
     /// `"table"` or `"view"`.
@@ -58,7 +62,7 @@ pub struct TableInfo {
 }
 
 /// One column of a table (schema introspection — distinct from a result [`Column`]).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
@@ -66,12 +70,53 @@ pub struct ColumnInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
     pub primary_key: bool,
+    /// Part of a UNIQUE constraint (and not the primary key).
+    #[serde(default)]
+    pub unique: bool,
+    /// `Some("referenced_table.referenced_column")` when this column is a foreign key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreign_key: Option<String>,
+}
+
+/// One index on a table (for the structure view's Indexes tab).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct IndexInfo {
+    pub name: String,
+    pub columns: Vec<String>,
+    pub unique: bool,
+}
+
+/// Everything the structure view shows for one table: its columns (with
+/// constraint flags), its indexes, an estimated row count, and its on-disk size.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TableDetail {
+    pub columns: Vec<ColumnInfo>,
+    pub indexes: Vec<IndexInfo>,
+    /// Estimated row count (from catalog statistics — cheap, not `COUNT(*)`).
+    pub row_estimate: i64,
+    /// Human-readable total size (e.g. `318 MB`), empty when unavailable.
+    pub size: String,
+}
+
+/// Engine-specific defaults + placeholders used to seed the new-connection form.
+pub struct ConnectionDefaults {
+    /// Default port.
+    pub port: u16,
+    /// Default superuser name (e.g. `postgres`, `root`).
+    pub user: &'static str,
+    /// Database value to prefill (may be empty — MySQL has no default database).
+    pub database: &'static str,
+    /// Placeholder hint shown in the (empty) database field.
+    pub database_placeholder: &'static str,
 }
 
 /// The set of operations every database driver must support.
 pub trait DbAdapter {
     /// Open a connection and verify it works; returns the server version string.
     fn test_connection(&self, p: &Profile) -> Result<String, String>;
+
+    /// Engine defaults for a fresh connection form (port, user, database, hint).
+    fn connection_defaults(&self) -> ConnectionDefaults;
 
     /// List databases available on the server.
     fn list_databases(&self, p: &Profile) -> Result<Vec<String>, String>;
@@ -82,6 +127,11 @@ pub trait DbAdapter {
     /// List tables and views in `schema`.
     fn list_tables(&self, p: &Profile, schema: &str) -> Result<Vec<TableInfo>, String>;
 
+    /// Find tables/views in the connected database whose name matches `query`
+    /// (case-insensitive substring), across all user schemas. Capped server-side.
+    /// This is the schema browser's server-side filter.
+    fn find_tables(&self, p: &Profile, query: &str) -> Result<Vec<TableInfo>, String>;
+
     /// Describe the columns of `schema.table`.
     fn list_columns(
         &self,
@@ -89,6 +139,12 @@ pub trait DbAdapter {
         schema: &str,
         table: &str,
     ) -> Result<Vec<ColumnInfo>, String>;
+
+    /// Full detail for the structure view: columns (with PK/UNIQUE/FK flags),
+    /// indexes, an estimated row count, and on-disk size. Enrichments degrade
+    /// gracefully — a failed sub-query yields empty/zero rather than an error.
+    fn describe_table(&self, p: &Profile, schema: &str, table: &str)
+        -> Result<TableDetail, String>;
 
     /// Run an arbitrary SQL statement and return the result set.
     fn run_query(&self, p: &Profile, sql: &str) -> Result<QueryResult, String>;
@@ -98,45 +154,20 @@ pub trait DbAdapter {
 pub fn adapter(engine: Engine) -> Box<dyn DbAdapter> {
     match engine {
         Engine::Postgres => Box::new(crate::pg::Postgres),
-        // MySQL lands in Phase 2. Return an adapter that reports "unsupported"
-        // for every operation rather than speaking Postgres protocol to a MySQL
-        // server (which would fail with a confusing wire-level error).
-        Engine::Mysql => Box::new(UnsupportedEngine(Engine::Mysql)),
+        Engine::Mysql => Box::new(crate::mysql::Mysql),
     }
 }
 
-/// A stand-in for an engine that isn't implemented yet. Every operation returns
-/// a clear "not supported" error.
-struct UnsupportedEngine(Engine);
-
-impl UnsupportedEngine {
-    fn unsupported<T>(&self) -> Result<T, String> {
-        Err(format!("{:?} is not supported yet", self.0))
-    }
-}
-
-impl DbAdapter for UnsupportedEngine {
-    fn test_connection(&self, _p: &Profile) -> Result<String, String> {
-        self.unsupported()
-    }
-    fn list_databases(&self, _p: &Profile) -> Result<Vec<String>, String> {
-        self.unsupported()
-    }
-    fn list_schemas(&self, _p: &Profile) -> Result<Vec<String>, String> {
-        self.unsupported()
-    }
-    fn list_tables(&self, _p: &Profile, _schema: &str) -> Result<Vec<TableInfo>, String> {
-        self.unsupported()
-    }
-    fn list_columns(
-        &self,
-        _p: &Profile,
-        _schema: &str,
-        _table: &str,
-    ) -> Result<Vec<ColumnInfo>, String> {
-        self.unsupported()
-    }
-    fn run_query(&self, _p: &Profile, _sql: &str) -> Result<QueryResult, String> {
-        self.unsupported()
+impl Engine {
+    /// The engine-specific `EXPLAIN` statement that yields a machine-readable
+    /// plan **with actual run-time stats** for `sql`. Postgres `ANALYZE`
+    /// executes the statement, so callers must only run this on demand.
+    pub fn explain_sql(&self, sql: &str) -> String {
+        match self {
+            Engine::Postgres => format!("EXPLAIN (ANALYZE, FORMAT JSON) {sql}"),
+            // MySQL's ANALYZE only emits TREE format, so JSON stays estimate-only
+            // (no actual run times — the plan renderer bars by cost instead).
+            Engine::Mysql => format!("EXPLAIN FORMAT=JSON {sql}"),
+        }
     }
 }

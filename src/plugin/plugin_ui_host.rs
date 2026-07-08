@@ -97,6 +97,13 @@ pub trait PluginUiHost: Send {
     fn handle_event(&self, event: UiEvent) -> Result<UiOutput>;
     fn render_sidebar(&self) -> Result<Option<UiOutput>>;
 
+    /// True when the plugin's Store is currently held by a background worker (a
+    /// blocking DB query is running). Callers use this to defer work that would
+    /// otherwise block the UI thread on the Store mutex. Default: never busy.
+    fn busy(&self) -> bool {
+        false
+    }
+
     /// Notify the plugin that its user-configured settings changed.
     fn on_setting_change(&self, settings: &[PluginSettingData]) -> Result<()> {
         let _ = settings;

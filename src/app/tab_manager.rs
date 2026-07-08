@@ -164,6 +164,11 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         let syntax_highlighting = self.settings.viewer.syntax_highlighting;
         let plugin_ui = tab.active_plugin_pane.as_ref().map(|p| &p.ui_output);
 
+        // egui_dock already builds each tab's `ui` with a per-tab id
+        // (`TabViewer::id`), and the SDK derives its widget ids from `ui.id()` via
+        // `make_persistent_id` — so two tabs of the same plugin no longer clash
+        // without an extra `push_id` here (which, nested inside egui_dock's tab
+        // ScrollArea, also skewed the plugin pane's available height).
         let output = tab.central_panel.render(
             ui,
             CentralPanelProps {

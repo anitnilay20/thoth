@@ -130,7 +130,7 @@ impl StatelessComponent for GeneralTab {
                                 .value(current.to_string())
                                 .options(font_opts)
                                 .build();
-                            if let Some(new_val) = select.show(ui).inner {
+                            if let Some(new_val) = select.show(ui).inner.selected {
                                 if new_val.is_empty() {
                                     events.push(GeneralTabEvent::FontFamily(None));
                                 } else {

@@ -2,6 +2,7 @@ use egui::Widget;
 
 use crate::components::{IconButton, Separator};
 use crate::render_node::UiEvent;
+use crate::theme::ThemeColors;
 
 use super::Modal;
 
@@ -17,6 +18,8 @@ impl Modal {
         Self::frame(
             &self.id,
             &self.title,
+            self.subtitle.as_deref(),
+            self.width,
             self.width_pct,
             self.height_pct,
             ui,
@@ -39,6 +42,8 @@ impl Modal {
         Self::frame(
             &self.id,
             &self.title,
+            self.subtitle.as_deref(),
+            self.width,
             self.width_pct,
             self.height_pct,
             ui,
@@ -47,15 +52,19 @@ impl Modal {
     }
 
     /// Draw the backdrop + centered window chrome and run `body` for content.
+    #[allow(clippy::too_many_arguments)]
     fn frame<F: FnOnce(&mut egui::Ui)>(
         id: &str,
         title: &str,
+        subtitle: Option<&str>,
+        width: Option<f32>,
         width_pct: Option<f32>,
         height_pct: Option<f32>,
         ui: &mut egui::Ui,
         body: F,
     ) -> bool {
         let ctx = ui.ctx().clone();
+        let colors = ThemeColors::from_ctx(&ctx);
         let mut close_requested = ctx.input(|i| i.key_pressed(egui::Key::Escape));
 
         let screen = ctx.content_rect();
@@ -75,16 +84,22 @@ impl Modal {
             close_requested = true;
         }
 
-        // ── Window (sized as a fraction of the viewport) ─────────────────────
+        // ── Window (fixed px width, or a fraction of the viewport) ───────────
+        let modal_frame = egui::Frame::new()
+            .fill(colors.bg_panel)
+            .stroke(egui::Stroke::new(1.0, colors.surface_raised))
+            .corner_radius(10.0)
+            .inner_margin(egui::Margin::same(16));
         let win = egui::Window::new(format!("__modal_{id}"))
             .order(egui::Order::Foreground)
             .collapsible(false)
             .resizable(false)
             .movable(false)
             .title_bar(false)
+            .frame(modal_frame)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
 
-        let w = width_pct.map(|p| screen.width() * p.clamp(0.0, 1.0));
+        let w = width.or_else(|| width_pct.map(|p| screen.width() * p.clamp(0.0, 1.0)));
         let h = height_pct.map(|p| screen.height() * p.clamp(0.0, 1.0));
         let win = match (w, h) {
             (Some(w), Some(h)) => win.fixed_size([w, h]),
@@ -99,7 +114,17 @@ impl Modal {
 
         win.show(&ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading(title);
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(title)
+                            .size(14.0)
+                            .strong()
+                            .color(colors.fg),
+                    );
+                    if let Some(sub) = subtitle.filter(|s| !s.is_empty()) {
+                        ui.label(egui::RichText::new(sub).size(11.0).color(colors.fg_muted));
+                    }
+                });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if IconButton::builder()
                         .icon(egui_phosphor::regular::X)
@@ -112,7 +137,7 @@ impl Modal {
                     }
                 });
             });
-            ui.add(Separator::with_margins(0.0, 4.0));
+            ui.add(Separator::with_margins(6.0, 8.0));
 
             if let Some(h) = h {
                 let header_overhead = 40.0;

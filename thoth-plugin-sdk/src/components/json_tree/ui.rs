@@ -32,7 +32,7 @@ impl JsonTree {
         } else {
             self.id.as_str()
         };
-        let base_id = egui::Id::new(id);
+        let base_id = ui.make_persistent_id(id);
         let mem_id = base_id.with("json_tree_expanded");
         let init_id = base_id.with("json_tree_init");
 

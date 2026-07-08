@@ -1,11 +1,34 @@
 use egui::{Color32, Response, Sense, Widget};
 
+use crate::components::Size;
 use crate::theme::{ThemeColors, phosphor_font_id, resolve_color};
 
 use super::IconButton;
 
 const DEFAULT_BUTTON_SIZE: f32 = 20.0;
 const DEFAULT_ICON_SIZE: f32 = 14.0;
+
+impl IconButton {
+    /// `(square dimension, default glyph size)` for this icon button's size
+    /// preset. Icon buttons stay compact, so `Medium` keeps the historical 20px
+    /// default; `Small`/`Large` step around it.
+    fn dims(&self) -> (f32, f32) {
+        // An explicit pixel override wins; its glyph scales from the 20px base.
+        if let Some(px) = self.size_px {
+            return (px, (px / DEFAULT_BUTTON_SIZE) * DEFAULT_ICON_SIZE);
+        }
+        // Square size shares the same heights as Button/Select for the same size
+        // level (from `Size::metrics`), so a toolbar of mixed controls lines up.
+        // The glyph size is icon-button-specific. `(square, glyph)`.
+        let square = self.size.metrics().1;
+        let glyph = match self.size {
+            Size::Small => 14.0,
+            Size::Medium => 16.0,
+            Size::Large => 18.0,
+        };
+        (square, glyph)
+    }
+}
 
 impl Widget for IconButton {
     fn ui(self, ui: &mut egui::Ui) -> Response {
@@ -17,11 +40,9 @@ impl Widget for IconButton {
             ui.style().visuals.text_color()
         };
 
-        let dim = self.size.unwrap_or(DEFAULT_BUTTON_SIZE);
+        let (dim, default_icon) = self.dims();
         let size = egui::vec2(dim, dim);
-        let icon_size = self
-            .icon_size
-            .unwrap_or((dim / DEFAULT_BUTTON_SIZE) * DEFAULT_ICON_SIZE);
+        let icon_size = self.icon_size.unwrap_or(default_icon);
 
         let sense = if self.disabled {
             Sense::hover()

@@ -4,6 +4,8 @@ mod ui;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
+use crate::components::Size;
+
 /// A single option in a [`Select`].
 #[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
@@ -15,15 +17,15 @@ pub struct SelectOption {
     pub label: String,
 }
 
-/// Trigger size of a [`Select`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SelectSize {
-    /// 26px trigger, 11pt text — the default.
-    #[default]
-    Default,
-    /// 22px trigger, 10pt text.
-    Small,
+/// The outcome of rendering a [`Select`] for one frame.
+#[derive(Clone, Debug, Default)]
+pub struct SelectResponse {
+    /// A value the user picked this frame (a dropdown item click).
+    pub selected: Option<String>,
+    /// The search query, reported on the frame it changed (searchable selects
+    /// only). Owners can use it to fetch or replace [`Select::options`] on
+    /// demand — the dropdown always also filters the current options locally.
+    pub search: Option<String>,
 }
 
 /// A dropdown select (combo box) with a custom-painted trigger and popup list.
@@ -64,11 +66,17 @@ pub struct Select {
     /// Optional static prefix shown before the selected label, e.g. `"Sort: "`.
     #[serde(default)]
     pub prefix_label: Option<String>,
-    /// Trigger size. Defaults to [`SelectSize::Default`].
+    /// Trigger size. Defaults to [`Size::Medium`].
     #[builder(default)]
     #[serde(default)]
-    pub size: SelectSize,
+    pub size: Size,
     /// Fixed trigger width. When `None`, the trigger fills the available width.
     #[serde(default)]
     pub width: Option<f32>,
+    /// When true, the dropdown shows a search box that filters options live
+    /// (and reports query changes via [`SelectResponse::search`]), and the list
+    /// is virtualized so large option sets don't all render at once.
+    #[builder(default)]
+    #[serde(default)]
+    pub searchable: bool,
 }

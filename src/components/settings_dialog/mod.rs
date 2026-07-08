@@ -676,7 +676,7 @@ impl ContextComponent for SettingsDialog {
                                             .icon(egui_phosphor::regular::X)
                                             .tooltip("Close")
                                             .frame(false)
-                                            .size(20.0)
+                                            .size_px(20.0)
                                             .build(),
                                     );
                                     if close_out.clicked() {

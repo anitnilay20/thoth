@@ -290,7 +290,7 @@ impl Sidebar {
             IconButton::builder()
                 .icon(icon)
                 .tooltip(tooltip)
-                .size(button_size)
+                .size_px(button_size)
                 .icon_size(20.0)
                 .selected(selected)
                 .build()
@@ -373,7 +373,7 @@ impl Sidebar {
                         IconButton::builder()
                             .icon(icon)
                             .tooltip(plugin.name.as_str())
-                            .size(button_size)
+                            .size_px(button_size)
                             .icon_size(20.0)
                             .selected(selected)
                             .build(),
@@ -394,7 +394,7 @@ impl Sidebar {
                             IconButton::builder()
                                 .icon(icon)
                                 .tooltip(plugin.name.as_str())
-                                .size(button_size)
+                                .size_px(button_size)
                                 .icon_size(20.0)
                                 .build(),
                         )

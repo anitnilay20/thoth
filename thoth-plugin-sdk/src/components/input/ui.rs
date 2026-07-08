@@ -1,5 +1,6 @@
 use egui::{InnerResponse, RichText, Stroke, Widget};
 
+use crate::components::Size;
 use crate::theme::{ThemeColors, phosphor_font_id};
 
 use super::Input;
@@ -26,6 +27,14 @@ impl Input {
             self.desired_width.unwrap_or(f32::INFINITY)
         };
 
+        // Medium keeps the default look (no explicit font); Small/Large adjust the
+        // font and vertical padding so the field matches small/large controls.
+        let (font_size, pad_y): (Option<f32>, i8) = match self.size {
+            Size::Small => (Some(11.0), 3),
+            Size::Medium => (None, 4),
+            Size::Large => (Some(14.0), 6),
+        };
+
         let mut changed = false;
         let mut inner_response: Option<egui::Response> = None;
 
@@ -33,7 +42,7 @@ impl Input {
             .fill(colors.surface)
             .stroke(Stroke::new(1.0, colors.surface_raised))
             .corner_radius(4)
-            .inner_margin(egui::Margin::symmetric(8, 4))
+            .inner_margin(egui::Margin::symmetric(8, pad_y))
             .show(ui, |ui| {
                 ui.add_enabled_ui(!self.disabled, |ui| {
                     if self.multiline {
@@ -72,6 +81,9 @@ impl Input {
                                 .desired_width(width)
                                 .vertical_align(egui::Align::Center)
                                 .frame(egui::Frame::NONE);
+                            if let Some(fs) = font_size {
+                                edit = edit.font(egui::FontId::proportional(fs));
+                            }
                             if self.password {
                                 edit = edit.password(true);
                             }

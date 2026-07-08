@@ -45,7 +45,7 @@ use crate::components::{
     Colored, Column, DataRow, Footer, Group, Icon, IconButton, Input, JsonTree, KeyValue,
     KeyValueList, Link, List, Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row,
     Scroll, Select, Separator, SidebarHeader, Slider, Spacer, Spinner, Split, TableView, Tabs,
-    ToggleSwitch, Typography,
+    ToggleSwitch, Typography, VSplit,
 };
 
 /// A node in the Thoth UI tree.
@@ -68,6 +68,8 @@ pub enum RenderNode {
     Spacer(Spacer),
     /// A proportional [`Split`].
     Split(Split),
+    /// A resizable vertical [`VSplit`] (top over bottom, draggable divider).
+    VSplit(VSplit),
     /// A [`Group`] (collapsible, open by default).
     Group(Group),
     /// A [`Collapsible`] (closed by default).
@@ -205,6 +207,74 @@ impl RenderNode {
             }
         }
     }
+
+    /// Renders a result cell styled by the column's [`ColumnType`] (rather than
+    /// by the JSON shape of the value, as [`json_cell`](RenderNode::json_cell)
+    /// does). Every cell is monospace: numbers/temporal/text use
+    /// `mono(text, ty.text_color())`, an enum becomes a soft coloured pill, a
+    /// json object/array becomes a tree (json-as-text is info-tinted), and null
+    /// is muted italic. `Text` and unknown types fall through to the default
+    /// mono styling — they do **not** defer to `json_cell`.
+    pub fn typed_cell(value: &serde_json::Value, ty: crate::components::ColumnType) -> Self {
+        use crate::components::{Badge, ColumnType, TypographyVariant};
+        use serde_json::Value;
+
+        // Every result cell is monospace, matching the design handoff's grid.
+        let mono = |text: String, color: &str| {
+            RenderNode::Text(
+                Typography::builder()
+                    .text(text)
+                    .variant(TypographyVariant::Mono)
+                    .color(color)
+                    .build(),
+            )
+        };
+        // Null is muted + italic regardless of the declared column type.
+        if value.is_null() {
+            return RenderNode::Text(
+                Typography::builder()
+                    .text("null")
+                    .variant(TypographyVariant::Mono)
+                    .italic(true)
+                    .color("muted")
+                    .build(),
+            );
+        }
+        let text = match value {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        match ty {
+            // Enum values render as a soft, per-value coloured pill.
+            ColumnType::Enum => RenderNode::Badge(
+                Badge::builder()
+                    .label(text.clone())
+                    .color(enum_color(&text))
+                    .soft(true)
+                    .build(),
+            ),
+            // json comes back parsed (a tree) or as text (info-tinted).
+            ColumnType::Json => match value {
+                Value::Array(_) | Value::Object(_) => {
+                    RenderNode::JsonTree(JsonTree::builder().value(value.clone()).build())
+                }
+                _ => mono(text, "info"),
+            },
+            // Numbers → number colour, temporal → string colour, else default fg.
+            _ => mono(text, ty.text_color()),
+        }
+    }
+}
+
+/// A stable colour token for an enum value, cycled from a small palette by a
+/// hash of the value so each distinct value keeps one consistent colour. The
+/// palette leads with the handoff's chip colours (purple / blue / green).
+fn enum_color(value: &str) -> &'static str {
+    const PALETTE: [&str; 5] = ["secondary", "accent", "success", "warning", "info"];
+    let hash = value
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    PALETTE[(hash as usize) % PALETTE.len()]
 }
 
 /// The shared, type-erased draw closure inside a [`CustomWidget`].
@@ -510,15 +580,9 @@ mod wire_format_tests {
     }
 
     #[test]
-    fn select_size_serialises_kebab_case() {
-        assert_eq!(
-            serde_json::to_value(SelectSize::Default).unwrap(),
-            json!("default")
-        );
-        assert_eq!(
-            serde_json::to_value(SelectSize::Small).unwrap(),
-            json!("small")
-        );
+    fn size_serialises_pascal_case() {
+        assert_eq!(serde_json::to_value(Size::Medium).unwrap(), json!("Medium"));
+        assert_eq!(serde_json::to_value(Size::Small).unwrap(), json!("Small"));
     }
 
     #[test]
@@ -539,8 +603,11 @@ mod wire_format_tests {
 
     #[test]
     fn list_item_postfix_progress_bar_is_externally_tagged() {
-        let v = serde_json::to_value(ListItemPostfix::ProgressBar(50)).unwrap();
-        assert_eq!(v["ProgressBar"], json!(50));
+        let v = serde_json::to_value(ListItemPostfix::Progress(
+            crate::components::Progress::builder().value(0.5).build(),
+        ))
+        .unwrap();
+        assert_eq!(v["Progress"]["value"], json!(0.5));
     }
 
     #[test]

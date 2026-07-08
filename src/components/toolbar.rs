@@ -131,7 +131,7 @@ impl Toolbar {
                             IconButton::builder()
                                 .icon(egui_phosphor::regular::CARET_LEFT)
                                 .tooltip(format!("Go back ({})", props.shortcuts.nav_back.format()))
-                                .size(button_size.x)
+                                .size_px(button_size.x)
                                 .disabled(!props.can_go_back)
                                 .build(),
                         );
@@ -146,7 +146,7 @@ impl Toolbar {
                                     "Go forward ({})",
                                     props.shortcuts.nav_forward.format()
                                 ))
-                                .size(button_size.x)
+                                .size_px(button_size.x)
                                 .disabled(!props.can_go_forward)
                                 .build(),
                         );

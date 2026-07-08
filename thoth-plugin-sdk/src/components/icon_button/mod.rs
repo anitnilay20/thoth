@@ -4,6 +4,12 @@ mod ui;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
+use crate::components::Size;
+
+fn size_small() -> Size {
+    Size::Small
+}
+
 /// A compact, square icon button rendered from a Phosphor glyph.
 ///
 /// Reports clicks through its [`egui::Widget`] response
@@ -35,10 +41,22 @@ pub struct IconButton {
     /// colour.
     #[serde(default)]
     pub badge_color: Option<String>,
-    /// Square button size in pixels. Defaults to 20.
+    /// Square button size preset — shares heights with [`Button`]/[`Select`], so
+    /// mixed toolbars line up. Defaults to [`Size::Small`] (24px), the common
+    /// compact icon-button size. Prefer this; use [`size_px`](IconButton::size_px)
+    /// only for host chrome that must fit an exact pixel dimension.
+    ///
+    /// [`Button`]: crate::components::Button
+    /// [`Select`]: crate::components::Select
+    #[builder(default = Size::Small)]
+    #[serde(default = "size_small")]
+    pub size: Size,
+    /// Exact square size in pixels, overriding [`size`](IconButton::size). An
+    /// escape hatch for chrome sized to fit a specific bar; plugins should use
+    /// the [`size`](IconButton::size) preset instead.
     #[serde(default)]
-    pub size: Option<f32>,
-    /// Glyph size override in pixels — derived from `size` when unset.
+    pub size_px: Option<f32>,
+    /// Glyph size override in pixels — derived from the size otherwise.
     #[serde(default)]
     pub icon_size: Option<f32>,
     /// Whether the button is disabled (dimmed, non-interactive).

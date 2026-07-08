@@ -47,6 +47,7 @@ pub(crate) fn build_sidebar(st: &State) -> RenderNode {
                             ICON_TREE_STRUCTURE.to_string(),
                             ICON_HISTORY.to_string(),
                         ])
+                        .icon_only(true)
                         .actions(vec![TabAction::builder()
                             .id("new-connection")
                             .icon(ICON_PLUS)

@@ -109,6 +109,11 @@ pub struct Column {
     #[builder(default)]
     #[serde(default)]
     pub gap: f32,
+    /// Wrap the column in a bordered, filled card (panel background + surface
+    /// border + rounded corners + margin). Defaults to `false`.
+    #[builder(default)]
+    #[serde(default)]
+    pub framed: bool,
 }
 
 /// A scrollable region wrapping a single child.
@@ -121,6 +126,11 @@ pub struct Scroll {
     /// Optional fixed max height, in points.
     #[serde(default)]
     pub max_height: Option<f32>,
+    /// Scroll horizontally as well as vertically. Defaults to `false`
+    /// (vertical only).
+    #[builder(default)]
+    #[serde(default)]
+    pub both: bool,
     /// Optional id salt to disambiguate this scroll area from sibling scroll
     /// areas (egui derives a scroll id from tree position, which can collide
     /// between two scrolls at equivalent positions, e.g. split columns).
@@ -158,6 +168,53 @@ pub struct Split {
     #[builder(default)]
     #[serde(default)]
     pub separator: bool,
+    /// Vertical alignment of each column's content within the row height.
+    /// Defaults to [`Align::Start`] (top); [`Align::Center`] centers vertically.
+    #[builder(default)]
+    #[serde(default)]
+    pub align: Align,
+    /// When true, each column fills the full available height (so a column can
+    /// hold a scroll region that fills the pane). Defaults to false — a
+    /// content-height row, which is what tabular rows and form-field pairs want.
+    #[builder(default)]
+    #[serde(default)]
+    pub fill_height: bool,
+}
+
+/// A vertical split with a draggable divider: `top` over `bottom`, each filling
+/// its share of the available height so their content can scroll independently.
+/// The divider position (top's fraction of the height) is dragged by the user
+/// and persisted in egui memory, keyed by [`id`](VSplit::id).
+#[derive(Clone, Debug, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
+#[non_exhaustive]
+pub struct VSplit {
+    /// Stable id salt — must be unique per on-screen instance (persists the
+    /// dragged divider position across frames).
+    pub id: String,
+    /// The top pane.
+    #[builder(into)]
+    pub top: Box<RenderNode>,
+    /// The bottom pane.
+    #[builder(into)]
+    pub bottom: Box<RenderNode>,
+    /// Initial fraction of the height given to `top` (0.0–1.0) before the user
+    /// drags. Defaults to `0.5`.
+    #[builder(default = 0.5)]
+    #[serde(default = "half")]
+    pub default_ratio: f32,
+    /// Minimum height, in points, for each pane (keeps the divider from swallowing
+    /// either side). Defaults to `80.0`.
+    #[builder(default = 80.0)]
+    #[serde(default = "min_pane")]
+    pub min_pane: f32,
+}
+
+fn half() -> f32 {
+    0.5
+}
+fn min_pane() -> f32 {
+    80.0
 }
 
 /// A collapsible section, open by default.
@@ -338,6 +395,21 @@ impl Row {
 impl Column {
     /// Render the column.
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
+        if self.framed {
+            let colors = crate::theme::ThemeColors::from_ctx(ui.ctx());
+            egui::Frame::new()
+                .fill(colors.bg_panel)
+                .stroke(egui::Stroke::new(1.0, colors.surface))
+                .corner_radius(6)
+                .inner_margin(egui::Margin::same(4))
+                .outer_margin(egui::Margin::same(8))
+                .show(ui, |ui| self.body(ui, events));
+        } else {
+            self.body(ui, events);
+        }
+    }
+
+    fn body(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = self.gap;
             for child in &mut self.children {
@@ -353,8 +425,16 @@ impl Scroll {
     pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
         // Claim the full available area so the scroll region fills its slot
         // (and its content can fill it too) rather than collapsing to content.
+        // `auto_shrink(false)` is what actually makes the `ScrollArea` fill —
+        // otherwise egui shrinks it back to content height (leaving the slot
+        // half-empty) even after `set_min_size`.
         ui.set_min_size(ui.available_size());
-        let mut area = egui::ScrollArea::vertical();
+        let mut area = if self.both {
+            egui::ScrollArea::both()
+        } else {
+            egui::ScrollArea::vertical()
+        }
+        .auto_shrink([false, false]);
         if let Some(id) = &self.id {
             area = area.id_salt(id);
         }
@@ -394,35 +474,145 @@ impl Split {
             vec![usable / n as f32; n]
         };
 
-        let sep_color = ui.visuals().widgets.noninteractive.bg_stroke.color;
-        let cursor = ui.cursor();
+        // Lay the columns out in a horizontal row. Content-height by default (for
+        // centred alignment, give the row a uniform min-height and use
+        // `horizontal`, which centres its children vertically; start alignment
+        // top-aligns via `horizontal_top`). When `fill_height` is set, each column
+        // is given the full available height so it can hold a pane-filling scroll
+        // region — this is what a request/response-style split needs.
+        let separator = self.separator;
+        let fill = self.fill_height;
+        let center = self.align == Align::Center && !fill;
+        let row_min = ui.spacing().interact_size.y;
         let avail_h = ui.available_height();
-        let mut x = cursor.left();
-        let mut max_h = 0.0_f32;
-
-        for (i, child) in self.children.iter_mut().enumerate() {
-            let col_w = col_widths[i];
-            let col_rect =
-                egui::Rect::from_min_size(egui::pos2(x, cursor.top()), egui::vec2(col_w, avail_h));
-            let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(col_rect));
-            child.show(&mut child_ui, events);
-            max_h = max_h.max(child_ui.min_rect().height());
-            x += col_w;
-            if i + 1 < n {
-                if self.separator {
-                    let sep_x = x + gap / 2.0;
-                    ui.painter().line_segment(
-                        [
-                            egui::pos2(sep_x, cursor.top()),
-                            egui::pos2(sep_x, cursor.top() + avail_h),
-                        ],
-                        egui::Stroke::new(1.0, sep_color),
-                    );
-                }
-                x += gap;
+        let children = &mut self.children;
+        let body = |ui: &mut egui::Ui| {
+            if fill {
+                ui.set_min_height(avail_h);
+            } else if center {
+                ui.set_min_height(row_min);
             }
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for (i, child) in children.iter_mut().enumerate() {
+                let col_w = col_widths[i];
+                let col_h = if fill { avail_h } else { 0.0 };
+                ui.allocate_ui_with_layout(
+                    egui::vec2(col_w, col_h),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_min_width(col_w);
+                        ui.set_max_width(col_w);
+                        if fill {
+                            ui.set_min_height(avail_h);
+                        } else {
+                            // Keep each cell to one line; extend past the column
+                            // rather than wrapping to a second row.
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                        }
+                        child.show(ui, events);
+                    },
+                );
+                if i + 1 < n {
+                    if separator {
+                        ui.add(egui::Separator::default().vertical());
+                    } else {
+                        ui.add_space(gap);
+                    }
+                }
+            }
+        };
+        if center {
+            ui.horizontal(body);
+        } else {
+            ui.horizontal_top(body);
         }
-        ui.allocate_space(egui::vec2(available, max_h));
+    }
+}
+
+#[cfg(feature = "egui")]
+impl VSplit {
+    /// Render `top` over `bottom` with a draggable divider between them. Each
+    /// pane is given a fixed height (from the persisted ratio) so its content
+    /// scrolls within, and dragging the divider re-apportions the height.
+    pub fn show(&mut self, ui: &mut egui::Ui, events: &mut Vec<UiEvent>) {
+        let colors = crate::theme::ThemeColors::from_ctx(ui.ctx());
+        let handle_h = 7.0_f32;
+
+        let full = ui.available_size();
+        let width = full.x;
+        let total_h = full.y;
+        let panes_h = (total_h - handle_h).max(0.0);
+
+        // Persisted top fraction, defaulting to `default_ratio` on first render.
+        let ratio_id = ui.make_persistent_id((&self.id, "vsplit_ratio"));
+        let mut ratio: f32 = ui
+            .ctx()
+            .data(|d| d.get_temp(ratio_id))
+            .unwrap_or(self.default_ratio);
+
+        // Clamp so neither pane drops below `min_pane` (when there's room for both).
+        let min = self.min_pane.min(panes_h / 2.0).max(0.0);
+        let top_h = (panes_h * ratio).clamp(min, (panes_h - min).max(min));
+        let bottom_h = (panes_h - top_h).max(0.0);
+
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+
+            // ── Top pane ─────────────────────────────────────────────────────
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, top_h),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_min_size(egui::vec2(width, top_h));
+                    ui.set_max_size(egui::vec2(width, top_h));
+                    ui.set_clip_rect(ui.max_rect());
+                    self.top.show(ui, events);
+                },
+            );
+
+            // ── Divider ──────────────────────────────────────────────────────
+            let (handle_rect, resp) =
+                ui.allocate_exact_size(egui::vec2(width, handle_h), egui::Sense::drag());
+            let hovered = resp.hovered() || resp.dragged();
+            let line_y = handle_rect.center().y;
+            ui.painter().hline(
+                handle_rect.x_range(),
+                line_y,
+                egui::Stroke::new(1.0, colors.surface_raised),
+            );
+            // A short grip in the centre, brighter on hover/drag.
+            let grip_c = if hovered {
+                colors.accent
+            } else {
+                colors.fg_muted
+            };
+            let grip_w = 24.0;
+            ui.painter().hline(
+                (handle_rect.center().x - grip_w / 2.0)..=(handle_rect.center().x + grip_w / 2.0),
+                line_y,
+                egui::Stroke::new(2.0, grip_c),
+            );
+            if hovered {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+            }
+            if resp.dragged() && panes_h > 0.0 {
+                let new_top = (top_h + resp.drag_delta().y).clamp(min, (panes_h - min).max(min));
+                ratio = new_top / panes_h;
+                ui.ctx().data_mut(|d| d.insert_temp(ratio_id, ratio));
+            }
+
+            // ── Bottom pane ──────────────────────────────────────────────────
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, bottom_h),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.set_min_size(egui::vec2(width, bottom_h));
+                    ui.set_max_size(egui::vec2(width, bottom_h));
+                    ui.set_clip_rect(ui.max_rect());
+                    self.bottom.show(ui, events);
+                },
+            );
+        });
     }
 }
 

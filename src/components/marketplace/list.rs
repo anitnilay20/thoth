@@ -2,7 +2,7 @@ use eframe::egui;
 
 use thoth_plugin_sdk::components::{
     Button, ButtonColor, ButtonSize, IconButton, Input, List, ListEvent, ListItem, ListItemPostfix,
-    ListItemPrefix, Select, SelectOption, SelectSize, Separator, SidebarHeader,
+    ListItemPrefix, Progress, Select, SelectOption, Separator, SidebarHeader, Size,
 };
 use thoth_plugin_sdk::theme::color_to_hex;
 
@@ -70,10 +70,12 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                             .build(),
                     ])
                     .prefix_label("Sort: ")
-                    .size(SelectSize::Small)
+                    .size(Size::Small)
                     .build();
                 let new_val = ui
-                    .allocate_ui(egui::vec2(select_w, 22.0), |ui| sort_select.show(ui).inner)
+                    .allocate_ui(egui::vec2(select_w, 22.0), |ui| {
+                        sort_select.show(ui).inner.selected
+                    })
                     .inner;
                 if let Some(new_val) = new_val {
                     state.sort = match new_val.as_str() {
@@ -324,7 +326,9 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                         .icon(egui_phosphor::regular::ARROW_CLOCKWISE)
                         .build(),
                 )),
-                InstallState::Installing(pct) => Some(ListItemPostfix::ProgressBar(*pct)),
+                InstallState::Installing(pct) => Some(ListItemPostfix::Progress(
+                    Progress::builder().value(*pct as f64 / 100.0).build(),
+                )),
                 InstallState::Update => Some(ListItemPostfix::Button(
                     Button::builder()
                         .label("Update")

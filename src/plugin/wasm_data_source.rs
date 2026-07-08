@@ -701,6 +701,66 @@ impl thoth::plugin::db_runtime::Host for DataSourcePluginState {
     }
 }
 
+// ── file-dialog WIT import — native open/save pickers (host-mediated I/O) ─────
+
+fn fd_err(message: impl Into<String>) -> thoth::plugin::file_dialog::PluginError {
+    thoth::plugin::file_dialog::PluginError {
+        code: 1,
+        message: message.into(),
+    }
+}
+
+/// Apply `title` and an optional single suffix filter to a file dialog.
+fn fd_dialog(title: &str, extensions: &[String]) -> rfd::FileDialog {
+    let mut dialog = rfd::FileDialog::new();
+    if !title.is_empty() {
+        dialog = dialog.set_title(title);
+    }
+    if !extensions.is_empty() {
+        let exts: Vec<&str> = extensions.iter().map(String::as_str).collect();
+        dialog = dialog.add_filter("", &exts);
+    }
+    dialog
+}
+
+impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
+    fn open_file(
+        &mut self,
+        title: String,
+        extensions: Vec<String>,
+    ) -> std::result::Result<
+        Option<thoth::plugin::file_dialog::OpenedFile>,
+        thoth::plugin::file_dialog::PluginError,
+    > {
+        let Some(path) = fd_dialog(&title, &extensions).pick_file() else {
+            return Ok(None);
+        };
+        let contents = std::fs::read_to_string(&path).map_err(|e| fd_err(e.to_string()))?;
+        Ok(Some(thoth::plugin::file_dialog::OpenedFile {
+            path: path.to_string_lossy().into_owned(),
+            contents,
+        }))
+    }
+
+    fn save_file(
+        &mut self,
+        title: String,
+        default_name: String,
+        extensions: Vec<String>,
+        contents: String,
+    ) -> std::result::Result<Option<String>, thoth::plugin::file_dialog::PluginError> {
+        let mut dialog = fd_dialog(&title, &extensions);
+        if !default_name.is_empty() {
+            dialog = dialog.set_file_name(&default_name);
+        }
+        let Some(path) = dialog.save_file() else {
+            return Ok(None);
+        };
+        std::fs::write(&path, contents).map_err(|e| fd_err(e.to_string()))?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    }
+}
+
 // ── reqwest bridge ────────────────────────────────────────────────────────────
 
 fn execute_http_request(
@@ -769,6 +829,11 @@ pub struct WasmDataSourceLoader {
     /// In-flight async queries (for repaint-while-pending).
     query_pending: Arc<AtomicUsize>,
     plugin_id: String,
+    /// Last rendered sidebar/main-UI trees. When a query worker owns the Store
+    /// (a blocking DB query is running), the render path reuses these instead of
+    /// blocking the UI thread on the Store mutex.
+    last_sidebar: Mutex<Option<UiOutput>>,
+    last_ui: Mutex<Option<UiOutput>>,
 }
 
 // ── public API ────────────────────────────────────────────────────────────────
@@ -885,6 +950,14 @@ impl WasmDataSourceLoader {
             },
         )?;
 
+        // 7. Register the file-dialog import (native open/save pickers).
+        thoth::plugin::file_dialog::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+
         let bindings =
             DataSourcePlugin::instantiate(&mut store, &component, &linker).map_err(|e| {
                 ThothError::PluginLoadError {
@@ -905,6 +978,8 @@ impl WasmDataSourceLoader {
             query_result_rx,
             query_pending,
             plugin_id,
+            last_sidebar: Mutex::new(None),
+            last_ui: Mutex::new(None),
         };
 
         // Always call on_load so the plugin can initialise from its own
@@ -1038,8 +1113,22 @@ impl WasmDataSourceLoader {
 
     /// Ask the plugin if it wants to render a sidebar panel.
     /// Returns `None` when the plugin has no sidebar content.
+    /// Render the plugin's sidebar tree. Uses `try_lock`: if a query worker owns
+    /// the Store (a blocking DB query is in flight), reuse the last rendered
+    /// frame so the UI thread never blocks. Spinner nodes in that cached tree
+    /// keep animating because the host re-renders it each frame.
     pub fn render_sidebar(&self) -> Result<Option<UiOutput>> {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = match self.inner.try_lock() {
+            Ok(g) => g,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return Ok(self
+                    .last_sidebar
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone());
+            }
+        };
         let WasmDataSourceInner { store, bindings } = &mut *guard;
         refuel(store)?;
         let result = bindings
@@ -1049,15 +1138,35 @@ impl WasmDataSourceLoader {
                 message: e.to_string(),
             })?
             .map_err(|e| ThothError::Unknown { message: e.message })?;
-        Ok(result.map(|o| UiOutput {
+        let out = result.map(|o| UiOutput {
             node_json: o.node_json,
             height_hint: o.height_hint,
-        }))
+        });
+        *self.last_sidebar.lock().unwrap_or_else(|e| e.into_inner()) = out.clone();
+        Ok(out)
     }
 
-    /// Ask the plugin to render its initial UI tree.
+    /// Ask the plugin to render its initial UI tree. Like [`render_sidebar`], it
+    /// reuses the last frame rather than blocking the UI thread while a query
+    /// worker owns the Store.
     pub fn render_ui(&self) -> Result<UiOutput> {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = match self.inner.try_lock() {
+            Ok(g) => g,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if let Some(cached) = self
+                    .last_ui
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
+                {
+                    return Ok(cached);
+                }
+                // No cached frame yet — block once (only possible on the very
+                // first render, before any query is in flight).
+                self.inner.lock().unwrap_or_else(|e| e.into_inner())
+            }
+        };
         let WasmDataSourceInner { store, bindings } = &mut *guard;
         refuel(store)?;
         let wit_out = bindings
@@ -1067,10 +1176,12 @@ impl WasmDataSourceLoader {
                 message: e.to_string(),
             })?
             .map_err(|e| ThothError::Unknown { message: e.message })?;
-        Ok(UiOutput {
+        let out = UiOutput {
             node_json: wit_out.node_json,
             height_hint: wit_out.height_hint,
-        })
+        };
+        *self.last_ui.lock().unwrap_or_else(|e| e.into_inner()) = Some(out.clone());
+        Ok(out)
     }
 
     /// Forward a widget interaction to the plugin and get a fresh UI tree back.
@@ -1325,6 +1436,15 @@ impl PluginUiHost for WasmDataSourceLoader {
 
     fn render_sidebar(&self) -> Result<Option<UiOutput>> {
         WasmDataSourceLoader::render_sidebar(self)
+    }
+
+    fn busy(&self) -> bool {
+        // A background query worker holds the Store mutex while a blocking DB
+        // query runs; `try_lock` failing means it's busy.
+        matches!(
+            self.inner.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        )
     }
 
     fn on_setting_change(&self, settings: &[PluginSettingData]) -> Result<()> {
