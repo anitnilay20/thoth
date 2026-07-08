@@ -20,6 +20,10 @@ impl TableView {
         let headers = self.headers.clone();
         let num_cols = headers.len().max(1);
         let min_col_width = self.min_col_width.unwrap_or(150.0);
+        // Per-column right-alignment from the (optional) SQL types.
+        let right_aligned: Vec<bool> = (0..num_cols)
+            .map(|i| self.column_types.get(i).is_some_and(|t| t.right_aligned()))
+            .collect();
         // Render cells from an owned copy so the egui_extras closures don't
         // borrow `self`; restore afterwards so cell state persists.
         let mut rows = std::mem::take(&mut self.rows);
@@ -118,6 +122,7 @@ impl TableView {
                             }
 
                             for col in 0..num_cols {
+                                let align_right = right_aligned.get(col).copied().unwrap_or(false);
                                 let (_, response) = row.col(|ui| {
                                     egui::Frame::NONE
                                         .inner_margin(egui::Margin::symmetric(CELL_PAD, 0))
@@ -128,11 +133,18 @@ impl TableView {
                                                 egui::TextStyle::Body,
                                                 egui::FontId::proportional(12.0),
                                             );
-                                            if let Some(cell) =
-                                                rows.get_mut(idx).and_then(|r| r.get_mut(col))
-                                            {
-                                                cell.show(ui, events);
-                                            }
+                                            let layout = if align_right {
+                                                egui::Layout::right_to_left(egui::Align::Center)
+                                            } else {
+                                                egui::Layout::left_to_right(egui::Align::Center)
+                                            };
+                                            ui.with_layout(layout, |ui| {
+                                                if let Some(cell) =
+                                                    rows.get_mut(idx).and_then(|r| r.get_mut(col))
+                                                {
+                                                    cell.show(ui, events);
+                                                }
+                                            });
                                         });
                                     paint_cell_borders(ui, grid, grid);
                                 });

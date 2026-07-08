@@ -1,8 +1,8 @@
 use serde_json::Value;
 use thoth_plugin_sdk::{
     components::{
-        Colored, Column, Progress, Row, Separator, Size, Spinner, Split, TableView, Tabs,
-        Typography, TypographyVariant,
+        Colored, Column, ColumnType, Progress, Row, Separator, Size, Spinner, Split, TableView,
+        Tabs, Typography, TypographyVariant,
     },
     render_node::RenderNode,
 };
@@ -72,6 +72,10 @@ fn results_table(result: &Value, has_more: bool) -> RenderNode {
 
     match (columns, rows) {
         (Some(cols), Some(rows)) if !cols.is_empty() => {
+            let col_types: Vec<ColumnType> = cols
+                .iter()
+                .map(|c| ColumnType::from_sql(c.get("type").and_then(|t| t.as_str()).unwrap_or("")))
+                .collect();
             let headers: Vec<String> = cols
                 .iter()
                 .map(|c| {
@@ -84,11 +88,23 @@ fn results_table(result: &Value, has_more: bool) -> RenderNode {
                     }
                 })
                 .collect();
+            // Style each cell by its column's SQL type (datetime, numeric, uuid,
+            // …); numeric/temporal columns are right-aligned by the table.
             let table_rows: Vec<Vec<RenderNode>> = rows
                 .iter()
                 .map(|row| {
                     row.as_array()
-                        .map(|cs| cs.iter().map(RenderNode::json_cell).collect())
+                        .map(|cs| {
+                            cs.iter()
+                                .enumerate()
+                                .map(|(i, v)| {
+                                    RenderNode::typed_cell(
+                                        v,
+                                        col_types.get(i).copied().unwrap_or_default(),
+                                    )
+                                })
+                                .collect()
+                        })
                         .unwrap_or_default()
                 })
                 .collect();
@@ -123,6 +139,7 @@ fn results_table(result: &Value, has_more: bool) -> RenderNode {
                             TableView::builder()
                                 .headers(headers)
                                 .rows(table_rows)
+                                .column_types(col_types)
                                 .build(),
                         ),
                         RenderNode::Row(

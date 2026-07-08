@@ -207,6 +207,70 @@ impl RenderNode {
             }
         }
     }
+
+    /// Like [`json_cell`](RenderNode::json_cell), but styled by the column's
+    /// [`ColumnType`] rather than the JSON shape of the value: temporal values
+    /// render in a mono, secondary tint; numerics keep the number colour; uuids
+    /// are mono-muted. Nulls, json, and [`ColumnType::Text`] defer to
+    /// [`json_cell`](RenderNode::json_cell), so an unknown type behaves as before.
+    pub fn typed_cell(value: &serde_json::Value, ty: crate::components::ColumnType) -> Self {
+        use crate::components::{Badge, ColumnType, TypographyVariant};
+        use serde_json::Value;
+
+        // Every result cell is monospace, matching the design handoff's grid.
+        let mono = |text: String, color: &str| {
+            RenderNode::Text(
+                Typography::builder()
+                    .text(text)
+                    .variant(TypographyVariant::Mono)
+                    .color(color)
+                    .build(),
+            )
+        };
+        // Null is muted + italic regardless of the declared column type.
+        if value.is_null() {
+            return RenderNode::Text(
+                Typography::builder()
+                    .text("null")
+                    .variant(TypographyVariant::Mono)
+                    .italic(true)
+                    .color("muted")
+                    .build(),
+            );
+        }
+        let text = match value {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        match ty {
+            // Enum values render as a soft, per-value coloured pill.
+            ColumnType::Enum => RenderNode::Badge(
+                Badge::builder()
+                    .label(text.clone())
+                    .color(enum_color(&text))
+                    .soft(true)
+                    .build(),
+            ),
+            // json comes back parsed (a tree) or as text (info-tinted).
+            ColumnType::Json => match value {
+                Value::Array(_) | Value::Object(_) => {
+                    RenderNode::JsonTree(JsonTree::builder().value(value.clone()).build())
+                }
+                _ => mono(text, "info"),
+            },
+            // Numbers → number colour, temporal → string colour, else default fg.
+            _ => mono(text, ty.text_color()),
+        }
+    }
+}
+
+/// A stable colour token for an enum value, cycled from a small palette by a
+/// hash of the value so each distinct value keeps one consistent colour. The
+/// palette leads with the handoff's chip colours (purple / blue / green).
+fn enum_color(value: &str) -> &'static str {
+    const PALETTE: [&str; 5] = ["secondary", "accent", "success", "warning", "info"];
+    let hash = value.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    PALETTE[(hash as usize) % PALETTE.len()]
 }
 
 /// The shared, type-erased draw closure inside a [`CustomWidget`].

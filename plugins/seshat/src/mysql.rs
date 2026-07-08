@@ -580,6 +580,11 @@ fn parse_column_def(pkt: &[u8]) -> Result<(String, u8), String> {
     cur.skip(2); // charset
     cur.skip(4); // column length
     let ty = cur.u8()?;
+    // 2-byte little-endian column flags follow the type byte. ENUM columns are
+    // sent as MYSQL_TYPE_STRING with the ENUM_FLAG (0x0100) set, so surface them
+    // as the enum type for type-aware rendering.
+    let flags = cur.u8()? as u16 | ((cur.u8()? as u16) << 8);
+    let ty = if flags & 0x0100 != 0 { 247 } else { ty };
     Ok((name, ty))
 }
 
@@ -642,6 +647,7 @@ fn type_name(ty: u8) -> String {
         15 | 253 => "varchar",
         16 => "bit",
         245 => "json",
+        247 => "enum",
         249 => "tinytext",
         250 => "mediumtext",
         251 => "longtext",

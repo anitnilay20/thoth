@@ -79,7 +79,7 @@ pub use separator::Separator;
 pub use sidebar_header::{SidebarHeader, SidebarHeaderAction};
 pub use slider::Slider;
 pub use spinner::Spinner;
-pub use table_view::TableView;
+pub use table_view::{ColumnType, TableView};
 pub use tabs::{TabAction, Tabs};
 pub use toggle_switch::ToggleSwitch;
 pub use typography::{Typography, TypographyVariant};

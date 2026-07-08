@@ -373,9 +373,79 @@ pub fn run_query(p: &Profile, sql: &str) -> Result<QueryResult, String> {
         }
     }
 
+    // Best-effort: resolve user-defined type OIDs (e.g. enums) so cells can be
+    // styled by type. Never fails the main result.
+    resolve_enum_types(&mut conn, &mut inbuf, &mut scratch, &mut out, &mut columns, &oids);
+
     frontend::terminate(&mut out);
     let _ = flush(&mut conn, &mut out);
     Ok(QueryResult { columns, rows, tag })
+}
+
+/// Enum columns come back with a dynamic OID that isn't in the static type map,
+/// so [`type_name`] renders them as `oid:N`. Look those up in `pg_type` and
+/// rename the enum ones to `"enum"` so the results grid shows them as pills.
+/// Best-effort: any protocol error leaves the columns untouched.
+fn resolve_enum_types(
+    conn: &mut TcpShim,
+    inbuf: &mut BytesMut,
+    scratch: &mut [u8],
+    out: &mut BytesMut,
+    columns: &mut [Column],
+    oids: &[Oid],
+) {
+    let unresolved: Vec<Oid> = columns
+        .iter()
+        .zip(oids)
+        .filter(|(c, _)| c.type_name.starts_with("oid:"))
+        .map(|(_, &o)| o)
+        .collect();
+    if unresolved.is_empty() {
+        return;
+    }
+    let list = unresolved
+        .iter()
+        .map(|o| o.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT oid::int8, (typtype = 'e') FROM pg_type WHERE oid IN ({list})"
+    );
+    if frontend::query(&sql, out).is_err() || flush(conn, out).is_err() {
+        return;
+    }
+
+    let mut result_oids: Vec<Oid> = Vec::new();
+    let mut enum_oids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    loop {
+        match read_message(conn, inbuf, scratch) {
+            Ok(backend::Message::RowDescription(body)) => {
+                result_oids.clear();
+                let mut fields = body.fields();
+                while let Ok(Some(f)) = fields.next() {
+                    result_oids.push(f.type_oid());
+                }
+            }
+            Ok(backend::Message::DataRow(body)) => {
+                if let Ok(vals) = row_to_values(&result_oids, &body) {
+                    if vals.get(1).and_then(|v| v.as_bool()).unwrap_or(false) {
+                        if let Some(oid) = vals.first().and_then(|v| v.as_i64()) {
+                            enum_oids.insert(oid);
+                        }
+                    }
+                }
+            }
+            Ok(backend::Message::ReadyForQuery(_)) => break,
+            Ok(backend::Message::ErrorResponse(_)) | Err(_) => return,
+            Ok(_) => {}
+        }
+    }
+
+    for (col, &oid) in columns.iter_mut().zip(oids) {
+        if col.type_name.starts_with("oid:") && enum_oids.contains(&(oid as i64)) {
+            col.type_name = "enum".to_string();
+        }
+    }
 }
 
 /// Postgres SSL negotiation: send an SSLRequest and read the server's single
