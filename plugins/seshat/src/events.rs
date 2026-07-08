@@ -81,6 +81,7 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         "f-user" | "user" => st.form.user = parse_str(&event.value),
         "f-password" | "password" => st.form.password = parse_str(&event.value),
         "f-tls" | "tls" => st.form.tls = serde_json::from_str(&event.value).unwrap_or(false),
+        "f-color" if event.kind == "change" => st.form.color = parse_str(&event.value),
 
         "new-connection" => {
             st.editing = None;
@@ -931,6 +932,7 @@ fn edit_connection(st: &mut State, index: usize) {
         user: conn.user.clone(),
         password,
         tls: conn.tls,
+        color: conn.color.clone().unwrap_or_default(),
     };
     st.editing = Some(conn.id);
     st.test_status = None;
@@ -967,6 +969,9 @@ fn connect_from_form(st: &mut State) {
         .editing
         .clone()
         .unwrap_or_else(|| make_id(&name, &st.connections));
+    let color = Some(st.form.color.trim())
+        .filter(|c| !c.is_empty())
+        .map(str::to_string);
     let conn = Connection {
         id: id.clone(),
         name,
@@ -976,6 +981,7 @@ fn connect_from_form(st: &mut State) {
         database: profile.database.clone(),
         user: profile.user.clone(),
         tls: profile.tls,
+        color,
     };
     // Persist the password to the keychain first; if that fails we must NOT save
     // the connection, or it would be unusable (no stored credential). Surface the

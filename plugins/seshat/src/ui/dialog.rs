@@ -2,8 +2,8 @@
 //! enter credentials (matching the design handoff's `NewConnectionDialog`).
 
 use thoth_plugin_sdk::components::{
-    Align, Checkbox, Colored, Column, Input, List, ListItem, ListItemBadge, Modal, Row, Separator,
-    Spacer, Split, Typography,
+    Align, Checkbox, Colored, Column, Input, List, ListItem, ListItemBadge, Modal, Row, Select,
+    SelectOption, Separator, Size, Spacer, Split, Typography,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -125,6 +125,27 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
                 .id(id("f-tls"))
                 .label("Require TLS")
                 .checked(st.form.tls)
+                .build(),
+        ),
+        // Environment colour: a semantic token shown as the connection's accent
+        // + status-dot tint, so prod vs local reads at a glance.
+        RenderNode::Select(
+            Select::builder()
+                .id(id("f-color"))
+                .value(st.form.color.clone())
+                .prefix_label("Colour: ")
+                .options(vec![
+                    SelectOption::builder().value("").label("None").build(),
+                    SelectOption::builder().value("error").label("Red · prod").build(),
+                    SelectOption::builder()
+                        .value("warning")
+                        .label("Amber · staging")
+                        .build(),
+                    SelectOption::builder().value("success").label("Green · dev").build(),
+                    SelectOption::builder().value("accent").label("Blue").build(),
+                    SelectOption::builder().value("secondary").label("Purple").build(),
+                ])
+                .size(Size::Small)
                 .build(),
         ),
     ];

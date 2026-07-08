@@ -25,6 +25,11 @@ pub(crate) struct Connection {
     pub user: String,
     #[serde(default)]
     pub tls: bool,
+    /// Optional environment colour (a semantic token like `error`/`warning`/
+    /// `success`) shown as a left accent + status-dot tint, so prod vs local
+    /// reads at a glance. `None` = no accent.
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 impl Connection {
@@ -55,6 +60,8 @@ pub(crate) struct Form {
     pub user: String,
     pub password: String,
     pub tls: bool,
+    /// Environment colour token (empty = none).
+    pub color: String,
 }
 
 impl Default for Form {
@@ -68,6 +75,7 @@ impl Default for Form {
             user: "postgres".into(),
             password: String::new(),
             tls: false,
+            color: String::new(),
         }
     }
 }

@@ -68,7 +68,16 @@ pub(crate) fn connections_list(st: &State) -> RenderNode {
 }
 
 fn connection_item(c: &Connection, active: bool, failed: bool) -> ListItem {
-    let (short, color) = engine_badge(c.engine);
+    let (short, badge_color) = engine_badge(c.engine);
+    // The leading database icon doubles as a status dot: green when connected,
+    // red on a failed connect, else the connection's environment colour (or muted).
+    let status_color = if failed {
+        "error"
+    } else if active {
+        "success"
+    } else {
+        c.color.as_deref().unwrap_or("muted")
+    };
     // Badge colours are semantic tokens, resolved by the SDK against the theme.
     let badge = if failed {
         ListItemBadge::builder().text("error").color("red").build()
@@ -78,17 +87,19 @@ fn connection_item(c: &Connection, active: bool, failed: bool) -> ListItem {
             .color("green")
             .build()
     } else {
-        ListItemBadge::builder().text(short).color(color).build()
+        ListItemBadge::builder().text(short).color(badge_color).build()
     };
     ListItem::builder()
         .title(c.name.clone())
         .description(c.summary())
         .prefix(ListItemPrefix::Icon {
             glyph: ICON_DATABASE.to_string(),
-            color: None,
+            color: Some(status_color.to_string()),
         })
         .badge(badge)
         .selected(active)
+        // Environment colour → left accent stripe.
+        .maybe_accent(c.color.clone())
         .actions(vec![
             ListItemAction::builder()
                 .icon(ICON_PENCIL)
