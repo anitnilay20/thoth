@@ -95,7 +95,7 @@ fn header(schema: &str, table: &str, detail: Option<&TableDetail>) -> RenderNode
                     RenderNode::Text(
                         Typography::builder()
                             .text(table)
-                            .variant(TypographyVariant::SectionHeader)
+                            .variant(TypographyVariant::Heading)
                             .build(),
                     ),
                 ])

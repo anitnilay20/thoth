@@ -60,7 +60,7 @@ fn results(st: &State) -> RenderNode {
                 .padding(12.0)
                 .children(vec![RenderNode::Colored(
                     Colored::builder()
-                        .color("#f38ba8")
+                        .color("error")
                         .child(RenderNode::Text(
                             Typography::builder().text(format!("Error: {msg}")).build(),
                         ))
@@ -352,7 +352,7 @@ fn result_explain(st: &State) -> RenderNode {
                 .padding(12.0)
                 .children(vec![RenderNode::Colored(
                     Colored::builder()
-                        .color("#f38ba8")
+                        .color("error")
                         .child(RenderNode::Text(
                             Typography::builder().text(format!("Error: {msg}")).build(),
                         ))
