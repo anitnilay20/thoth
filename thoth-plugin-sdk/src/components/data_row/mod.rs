@@ -99,6 +99,13 @@ pub struct DataRow {
     /// Tooltip for [`action_icon`](DataRow::action_icon).
     #[serde(default)]
     pub action_tooltip: Option<String>,
+    /// Truncate the key/value text with an ellipsis and pin the trailing/action
+    /// to the right edge (for a full-width, non-horizontally-scrolling list).
+    /// Defaults to `false`: the text extends and stays readable inside a
+    /// horizontally-scrolling container (e.g. a JSON tree in a both-axes scroll).
+    #[builder(default)]
+    #[serde(default)]
+    pub truncate: bool,
     /// Persistent selection highlight.
     #[builder(default)]
     #[serde(default)]

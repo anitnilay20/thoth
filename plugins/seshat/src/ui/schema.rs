@@ -215,6 +215,7 @@ fn table_row(
             .leading_icon(DataRowIcon::builder().glyph(icon.0).color(icon.1).build())
             .action_icon(ICON_TREE_STRUCTURE)
             .action_tooltip("View structure")
+            .truncate(true)
             .build(),
     )
 }

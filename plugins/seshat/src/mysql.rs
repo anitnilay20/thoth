@@ -3,9 +3,10 @@
 //! (`COM_QUERY`) protocol and `information_schema` introspection.
 //!
 //! Auth supported: `mysql_native_password` (SHA1 scramble) and
-//! `caching_sha2_password` (SHA256 scramble; fast path, plus cleartext over TLS
-//! for full auth). `caching_sha2_password` full auth without TLS (RSA public
-//! key) is not supported — enable TLS for those servers.
+//! `caching_sha2_password` (SHA256 scramble fast path, plus full auth). Full
+//! auth sends the cleartext password over TLS; without TLS it fetches the
+//! server's RSA public key and sends the password RSA/OAEP-encrypted (see
+//! `full_auth_sha2` / `rsa_encrypt_password`), so non-TLS connections work too.
 
 use std::io::{Read, Write};
 

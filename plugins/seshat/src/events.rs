@@ -34,22 +34,34 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         return;
     }
 
-    // List events: a row click opens, an action (trash) deletes.
-    if event.widget_id == "connections-list" {
+    // Connections are shown grouped by environment; each group is a `conn-grp-<n>`
+    // list whose row indices are group-local, so map them back to the global
+    // `st.connections` index. A click opens, an action (pencil/trash) edits/deletes.
+    if let Some(gi) = event
+        .widget_id
+        .strip_prefix("conn-grp-")
+        .and_then(|s| s.parse::<usize>().ok())
+    {
+        let groups = crate::ui::connections::connection_groups(st);
+        let global = |li: usize| groups.get(gi).and_then(|g| g.2.get(li)).copied();
         match event.kind.as_str() {
             "click" => {
-                if let Ok(i) = event.value.parse::<usize>() {
-                    if let Some(conn) = st.connections.get(i).cloned() {
-                        // Just activate it — the Schema tab then shows its tables.
-                        activate_connection(st, &conn);
-                    }
+                if let Some(conn) = event
+                    .value
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(global)
+                    .and_then(|i| st.connections.get(i).cloned())
+                {
+                    // Just activate it — the Schema tab then shows its tables.
+                    activate_connection(st, &conn);
                 }
             }
             "action" => {
                 if let Ok(v) = serde_json::from_str::<Value>(&event.value) {
                     let item = v.get("item").and_then(|x| x.as_u64()).map(|i| i as usize);
                     let action = v.get("action").and_then(|x| x.as_u64()).unwrap_or(0);
-                    if let Some(i) = item {
+                    if let Some(i) = item.and_then(global) {
                         match action {
                             0 => edit_connection(st, i),   // pencil
                             _ => delete_connection(st, i), // trash
@@ -677,19 +689,21 @@ fn open_filter_match(st: &State, index: usize) {
     else {
         return;
     };
+    // No LIMIT here — the run path caps rows and offers "Load more" (matching
+    // open_table_data_named).
     let (target_db, sql) = if conn.engine == crate::db::Engine::Mysql {
         // MySQL: the schema is the database; qualify in the current connection.
         let db = m.database.clone().unwrap_or_else(|| m.schema.clone());
         let db = db.replace('`', "``");
         let table = m.name.replace('`', "``");
-        (None, format!("SELECT * FROM `{db}`.`{table}` LIMIT 100;"))
+        (None, format!("SELECT * FROM `{db}`.`{table}`"))
     } else {
         // Postgres: open a tab connected to the match's database.
         let schema = m.schema.replace('"', "\"\"");
         let table = m.name.replace('"', "\"\"");
         (
             m.database.clone(),
-            format!("SELECT * FROM \"{schema}\".\"{table}\" LIMIT 100;"),
+            format!("SELECT * FROM \"{schema}\".\"{table}\""),
         )
     };
     open_tab(

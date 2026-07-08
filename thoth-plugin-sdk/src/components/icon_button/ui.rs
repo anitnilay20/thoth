@@ -18,12 +18,15 @@ impl IconButton {
             return (px, (px / DEFAULT_BUTTON_SIZE) * DEFAULT_ICON_SIZE);
         }
         // Square size shares the same heights as Button/Select for the same size
-        // level, so a toolbar of mixed controls lines up. `(square, glyph)`.
-        match self.size {
-            Size::Small => (24.0, 14.0),
-            Size::Medium => (28.0, 16.0),
-            Size::Large => (32.0, 18.0),
-        }
+        // level (from `Size::metrics`), so a toolbar of mixed controls lines up.
+        // The glyph size is icon-button-specific. `(square, glyph)`.
+        let square = self.size.metrics().1;
+        let glyph = match self.size {
+            Size::Small => 14.0,
+            Size::Medium => 16.0,
+            Size::Large => 18.0,
+        };
+        (square, glyph)
     }
 }
 

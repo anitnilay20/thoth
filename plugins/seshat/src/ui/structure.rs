@@ -9,7 +9,7 @@ use thoth_plugin_sdk::components::{
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
-use crate::db::{ColumnInfo, IndexInfo, TableDetail};
+use crate::db::{ColumnInfo, Engine, IndexInfo, TableDetail};
 use crate::state::{State, View};
 use crate::ui::widgets::muted;
 use crate::{
@@ -53,7 +53,7 @@ pub(crate) fn structure_view(st: &State) -> RenderNode {
                 .children(vec![
                     header(schema, table, Some(detail)),
                     RenderNode::Separator(Separator::plain()),
-                    tabs(schema, table, detail),
+                    tabs(schema, table, detail, st.engine()),
                 ])
                 .build(),
         ),
@@ -147,7 +147,7 @@ fn stat(label: &str, value: &str) -> RenderNode {
 
 // ── sub-tabs ────────────────────────────────────────────────────────────────
 
-fn tabs(schema: &str, table: &str, d: &TableDetail) -> RenderNode {
+fn tabs(schema: &str, table: &str, d: &TableDetail, engine: Engine) -> RenderNode {
     RenderNode::Tabs(
         Tabs::builder()
             .id("structure-tabs")
@@ -165,7 +165,7 @@ fn tabs(schema: &str, table: &str, d: &TableDetail) -> RenderNode {
                 table_pane(indexes_view(&d.indexes)),
                 pane("st-con", constraints_view(&d.columns)),
                 pane("st-fk", foreign_keys_view(&d.columns)),
-                pane("st-ddl", ddl_view(schema, table, d)),
+                pane("st-ddl", ddl_view(schema, table, d, engine)),
                 pane(
                     "st-trg",
                     empty(ICON_LIGHTNING, "No triggers defined on this table."),
@@ -404,13 +404,20 @@ fn foreign_keys_view(cols: &[ColumnInfo]) -> RenderNode {
 
 // ── DDL ─────────────────────────────────────────────────────────────────────
 
-fn ddl_view(schema: &str, table: &str, d: &TableDetail) -> RenderNode {
-    let mut ddl = format!("-- {schema}.{table}\nCREATE TABLE {schema}.{table} (\n");
+fn ddl_view(schema: &str, table: &str, d: &TableDetail, engine: Engine) -> RenderNode {
+    // Quote every identifier per the engine's convention so reserved words and
+    // special characters produce valid SQL. `q` escapes an identifier; `qtable`
+    // is the schema-qualified table name.
+    let q = |name: &str| quote_ident(name, engine);
+    let qtable = format!("{}.{}", q(schema), q(table));
+
+    let mut ddl = format!("-- {schema}.{table}\nCREATE TABLE {qtable} (\n");
     let lines: Vec<String> = d
         .columns
         .iter()
         .map(|c| {
-            let mut line = format!("  {:<16} {}", c.name, c.data_type);
+            // Pad the (unquoted) name to align columns, then quote it.
+            let mut line = format!("  {:<16} {}", q(&c.name), c.data_type);
             if !c.nullable {
                 line.push_str(" NOT NULL");
             }
@@ -426,7 +433,7 @@ fn ddl_view(schema: &str, table: &str, d: &TableDetail) -> RenderNode {
             }
             if let Some(fk) = &c.foreign_key {
                 if let Some((t, col)) = fk.split_once('.') {
-                    line.push_str(&format!(" REFERENCES {t}({col})"));
+                    line.push_str(&format!(" REFERENCES {}({})", q(t), q(col)));
                 }
             }
             line
@@ -439,11 +446,16 @@ fn ddl_view(schema: &str, table: &str, d: &TableDetail) -> RenderNode {
         .iter()
         .filter(|i| !i.name.ends_with("_pkey") && i.name != "PRIMARY")
     {
+        let cols = idx
+            .columns
+            .iter()
+            .map(|c| q(c))
+            .collect::<Vec<_>>()
+            .join(", ");
         ddl.push_str(&format!(
-            "\n\nCREATE{} INDEX {}\n  ON {schema}.{table} ({});",
+            "\n\nCREATE{} INDEX {}\n  ON {qtable} ({cols});",
             if idx.unique { " UNIQUE" } else { "" },
-            idx.name,
-            idx.columns.join(", ")
+            q(&idx.name),
         ));
     }
 
@@ -462,6 +474,13 @@ fn ddl_view(schema: &str, table: &str, d: &TableDetail) -> RenderNode {
             )])
             .build(),
     )
+}
+
+/// Quote a SQL identifier for `engine` (backticks for MySQL, double-quotes
+/// otherwise), doubling the quote char to escape it.
+fn quote_ident(name: &str, engine: Engine) -> String {
+    let q = if engine == Engine::Mysql { '`' } else { '"' };
+    format!("{q}{}{q}", name.replace(q, &format!("{q}{q}")))
 }
 
 // ── shared bits ───────────────────────────────────────────────────────────

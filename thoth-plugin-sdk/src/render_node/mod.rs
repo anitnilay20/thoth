@@ -208,11 +208,13 @@ impl RenderNode {
         }
     }
 
-    /// Like [`json_cell`](RenderNode::json_cell), but styled by the column's
-    /// [`ColumnType`] rather than the JSON shape of the value: temporal values
-    /// render in a mono, secondary tint; numerics keep the number colour; uuids
-    /// are mono-muted. Nulls, json, and [`ColumnType::Text`] defer to
-    /// [`json_cell`](RenderNode::json_cell), so an unknown type behaves as before.
+    /// Renders a result cell styled by the column's [`ColumnType`] (rather than
+    /// by the JSON shape of the value, as [`json_cell`](RenderNode::json_cell)
+    /// does). Every cell is monospace: numbers/temporal/text use
+    /// `mono(text, ty.text_color())`, an enum becomes a soft coloured pill, a
+    /// json object/array becomes a tree (json-as-text is info-tinted), and null
+    /// is muted italic. `Text` and unknown types fall through to the default
+    /// mono styling — they do **not** defer to `json_cell`.
     pub fn typed_cell(value: &serde_json::Value, ty: crate::components::ColumnType) -> Self {
         use crate::components::{Badge, ColumnType, TypographyVariant};
         use serde_json::Value;

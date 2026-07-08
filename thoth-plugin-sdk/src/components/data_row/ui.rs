@@ -158,54 +158,92 @@ impl DataRow {
                     )
                 });
 
-                // Lay the rest of the row out right-to-left within the remaining
-                // width, so the trailing count + action pin to the right edge, and
-                // the key/value text fills the middle and truncates (never bleeds
-                // past the row or shoves the action off-screen).
-                let remaining = egui::vec2(ui.available_width(), ROW_HEIGHT);
-                ui.allocate_ui_with_layout(
-                    remaining,
-                    egui::Layout::right_to_left(egui::Align::Center),
-                    |ui| {
-                        if let Some(glyph) = &self.action_icon {
-                            let clicked = ui
-                                .add(
-                                    IconButton::builder()
-                                        .icon(glyph.as_str())
-                                        .maybe_tooltip(self.action_tooltip.clone())
-                                        .build(),
-                                )
-                                .clicked();
-                            if clicked {
+                // Trailing count + action, added right-to-left so they pin to the
+                // right edge. Flags are passed in (not captured) so the label/
+                // truncate code below can still borrow them.
+                let action_icon = self.action_icon.clone();
+                let action_tooltip = self.action_tooltip.clone();
+                let trailing_text = self.trailing.clone();
+                let render_trailing = |ui: &mut Ui, bc: &mut bool, bs: &mut bool| -> bool {
+                    let mut clicked = false;
+                    if let Some(glyph) = &action_icon {
+                        clicked = ui
+                            .add(
+                                IconButton::builder()
+                                    .icon(glyph.as_str())
+                                    .maybe_tooltip(action_tooltip.clone())
+                                    .build(),
+                            )
+                            .clicked();
+                    }
+                    if let Some(t) = &trailing_text {
+                        body_label(
+                            ui,
+                            RichText::new(t).color(muted).size(11.0).into(),
+                            false,
+                            bc,
+                            bs,
+                        );
+                    }
+                    clicked
+                };
+
+                if self.truncate {
+                    // Full-width row: pin trailing/action right, and truncate the
+                    // key/value in the middle with an ellipsis so nothing bleeds.
+                    let remaining = egui::vec2(ui.available_width(), ROW_HEIGHT);
+                    ui.allocate_ui_with_layout(
+                        remaining,
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if render_trailing(ui, &mut body_clicked, &mut body_secondary) {
                                 action_clicked = true;
                             }
-                        }
-                        if let Some(trailing) = &self.trailing {
-                            body_label(
-                                ui,
-                                RichText::new(trailing).color(muted).size(11.0).into(),
-                                false,
-                                &mut body_clicked,
-                                &mut body_secondary,
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                    body_label(
+                                        ui,
+                                        key_label,
+                                        true,
+                                        &mut body_clicked,
+                                        &mut body_secondary,
+                                    );
+                                    if let Some(value_label) = value_label {
+                                        body_label(
+                                            ui,
+                                            value_label,
+                                            true,
+                                            &mut body_clicked,
+                                            &mut body_secondary,
+                                        );
+                                    }
+                                },
                             );
-                        }
-                        // The key/value fills the space left of the trailing items,
-                        // left-aligned and truncated with an ellipsis.
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                            body_label(ui, key_label, true, &mut body_clicked, &mut body_secondary);
-                            if let Some(value_label) = value_label {
-                                body_label(
-                                    ui,
-                                    value_label,
-                                    true,
-                                    &mut body_clicked,
-                                    &mut body_secondary,
-                                );
+                        },
+                    );
+                } else {
+                    // Extend: key/value keep their full width (so a horizontally
+                    // scrolling container can reveal long JSON), trailing after.
+                    body_label(ui, key_label, true, &mut body_clicked, &mut body_secondary);
+                    if let Some(value_label) = value_label {
+                        body_label(
+                            ui,
+                            value_label,
+                            true,
+                            &mut body_clicked,
+                            &mut body_secondary,
+                        );
+                    }
+                    if action_icon.is_some() || trailing_text.is_some() {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if render_trailing(ui, &mut body_clicked, &mut body_secondary) {
+                                action_clicked = true;
                             }
                         });
-                    },
-                );
+                    }
+                }
             });
         });
 
