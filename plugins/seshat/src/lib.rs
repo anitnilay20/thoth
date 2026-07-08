@@ -51,6 +51,8 @@ pub(crate) const ICON_LIST_NUMBERS: &str = "\u{E2F6}"; // index
 pub(crate) const ICON_FINGERPRINT: &str = "\u{E23E}"; // unique constraint
 pub(crate) const ICON_CHECK_SQUARE: &str = "\u{E186}"; // check constraint
 pub(crate) const ICON_LIGHTNING: &str = "\u{E2DE}"; // triggers (empty state)
+pub(crate) const ICON_CHAT_TEXT: &str = "\u{E17A}"; // Messages result tab
+pub(crate) const ICON_CHART_BAR: &str = "\u{E150}"; // Stats result tab
 
 #[derive(PluginMeta)]
 #[plugin(

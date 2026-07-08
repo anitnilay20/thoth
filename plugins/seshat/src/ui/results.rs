@@ -7,19 +7,34 @@ use thoth_plugin_sdk::{
     render_node::RenderNode,
 };
 
-use crate::{state::State, ui::widgets::muted, ICON_TABLE, ICON_TREE_STRUCTURE};
+use crate::{
+    state::State, ui::widgets::muted, ICON_CHART_BAR, ICON_CHAT_TEXT, ICON_TABLE,
+    ICON_TREE_STRUCTURE,
+};
 
 pub fn results_view(state: &State) -> RenderNode {
     RenderNode::Tabs(
         Tabs::builder()
             .id("query-output")
-            .headers(vec!["Results".into(), "Explain".into()])
+            .headers(vec![
+                "Results".into(),
+                "Messages".into(),
+                "Explain".into(),
+                "Stats".into(),
+            ])
             .icons(vec![
                 ICON_TABLE.to_string(),
+                ICON_CHAT_TEXT.to_string(),
                 ICON_TREE_STRUCTURE.to_string(),
+                ICON_CHART_BAR.to_string(),
             ])
             .size(Size::Small)
-            .children(vec![results(state), result_explain(state)])
+            .children(vec![
+                results(state),
+                messages(state),
+                result_explain(state),
+                stats(state),
+            ])
             .build(),
     )
 }
@@ -161,6 +176,159 @@ fn results_table(result: &Value, has_more: bool) -> RenderNode {
                 .build(),
         ),
     }
+}
+
+/// The Messages tab: status lines from the last run (command tag, row count, or
+/// the error), styled like a server log.
+fn messages(st: &State) -> RenderNode {
+    let mut lines: Vec<RenderNode> = Vec::new();
+    match &st.result {
+        Some(Ok(result)) => {
+            if let Some(tag) = result.get("tag").and_then(|t| t.as_str()) {
+                lines.push(message_line("OK", "success", tag));
+            }
+            let n = result
+                .get("rows")
+                .and_then(|r| r.as_array())
+                .map(|r| r.len())
+                .unwrap_or(0);
+            let more = if st.has_more {
+                " (capped — Load more for the rest)"
+            } else {
+                ""
+            };
+            lines.push(message_line(
+                "OK",
+                "success",
+                &format!("{n} row{} returned{more}", if n == 1 { "" } else { "s" }),
+            ));
+        }
+        Some(Err(msg)) => lines.push(message_line("ERROR", "error", msg)),
+        None => lines.push(muted("Run a query to see server messages.")),
+    }
+    padded(RenderNode::Column(Column::builder().gap(4.0).children(lines).build()))
+}
+
+/// A single `[TAG] message` log line.
+fn message_line(tag: &str, color: &str, text: &str) -> RenderNode {
+    RenderNode::Row(
+        Row::builder()
+            .gap(8.0)
+            .children(vec![
+                RenderNode::Text(
+                    Typography::builder()
+                        .text(format!("[{tag}]"))
+                        .variant(TypographyVariant::Mono)
+                        .color(color)
+                        .build(),
+                ),
+                RenderNode::Text(
+                    Typography::builder()
+                        .text(text)
+                        .variant(TypographyVariant::Mono)
+                        .build(),
+                ),
+            ])
+            .build(),
+    )
+}
+
+/// The Stats tab: a summary card (sum · min · max · avg · n) per numeric column.
+fn stats(st: &State) -> RenderNode {
+    let Some(Ok(result)) = &st.result else {
+        return padded(muted("Run a query to see column stats."));
+    };
+    let (Some(cols), Some(rows)) = (
+        result.get("columns").and_then(|c| c.as_array()),
+        result.get("rows").and_then(|r| r.as_array()),
+    ) else {
+        return padded(muted("No results."));
+    };
+
+    let mut cards: Vec<RenderNode> = Vec::new();
+    for (i, col) in cols.iter().enumerate() {
+        let ty = ColumnType::from_sql(col.get("type").and_then(|t| t.as_str()).unwrap_or(""));
+        if !matches!(ty, ColumnType::Integer | ColumnType::Float) {
+            continue;
+        }
+        let name = col.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        let vals: Vec<f64> = rows
+            .iter()
+            .filter_map(|r| r.as_array()?.get(i))
+            .filter_map(cell_f64)
+            .collect();
+        if vals.is_empty() {
+            continue;
+        }
+        let n = vals.len();
+        let sum: f64 = vals.iter().sum();
+        let min = vals.iter().copied().fold(f64::INFINITY, f64::min);
+        let max = vals.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        cards.push(stat_card(name, sum, min, max, sum / n as f64, n));
+    }
+    if cards.is_empty() {
+        return padded(muted("No numeric columns to summarise."));
+    }
+    padded(RenderNode::Column(Column::builder().gap(10.0).children(cards).build()))
+}
+
+/// One numeric-column summary card.
+fn stat_card(name: &str, sum: f64, min: f64, max: f64, avg: f64, n: usize) -> RenderNode {
+    let sub = |label: &str, v: f64| mono_colored(&format!("{label} {}", fmt_num(v)), "muted");
+    RenderNode::Column(
+        Column::builder()
+            .framed(true)
+            .gap(4.0)
+            .children(vec![
+                RenderNode::Text(
+                    Typography::builder()
+                        .text(name)
+                        .variant(TypographyVariant::Mono)
+                        .color("muted")
+                        .build(),
+                ),
+                mono_colored(&format!("{}  sum", fmt_num(sum)), "number"),
+                RenderNode::Row(
+                    Row::builder()
+                        .gap(16.0)
+                        .children(vec![
+                            sub("min", min),
+                            sub("max", max),
+                            sub("avg", avg),
+                            mono_colored(&format!("n {n}"), "muted"),
+                        ])
+                        .build(),
+                ),
+            ])
+            .build(),
+    )
+}
+
+/// A cell value coerced to `f64` (a JSON number, or a numeric string like a decimal).
+fn cell_f64(v: &Value) -> Option<f64> {
+    v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
+/// Format an `f64` compactly: whole numbers grouped, else two decimals.
+fn fmt_num(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e15 {
+        fmt_int(v as i64)
+    } else {
+        format!("{v:.2}")
+    }
+}
+
+/// Wrap tab content in a 16px-padded box.
+fn padded(content: RenderNode) -> RenderNode {
+    RenderNode::Row(
+        Row::builder()
+            .padding(16.0)
+            .max_width(true)
+            .children(vec![RenderNode::Column(
+                Column::builder().gap(0.0).children(vec![content]).build(),
+            )])
+            .build(),
+    )
 }
 
 fn result_explain(st: &State) -> RenderNode {
