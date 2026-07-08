@@ -106,9 +106,18 @@ pub(crate) enum Kind {
     QueryExplain,
     Test,
     Databases,
-    Schemas { database: String },
-    Tables { database: String, schema: String },
-    Columns { database: String, schema: String, table: String },
+    Schemas {
+        database: String,
+    },
+    Tables {
+        database: String,
+        schema: String,
+    },
+    Columns {
+        database: String,
+        schema: String,
+        table: String,
+    },
     /// Server-side schema-filter results (a flat list of matching tables).
     FindTables,
     /// Full table detail for a dedicated structure tab.
@@ -458,12 +467,21 @@ pub(crate) fn make_id(name: &str, existing: &[Connection]) -> String {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub(crate) enum Request {
-    Query { sql: String },
+    Query {
+        sql: String,
+    },
     TestConnection,
     ListDatabases,
-    ListSchemas { database: String },
-    ListTables { database: String, schema: String },
-    FindTables { query: String },
+    ListSchemas {
+        database: String,
+    },
+    ListTables {
+        database: String,
+        schema: String,
+    },
+    FindTables {
+        query: String,
+    },
     DescribeTable {
         database: String,
         schema: String,

@@ -108,10 +108,7 @@ fn header(schema: &str, table: &str, detail: Option<&TableDetail>) -> RenderNode
         row.push(stat("Rows", &fmt_int(d.row_estimate)));
         row.push(stat("Columns", &d.columns.len().to_string()));
         row.push(stat("Indexes", &d.indexes.len().to_string()));
-        row.push(stat(
-            "Size",
-            if d.size.is_empty() { "—" } else { &d.size },
-        ));
+        row.push(stat("Size", if d.size.is_empty() { "—" } else { &d.size }));
     }
 
     RenderNode::Row(
@@ -276,11 +273,7 @@ fn indexes_view(indexes: &[IndexInfo]) -> RenderNode {
     if indexes.is_empty() {
         return empty(ICON_LIST_NUMBERS, "No indexes besides the primary key.");
     }
-    let headers = vec![
-        "Index".into(),
-        "Columns".into(),
-        "Unique".into(),
-    ];
+    let headers = vec!["Index".into(), "Columns".into(), "Unique".into()];
     let rows: Vec<Vec<RenderNode>> = indexes
         .iter()
         .map(|i| {
@@ -390,7 +383,11 @@ fn foreign_keys_view(cols: &[ColumnInfo]) -> RenderNode {
                             .align(Align::Center)
                             .children(vec![
                                 RenderNode::Icon(
-                                    Icon::builder().glyph(ICON_LINK).color("info").size(18.0).build(),
+                                    Icon::builder()
+                                        .glyph(ICON_LINK)
+                                        .color("info")
+                                        .size(18.0)
+                                        .build(),
                                 ),
                                 mono(&c.name, "warning"),
                                 mono("→", "muted"),
@@ -437,7 +434,11 @@ fn ddl_view(schema: &str, table: &str, d: &TableDetail) -> RenderNode {
         .collect();
     ddl.push_str(&lines.join(",\n"));
     ddl.push_str("\n);");
-    for idx in d.indexes.iter().filter(|i| !i.name.ends_with("_pkey") && i.name != "PRIMARY") {
+    for idx in d
+        .indexes
+        .iter()
+        .filter(|i| !i.name.ends_with("_pkey") && i.name != "PRIMARY")
+    {
         ddl.push_str(&format!(
             "\n\nCREATE{} INDEX {}\n  ON {schema}.{table} ({});",
             if idx.unique { " UNIQUE" } else { "" },
@@ -478,7 +479,13 @@ fn mono(text: &str, color: &str) -> RenderNode {
 
 /// An outlined constraint pill.
 fn badge(text: &str, color: &str) -> RenderNode {
-    RenderNode::Badge(Badge::builder().label(text).color(color).outlined(true).build())
+    RenderNode::Badge(
+        Badge::builder()
+            .label(text)
+            .color(color)
+            .outlined(true)
+            .build(),
+    )
 }
 
 /// A centered empty-state with a large muted glyph and a caption.
@@ -489,7 +496,13 @@ fn empty(glyph: &str, title: &str) -> RenderNode {
             .gap(10.0)
             .align(Align::Center)
             .children(vec![
-                RenderNode::Icon(Icon::builder().glyph(glyph).color("muted").size(28.0).build()),
+                RenderNode::Icon(
+                    Icon::builder()
+                        .glyph(glyph)
+                        .color("muted")
+                        .size(28.0)
+                        .build(),
+                ),
                 muted(title),
             ])
             .build(),

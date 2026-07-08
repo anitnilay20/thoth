@@ -70,7 +70,12 @@ impl egui::Widget for Badge {
                 .corner_radius(8.0)
                 .inner_margin(margin)
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new(&self.label).monospace().size(font).color(color));
+                    ui.label(
+                        egui::RichText::new(&self.label)
+                            .monospace()
+                            .size(font)
+                            .color(color),
+                    );
                 })
                 .response
         } else if self.outlined {
@@ -81,7 +86,12 @@ impl egui::Widget for Badge {
                 .corner_radius(3.0)
                 .inner_margin(margin)
                 .show(ui, |ui| {
-                    ui.label(egui::RichText::new(&self.label).monospace().size(font).color(color));
+                    ui.label(
+                        egui::RichText::new(&self.label)
+                            .monospace()
+                            .size(font)
+                            .color(color),
+                    );
                 })
                 .response
         } else {

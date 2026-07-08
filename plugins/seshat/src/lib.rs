@@ -1,5 +1,6 @@
 #[rustfmt::skip]
 mod bindings;
+mod constants;
 mod db;
 mod events;
 mod mysql;
@@ -8,7 +9,6 @@ mod shim;
 mod sql;
 mod state;
 mod ui;
-mod constants;
 
 use serde::Serialize;
 use serde_json::json;
@@ -212,12 +212,17 @@ impl DataSourceGuest for Seshat {
             Request::Query { sql } => to_json(adapter.run_query(&profile, &sql)),
             Request::TestConnection => to_json(adapter.test_connection(&profile)),
             Request::ListDatabases => to_json(adapter.list_databases(&profile)),
-            Request::ListSchemas { database } => {
-                to_json(adapter.list_schemas(&db::Profile { database, ..profile }))
-            }
-            Request::ListTables { database, schema } => {
-                to_json(adapter.list_tables(&db::Profile { database, ..profile }, &schema))
-            }
+            Request::ListSchemas { database } => to_json(adapter.list_schemas(&db::Profile {
+                database,
+                ..profile
+            })),
+            Request::ListTables { database, schema } => to_json(adapter.list_tables(
+                &db::Profile {
+                    database,
+                    ..profile
+                },
+                &schema,
+            )),
             // Search scope is the adapter's concern (MySQL is server-wide;
             // Postgres iterates its databases), so query against the base profile.
             Request::FindTables { query } => to_json(adapter.find_tables(&profile, &query)),
@@ -226,7 +231,10 @@ impl DataSourceGuest for Seshat {
                 schema,
                 table,
             } => to_json(adapter.describe_table(
-                &db::Profile { database, ..profile },
+                &db::Profile {
+                    database,
+                    ..profile
+                },
                 &schema,
                 &table,
             )),
@@ -234,7 +242,14 @@ impl DataSourceGuest for Seshat {
                 database,
                 schema,
                 table,
-            } => to_json(adapter.list_columns(&db::Profile { database, ..profile }, &schema, &table)),
+            } => to_json(adapter.list_columns(
+                &db::Profile {
+                    database,
+                    ..profile
+                },
+                &schema,
+                &table,
+            )),
         }
     }
 

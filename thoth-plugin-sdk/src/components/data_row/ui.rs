@@ -191,28 +191,19 @@ impl DataRow {
                         }
                         // The key/value fills the space left of the trailing items,
                         // left-aligned and truncated with an ellipsis.
-                        ui.with_layout(
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                            body_label(ui, key_label, true, &mut body_clicked, &mut body_secondary);
+                            if let Some(value_label) = value_label {
                                 body_label(
                                     ui,
-                                    key_label,
+                                    value_label,
                                     true,
                                     &mut body_clicked,
                                     &mut body_secondary,
                                 );
-                                if let Some(value_label) = value_label {
-                                    body_label(
-                                        ui,
-                                        value_label,
-                                        true,
-                                        &mut body_clicked,
-                                        &mut body_secondary,
-                                    );
-                                }
-                            },
-                        );
+                            }
+                        });
                     },
                 );
             });

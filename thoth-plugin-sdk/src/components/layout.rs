@@ -571,10 +571,8 @@ impl VSplit {
             );
 
             // ── Divider ──────────────────────────────────────────────────────
-            let (handle_rect, resp) = ui.allocate_exact_size(
-                egui::vec2(width, handle_h),
-                egui::Sense::drag(),
-            );
+            let (handle_rect, resp) =
+                ui.allocate_exact_size(egui::vec2(width, handle_h), egui::Sense::drag());
             let hovered = resp.hovered() || resp.dragged();
             let line_y = handle_rect.center().y;
             ui.painter().hline(
@@ -583,7 +581,11 @@ impl VSplit {
                 egui::Stroke::new(1.0, colors.surface_raised),
             );
             // A short grip in the centre, brighter on hover/drag.
-            let grip_c = if hovered { colors.accent } else { colors.fg_muted };
+            let grip_c = if hovered {
+                colors.accent
+            } else {
+                colors.fg_muted
+            };
             let grip_w = 24.0;
             ui.painter().hline(
                 (handle_rect.center().x - grip_w / 2.0)..=(handle_rect.center().x + grip_w / 2.0),

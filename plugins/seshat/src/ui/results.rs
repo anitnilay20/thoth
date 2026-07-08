@@ -134,7 +134,9 @@ fn results_table(result: &Value, has_more: bool) -> RenderNode {
             let mut footer_row: Vec<RenderNode> = vec![muted(&footer)];
             if has_more {
                 footer_row.push(RenderNode::Spacer(
-                    thoth_plugin_sdk::components::Spacer::builder().size(8.0).build(),
+                    thoth_plugin_sdk::components::Spacer::builder()
+                        .size(8.0)
+                        .build(),
                 ));
                 footer_row.push(crate::ui::widgets::button(
                     "load-more",
@@ -206,7 +208,9 @@ fn messages(st: &State) -> RenderNode {
         Some(Err(msg)) => lines.push(message_line("ERROR", "error", msg)),
         None => lines.push(muted("Run a query to see server messages.")),
     }
-    padded(RenderNode::Column(Column::builder().gap(4.0).children(lines).build()))
+    padded(RenderNode::Column(
+        Column::builder().gap(4.0).children(lines).build(),
+    ))
 }
 
 /// A single `[TAG] message` log line.
@@ -269,7 +273,9 @@ fn stats(st: &State) -> RenderNode {
     if cards.is_empty() {
         return padded(muted("No numeric columns to summarise."));
     }
-    padded(RenderNode::Column(Column::builder().gap(10.0).children(cards).build()))
+    padded(RenderNode::Column(
+        Column::builder().gap(10.0).children(cards).build(),
+    ))
 }
 
 /// One numeric-column summary card.
@@ -306,7 +312,8 @@ fn stat_card(name: &str, sum: f64, min: f64, max: f64, avg: f64, n: usize) -> Re
 
 /// A cell value coerced to `f64` (a JSON number, or a numeric string like a decimal).
 fn cell_f64(v: &Value) -> Option<f64> {
-    v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
 /// Format an `f64` compactly: whole numbers grouped, else two decimals.
@@ -423,7 +430,13 @@ fn explain_plan(result: &Value) -> RenderNode {
             .gap(8.0)
             .children(vec![
                 stats_header(root, plan),
-                RenderNode::Column(Column::builder().gap(0.0).framed(true).children(body).build()),
+                RenderNode::Column(
+                    Column::builder()
+                        .gap(0.0)
+                        .framed(true)
+                        .children(body)
+                        .build(),
+                ),
             ])
             .build(),
     )
@@ -448,7 +461,12 @@ fn explain_root(result: &Value) -> Option<&Value> {
 /// (the plan comes back as one JSON string column). `None` when the result
 /// isn't a MySQL plan, so [`explain_plan`] falls through to the Postgres path.
 fn mysql_root(result: &Value) -> Option<Value> {
-    let cell = result.get("rows")?.as_array()?.first()?.as_array()?.first()?;
+    let cell = result
+        .get("rows")?
+        .as_array()?
+        .first()?
+        .as_array()?
+        .first()?;
     let v = match cell {
         Value::String(s) => serde_json::from_str::<Value>(s).ok()?,
         other => other.clone(),
@@ -484,7 +502,10 @@ fn mysql_plan(root: &Value) -> RenderNode {
         if i > 0 {
             body.push(RenderNode::Separator(Separator::plain()));
         }
-        let rows_txt = r.rows.map(|n| format!("{} rows", fmt_int(n))).unwrap_or_default();
+        let rows_txt = r
+            .rows
+            .map(|n| format!("{} rows", fmt_int(n)))
+            .unwrap_or_default();
         let cost_txt = r.cost.map(|c| format!("cost {c:.2}")).unwrap_or_default();
         body.push(RenderNode::Split(
             Split::builder()
@@ -512,7 +533,13 @@ fn mysql_plan(root: &Value) -> RenderNode {
             .gap(8.0)
             .children(vec![
                 mysql_stats_header(qb),
-                RenderNode::Column(Column::builder().gap(0.0).framed(true).children(body).build()),
+                RenderNode::Column(
+                    Column::builder()
+                        .gap(0.0)
+                        .framed(true)
+                        .children(body)
+                        .build(),
+                ),
             ])
             .build(),
     )
@@ -526,7 +553,13 @@ fn mysql_stats_header(qb: &Value) -> RenderNode {
         stats.push(stat("Query cost", &format!("{cost:.2}"), "success"));
     }
     stats.push(stat("Plan", "MySQL · estimated", "info"));
-    RenderNode::Row(Row::builder().padding(12.0).gap(24.0).children(stats).build())
+    RenderNode::Row(
+        Row::builder()
+            .padding(12.0)
+            .gap(24.0)
+            .children(stats)
+            .build(),
+    )
 }
 
 /// Walk a MySQL plan block, appending a [`MysqlRow`] per table access. Blocks
@@ -606,7 +639,10 @@ fn mysql_cost(cost_info: Option<&Value>) -> Option<f64> {
 fn stats_header(root: &Value, plan: &Value) -> RenderNode {
     let planning = num(root, "Planning Time");
     let execution = num(root, "Execution Time");
-    let plan_type = plan.get("Node Type").and_then(|v| v.as_str()).unwrap_or("?");
+    let plan_type = plan
+        .get("Node Type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
 
     let mut stats: Vec<RenderNode> = Vec::new();
     if let (Some(p), Some(e)) = (planning, execution) {
@@ -635,7 +671,10 @@ fn stat(label: &str, value: &str, color: &str) -> RenderNode {
     RenderNode::Column(
         Column::builder()
             .gap(2.0)
-            .children(vec![muted(&label.to_uppercase()), mono_colored(value, color)])
+            .children(vec![
+                muted(&label.to_uppercase()),
+                mono_colored(value, color),
+            ])
             .build(),
     )
 }
@@ -689,7 +728,10 @@ fn plan_rows(rows: &mut Vec<RenderNode>, node: &Value, depth: usize, max_ms: f64
 /// `Node Type` plus the index it uses or the relation it touches, when present
 /// (e.g. `Index Scan users_org_id_idx`, `Seq Scan organizations`).
 fn node_descriptor(node: &Value) -> String {
-    let nt = node.get("Node Type").and_then(|v| v.as_str()).unwrap_or("?");
+    let nt = node
+        .get("Node Type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
     if let Some(idx) = node.get("Index Name").and_then(|v| v.as_str()) {
         return format!("{nt} {idx}");
     }

@@ -232,8 +232,7 @@ impl CodeEditor {
         // moved into the editor below). Derived from the `ui` (not a global
         // `Id::new`) so two editors sharing a string id — e.g. the same plugin
         // open in two tabs — don't collide on the same widget id.
-        let marker_id_base =
-            ui.make_persistent_id(("sdk_code_editor_markers", id_source.as_str()));
+        let marker_id_base = ui.make_persistent_id(("sdk_code_editor_markers", id_source.as_str()));
 
         let frame_resp = egui::Frame::new()
             .fill(colors.bg)
@@ -311,8 +310,7 @@ impl CodeEditor {
                         });
                     }
 
-                    let output =
-                        editor.show_with_completer(ui, &mut self.value, &mut completer);
+                    let output = editor.show_with_completer(ui, &mut self.value, &mut completer);
                     let changed = output.response.changed();
 
                     // Caret + selection as character offsets, for run-at-cursor /
@@ -334,11 +332,19 @@ impl CodeEditor {
                     let run = if output.response.has_focus() {
                         let all_mods = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
                         if ui.input_mut(|i| i.consume_key(all_mods, egui::Key::Enter)) {
-                            Some(RunRequest { all: true, caret, selection })
-                        } else if ui
-                            .input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter))
-                        {
-                            Some(RunRequest { all: false, caret, selection })
+                            Some(RunRequest {
+                                all: true,
+                                caret,
+                                selection,
+                            })
+                        } else if ui.input_mut(|i| {
+                            i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)
+                        }) {
+                            Some(RunRequest {
+                                all: false,
+                                caret,
+                                selection,
+                            })
                         } else {
                             None
                         }
@@ -346,10 +352,16 @@ impl CodeEditor {
                         None
                     };
 
-                    ui.ctx()
-                        .memory_mut(|m| m.data.insert_temp(completer_id, (words_fingerprint, completer)));
+                    ui.ctx().memory_mut(|m| {
+                        m.data
+                            .insert_temp(completer_id, (words_fingerprint, completer))
+                    });
                     (
-                        CodeEditorOutput { changed, run, run_marker: None },
+                        CodeEditorOutput {
+                            changed,
+                            run,
+                            run_marker: None,
+                        },
                         output.galley.clone(),
                         output.galley_pos,
                     )
@@ -372,10 +384,8 @@ impl CodeEditor {
                 if cy < frame_rect.top() + 2.0 || cy > frame_rect.bottom() - 2.0 {
                     continue;
                 }
-                let rect = egui::Rect::from_center_size(
-                    egui::pos2(gutter_x, cy),
-                    egui::vec2(16.0, 16.0),
-                );
+                let rect =
+                    egui::Rect::from_center_size(egui::pos2(gutter_x, cy), egui::vec2(16.0, 16.0));
                 let resp = ui.interact(rect, marker_id_base.with(off), egui::Sense::click());
                 let color = if resp.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

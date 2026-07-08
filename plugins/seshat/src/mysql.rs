@@ -182,8 +182,10 @@ impl DbAdapter for Mysql {
             .iter()
             .map(|r| {
                 let key = str_at(r, 4);
-                let fk = match (r.get(5).and_then(|v| v.as_str()), r.get(6).and_then(|v| v.as_str()))
-                {
+                let fk = match (
+                    r.get(5).and_then(|v| v.as_str()),
+                    r.get(6).and_then(|v| v.as_str()),
+                ) {
                     (Some(rt), Some(rc)) => Some(format!("{rt}.{rc}")),
                     _ => None,
                 };
@@ -258,7 +260,10 @@ fn str_at(row: &[Value], i: usize) -> String {
 /// Read an integer cell, tolerating either a JSON number or a numeric string.
 fn int_at(row: &[Value], i: usize) -> i64 {
     row.get(i)
-        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        })
         .unwrap_or(0)
 }
 
@@ -662,7 +667,10 @@ fn type_name(ty: u8) -> String {
 fn parse_ok(pkt: &[u8]) -> String {
     let mut cur = Cursor::new(&pkt[1..]);
     let affected = cur.lenenc_int().unwrap_or(0);
-    format!("OK · {affected} row{}", if affected == 1 { "" } else { "s" })
+    format!(
+        "OK · {affected} row{}",
+        if affected == 1 { "" } else { "s" }
+    )
 }
 
 /// Parse an ERR packet into its message.
@@ -772,7 +780,9 @@ impl<'a> Cursor<'a> {
                 let b = self.bytes(8)?;
                 Ok(u64::from_le_bytes(b.try_into().unwrap()))
             }
-            other => Err(format!("invalid length-encoded integer prefix 0x{other:02x}")),
+            other => Err(format!(
+                "invalid length-encoded integer prefix 0x{other:02x}"
+            )),
         }
     }
     fn skip_lenenc_int(&mut self) -> Result<(), String> {

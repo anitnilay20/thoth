@@ -144,13 +144,8 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                         .language("sql")
                                         .case_sensitive(false)
                                         .comment("--")
-                                        .comment_multiline((
-                                            "/*".to_string(),
-                                            "*/".to_string(),
-                                        ))
-                                        .keywords(
-                                            KEYWORDS.iter().map(|s| s.to_string()).collect(),
-                                        )
+                                        .comment_multiline(("/*".to_string(), "*/".to_string()))
+                                        .keywords(KEYWORDS.iter().map(|s| s.to_string()).collect())
                                         .types(TYPES.iter().map(|s| s.to_string()).collect())
                                         // Built-in specials plus the live table names.
                                         .special(

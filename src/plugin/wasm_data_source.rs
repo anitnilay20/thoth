@@ -728,8 +728,10 @@ impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
         &mut self,
         title: String,
         extensions: Vec<String>,
-    ) -> std::result::Result<Option<thoth::plugin::file_dialog::OpenedFile>, thoth::plugin::file_dialog::PluginError>
-    {
+    ) -> std::result::Result<
+        Option<thoth::plugin::file_dialog::OpenedFile>,
+        thoth::plugin::file_dialog::PluginError,
+    > {
         let Some(path) = fd_dialog(&title, &extensions).pick_file() else {
             return Ok(None);
         };
@@ -1152,8 +1154,11 @@ impl WasmDataSourceLoader {
             Ok(g) => g,
             Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
             Err(std::sync::TryLockError::WouldBlock) => {
-                if let Some(cached) =
-                    self.last_ui.lock().unwrap_or_else(|e| e.into_inner()).clone()
+                if let Some(cached) = self
+                    .last_ui
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone()
                 {
                     return Ok(cached);
                 }
@@ -1436,7 +1441,10 @@ impl PluginUiHost for WasmDataSourceLoader {
     fn busy(&self) -> bool {
         // A background query worker holds the Store mutex while a blocking DB
         // query runs; `try_lock` failing means it's busy.
-        matches!(self.inner.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+        matches!(
+            self.inner.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        )
     }
 
     fn on_setting_change(&self, settings: &[PluginSettingData]) -> Result<()> {

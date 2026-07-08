@@ -134,15 +134,17 @@ impl Select {
                                     .desired_width(popup_w)
                                     .font(egui::FontId::proportional(font_size));
                                 let resp = ui.add_sized([popup_w, item_h], edit);
-                                let want_focus =
-                                    ui.ctx().data(|d| d.get_temp::<bool>(focus_id).unwrap_or(false));
+                                let want_focus = ui
+                                    .ctx()
+                                    .data(|d| d.get_temp::<bool>(focus_id).unwrap_or(false));
                                 if want_focus {
                                     resp.request_focus();
                                     ui.ctx().data_mut(|d| d.remove::<bool>(focus_id));
                                 }
                                 if resp.changed() {
                                     out.search = Some(query.clone());
-                                    ui.ctx().data_mut(|d| d.insert_temp(query_id, query.clone()));
+                                    ui.ctx()
+                                        .data_mut(|d| d.insert_temp(query_id, query.clone()));
                                 }
                             }
 

@@ -12,11 +12,11 @@ pub(crate) struct Stmt {
 #[derive(PartialEq)]
 enum State {
     Normal,
-    Single,      // '...'
-    Double,      // "..."
-    Line,        // -- ...
-    Block,       // /* ... */
-    Dollar,      // $tag$ ... $tag$
+    Single, // '...'
+    Double, // "..."
+    Line,   // -- ...
+    Block,  // /* ... */
+    Dollar, // $tag$ ... $tag$
 }
 
 /// Split `sql` into top-level statements on `;`, ignoring separators inside
@@ -128,7 +128,10 @@ pub(crate) fn add_limit(sql: &str, n: usize) -> Option<String> {
     }
     // Conservative: any existing `limit` token (even in a subquery) means we
     // leave the query alone rather than risk a double `LIMIT`.
-    if lower.split(|c: char| !c.is_alphanumeric() && c != '_').any(|w| w == "limit") {
+    if lower
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .any(|w| w == "limit")
+    {
         return None;
     }
     Some(format!("{trimmed} LIMIT {n}"))
@@ -187,7 +190,10 @@ mod tests {
     use super::*;
 
     fn texts(sql: &str) -> Vec<String> {
-        statements(sql).iter().map(|s| slice(sql, s.start, s.end)).collect()
+        statements(sql)
+            .iter()
+            .map(|s| slice(sql, s.start, s.end))
+            .collect()
     }
 
     #[test]

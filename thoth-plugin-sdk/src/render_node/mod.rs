@@ -269,7 +269,9 @@ impl RenderNode {
 /// palette leads with the handoff's chip colours (purple / blue / green).
 fn enum_color(value: &str) -> &'static str {
     const PALETTE: [&str; 5] = ["secondary", "accent", "success", "warning", "info"];
-    let hash = value.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    let hash = value
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
     PALETTE[(hash as usize) % PALETTE.len()]
 }
 

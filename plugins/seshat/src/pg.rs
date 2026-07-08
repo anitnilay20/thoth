@@ -277,7 +277,10 @@ impl DbAdapter for Postgres {
 /// Read an integer cell, tolerating either a JSON number or a numeric string.
 fn int_at(row: &[Value], i: usize) -> i64 {
     row.get(i)
-        .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        })
         .unwrap_or(0)
 }
 
@@ -375,7 +378,14 @@ pub fn run_query(p: &Profile, sql: &str) -> Result<QueryResult, String> {
 
     // Best-effort: resolve user-defined type OIDs (e.g. enums) so cells can be
     // styled by type. Never fails the main result.
-    resolve_enum_types(&mut conn, &mut inbuf, &mut scratch, &mut out, &mut columns, &oids);
+    resolve_enum_types(
+        &mut conn,
+        &mut inbuf,
+        &mut scratch,
+        &mut out,
+        &mut columns,
+        &oids,
+    );
 
     frontend::terminate(&mut out);
     let _ = flush(&mut conn, &mut out);
@@ -408,9 +418,7 @@ fn resolve_enum_types(
         .map(|o| o.to_string())
         .collect::<Vec<_>>()
         .join(",");
-    let sql = format!(
-        "SELECT oid::int8, (typtype = 'e') FROM pg_type WHERE oid IN ({list})"
-    );
+    let sql = format!("SELECT oid::int8, (typtype = 'e') FROM pg_type WHERE oid IN ({list})");
     if frontend::query(&sql, out).is_err() || flush(conn, out).is_err() {
         return;
     }

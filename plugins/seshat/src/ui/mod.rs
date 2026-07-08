@@ -7,11 +7,11 @@ pub(crate) mod dialog;
 pub(crate) mod editor;
 pub(crate) mod error;
 pub(crate) mod history;
+pub(crate) mod results;
 pub(crate) mod schema;
 pub(crate) mod sidebar;
 pub(crate) mod structure;
 pub(crate) mod widgets;
-pub(crate) mod results;
 
 use thoth_plugin_sdk::components::Column;
 use thoth_plugin_sdk::render_node::RenderNode;

@@ -2,8 +2,8 @@
 //! shared `data-row` component so it matches the file-viewer tree styling.
 
 use thoth_plugin_sdk::components::{
-    Colored, Column, DataRow, DataRowIcon, Input, Row, Scroll, Separator, Size, Spinner, Typography,
-    TypographyVariant,
+    Colored, Column, DataRow, DataRowIcon, Input, Row, Scroll, Separator, Size, Spinner,
+    Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 use thoth_plugin_sdk::tokens::TextToken;
@@ -198,7 +198,13 @@ fn show_more_row(hidden: usize, indent: usize) -> RenderNode {
 
 /// A table/view tree row with a trailing "view structure" action. Clicking the
 /// row opens the table's data; clicking the action icon opens its structure tab.
-fn table_row(id: &str, name: &str, indent: usize, expanded: bool, icon: (&str, &str)) -> RenderNode {
+fn table_row(
+    id: &str,
+    name: &str,
+    indent: usize,
+    expanded: bool,
+    icon: (&str, &str),
+) -> RenderNode {
     RenderNode::DataRow(
         DataRow::builder()
             .row_id(id)
@@ -206,12 +212,7 @@ fn table_row(id: &str, name: &str, indent: usize, expanded: bool, icon: (&str, &
             .key_token(TextToken::Key)
             .indent(indent)
             .caret(expanded)
-            .leading_icon(
-                DataRowIcon::builder()
-                    .glyph(icon.0)
-                    .color(icon.1)
-                    .build(),
-            )
+            .leading_icon(DataRowIcon::builder().glyph(icon.0).color(icon.1).build())
             .action_icon(ICON_TREE_STRUCTURE)
             .action_tooltip("View structure")
             .build(),

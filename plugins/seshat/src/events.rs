@@ -153,7 +153,9 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         // Schema-browser server-side filter: text change runs a `FindTables`
         // search against the active database (deduped per keystroke); empty
         // restores the tree.
-        "schema-filter" if event.kind == "change" => set_schema_filter(st, &parse_str(&event.value)),
+        "schema-filter" if event.kind == "change" => {
+            set_schema_filter(st, &parse_str(&event.value))
+        }
         // A server-side filter result row — open that table's data.
         id if id.starts_with("find:") => {
             if let Ok(i) = id[5..].parse::<usize>() {
@@ -278,7 +280,10 @@ fn run_editor(st: &mut State, value: &str) {
     }
     if let Some(sel) = v.get("selection").and_then(|s| s.as_array()) {
         if let [a, b] = &sel[..] {
-            let (a, b) = (a.as_u64().unwrap_or(0) as usize, b.as_u64().unwrap_or(0) as usize);
+            let (a, b) = (
+                a.as_u64().unwrap_or(0) as usize,
+                b.as_u64().unwrap_or(0) as usize,
+            );
             let text = sql::slice(&st.sql, a, b);
             if !text.is_empty() {
                 run_query_text(st, text);
@@ -300,8 +305,8 @@ fn run_query_text(st: &mut State, sql: String) {
     }
     st.last_run_sql = Some(sql.clone());
     st.row_limit = crate::state::ROW_PAGE; // fresh run — reset the cap
-    // Invalidate any previous plan. If the Explain tab is showing, refresh it now
-    // for this query (below); otherwise it's re-run lazily on tab open.
+                                           // Invalidate any previous plan. If the Explain tab is showing, refresh it now
+                                           // for this query (below); otherwise it's re-run lazily on tab open.
     st.explain = None;
     st.explain_for = None;
     st.explain_loading = false;
@@ -352,7 +357,8 @@ fn load_explain(st: &mut State) {
         return;
     }
     // Already have (or are fetching) the plan for this exact SQL.
-    if st.explain_for.as_deref() == Some(sql.as_str()) && (st.explain.is_some() || st.explain_loading)
+    if st.explain_for.as_deref() == Some(sql.as_str())
+        && (st.explain.is_some() || st.explain_loading)
     {
         return;
     }
@@ -656,7 +662,12 @@ fn maybe_start_filter_search(st: &mut State) {
 /// qualifies the table in a single connection, Postgres opens a tab connected to
 /// the match's database (a PG connection can't query across databases).
 fn open_filter_match(st: &State, index: usize) {
-    let Some(m) = st.schema_matches.as_ref().and_then(|v| v.get(index)).cloned() else {
+    let Some(m) = st
+        .schema_matches
+        .as_ref()
+        .and_then(|v| v.get(index))
+        .cloned()
+    else {
         return;
     };
     let Some(conn) = st

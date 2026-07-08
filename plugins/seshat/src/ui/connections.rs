@@ -87,7 +87,10 @@ fn connection_item(c: &Connection, active: bool, failed: bool) -> ListItem {
             .color("green")
             .build()
     } else {
-        ListItemBadge::builder().text(short).color(badge_color).build()
+        ListItemBadge::builder()
+            .text(short)
+            .color(badge_color)
+            .build()
     };
     ListItem::builder()
         .title(c.name.clone())

@@ -88,7 +88,13 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
         .connection_defaults()
         .database_placeholder;
     let mut fields: Vec<RenderNode> = vec![
-        text_input(&id("f-name"), "Connection name", &st.form.name, true, "my-database"),
+        text_input(
+            &id("f-name"),
+            "Connection name",
+            &st.form.name,
+            true,
+            "my-database",
+        ),
         // Host (2 parts) + Port (1 part).
         RenderNode::Split(
             Split::builder()
@@ -100,7 +106,13 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
                 ])
                 .build(),
         ),
-        text_input(&id("f-database"), "Database", &st.form.database, true, db_placeholder),
+        text_input(
+            &id("f-database"),
+            "Database",
+            &st.form.database,
+            true,
+            db_placeholder,
+        ),
         // User + Password.
         RenderNode::Split(
             Split::builder()
@@ -136,14 +148,26 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
                 .prefix_label("Colour: ")
                 .options(vec![
                     SelectOption::builder().value("").label("None").build(),
-                    SelectOption::builder().value("error").label("Red · prod").build(),
+                    SelectOption::builder()
+                        .value("error")
+                        .label("Red · prod")
+                        .build(),
                     SelectOption::builder()
                         .value("warning")
                         .label("Amber · staging")
                         .build(),
-                    SelectOption::builder().value("success").label("Green · dev").build(),
-                    SelectOption::builder().value("accent").label("Blue").build(),
-                    SelectOption::builder().value("secondary").label("Purple").build(),
+                    SelectOption::builder()
+                        .value("success")
+                        .label("Green · dev")
+                        .build(),
+                    SelectOption::builder()
+                        .value("accent")
+                        .label("Blue")
+                        .build(),
+                    SelectOption::builder()
+                        .value("secondary")
+                        .label("Purple")
+                        .build(),
                 ])
                 .size(Size::Small)
                 .build(),
@@ -174,7 +198,15 @@ fn footer(prefix: &str, form_step: bool, connect_label: &str) -> RenderNode {
     let id = |name: &str| format!("{prefix}{name}");
     let mut row: Vec<RenderNode> = Vec::new();
     if form_step {
-        row.push(button(&id("dialog-back"), "Back", "Text", "Default", None, true, false));
+        row.push(button(
+            &id("dialog-back"),
+            "Back",
+            "Text",
+            "Default",
+            None,
+            true,
+            false,
+        ));
         row.push(button(
             &id("dialog-test"),
             "Test connection",
@@ -186,7 +218,15 @@ fn footer(prefix: &str, form_step: bool, connect_label: &str) -> RenderNode {
         ));
     }
     row.push(RenderNode::Spacer(Spacer::builder().size(0.0).build()));
-    row.push(button(&id("dialog-cancel"), "Cancel", "Text", "Default", None, true, false));
+    row.push(button(
+        &id("dialog-cancel"),
+        "Cancel",
+        "Text",
+        "Default",
+        None,
+        true,
+        false,
+    ));
     row.push(button(
         &id("dialog-connect"),
         connect_label,
