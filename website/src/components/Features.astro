@@ -10,7 +10,7 @@
         Built for Speed & Scale
       </h2>
       <p class="text-lg text-gray-400 max-w-2xl mx-auto">
-        Handle JSON files of any size with features designed for real-world workflows
+        Handle data of any size — from gigabyte JSON to live SQL databases — with features designed for real-world workflows
       </p>
     </div>
 
@@ -55,12 +55,12 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
         </div>
-        <h3 class="text-xl font-semibold mb-2">Multi-Format Support</h3>
+        <h3 class="text-xl font-semibold mb-2">Multi-Format & Sources</h3>
         <p class="text-gray-400 mb-4">
-          Handles JSON, NDJSON, and JSON arrays seamlessly with automatic format detection.
+          JSON, NDJSON, and JSON arrays with automatic format detection out of the box — plus CSV files and REST APIs through plugins.
         </p>
         <div class="text-sm font-mono text-pink-400/70">
-          .json | .ndjson | .jsonl
+          .json · .ndjson · .csv · REST
         </div>
       </div>
 
@@ -105,7 +105,7 @@
         </div>
         <h3 class="text-xl font-semibold mb-2">Multi-Window Support</h3>
         <p class="text-gray-400 mb-4">
-          Open multiple files side-by-side. Compare data across different JSON sources easily.
+          Open multiple files side-by-side. Compare data across different files and sources easily.
         </p>
         <div class="text-sm font-mono text-green-400/70">
           Cmd+N for new window
@@ -169,10 +169,26 @@
         </div>
         <h3 class="text-xl font-semibold mb-2">Plugin System</h3>
         <p class="text-gray-400 mb-4">
-          Extend Thoth with sandboxed WASM plugins. Build custom data sources, REST explorers, and sidebar panels — or browse the marketplace for ready-made plugins.
+          Extend Thoth with sandboxed WASM plugins. Build custom data sources, database explorers, REST clients, and sidebar panels — or browse the marketplace for ready-made plugins.
         </p>
         <div class="text-sm font-mono text-teal-400/70">
           WASM · sandboxed · marketplace
+        </div>
+      </div>
+
+      <!-- Database Explorer -->
+      <div class="group p-8 rounded-2xl bg-gray-900/50 border border-gray-800 hover:border-emerald-500/50 transition-all hover:shadow-xl hover:shadow-emerald-500/10">
+        <div class="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">Database Explorer</h3>
+        <p class="text-gray-400 mb-4">
+          Connect to PostgreSQL & MySQL, browse schemas and tables, run SQL with query plans, and view results in a typed grid — all in a sandboxed plugin.
+        </p>
+        <div class="text-sm font-mono text-emerald-400/70">
+          PostgreSQL · MySQL · SQL + EXPLAIN
         </div>
       </div>
 

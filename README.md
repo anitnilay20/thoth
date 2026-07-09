@@ -1,7 +1,7 @@
 <div align="center">
   <h1>
     <img src="assets/thoth_icon_256.png" alt="Thoth Icon" width="75" style="vertical-align: middle;"/>
-    Thoth - JSON & NDJSON Viewer
+    Thoth — A Fast Desktop Workspace for Your Data
   </h1>
 </div>
 
@@ -18,22 +18,24 @@
   <img src="website/public/demo.gif"/>
 </div>
 
-Thoth is a high-performance, feature-rich desktop application for viewing and exploring JSON and NDJSON files with a clean, intuitive interface.
+Thoth is a high-performance, native desktop workspace for exploring your data. It opens gigabyte-sized JSON and NDJSON files by lazily parsing only what you view, and reaches beyond files through a sandboxed WebAssembly plugin system — load CSVs, call REST APIs, and browse and query PostgreSQL & MySQL databases, all in one fast app built with Rust and egui.
 
 ---
 
 ## Features
 
-- **Multiple File Format Support**: Handles JSON Objects, JSON Arrays, and NDJSON (Newline-Delimited JSON) files
-- **Lazy Loading**: Efficiently handles large files by loading only what's needed
-- **Smart File Type Detection**: Automatically detects whether a file is JSON or NDJSON
-- **Powerful Search**: Search through complex JSON structures with ease
-- **Interactive Exploration**: Expandable tree view to navigate nested structures
-- **Copy Support**: Easy copying of JSON paths and values
-- **Dark/Light Modes**: Comfortable viewing in any environment
-- **Multi-Window Support**: Open multiple independent windows to compare files
-- **Keyboard Shortcuts**: Comprehensive keyboard shortcuts for efficient workflow ([see all shortcuts](docs/KEYBOARD_SHORTCUTS.md))
-- **Customizable**: All shortcuts and settings configurable via TOML
+- **Massive JSON & NDJSON**: Opens gigabyte-sized JSON objects, JSON arrays, and NDJSON files with automatic format detection
+- **Lazy Loading**: Only parses the parts of a file you actually view, so huge files open instantly
+- **Powerful Search**: JSONPath queries and regex search across deeply nested structures, run in parallel
+- **Interactive Exploration**: Expandable tree view with easy copying of paths and values
+- **Database Explorer**: Connect to PostgreSQL & MySQL, browse schemas and tables, run SQL with query plans, and view results in a typed grid (via the Seshat plugin)
+- **More Data Sources**: Load CSV files and call REST APIs through bundled plugins
+- **WASM Plugin System**: Extend Thoth with sandboxed WebAssembly plugins — data sources, viewers, and sidebar panels authored with the `thoth-plugin-sdk`
+- **MCP Server**: Expose Thoth's loaders, search, and JSONPath to AI assistants (Claude, Cursor, and more) over the Model Context Protocol
+- **Themes & Custom Fonts**: Catppuccin light/dark built in, installable theme plugins, and a live system-font picker
+- **Multi-Window & Tabs**: Open multiple windows and tabs to compare data across files and sources
+- **Keyboard Shortcuts**: Comprehensive, fully customizable shortcuts ([see all shortcuts](docs/KEYBOARD_SHORTCUTS.md))
+- **Live Settings**: Almost every setting applies instantly — no restart — and is saved to TOML
 
 ---
 
@@ -278,22 +280,21 @@ User Interaction → TopBar → ThothApp → File Loading/Search Operations → 
 - [Rust](https://www.rust-lang.org/): Primary language
 - [egui](https://github.com/emilk/egui): Immediate mode GUI library
 - [serde_json](https://github.com/serde-rs/json): JSON serialization/deserialization
+- [Wasmtime](https://wasmtime.dev/): Runtime for the sandboxed WebAssembly component plugins
 
 ---
 
 ## Roadmap
 
-Key features planned for future development:
+Key directions planned for future development:
 
-- JSON Path expression support
-- Export functionality for nodes and search results
-- Multi-file support with tabbed interface
+- More database engines (ClickHouse, Redis, MongoDB, and more)
+- Cross-plugin data sharing so one plugin can consume another's data
+- Data visualization — charts and graphs over query and file results
+- Export functionality for nodes, tables, and search results
+- Diff view to compare data across files and sources
 - Schema validation against JSON Schema
-- Diff view to compare JSON files
-- Search history and improved search capabilities
-- Data visualization for numerical values
-- JSON editing capabilities
-- Cross-platform packages (macOS, Windows, Linux)
+- In-app editing capabilities
 
 ---
 
