@@ -66,12 +66,42 @@ struct Registry {
 
 static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Registry::default()));
 
-/// Record a signal pushed by `plugin_id`. `ttl_ms == 0` is sticky.
+// Bounds so a buggy or hostile (sandboxed) plugin can't grow the registry
+// without limit: at most this many distinct keys per plugin, and each key /
+// value truncated to this many bytes before storage. A `ttl_ms == 0` signal is
+// sticky, but its retained lifetime is still bounded — `retain_plugins` drops
+// it when the plugin's pane closes.
+const MAX_KEYS_PER_PLUGIN: usize = 16;
+const MAX_KEY_LEN: usize = 64;
+const MAX_VALUE_LEN: usize = 256;
+
+/// Truncate `s` to at most `max` bytes, landing on a char boundary.
+fn truncate_bytes(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
+
+/// Record a signal pushed by `plugin_id`. `ttl_ms == 0` is sticky. Over-long
+/// keys/values are truncated, and a new key beyond the per-plugin cap is
+/// dropped; last-write-wins on existing keys is unaffected.
 pub fn emit(plugin_id: &str, key: String, value: String, status: SignalStatus, ttl_ms: u32) {
+    let key = truncate_bytes(&key, MAX_KEY_LEN);
+    let value = truncate_bytes(&value, MAX_VALUE_LEN);
     let expires_at = (ttl_ms > 0).then(|| Instant::now() + Duration::from_millis(ttl_ms as u64));
     if let Ok(mut reg) = REGISTRY.lock() {
         let id = (plugin_id.to_string(), key.clone());
         if !reg.map.contains_key(&id) {
+            // Cap distinct keys per plugin; drop new keys past the limit.
+            let keys_for_plugin = reg.map.keys().filter(|(pid, _)| pid == plugin_id).count();
+            if keys_for_plugin >= MAX_KEYS_PER_PLUGIN {
+                return;
+            }
             reg.order.push(id.clone());
         }
         reg.map.insert(
@@ -122,12 +152,14 @@ pub fn snapshot() -> Vec<PluginSignals> {
     groups
 }
 
-/// Drop every signal emitted by `plugin_id` (e.g. when it is fully unloaded).
-#[allow(dead_code)] // wired up as plugin-lifecycle grows; harmless until then
-pub fn clear_plugin(plugin_id: &str) {
+/// Drop signals for every plugin **not** in `open`. Called each frame with the
+/// set of plugin ids that still have a live pane, so a closed pane's signals
+/// stop showing in the status bar. Windows are separate OS processes, so this
+/// process's `open` set is authoritative for its own registry.
+pub fn retain_plugins(open: &std::collections::HashSet<String>) {
     if let Ok(mut reg) = REGISTRY.lock() {
-        reg.map.retain(|(pid, _), _| pid != plugin_id);
-        reg.order.retain(|(pid, _)| pid != plugin_id);
+        reg.map.retain(|(pid, _), _| open.contains(pid));
+        reg.order.retain(|(pid, _)| open.contains(pid));
     }
 }
 
@@ -174,13 +206,30 @@ mod tests {
     }
 
     #[test]
-    fn clear_plugin_removes_its_signals() {
+    fn retain_plugins_drops_closed() {
         let _guard = reset();
         emit("a", "x".into(), "1".into(), SignalStatus::Ready, 0);
         emit("b", "y".into(), "2".into(), SignalStatus::Ready, 0);
-        clear_plugin("a");
+        let open = std::collections::HashSet::from(["b".to_string()]);
+        retain_plugins(&open);
         let snap = snapshot();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap[0].plugin_id, "b");
+    }
+
+    #[test]
+    fn caps_keys_per_plugin_and_truncates() {
+        let _guard = reset();
+        // One extra key beyond the cap is dropped.
+        for i in 0..(MAX_KEYS_PER_PLUGIN + 5) {
+            emit("p", format!("k{i}"), "v".into(), SignalStatus::Ready, 0);
+        }
+        let snap = snapshot();
+        assert_eq!(snap[0].signals.len(), MAX_KEYS_PER_PLUGIN);
+        // Over-long value is truncated to the byte cap.
+        emit("q", "big".into(), "x".repeat(1000), SignalStatus::Ready, 0);
+        let snap = snapshot();
+        let q = snap.iter().find(|g| g.plugin_id == "q").unwrap();
+        assert_eq!(q.signals[0].value.len(), MAX_VALUE_LEN);
     }
 }

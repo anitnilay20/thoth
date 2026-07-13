@@ -621,6 +621,7 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
                 error: Some(format!("response parse error: {e}")),
                 ..Default::default()
             });
+            signals::emit_signal("http", "", SignalStatus::Error, 0);
             return;
         }
     };
@@ -701,6 +702,9 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             error: Some(message),
             ..Default::default()
         });
+        signals::emit_signal("http", "", SignalStatus::Error, 0);
+    } else {
+        // Payload had neither `ok` nor `err`: still clear the sticky Loading.
         signals::emit_signal("http", "", SignalStatus::Error, 0);
     }
 }

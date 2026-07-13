@@ -1387,6 +1387,17 @@ impl ThothApp {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
+        // Reconcile the process-global signal registry with the plugins that
+        // still have a live pane, so a closed pane's signals stop showing.
+        let open_plugins: std::collections::HashSet<String> = self
+            .window_state
+            .tab_manager
+            .tabs
+            .values()
+            .filter_map(|t| t.active_plugin_pane.as_ref().map(|p| p.plugin_id.clone()))
+            .collect();
+        crate::plugin::signals::retain_plugins(&open_plugins);
+
         let (
             file_path_opt,
             file_type,
