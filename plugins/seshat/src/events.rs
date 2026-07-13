@@ -18,6 +18,30 @@ fn parse_str(s: &str) -> String {
     serde_json::from_str::<String>(s).unwrap_or_else(|_| s.to_string())
 }
 
+// ── status-bar signals (#111) ───────────────────────────────────────────────
+
+/// The active connection's display name, falling back to its host.
+fn conn_label(st: &State) -> String {
+    st.active
+        .as_ref()
+        .and_then(|id| st.connections.iter().find(|c| &c.id == id))
+        .map(|c| c.name.clone())
+        .or_else(|| st.active_profile.as_ref().map(|p| p.host.clone()))
+        .unwrap_or_default()
+}
+
+/// Emit the active connection's health (connecting / connected / error).
+fn emit_conn(st: &State, status: SignalStatus) {
+    signals::emit_signal("conn", &conn_label(st), status, 0);
+}
+
+/// Emit the active database name (queries + autocomplete target).
+fn emit_db(st: &State) {
+    if let Some(db) = st.active_profile.as_ref().map(|p| p.database.as_str()) {
+        signals::emit_signal("db", db, SignalStatus::Ready, 0);
+    }
+}
+
 pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
     // Async results arrive as a synthetic "query-result" event.
     if event.kind == "query-result" {
@@ -350,8 +374,9 @@ fn execute_current(st: &mut State) {
     };
     st.loading = true;
     st.result = None;
+    st.query_started = Some(std::time::Instant::now());
     // Push a "running" signal to the host status bar; the result handler
-    // overwrites it with the row count (Ready) or an Error.
+    // overwrites it with the row count + latency (Ready) or an Error.
     signals::emit_signal("rows", "", SignalStatus::Loading, 0);
     let (sql, limited) = match sql::add_limit(&base, st.row_limit + 1) {
         Some(capped) => (capped, true),
@@ -475,6 +500,8 @@ fn load_databases(st: &mut State) {
     }
     st.databases_loaded = true;
     st.schema_error = None;
+    // Listing databases doubles as the connection probe; show "connecting".
+    emit_conn(st, SignalStatus::Loading);
     submit(&Request::ListDatabases, Kind::Databases, st);
 }
 
@@ -515,6 +542,7 @@ fn select_database(st: &mut State, database: &str) {
     }
     // The previous database's results no longer apply.
     st.result = None;
+    emit_db(st);
 
     // Make sure the new database's tables are loaded for autocomplete. If its
     // schemas aren't fetched yet, request them (the Schemas handler kicks off the
@@ -1099,6 +1127,7 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
             });
             // Surface the outcome as a status-bar signal: the returned row count
             // (with a "+" when more rows are available) or an error state.
+            let elapsed_ms = st.query_started.take().map(|t| t.elapsed().as_millis());
             match &st.result {
                 Some(Ok(value)) => {
                     let n = value
@@ -1106,10 +1135,15 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                         .and_then(|r| r.as_array())
                         .map(|a| a.len())
                         .unwrap_or(0);
-                    let shown = if st.has_more {
+                    let count = if st.has_more {
                         format!("{n}+")
                     } else {
                         n.to_string()
+                    };
+                    // Include end-to-end latency when available: "100+ · 12 ms".
+                    let shown = match elapsed_ms {
+                        Some(ms) => format!("{count} · {ms} ms"),
+                        None => count,
                     };
                     signals::emit_signal("rows", &shown, SignalStatus::Ready, 0);
                 }
@@ -1139,6 +1173,9 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                 st.schema_error = None;
                 st.error = None;
                 st.failed = None;
+                // Connection probe succeeded: surface connected + active database.
+                emit_conn(st, SignalStatus::Ready);
+                emit_db(st);
                 // Load the connection's configured database's schemas (then, in
                 // the Schemas handler, its tables — one at a time) so the SQL
                 // editor's autocomplete is populated. The tree stays collapsed:
@@ -1166,6 +1203,8 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                 // surface it in the error modal and mark the connection as errored
                 // instead of leaving it active.
                 let msg = m.unwrap_or_else(|| "failed to connect".into());
+                // Emit the error signal before clearing `active` (needed for the label).
+                emit_conn(st, SignalStatus::Error);
                 st.failed = st.active.take();
                 st.active_profile = None;
                 st.databases.clear();

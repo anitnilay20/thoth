@@ -203,6 +203,9 @@ pub(crate) struct State {
     // SQL editor / results
     pub sql: String,
     pub loading: bool,
+    /// When the in-flight query was dispatched, for the status-bar latency
+    /// signal. Runtime-only; measures end-to-end (submit → result) time.
+    pub query_started: Option<std::time::Instant>,
     /// In-flight async requests: `(request-id, kind)`. A Vec because schema
     /// introspection can run concurrently with (and alongside) a query.
     pub pending: Vec<(String, Kind)>,
@@ -286,6 +289,7 @@ impl State {
             test_status: None,
             sql: "SELECT 1 AS one;".into(),
             loading: false,
+            query_started: None,
             pending: Vec::new(),
             result: None,
             last_run_sql: None,

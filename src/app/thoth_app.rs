@@ -1387,16 +1387,20 @@ impl ThothApp {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        // Reconcile the process-global signal registry with the plugins that
-        // still have a live pane, so a closed pane's signals stop showing.
-        let open_plugins: std::collections::HashSet<String> = self
+        // Reconcile the process-global signal registry with the plugin instances
+        // that still have a live pane, so a closed pane's signals stop showing.
+        let open_instances: std::collections::HashSet<String> = self
             .window_state
             .tab_manager
             .tabs
             .values()
-            .filter_map(|t| t.active_plugin_pane.as_ref().map(|p| p.plugin_id.clone()))
+            .filter_map(|t| {
+                t.active_plugin_pane
+                    .as_ref()
+                    .map(|p| p.loader.instance_id().to_string())
+            })
             .collect();
-        crate::plugin::signals::retain_plugins(&open_plugins);
+        crate::plugin::signals::retain_instances(&open_instances);
 
         let (
             file_path_opt,
@@ -1419,8 +1423,12 @@ impl ThothApp {
                 None
             };
             let sel_path = tab.central_panel.get_selected_path().cloned();
-            // A plugin pane tab: its id drives the plugin-scoped status bar.
-            let plugin_id = tab.active_plugin_pane.as_ref().map(|p| p.plugin_id.clone());
+            // A plugin pane tab: (plugin_id, instance_id) drives the
+            // instance-scoped status bar.
+            let plugin_id = tab
+                .active_plugin_pane
+                .as_ref()
+                .map(|p| (p.plugin_id.clone(), p.loader.instance_id().to_string()));
             (
                 tab.file_path.clone(),
                 tab.file_type,
@@ -1465,7 +1473,9 @@ impl ThothApp {
                 filtered_count,
                 status,
                 selected_path: selected_path.as_deref(),
-                active_plugin_id: active_plugin_id.as_deref(),
+                active_plugin: active_plugin_id
+                    .as_ref()
+                    .map(|(p, i)| (p.as_str(), i.as_str())),
             },
         );
 

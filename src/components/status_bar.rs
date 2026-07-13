@@ -39,10 +39,11 @@ pub struct StatusBarProps<'a> {
     /// Currently selected path in the JSON (for breadcrumbs)
     pub selected_path: Option<&'a str>,
 
-    /// Set when the active tab is a plugin pane (its plugin id). The status bar
-    /// then shows plugin-scoped info instead of file/item counts, and derives
-    /// the status indicator from that plugin's live signals.
-    pub active_plugin_id: Option<&'a str>,
+    /// Set when the active tab is a plugin pane: `(plugin_id, instance_id)`. The
+    /// status bar then shows plugin-scoped info instead of file/item counts, and
+    /// derives the status indicator from that *instance's* live signals
+    /// (instance-scoped so two tabs of the same plugin stay independent).
+    pub active_plugin: Option<(&'a str, &'a str)>,
 }
 
 /// Status indicator for the status bar
@@ -152,7 +153,7 @@ fn render_plugin_signals(ui: &mut egui::Ui) {
 /// status-bar content: a plug glyph, the plugin's short name, then `key value`
 /// chips (no per-chip source prefix, since the name is shown once). Used when a
 /// plugin tab is focused, in place of the file/item info.
-fn render_active_plugin_signals(ui: &mut egui::Ui, plugin_id: &str) {
+fn render_active_plugin_signals(ui: &mut egui::Ui, plugin_id: &str, instance_id: &str) {
     use crate::plugin::signals::SignalStatus;
 
     // "com.thoth.seshat" → "seshat"
@@ -160,8 +161,9 @@ fn render_active_plugin_signals(ui: &mut egui::Ui, plugin_id: &str) {
     ui.label(icon_rich_text(egui_phosphor::regular::PLUG, 12.0));
     ui.label(short);
 
+    // Scope to this instance so two tabs of the same plugin stay independent.
     let groups = crate::plugin::signals::snapshot();
-    let Some(group) = groups.iter().find(|g| g.plugin_id == plugin_id) else {
+    let Some(group) = groups.iter().find(|g| g.instance_id == instance_id) else {
         return;
     };
 
@@ -195,11 +197,11 @@ fn render_active_plugin_signals(ui: &mut egui::Ui, plugin_id: &str) {
 /// any signal is errored, else `Loading` if any is loading, else `Ready`.
 /// Returns `None` when the plugin has emitted no live signals (caller falls
 /// back to the default status).
-fn active_plugin_signal_status(plugin_id: &str) -> Option<StatusBarStatus> {
+fn active_plugin_signal_status(instance_id: &str) -> Option<StatusBarStatus> {
     use crate::plugin::signals::SignalStatus;
 
     let groups = crate::plugin::signals::snapshot();
-    let group = groups.iter().find(|g| g.plugin_id == plugin_id)?;
+    let group = groups.iter().find(|g| g.instance_id == instance_id)?;
     if group.signals.is_empty() {
         return None;
     }
@@ -324,10 +326,10 @@ impl ContextComponent for StatusBar {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
 
-                    if let Some(plugin_id) = props.active_plugin_id {
+                    if let Some((plugin_id, instance_id)) = props.active_plugin {
                         // Plugin pane tab: file/item counts are meaningless here,
                         // so show the plugin and its live signals instead.
-                        render_active_plugin_signals(ui, plugin_id);
+                        render_active_plugin_signals(ui, plugin_id, instance_id);
                     } else {
                         // File tab: filename, item count, file type, then any
                         // background plugin signals, then breadcrumbs.
@@ -396,8 +398,8 @@ impl ContextComponent for StatusBar {
                         // On a plugin tab, reflect that plugin's aggregated signal
                         // state (loading / error / ready); otherwise the file status.
                         let status = props
-                            .active_plugin_id
-                            .and_then(active_plugin_signal_status)
+                            .active_plugin
+                            .and_then(|(_, instance_id)| active_plugin_signal_status(instance_id))
                             .unwrap_or(props.status);
                         let (icon, text) = status.icon_and_text();
                         let status_color = status.color(ui.ctx());

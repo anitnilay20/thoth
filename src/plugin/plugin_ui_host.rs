@@ -93,6 +93,13 @@ impl TabOpenRequest {
 pub trait PluginUiHost: Send {
     fn plugin_id(&self) -> &str;
 
+    /// Unique id for this plugin *instance* (pane). Defaults to `plugin_id` for
+    /// loaders that don't need per-instance identity; data-source loaders
+    /// override it so two tabs of the same plugin keep separate status signals.
+    fn instance_id(&self) -> &str {
+        self.plugin_id()
+    }
+
     fn render_ui(&self) -> Result<UiOutput>;
     fn handle_event(&self, event: UiEvent) -> Result<UiOutput>;
     fn render_sidebar(&self) -> Result<Option<UiOutput>>;

@@ -60,6 +60,17 @@ use crate::plugin::plugin_ui_host::{PluginHttpRequest, PluginUiHost, TabOpenRequ
 
 static REQUEST_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+/// Distinguishes plugin *instances* (e.g. two open Seshat tabs) so their
+/// status-bar signals don't collide — the registry keys on this, not plugin_id.
+static INSTANCE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn next_instance_id(plugin_id: &str) -> String {
+    format!(
+        "{plugin_id}#{}",
+        INSTANCE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
+
 fn next_request_id() -> String {
     format!(
         "req-{}",
@@ -128,6 +139,9 @@ struct DataSourcePluginState {
     table: ResourceTable,
     policy: NetworkPolicy,
     plugin_id: String,
+    /// Unique per plugin instance (this Store). Registry key for signals so two
+    /// tabs of the same plugin keep separate status.
+    instance_id: String,
     consent_tx: std::sync::mpsc::Sender<ConsentRequest>,
     // Channel used by submit() to deliver async HTTP results back to the host.
     http_tx: std::sync::mpsc::Sender<(String, HttpCallResult)>,
@@ -717,7 +731,14 @@ impl thoth::plugin::signals::Host for DataSourcePluginState {
             thoth::plugin::signals::Status::Loading => SignalStatus::Loading,
             thoth::plugin::signals::Status::Error => SignalStatus::Error,
         };
-        crate::plugin::signals::emit(&self.plugin_id, key, value, status, ttl_ms);
+        crate::plugin::signals::emit(
+            &self.instance_id,
+            &self.plugin_id,
+            key,
+            value,
+            status,
+            ttl_ms,
+        );
     }
 }
 
@@ -849,6 +870,9 @@ pub struct WasmDataSourceLoader {
     /// In-flight async queries (for repaint-while-pending).
     query_pending: Arc<AtomicUsize>,
     plugin_id: String,
+    /// Unique per instance; exposed via `PluginUiHost::instance_id` so the host
+    /// can scope this pane's signals and reconcile them on close.
+    instance_id: String,
     /// Last rendered sidebar/main-UI trees. When a query worker owns the Store
     /// (a blocking DB query is running), the render path reuses these instead of
     /// blocking the UI thread on the Store mutex.
@@ -884,11 +908,14 @@ impl WasmDataSourceLoader {
         let query_pending = Arc::new(AtomicUsize::new(0));
         let retry_tx_shared = Arc::new(Mutex::new(retry_tx));
 
+        let instance_id = next_instance_id(&plugin_id);
+
         let state = DataSourcePluginState {
             wasi,
             table: ResourceTable::new(),
             policy,
             plugin_id: plugin_id.clone(),
+            instance_id: instance_id.clone(),
             consent_tx,
             http_tx,
             pending_count: Arc::clone(&pending_count),
@@ -1006,6 +1033,7 @@ impl WasmDataSourceLoader {
             query_result_rx,
             query_pending,
             plugin_id,
+            instance_id,
             last_sidebar: Mutex::new(None),
             last_ui: Mutex::new(None),
         };
@@ -1452,6 +1480,10 @@ fn plugin_req_to_http(r: PluginHttpRequest) -> thoth::plugin::http_client::HttpR
 impl PluginUiHost for WasmDataSourceLoader {
     fn plugin_id(&self) -> &str {
         WasmDataSourceLoader::plugin_id(self)
+    }
+
+    fn instance_id(&self) -> &str {
+        &self.instance_id
     }
 
     fn render_ui(&self) -> Result<UiOutput> {
