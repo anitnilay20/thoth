@@ -38,13 +38,17 @@ pub struct StatusBarProps<'a> {
 
     /// Currently selected path in the JSON (for breadcrumbs)
     pub selected_path: Option<&'a str>,
+
+    /// Set when the active tab is a plugin pane (its plugin id). The status bar
+    /// then shows plugin-scoped info instead of file/item counts, and derives
+    /// the status indicator from that plugin's live signals.
+    pub active_plugin_id: Option<&'a str>,
 }
 
 /// Status indicator for the status bar
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusBarStatus {
     Ready,
-    #[allow(dead_code)]
     Loading,
     Error,
     Searching,
@@ -95,6 +99,126 @@ pub enum StatusBarEvent {
 /// Output from status bar component
 pub struct StatusBarOutput {
     pub events: Vec<StatusBarEvent>,
+}
+
+/// Render the live plugin signals from the host [`SignalRegistry`] as compact,
+/// source-attributed chips: a status-colored dot, the plugin's short name, and
+/// each `key value`. Draws nothing when no plugin has emitted a signal.
+///
+/// [`SignalRegistry`]: crate::plugin::signals
+fn render_plugin_signals(ui: &mut egui::Ui) {
+    use crate::plugin::signals::SignalStatus;
+
+    let groups = crate::plugin::signals::snapshot();
+    if groups.is_empty() {
+        return;
+    }
+
+    let colors = ui.ctx().memory(|mem| {
+        mem.data
+            .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+            .unwrap_or_else(|| {
+                let dark_mode = ui.ctx().global_style().visuals.dark_mode;
+                crate::theme::Theme::for_dark_mode(dark_mode).colors()
+            })
+    });
+
+    for group in groups {
+        // "com.thoth.seshat" → "seshat"
+        let short = group
+            .plugin_id
+            .rsplit('.')
+            .next()
+            .unwrap_or(group.plugin_id.as_str());
+        for sig in &group.signals {
+            ui.separator();
+            let dot_color = match sig.status {
+                SignalStatus::Ready => colors.success,
+                SignalStatus::Loading => colors.warning,
+                SignalStatus::Error => colors.error,
+            };
+            ui.colored_label(dot_color, "●");
+            let text = if sig.value.is_empty() {
+                format!("{} {}", short, sig.key)
+            } else {
+                format!("{} {} {}", short, sig.key, sig.value)
+            };
+            ui.label(text).on_hover_text(&group.plugin_id);
+        }
+    }
+}
+
+/// Render the active plugin pane's identity and its live signals as the primary
+/// status-bar content: a plug glyph, the plugin's short name, then `key value`
+/// chips (no per-chip source prefix, since the name is shown once). Used when a
+/// plugin tab is focused, in place of the file/item info.
+fn render_active_plugin_signals(ui: &mut egui::Ui, plugin_id: &str) {
+    use crate::plugin::signals::SignalStatus;
+
+    // "com.thoth.seshat" → "seshat"
+    let short = plugin_id.rsplit('.').next().unwrap_or(plugin_id);
+    ui.label(icon_rich_text(egui_phosphor::regular::PLUG, 12.0));
+    ui.label(short);
+
+    let groups = crate::plugin::signals::snapshot();
+    let Some(group) = groups.iter().find(|g| g.plugin_id == plugin_id) else {
+        return;
+    };
+
+    let colors = ui.ctx().memory(|mem| {
+        mem.data
+            .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+            .unwrap_or_else(|| {
+                let dark_mode = ui.ctx().global_style().visuals.dark_mode;
+                crate::theme::Theme::for_dark_mode(dark_mode).colors()
+            })
+    });
+
+    for sig in &group.signals {
+        ui.separator();
+        let dot_color = match sig.status {
+            SignalStatus::Ready => colors.success,
+            SignalStatus::Loading => colors.warning,
+            SignalStatus::Error => colors.error,
+        };
+        ui.colored_label(dot_color, "●");
+        let text = if sig.value.is_empty() {
+            sig.key.clone()
+        } else {
+            format!("{} {}", sig.key, sig.value)
+        };
+        ui.label(text);
+    }
+}
+
+/// Aggregate a plugin's live signals into one status-bar indicator: `Error` if
+/// any signal is errored, else `Loading` if any is loading, else `Ready`.
+/// Returns `None` when the plugin has emitted no live signals (caller falls
+/// back to the default status).
+fn active_plugin_signal_status(plugin_id: &str) -> Option<StatusBarStatus> {
+    use crate::plugin::signals::SignalStatus;
+
+    let groups = crate::plugin::signals::snapshot();
+    let group = groups.iter().find(|g| g.plugin_id == plugin_id)?;
+    if group.signals.is_empty() {
+        return None;
+    }
+    let status = if group
+        .signals
+        .iter()
+        .any(|s| s.status == SignalStatus::Error)
+    {
+        StatusBarStatus::Error
+    } else if group
+        .signals
+        .iter()
+        .any(|s| s.status == SignalStatus::Loading)
+    {
+        StatusBarStatus::Loading
+    } else {
+        StatusBarStatus::Ready
+    };
+    Some(status)
 }
 
 impl ContextComponent for StatusBar {
@@ -200,53 +324,66 @@ impl ContextComponent for StatusBar {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
 
-                    // Filename with icon
-                    if let Some(path) = props.file_path {
-                        let filename = path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("Untitled");
-                        ui.label(icon_rich_text(egui_phosphor::regular::FILE_TEXT, 12.0));
-                        ui.label(filename);
-                        ui.separator();
-                    }
-
-                    // Item count with icon
-                    if let Some(filtered) = props.filtered_count {
-                        ui.label(icon_rich_text(egui_phosphor::regular::FUNNEL, 12.0));
-                        ui.label(format!("{} of {} items", filtered, props.item_count));
-                    } else if props.item_count > 0 {
-                        ui.label(icon_rich_text(egui_phosphor::regular::LIST_BULLETS, 12.0));
-                        ui.label(format!("{} items", props.item_count));
+                    if let Some(plugin_id) = props.active_plugin_id {
+                        // Plugin pane tab: file/item counts are meaningless here,
+                        // so show the plugin and its live signals instead.
+                        render_active_plugin_signals(ui, plugin_id);
                     } else {
-                        ui.label(icon_rich_text(egui_phosphor::regular::LIST_BULLETS, 12.0));
-                        ui.label("No items");
-                    }
+                        // File tab: filename, item count, file type, then any
+                        // background plugin signals, then breadcrumbs.
 
-                    ui.separator();
+                        // Filename with icon
+                        if let Some(path) = props.file_path {
+                            let filename = path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("Untitled");
+                            ui.label(icon_rich_text(egui_phosphor::regular::FILE_TEXT, 12.0));
+                            ui.label(filename);
+                            ui.separator();
+                        }
 
-                    // File type with icon
-                    let file_type_icon = match props.file_type {
-                        FileKind::Json => egui_phosphor::regular::BRACKETS_CURLY,
-                        FileKind::Ndjson => egui_phosphor::regular::LIST_DASHES,
-                        FileKind::Plugin => egui_phosphor::regular::PLUG,
-                        FileKind::PluginTable => egui_phosphor::regular::TABLE,
-                    };
-                    ui.label(icon_rich_text(file_type_icon, 12.0));
-                    ui.label(format!("{:?}", props.file_type));
+                        // Item count with icon
+                        if let Some(filtered) = props.filtered_count {
+                            ui.label(icon_rich_text(egui_phosphor::regular::FUNNEL, 12.0));
+                            ui.label(format!("{} of {} items", filtered, props.item_count));
+                        } else if props.item_count > 0 {
+                            ui.label(icon_rich_text(egui_phosphor::regular::LIST_BULLETS, 12.0));
+                            ui.label(format!("{} items", props.item_count));
+                        } else {
+                            ui.label(icon_rich_text(egui_phosphor::regular::LIST_BULLETS, 12.0));
+                            ui.label("No items");
+                        }
 
-                    // Breadcrumbs navigation
-                    if props.selected_path.is_some() {
                         ui.separator();
-                        let clicked = Breadcrumbs::builder()
-                            .maybe_path(props.selected_path.map(|s| s.to_string()))
-                            .build()
-                            .show(ui)
-                            .inner;
 
-                        // Convert breadcrumb click to status bar event
-                        if let Some(path) = clicked {
-                            events.push(StatusBarEvent::NavigateToPath(path));
+                        // File type with icon
+                        let file_type_icon = match props.file_type {
+                            FileKind::Json => egui_phosphor::regular::BRACKETS_CURLY,
+                            FileKind::Ndjson => egui_phosphor::regular::LIST_DASHES,
+                            FileKind::Plugin => egui_phosphor::regular::PLUG,
+                            FileKind::PluginTable => egui_phosphor::regular::TABLE,
+                        };
+                        ui.label(icon_rich_text(file_type_icon, 12.0));
+                        ui.label(format!("{:?}", props.file_type));
+
+                        // Live plugin signals (push channel), grouped by source.
+                        // Renders nothing when no plugin has emitted.
+                        render_plugin_signals(ui);
+
+                        // Breadcrumbs navigation
+                        if props.selected_path.is_some() {
+                            ui.separator();
+                            let clicked = Breadcrumbs::builder()
+                                .maybe_path(props.selected_path.map(|s| s.to_string()))
+                                .build()
+                                .show(ui)
+                                .inner;
+
+                            // Convert breadcrumb click to status bar event
+                            if let Some(path) = clicked {
+                                events.push(StatusBarEvent::NavigateToPath(path));
+                            }
                         }
                     }
 
@@ -256,8 +393,14 @@ impl ContextComponent for StatusBar {
                         ui.add_space(0.0);
                         self.notification_dropdown
                             .render(ui, NotificationDropdownProps {});
-                        let (icon, text) = props.status.icon_and_text();
-                        let status_color = props.status.color(ui.ctx());
+                        // On a plugin tab, reflect that plugin's aggregated signal
+                        // state (loading / error / ready); otherwise the file status.
+                        let status = props
+                            .active_plugin_id
+                            .and_then(active_plugin_signal_status)
+                            .unwrap_or(props.status);
+                        let (icon, text) = status.icon_and_text();
+                        let status_color = status.color(ui.ctx());
                         ui.colored_label(status_color, format!("{} {}", icon, text));
                     });
                 });

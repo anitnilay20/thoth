@@ -1396,6 +1396,7 @@ impl ThothApp {
             _search_results_len,
             filtered_count,
             selected_path,
+            active_plugin_id,
         ) = if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
             let search = &tab.search_engine_state.search;
             let scanning = search.scanning;
@@ -1407,6 +1408,8 @@ impl ThothApp {
                 None
             };
             let sel_path = tab.central_panel.get_selected_path().cloned();
+            // A plugin pane tab: its id drives the plugin-scoped status bar.
+            let plugin_id = tab.active_plugin_pane.as_ref().map(|p| p.plugin_id.clone());
             (
                 tab.file_path.clone(),
                 tab.file_type,
@@ -1416,6 +1419,7 @@ impl ThothApp {
                 results_len,
                 filtered,
                 sel_path,
+                plugin_id,
             )
         } else {
             (
@@ -1425,6 +1429,7 @@ impl ThothApp {
                 false,
                 false,
                 0,
+                None,
                 None,
                 None,
             )
@@ -1449,6 +1454,7 @@ impl ThothApp {
                 filtered_count,
                 status,
                 selected_path: selected_path.as_deref(),
+                active_plugin_id: active_plugin_id.as_deref(),
             },
         );
 
@@ -1481,9 +1487,12 @@ impl ThothApp {
                 .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
         });
 
-        let dock_style = colors
+        let mut dock_style = colors
             .map(|c| c.dock_style(ui.style()))
             .unwrap_or_else(|| egui_dock::Style::from_egui(ui.style()));
+        // Hide egui_dock's thick (hardcoded 7.5px) tab-bar overflow scroll bar.
+        // Overflowing tabs still scroll via wheel/trackpad while hovering the bar.
+        dock_style.tab_bar.show_scroll_bar_on_overflow = false;
 
         let (dock_state, tabs) = self.window_state.tab_manager.borrow_parts();
 

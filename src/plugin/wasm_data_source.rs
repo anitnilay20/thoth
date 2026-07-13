@@ -701,6 +701,26 @@ impl thoth::plugin::db_runtime::Host for DataSourcePluginState {
     }
 }
 
+// ── signals WIT import — plugin PUSHes status/metric key-values ───────────────
+
+impl thoth::plugin::signals::Host for DataSourcePluginState {
+    fn emit_signal(
+        &mut self,
+        key: String,
+        value: String,
+        status: thoth::plugin::signals::Status,
+        ttl_ms: u32,
+    ) {
+        use crate::plugin::signals::SignalStatus;
+        let status = match status {
+            thoth::plugin::signals::Status::Ready => SignalStatus::Ready,
+            thoth::plugin::signals::Status::Loading => SignalStatus::Loading,
+            thoth::plugin::signals::Status::Error => SignalStatus::Error,
+        };
+        crate::plugin::signals::emit(&self.plugin_id, key, value, status, ttl_ms);
+    }
+}
+
 // ── file-dialog WIT import — native open/save pickers (host-mediated I/O) ─────
 
 fn fd_err(message: impl Into<String>) -> thoth::plugin::file_dialog::PluginError {
@@ -952,6 +972,14 @@ impl WasmDataSourceLoader {
 
         // 7. Register the file-dialog import (native open/save pickers).
         thoth::plugin::file_dialog::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+
+        // 8. Register the signals import (plugin PUSHes status-bar signals).
+        thoth::plugin::signals::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
             |e| ThothError::PluginLoadError {
                 path: wasm_path.to_path_buf(),
                 reason: e.to_string(),
