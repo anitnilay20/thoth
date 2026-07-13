@@ -710,6 +710,28 @@ interface plugin-settings {
     render-settings: func() -> result<settings-output, plugin-error>;
 }
 
+// signals — host-provided import. Plugins PUSH tiny, high-frequency status /
+// metric key-values (connection health, row counts, latency); the host
+// aggregates them in a TTL registry and renders them in the status bar with
+// source attribution. Kept deliberately separate from the dataset channel
+// (#113/#114): signals carry a short string, never a record set, so a large
+// result never crosses this seam. Datasets are pulled paged; signals are
+// pushed fire-and-forget.
+interface signals {
+    /// Health of the emitting plugin's current activity.
+    enum status {
+        ready,
+        loading,
+        error,
+    }
+
+    /// Push a signal to the host. `key` / `value` are free-form so a new signal
+    /// needs no WIT change. `ttl-ms` is how long the host keeps the signal after
+    /// receipt (0 = sticky until the plugin overwrites it). Last-write-wins per
+    /// (plugin, key); the host stamps the source plugin id.
+    emit-signal: func(key: string, value: string, status: status, ttl-ms: u32);
+}
+
 
 /// Every plugin must satisfy this base world.
 world base-plugin {
@@ -762,6 +784,7 @@ world data-source-plugin {
     import tcp-client;
     import secure-storage;
     import db-runtime;
+    import signals;
     export data-source;
     export ui-component;
     export tab-host;

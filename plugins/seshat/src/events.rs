@@ -4,6 +4,7 @@
 use serde_json::Value;
 
 use crate::bindings::exports::thoth::plugin::ui_component::UiEvent;
+use crate::bindings::thoth::plugin::signals::{self, Status as SignalStatus};
 use crate::bindings::thoth::plugin::{file_dialog, secure_storage, ui_tabs};
 use crate::db::{self, ColumnInfo, TableInfo};
 use crate::sql;
@@ -349,6 +350,9 @@ fn execute_current(st: &mut State) {
     };
     st.loading = true;
     st.result = None;
+    // Push a "running" signal to the host status bar; the result handler
+    // overwrites it with the row count (Ready) or an Error.
+    signals::emit_signal("rows", "", SignalStatus::Loading, 0);
     let (sql, limited) = match sql::add_limit(&base, st.row_limit + 1) {
         Some(capped) => (capped, true),
         None => (base, false),
@@ -1093,6 +1097,25 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                 (None, Some(m)) => Err(m),
                 _ => Err("query failed".into()),
             });
+            // Surface the outcome as a status-bar signal: the returned row count
+            // (with a "+" when more rows are available) or an error state.
+            match &st.result {
+                Some(Ok(value)) => {
+                    let n = value
+                        .get("rows")
+                        .and_then(|r| r.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    let shown = if st.has_more {
+                        format!("{n}+")
+                    } else {
+                        n.to_string()
+                    };
+                    signals::emit_signal("rows", &shown, SignalStatus::Ready, 0);
+                }
+                Some(Err(_)) => signals::emit_signal("rows", "", SignalStatus::Error, 0),
+                None => {}
+            }
         }
         Kind::QueryExplain => {
             st.explain_loading = false;

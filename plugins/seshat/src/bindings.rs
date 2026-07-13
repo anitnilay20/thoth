@@ -1458,6 +1458,108 @@ pub mod thoth {
                 }
             }
         }
+        /// signals — host-provided import. Plugins PUSH tiny, high-frequency status /
+        /// metric key-values (connection health, row counts, latency); the host
+        /// aggregates them in a TTL registry and renders them in the status bar with
+        /// source attribution. Kept deliberately separate from the dataset channel
+        /// (#113/#114): signals carry a short string, never a record set, so a large
+        /// result never crosses this seam. Datasets are pulled paged; signals are
+        /// pushed fire-and-forget.
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod signals {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            /// Health of the emitting plugin's current activity.
+            #[repr(u8)]
+            #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+            pub enum Status {
+                Ready,
+                Loading,
+                Error,
+            }
+            impl ::core::fmt::Debug for Status {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    match self {
+                        Status::Ready => f.debug_tuple("Status::Ready").finish(),
+                        Status::Loading => f.debug_tuple("Status::Loading").finish(),
+                        Status::Error => f.debug_tuple("Status::Error").finish(),
+                    }
+                }
+            }
+            impl Status {
+                #[doc(hidden)]
+                pub unsafe fn _lift(val: u8) -> Status {
+                    if !cfg!(debug_assertions) {
+                        return ::core::mem::transmute(val);
+                    }
+                    match val {
+                        0 => Status::Ready,
+                        1 => Status::Loading,
+                        2 => Status::Error,
+                        _ => panic!("invalid enum discriminant"),
+                    }
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Push a signal to the host. `key` / `value` are free-form so a new signal
+            /// needs no WIT change. `ttl-ms` is how long the host keeps the signal after
+            /// receipt (0 = sticky until the plugin overwrites it). Last-write-wins per
+            /// (plugin, key); the host stamps the source plugin id.
+            pub fn emit_signal(
+                key: &str,
+                value: &str,
+                status: Status,
+                ttl_ms: u32,
+            ) -> () {
+                unsafe {
+                    let vec0 = key;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let vec1 = value;
+                    let ptr1 = vec1.as_ptr().cast::<u8>();
+                    let len1 = vec1.len();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/signals@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "emit-signal"]
+                        fn wit_import2(
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: i32,
+                            _: i32,
+                        );
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: i32,
+                        _: i32,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import2(
+                            ptr0.cast_mut(),
+                            len0,
+                            ptr1.cast_mut(),
+                            len1,
+                            status.clone() as i32,
+                            _rt::as_i32(&ttl_ms),
+                        )
+                    };
+                }
+            }
+        }
         /// ---------------------------------------------------------------------------
         /// file-dialog — host-provided native open/save file pickers with I/O.
         ///
@@ -4021,9 +4123,9 @@ pub(crate) use __export_data_source_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2752] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xb7\x14\x01A\x02\x01\
-A\x1e\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2870] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xad\x15\x01A\x02\x01\
+A\x20\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x0fsearch-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01\
 ks\x01r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
 uthor\x03\x08homepage\x03\x04icon\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04\
@@ -4048,43 +4150,46 @@ close\x01\x0b\x03\0\x1dthoth:plugin/tcp-client@0.1.0\x05\x05\x01B\x0b\x02\x03\x0
 s\0\x02\x04\0\x05write\x01\x03\x01ks\x01j\x01\x04\x01\x01\x01@\x01\x03keys\0\x05\
 \x04\0\x04read\x01\x06\x01@\x01\x03keys\0\x02\x04\0\x06delete\x01\x07\x03\0!thot\
 h:plugin/secure-storage@0.1.0\x05\x06\x01B\x02\x01@\x02\x06handles\x01qs\0s\x04\0\
-\x0csubmit-query\x01\0\x03\0\x1dthoth:plugin/db-runtime@0.1.0\x05\x07\x01B\x0d\x02\
-\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x04paths\x08contentss\x04\
-\0\x0bopened-file\x03\0\x02\x01ps\x01k\x03\x01j\x01\x05\x01\x01\x01@\x02\x05titl\
-es\x0aextensions\x04\0\x06\x04\0\x09open-file\x01\x07\x01ks\x01j\x01\x08\x01\x01\
-\x01@\x04\x05titles\x0cdefault-names\x0aextensions\x04\x08contentss\0\x09\x04\0\x09\
-save-file\x01\x0a\x03\0\x1ethoth:plugin/file-dialog@0.1.0\x05\x08\x01B\x1c\x02\x03\
-\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0bdescriptions\x08\
-required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04names\x09type\
--hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\x02\x04name\
-s\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-jsons\x0bheigh\
-t-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0frequired-c\
-onfig\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07connect\x01\
-\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06schema\x01\
-\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06handles\x01\
-\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\x04\0\x0b\
-render-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x09\x01B\x0f\x02\
-\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04kinds\x05\
-values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x09\
-ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09render-ui\x01\x07\
-\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01j\x01\x09\
-\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:plugin/ui-c\
-omponent@0.1.0\x05\x0a\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\
-\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-icon\x01\x04\
-\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\x01\x01@\x01\
-\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\x0eon-tab-f\
-ocused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-closed\x01\x09\x04\
-\0\x1bthoth:plugin/tab-host@0.1.0\x05\x0b\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\
-\x03\x02\x01\x0c\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\
-\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x0d\x01B\x05\x01@\x01\x07settin\
-gs\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08on-close\x01\x01\x04\0\x11\
-on-setting-change\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x0e\x01B\x07\
-\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jsons\x0bhei\
-ght-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\
-\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x0f\x04\
-\0%thoth:plugin/data-source-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12data-source-plug\
-in\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10\
-wit-bindgen-rust\x060.41.0";
+\x0csubmit-query\x01\0\x03\0\x1dthoth:plugin/db-runtime@0.1.0\x05\x07\x01B\x04\x01\
+m\x03\x05ready\x07loading\x05error\x04\0\x06status\x03\0\0\x01@\x04\x03keys\x05v\
+alues\x06status\x01\x06ttl-msy\x01\0\x04\0\x0bemit-signal\x01\x02\x03\0\x1athoth\
+:plugin/signals@0.1.0\x05\x08\x01B\x0d\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\
+\x03\0\0\x01r\x02\x04paths\x08contentss\x04\0\x0bopened-file\x03\0\x02\x01ps\x01\
+k\x03\x01j\x01\x05\x01\x01\x01@\x02\x05titles\x0aextensions\x04\0\x06\x04\0\x09o\
+pen-file\x01\x07\x01ks\x01j\x01\x08\x01\x01\x01@\x04\x05titles\x0cdefault-names\x0a\
+extensions\x04\x08contentss\0\x09\x04\0\x09save-file\x01\x0a\x03\0\x1ethoth:plug\
+in/file-dialog@0.1.0\x05\x09\x01B\x1c\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\
+\0\0\x01r\x04\x04names\x0bdescriptions\x08required\x7f\x05values\x04\0\x0cconfig\
+-entry\x03\0\x02\x01r\x03\x04names\x09type-hints\x08nullable\x7f\x04\0\x0cfield-\
+schema\x03\0\x04\x01p\x05\x01r\x02\x04names\x06fields\x06\x04\0\x0dsource-schema\
+\x03\0\x07\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0bpane-output\x03\0\x09\
+\x01p\x03\x01@\0\0\x0b\x04\0\x0frequired-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\
+\x06config\x0b\0\x0d\x04\0\x07connect\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\
+\x01\x06handles\0\x10\x04\0\x06schema\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\
+\0\x05query\x01\x12\x01@\x01\x06handles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\
+\x01\x01\x01@\x01\x06handles\0\x14\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:p\
+lugin/data-source@0.1.0\x05\x0a\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-err\
+or\x03\0\0\x01r\x03\x09widget-ids\x04kinds\x05values\x04\0\x08ui-event\x03\0\x02\
+\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\
+\x01\x01\x01@\0\0\x06\x04\0\x09render-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\
+\0\x0chandle-event\x01\x08\x01k\x05\x01j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0er\
+ender-sidebar\x01\x0b\x04\0\x1fthoth:plugin/ui-component@0.1.0\x05\x0b\x01B\x11\x02\
+\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\
+\x01ks\x01@\0\0\x03\x04\0\x08tab-icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\
+\0\x09get-state\x01\x06\x01j\0\x01\x01\x01@\x01\x05states\0\x07\x04\0\x0finit-wi\
+th-state\x01\x08\x01@\0\x01\0\x04\0\x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-bl\
+urred\x01\x09\x04\0\x0don-tab-closed\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.\
+0\x05\x0c\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x0d\x04\0\x0bplugi\
+n-info\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plug\
+in-meta@0.1.0\x05\x0e\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\
+\x01@\0\x01\0\x04\0\x08on-close\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#t\
+hoth:plugin/plugin-lifecycle@0.1.0\x05\x0f\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0c\
+plugin-error\x03\0\0\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0fsettings-ou\
+tput\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\0\x0frender-settings\x01\x05\
+\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x10\x04\0%thoth:plugin/data-sourc\
+e-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12data-source-plugin\x03\0\0\0G\x09producers\
+\x01\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x060.41\
+.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

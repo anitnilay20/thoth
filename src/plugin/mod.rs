@@ -9,6 +9,7 @@ pub mod network_policy;
 pub mod plugin_registry;
 pub mod plugin_ui_host;
 pub mod render_node;
+pub mod signals;
 pub mod theme_plugin;
 pub mod wasm_data_source;
 pub mod wasm_file_viewer_loader;

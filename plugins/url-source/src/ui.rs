@@ -1,5 +1,11 @@
 use crate::{
-    bindings::{exports::thoth::plugin::ui_component::UiEvent, thoth::plugin::http_client},
+    bindings::{
+        exports::thoth::plugin::ui_component::UiEvent,
+        thoth::plugin::{
+            http_client,
+            signals::{self, Status as SignalStatus},
+        },
+    },
     helper::{
         is_body_method, parse_kv_list, parse_str, parse_url_into_state, status_color, status_text,
     },
@@ -615,6 +621,7 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
                 error: Some(format!("response parse error: {e}")),
                 ..Default::default()
             });
+            signals::emit_signal("http", "", SignalStatus::Error, 0);
             return;
         }
     };
@@ -678,6 +685,13 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             duration_ms,
             size_bytes,
         });
+        // HTTP status + payload size as a status-bar signal; >=400 reads as error.
+        let sig_status = if status >= 400 {
+            SignalStatus::Error
+        } else {
+            SignalStatus::Ready
+        };
+        signals::emit_signal("http", &format!("{status} · {size_bytes}B"), sig_status, 0);
     } else if let Some(err) = val.get("err") {
         let message = err
             .get("message")
@@ -688,6 +702,10 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             error: Some(message),
             ..Default::default()
         });
+        signals::emit_signal("http", "", SignalStatus::Error, 0);
+    } else {
+        // Payload had neither `ok` nor `err`: still clear the sticky Loading.
+        signals::emit_signal("http", "", SignalStatus::Error, 0);
     }
 }
 
@@ -732,6 +750,8 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
             st.pending_request_id = Some(request_id);
             st.loading = true;
             st.response = None;
+            // Push a "requesting" signal; handle_http_response overwrites it.
+            signals::emit_signal("http", "", SignalStatus::Loading, 0);
         }
 
         _ => {}
