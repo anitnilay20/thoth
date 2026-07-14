@@ -105,7 +105,7 @@ impl Widget for IconButton {
 
         let tooltip = self.tooltip;
         let response = match tooltip.as_deref() {
-            Some(t) => response.on_hover_text(t.to_owned()),
+            Some(t) => crate::theme::hover_text(response, t.to_owned()),
             None => response,
         };
 

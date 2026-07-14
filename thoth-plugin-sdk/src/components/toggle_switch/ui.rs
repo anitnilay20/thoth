@@ -40,7 +40,7 @@ impl Widget for ToggleSwitch {
 
         response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
         if let Some(hover_text) = self.hover_text {
-            response = response.on_hover_text(hover_text);
+            response = crate::theme::hover_text(response, hover_text);
         }
 
         response

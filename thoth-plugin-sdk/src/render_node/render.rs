@@ -169,6 +169,9 @@ impl RenderNode {
                 if let Some(off) = out.run_marker {
                     emit(events, &c.id, "run-marker", off.to_string());
                 }
+                if out.format.is_some() {
+                    emit(events, &c.id, "format-editor", "".to_string());
+                }
             }
             RenderNode::List(l) => {
                 if let Some(ev) = l.show(ui) {
