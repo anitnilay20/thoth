@@ -1579,7 +1579,7 @@ pub mod thoth {
             /// messages via handle-event with widget-id = <connection-id> and:
             ///   kind = "ws-open"                                     (connected)
             ///   kind = "ws-message", value = JSON {"text":"..."}
-            ///                              or JSON {"binary":"<base64>"}
+            ///                              or JSON {"binary":"<hex>","len":<frame-bytes>}
             ///   kind = "ws-error",   value = message
             ///   kind = "ws-close",   value = JSON {"code":u16,"reason":"..."}
             pub fn connect(

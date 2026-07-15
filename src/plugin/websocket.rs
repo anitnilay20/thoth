@@ -29,6 +29,9 @@ static WS_RT: LazyLock<Runtime> = LazyLock::new(|| {
 /// Keepalive ping cadence.
 const PING_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Bound the initial handshake so a dead host doesn't leave the task hanging.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
 /// A lifecycle / message event delivered from a connection task to the app.
 #[derive(Debug)]
 pub enum WsEvent {
@@ -58,28 +61,47 @@ pub fn spawn(
     let (cmd_tx, mut cmd_rx) = unbounded_channel::<WsCommand>();
 
     WS_RT.spawn(async move {
-        let request = match url.into_client_request() {
-            Ok(mut req) => {
-                for (k, v) in &headers {
-                    if let (Ok(name), Ok(val)) = (
-                        HeaderName::from_bytes(k.as_bytes()),
-                        HeaderValue::from_str(v),
-                    ) {
-                        req.headers_mut().insert(name, val);
-                    }
-                }
-                req
-            }
+        let mut request = match url.into_client_request() {
+            Ok(req) => req,
             Err(e) => {
                 emit(&event_tx, &conn_id, WsEvent::Error(e.to_string()));
                 return;
             }
         };
+        // Fail fast on a malformed header rather than silently dropping it
+        // (e.g. a bad Authorization value would otherwise connect unauthed).
+        for (k, v) in &headers {
+            match (
+                HeaderName::from_bytes(k.as_bytes()),
+                HeaderValue::from_str(v),
+            ) {
+                (Ok(name), Ok(val)) => {
+                    request.headers_mut().insert(name, val);
+                }
+                _ => {
+                    emit(
+                        &event_tx,
+                        &conn_id,
+                        WsEvent::Error(format!("invalid header: {k}")),
+                    );
+                    return;
+                }
+            }
+        }
 
-        let ws = match tokio_tungstenite::connect_async(request).await {
-            Ok((ws, _resp)) => ws,
-            Err(e) => {
+        let connect = tokio_tungstenite::connect_async(request);
+        let ws = match tokio::time::timeout(CONNECT_TIMEOUT, connect).await {
+            Ok(Ok((ws, _resp))) => ws,
+            Ok(Err(e)) => {
                 emit(&event_tx, &conn_id, WsEvent::Error(e.to_string()));
+                return;
+            }
+            Err(_) => {
+                emit(
+                    &event_tx,
+                    &conn_id,
+                    WsEvent::Error("connection timed out".to_string()),
+                );
                 return;
             }
         };

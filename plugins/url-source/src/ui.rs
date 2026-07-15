@@ -994,10 +994,14 @@ fn handle_ws_event(st: &mut State, event: &UiEvent) {
             emit_ws_signal(st, SignalStatus::Ready);
         }
         "ws-error" => {
+            // Errors are terminal (the host task ends), so reset like a close.
             st.ws_connected = false;
+            st.ws_conn_id = None;
             let msg = event.value.clone();
             ws_log(st, WsDir::System, format!("error: {msg}"));
             emit_ws_signal(st, SignalStatus::Error);
+            // Release the host-side connection entry.
+            websocket::close(&event.widget_id);
         }
         "ws-close" => {
             let v: Value = serde_json::from_str(&event.value).unwrap_or(Value::Null);
@@ -1017,6 +1021,8 @@ fn handle_ws_event(st: &mut State, event: &UiEvent) {
             ws_log(st, WsDir::System, msg);
             // Keep the final byte totals visible, but mark the socket idle.
             emit_ws_signal(st, SignalStatus::Ready);
+            // Release the host-side connection entry (server-initiated close).
+            websocket::close(&event.widget_id);
         }
         _ => {}
     }
@@ -1061,6 +1067,10 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
                 st.method = "WSS".to_string();
             } else if scheme.starts_with("ws://") {
                 st.method = "WS".to_string();
+            } else if st.ws_conn_id.is_some() && !is_ws_url(&st.url) {
+                // Navigated away from a WebSocket endpoint while connected —
+                // close the socket so it isn't orphaned.
+                ws_disconnect(st);
             }
         }
 
