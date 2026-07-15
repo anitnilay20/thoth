@@ -864,6 +864,27 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
 // WebSocket handlers
 // =============================================================================
 
+/// Human-readable byte count for the status bar.
+fn fmt_bytes(n: usize) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else if n < 1024 * 1024 {
+        format!("{:.1} KB", n as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", n as f64 / (1024.0 * 1024.0))
+    }
+}
+
+/// Push the WebSocket status-bar signal: total bytes sent / received.
+fn emit_ws_signal(st: &State, status: SignalStatus) {
+    let value = format!(
+        "↑{} ↓{}",
+        fmt_bytes(st.ws_bytes_sent),
+        fmt_bytes(st.ws_bytes_recv)
+    );
+    signals::emit_signal("ws", &value, status, 0);
+}
+
 /// Append a log line, capping the log so it can't grow without bound.
 fn ws_log(st: &mut State, dir: WsDir, text: impl Into<String>) {
     const MAX: usize = 500;
@@ -912,7 +933,10 @@ fn ws_connect(st: &mut State) {
         Ok(id) => {
             st.ws_conn_id = Some(id);
             st.ws_connected = false;
+            st.ws_bytes_sent = 0;
+            st.ws_bytes_recv = 0;
             ws_log(st, WsDir::System, format!("connecting to {url}…"));
+            emit_ws_signal(st, SignalStatus::Loading);
         }
         Err(e) => ws_log(st, WsDir::System, format!("connect failed: {}", e.message)),
     }
@@ -936,8 +960,10 @@ fn ws_send(st: &mut State) {
     }
     match websocket::send_text(&id, &text) {
         Ok(()) => {
+            st.ws_bytes_sent += text.len();
             ws_log(st, WsDir::Sent, text);
             st.ws_send_text.clear();
+            emit_ws_signal(st, SignalStatus::Ready);
         }
         Err(e) => ws_log(st, WsDir::System, format!("send failed: {}", e.message)),
     }
@@ -953,20 +979,25 @@ fn handle_ws_event(st: &mut State, event: &UiEvent) {
         "ws-open" => {
             st.ws_connected = true;
             ws_log(st, WsDir::System, "connected");
+            emit_ws_signal(st, SignalStatus::Ready);
         }
         "ws-message" => {
             let v: Value = serde_json::from_str(&event.value).unwrap_or(Value::Null);
             if let Some(t) = v.get("text").and_then(|t| t.as_str()) {
+                st.ws_bytes_recv += t.len();
                 ws_log(st, WsDir::Recv, t.to_string());
             } else if let Some(hex) = v.get("binary").and_then(|b| b.as_str()) {
                 let len = v.get("len").and_then(|l| l.as_u64()).unwrap_or(0);
+                st.ws_bytes_recv += len as usize;
                 ws_log(st, WsDir::Recv, format!("<binary {len} bytes> {hex}"));
             }
+            emit_ws_signal(st, SignalStatus::Ready);
         }
         "ws-error" => {
             st.ws_connected = false;
             let msg = event.value.clone();
             ws_log(st, WsDir::System, format!("error: {msg}"));
+            emit_ws_signal(st, SignalStatus::Error);
         }
         "ws-close" => {
             let v: Value = serde_json::from_str(&event.value).unwrap_or(Value::Null);
@@ -984,6 +1015,8 @@ fn handle_ws_event(st: &mut State, event: &UiEvent) {
                 format!("closed ({code}): {reason}")
             };
             ws_log(st, WsDir::System, msg);
+            // Keep the final byte totals visible, but mark the socket idle.
+            emit_ws_signal(st, SignalStatus::Ready);
         }
         _ => {}
     }
@@ -1021,6 +1054,14 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
         "url" => {
             let raw = parse_str(&event.value);
             parse_url_into_state(st, raw);
+            // Typing/pasting a ws(s):// URL switches the method to WS/WSS so the
+            // UI enters WebSocket mode.
+            let scheme = st.url.trim_start().to_ascii_lowercase();
+            if scheme.starts_with("wss://") {
+                st.method = "WSS".to_string();
+            } else if scheme.starts_with("ws://") {
+                st.method = "WS".to_string();
+            }
         }
 
         "req-tabs" if parse_str(&event.value) == "Body" && !is_body_method(&st.method) => {

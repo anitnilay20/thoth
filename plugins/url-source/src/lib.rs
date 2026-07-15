@@ -99,6 +99,11 @@ struct State {
     /// The outgoing-message input box.
     #[serde(skip)]
     ws_send_text: String,
+    /// Total bytes sent / received on the current connection (for the status bar).
+    #[serde(skip)]
+    ws_bytes_sent: usize,
+    #[serde(skip)]
+    ws_bytes_recv: usize,
 }
 
 /// Direction of a WebSocket log entry.
@@ -144,6 +149,8 @@ impl State {
             ws_connected: false,
             ws_log: Vec::new(),
             ws_send_text: String::new(),
+            ws_bytes_sent: 0,
+            ws_bytes_recv: 0,
         }
     }
 }
