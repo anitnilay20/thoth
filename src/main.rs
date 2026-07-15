@@ -70,6 +70,13 @@ fn main() -> Result<()> {
     #[cfg(feature = "profiling")]
     puffin::set_scopes_on(true);
 
+    // Install a process-wide rustls crypto provider before any TLS handshake.
+    // Both aws-lc-rs and ring are present in the tree, so rustls 0.23 can't
+    // auto-select one for the WebSocket broker's `wss://` connections
+    // (tokio-tungstenite) — pin aws-lc-rs explicitly. Ignore the error if a
+    // provider was already installed.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Parse command-line arguments for file path
     let args: Vec<String> = std::env::args().collect();
 

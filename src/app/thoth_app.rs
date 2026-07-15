@@ -94,6 +94,38 @@ fn build_query_result_event(
     }
 }
 
+/// Build the plugin UiEvent for a WebSocket lifecycle/message event. The
+/// `widget_id` is the connection id; `kind`/`value` mirror the `websocket` WIT
+/// contract (ws-open / ws-message / ws-error / ws-close).
+fn build_ws_event(
+    conn_id: String,
+    event: crate::plugin::websocket::WsEvent,
+) -> crate::plugin::render_node::UiEvent {
+    use crate::plugin::websocket::WsEvent;
+    let (kind, value) = match event {
+        WsEvent::Open => ("ws-open", String::new()),
+        WsEvent::Text(t) => ("ws-message", serde_json::json!({ "text": t }).to_string()),
+        WsEvent::Binary(b) => {
+            // Hex-encode binary frames for display (no extra dependency).
+            let hex: String = b.iter().map(|byte| format!("{byte:02x}")).collect();
+            (
+                "ws-message",
+                serde_json::json!({ "binary": hex, "len": b.len() }).to_string(),
+            )
+        }
+        WsEvent::Error(m) => ("ws-error", m),
+        WsEvent::Closed { code, reason } => (
+            "ws-close",
+            serde_json::json!({ "code": code, "reason": reason }).to_string(),
+        ),
+    };
+    crate::plugin::render_node::UiEvent {
+        widget_id: conn_id,
+        kind: kind.to_string(),
+        value,
+    }
+}
+
 /// A plugin's sidebar instance, independent of any dock tab. Created when the user
 /// opens the plugin's sidebar and kept alive while the sidebar is toggled, so its
 /// state survives collapse/expand and never affects (or requires) a tab. Tabs are
@@ -251,6 +283,10 @@ impl App for ThothApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
+
+        // Publish the context once so off-thread workers (WebSocket tasks) can
+        // request a repaint when data arrives.
+        let _ = crate::EGUI_CTX.set(ctx.clone());
 
         if UpdateHandler::should_check_updates(&self.update_state, &self.settings) {
             UpdateHandler::check_for_updates(&mut self.update_state);
@@ -929,6 +965,7 @@ impl ThothApp {
         let ids: Vec<TabId> = self.window_state.tab_manager.tabs.keys().copied().collect();
         let mut http_dispatch: Vec<(TabId, UiEvent)> = Vec::new();
         let mut query_dispatch: Vec<(TabId, UiEvent)> = Vec::new();
+        let mut ws_dispatch: Vec<(TabId, UiEvent)> = Vec::new();
         let mut retry_dispatch: Vec<(TabId, String, PluginHttpRequest)> = Vec::new();
         let mut tab_open_reqs: Vec<TabOpenRequest> = Vec::new();
         let mut needs_repaint = false;
@@ -953,6 +990,9 @@ impl ThothApp {
                 for (request_id, result) in pane.loader.drain_query_results() {
                     query_dispatch.push((*id, build_query_result_event(request_id, result)));
                 }
+                for (conn_id, event) in pane.loader.drain_ws_events() {
+                    ws_dispatch.push((*id, build_ws_event(conn_id, event)));
+                }
             }
             for (request_id, req) in pane.loader.drain_retry_requests() {
                 retry_dispatch.push((*id, request_id, req));
@@ -966,6 +1006,7 @@ impl ThothApp {
         // The mounted plugin sidebar runs independently of tabs — drive it too.
         let mut sidebar_http: Vec<UiEvent> = Vec::new();
         let mut sidebar_query: Vec<UiEvent> = Vec::new();
+        let mut sidebar_ws: Vec<UiEvent> = Vec::new();
         let mut sidebar_retry: Vec<(String, PluginHttpRequest)> = Vec::new();
         if let Some(rt) = self.sidebar_plugin.as_ref() {
             rt.loader.pump_queries();
@@ -977,6 +1018,9 @@ impl ThothApp {
                 }
                 for (request_id, result) in rt.loader.drain_query_results() {
                     sidebar_query.push(build_query_result_event(request_id, result));
+                }
+                for (conn_id, event) in rt.loader.drain_ws_events() {
+                    sidebar_ws.push(build_ws_event(conn_id, event));
                 }
             }
             // Consent-approved retries must be replayed here too, or a sidebar
@@ -996,10 +1040,16 @@ impl ThothApp {
         for (id, event) in query_dispatch {
             self.dispatch_plugin_event_for(id, event);
         }
+        for (id, event) in ws_dispatch {
+            self.dispatch_plugin_event_for(id, event);
+        }
         for event in sidebar_http {
             self.dispatch_sidebar_event(event);
         }
         for event in sidebar_query {
+            self.dispatch_sidebar_event(event);
+        }
+        for event in sidebar_ws {
             self.dispatch_sidebar_event(event);
         }
 

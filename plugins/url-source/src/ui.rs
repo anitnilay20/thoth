@@ -4,20 +4,21 @@ use crate::{
         thoth::plugin::{
             http_client,
             signals::{self, Status as SignalStatus},
+            websocket,
         },
     },
     helper::{
         is_body_method, parse_kv_list, parse_str, parse_url_into_state, status_color, status_text,
     },
     http::build_request,
-    KvPair, ResponseState, State,
+    KvPair, ResponseState, State, WsDir, WsLogEntry,
 };
 use serde_json::Value;
 use thoth_plugin_sdk::components::{
-    Align, Badge, BgColor, Button, ButtonColor, Code, CodeEditor, Column, IconButton, Input,
-    JsonTree, KeyValueList, KvEntry, List, ListItem, ListItemAction, ListItemBadge, Modal, Radio,
-    Row, Scroll, Select, SelectOption, Separator, Spinner, Split, TabAction, TableView, Tabs,
-    Typography, TypographyVariant,
+    Align, Badge, BgColor, Button, ButtonColor, Code, CodeEditor, Column, DataRow, DataRowIcon,
+    IconButton, Input, JsonTree, KeyValueList, KvEntry, List, ListItem, ListItemAction,
+    ListItemBadge, Modal, Radio, Row, Scroll, Select, SelectOption, Separator, Spacer, Spinner,
+    Split, TabAction, TableView, Tabs, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -280,6 +281,10 @@ fn build_request_column(st: &State) -> RenderNode {
 }
 
 fn build_response_column(st: &State) -> RenderNode {
+    if is_ws_mode(st) {
+        return build_ws_panel(st);
+    }
+
     if st.loading {
         let label = if st.consent_pending {
             "Waiting for consent approval…"
@@ -320,8 +325,108 @@ fn build_response_column(st: &State) -> RenderNode {
     }
 }
 
+/// WebSocket panel: status header, send box, then the message log (fills the
+/// rest and scrolls). Shown in the response column for ws(s):// URLs.
+fn build_ws_panel(st: &State) -> RenderNode {
+    let status = if st.ws_connected {
+        "● connected"
+    } else if st.ws_conn_id.is_some() {
+        "○ connecting…"
+    } else {
+        "○ disconnected"
+    };
+
+    let log_rows: Vec<RenderNode> = if st.ws_log.is_empty() {
+        vec![muted("No messages yet. Connect, then send a frame.")]
+    } else {
+        st.ws_log
+            .iter()
+            .enumerate()
+            .map(|(i, e)| ws_log_row(i, e))
+            .collect()
+    };
+
+    RenderNode::Column(
+        Column::builder()
+            .gap(0.0)
+            .children(vec![
+                RenderNode::Row(
+                    Row::builder()
+                        .bg_color(BgColor::BgPanel)
+                        .max_width(true)
+                        .padding(8.0)
+                        .children(vec![muted(status)])
+                        .build(),
+                ),
+                RenderNode::Row(
+                    Row::builder()
+                        .gap(4.0)
+                        .padding(4.0)
+                        .max_width(true)
+                        .align(Align::Fill)
+                        .children(vec![
+                            RenderNode::Input(
+                                Input::builder()
+                                    .id("ws-send-text")
+                                    .value(st.ws_send_text.clone())
+                                    .placeholder("Message to send…")
+                                    .grow(true)
+                                    .disabled(!st.ws_connected)
+                                    .build(),
+                            ),
+                            btn(
+                                "ws-send",
+                                "Send",
+                                st.ws_connected && !st.ws_send_text.is_empty(),
+                                ButtonColor::Primary,
+                            ),
+                            RenderNode::Spacer(Spacer::builder().size(8.0).build()),
+                        ])
+                        .build(),
+                ),
+                RenderNode::Separator(Separator::plain()),
+                RenderNode::Scroll(
+                    Scroll::builder()
+                        .id("ws-log-scroll")
+                        .child(RenderNode::Column(
+                            Column::builder().gap(2.0).children(log_rows).build(),
+                        ))
+                        .build(),
+                ),
+            ])
+            .build(),
+    )
+}
+
+// Phosphor (regular) arrows for the WebSocket log direction.
+const ICON_ARROW_UP: &str = "\u{E08E}"; // ARROW_UP — sent
+const ICON_ARROW_DOWN: &str = "\u{E03E}"; // ARROW_DOWN — received
+const ICON_DOT: &str = "\u{E18A}"; // CIRCLE — system
+
+/// One message-log line as a DataRow with a colour-coded direction arrow:
+/// sent (↑, blue), received (↓, green), system (•, muted).
+fn ws_log_row(idx: usize, entry: &WsLogEntry) -> RenderNode {
+    let (glyph, color) = match entry.dir {
+        WsDir::Sent => (ICON_ARROW_UP, Some("#89b4fa".to_string())),
+        WsDir::Recv => (ICON_ARROW_DOWN, Some("#a6e3a1".to_string())),
+        WsDir::System => (ICON_DOT, None),
+    };
+    RenderNode::DataRow(
+        DataRow::builder()
+            .row_id(format!("ws-log-{idx}"))
+            .display_text(entry.text.clone())
+            .leading_icon(
+                DataRowIcon::builder()
+                    .glyph(glyph)
+                    .maybe_color(color)
+                    .build(),
+            )
+            .build(),
+    )
+}
+
 fn build_url_bar(st: &State) -> RenderNode {
-    let method_options: Vec<SelectOption> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+    let method_options: Vec<SelectOption> = ["GET", "POST", "PUT", "PATCH", "DELETE", "WS", "WSS"]
         .iter()
         .map(|m| SelectOption::builder().value(*m).label(*m).build())
         .collect();
@@ -351,10 +456,56 @@ fn build_url_bar(st: &State) -> RenderNode {
                         .build(),
                 ),
                 btn("clear", "Clear", true, ButtonColor::Danger),
-                btn("send", "⚡ Send", !st.url.is_empty(), ButtonColor::Primary),
+                ws_or_send_button(st),
             ])
             .build(),
     )
+}
+
+/// True when the URL scheme is ws:// or wss://.
+pub fn is_ws_url(url: &str) -> bool {
+    let u = url.trim_start().to_ascii_lowercase();
+    u.starts_with("ws://") || u.starts_with("wss://")
+}
+
+/// WebSocket mode is active when the method is WS/WSS or the URL already uses a
+/// ws(s):// scheme (e.g. a pasted URL).
+pub fn is_ws_mode(st: &State) -> bool {
+    st.method == "WS" || st.method == "WSS" || is_ws_url(&st.url)
+}
+
+/// The URL to connect to, normalised to a ws(s):// scheme. If the URL already
+/// has a ws(s):// scheme it's used as-is; otherwise the scheme is derived from
+/// the selected method (WS → ws://, else wss://), replacing any http(s)://.
+fn ws_connect_url(st: &State) -> String {
+    let u = st.url.trim();
+    if is_ws_url(u) {
+        return u.to_string();
+    }
+    let scheme = if st.method == "WS" { "ws://" } else { "wss://" };
+    let bare = u
+        .strip_prefix("https://")
+        .or_else(|| u.strip_prefix("http://"))
+        .unwrap_or(u);
+    format!("{scheme}{bare}")
+}
+
+/// Connect/Disconnect for ws(s):// URLs; ⚡ Send otherwise.
+fn ws_or_send_button(st: &State) -> RenderNode {
+    if is_ws_mode(st) {
+        if st.ws_conn_id.is_some() {
+            btn("ws-toggle", "Disconnect", true, ButtonColor::Danger)
+        } else {
+            btn(
+                "ws-toggle",
+                "Connect",
+                !st.url.is_empty(),
+                ButtonColor::Primary,
+            )
+        }
+    } else {
+        btn("send", "⚡ Send", !st.url.is_empty(), ButtonColor::Primary)
+    }
 }
 
 fn build_req_tabs(st: &State) -> RenderNode {
@@ -718,6 +869,174 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
 }
 
 // =============================================================================
+// WebSocket handlers
+// =============================================================================
+
+/// Human-readable byte count for the status bar.
+fn fmt_bytes(n: usize) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else if n < 1024 * 1024 {
+        format!("{:.1} KB", n as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", n as f64 / (1024.0 * 1024.0))
+    }
+}
+
+/// Push the WebSocket status-bar signal: total bytes sent / received.
+fn emit_ws_signal(st: &State, status: SignalStatus) {
+    let value = format!(
+        "↑{} ↓{}",
+        fmt_bytes(st.ws_bytes_sent),
+        fmt_bytes(st.ws_bytes_recv)
+    );
+    signals::emit_signal("ws", &value, status, 0);
+}
+
+/// Append a log line, capping the log so it can't grow without bound.
+fn ws_log(st: &mut State, dir: WsDir, text: impl Into<String>) {
+    const MAX: usize = 500;
+    st.ws_log.push(WsLogEntry {
+        dir,
+        text: text.into(),
+    });
+    if st.ws_log.len() > MAX {
+        let excess = st.ws_log.len() - MAX;
+        st.ws_log.drain(0..excess);
+    }
+}
+
+/// Connect headers: enabled custom request headers, plus bearer auth.
+fn ws_headers(st: &State) -> Vec<(String, String)> {
+    let mut headers: Vec<(String, String)> = st
+        .req_headers
+        .iter()
+        .filter(|h| h.enabled && !h.key.is_empty())
+        .map(|h| (h.key.clone(), h.value.clone()))
+        .collect();
+    if st.auth_type == "bearer" && !st.auth_token.is_empty() {
+        headers.push((
+            "Authorization".to_string(),
+            format!("Bearer {}", st.auth_token),
+        ));
+    }
+    headers
+}
+
+fn ws_toggle(st: &mut State) {
+    if st.ws_conn_id.is_some() {
+        ws_disconnect(st);
+    } else {
+        ws_connect(st);
+    }
+}
+
+fn ws_connect(st: &mut State) {
+    if st.url.is_empty() {
+        return;
+    }
+    let url = ws_connect_url(st);
+    let headers = ws_headers(st);
+    match websocket::connect(&url, &headers) {
+        Ok(id) => {
+            st.ws_conn_id = Some(id);
+            st.ws_connected = false;
+            st.ws_bytes_sent = 0;
+            st.ws_bytes_recv = 0;
+            ws_log(st, WsDir::System, format!("connecting to {url}…"));
+            emit_ws_signal(st, SignalStatus::Loading);
+        }
+        Err(e) => ws_log(st, WsDir::System, format!("connect failed: {}", e.message)),
+    }
+}
+
+fn ws_disconnect(st: &mut State) {
+    if let Some(id) = st.ws_conn_id.take() {
+        websocket::close(&id);
+    }
+    st.ws_connected = false;
+    ws_log(st, WsDir::System, "disconnected");
+}
+
+fn ws_send(st: &mut State) {
+    let Some(id) = st.ws_conn_id.clone() else {
+        return;
+    };
+    let text = st.ws_send_text.clone();
+    if text.is_empty() {
+        return;
+    }
+    match websocket::send_text(&id, &text) {
+        Ok(()) => {
+            st.ws_bytes_sent += text.len();
+            ws_log(st, WsDir::Sent, text);
+            st.ws_send_text.clear();
+            emit_ws_signal(st, SignalStatus::Ready);
+        }
+        Err(e) => ws_log(st, WsDir::System, format!("send failed: {}", e.message)),
+    }
+}
+
+/// Fold a host WebSocket event (ws-open/message/error/close) into state.
+fn handle_ws_event(st: &mut State, event: &UiEvent) {
+    // Only events for the current connection matter (ignore a stale one).
+    if st.ws_conn_id.as_deref() != Some(event.widget_id.as_str()) {
+        return;
+    }
+    match event.kind.as_str() {
+        "ws-open" => {
+            st.ws_connected = true;
+            ws_log(st, WsDir::System, "connected");
+            emit_ws_signal(st, SignalStatus::Ready);
+        }
+        "ws-message" => {
+            let v: Value = serde_json::from_str(&event.value).unwrap_or(Value::Null);
+            if let Some(t) = v.get("text").and_then(|t| t.as_str()) {
+                st.ws_bytes_recv += t.len();
+                ws_log(st, WsDir::Recv, t.to_string());
+            } else if let Some(hex) = v.get("binary").and_then(|b| b.as_str()) {
+                let len = v.get("len").and_then(|l| l.as_u64()).unwrap_or(0);
+                st.ws_bytes_recv += len as usize;
+                ws_log(st, WsDir::Recv, format!("<binary {len} bytes> {hex}"));
+            }
+            emit_ws_signal(st, SignalStatus::Ready);
+        }
+        "ws-error" => {
+            // Errors are terminal (the host task ends), so reset like a close.
+            st.ws_connected = false;
+            st.ws_conn_id = None;
+            let msg = event.value.clone();
+            ws_log(st, WsDir::System, format!("error: {msg}"));
+            emit_ws_signal(st, SignalStatus::Error);
+            // Release the host-side connection entry.
+            websocket::close(&event.widget_id);
+        }
+        "ws-close" => {
+            let v: Value = serde_json::from_str(&event.value).unwrap_or(Value::Null);
+            let code = v.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
+            let reason = v
+                .get("reason")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string();
+            st.ws_connected = false;
+            st.ws_conn_id = None;
+            let msg = if reason.is_empty() {
+                format!("closed ({code})")
+            } else {
+                format!("closed ({code}): {reason}")
+            };
+            ws_log(st, WsDir::System, msg);
+            // Keep the final byte totals visible, but mark the socket idle.
+            emit_ws_signal(st, SignalStatus::Ready);
+            // Release the host-side connection entry (server-initiated close).
+            websocket::close(&event.widget_id);
+        }
+        _ => {}
+    }
+}
+
+// =============================================================================
 // Event → state mutations
 // =============================================================================
 
@@ -726,14 +1045,41 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
         handle_http_response(st, event);
         return;
     }
+    // WebSocket lifecycle/message events are keyed by connection id, not a
+    // known widget id, so route them by kind.
+    if event.kind.starts_with("ws-") {
+        handle_ws_event(st, event);
+        return;
+    }
 
     match event.widget_id.as_str() {
+        "ws-toggle" => ws_toggle(st),
+        "ws-send-text" => {
+            st.ws_send_text = parse_str(&event.value);
+            // Enter in the box sends.
+            if event.kind == "submit" {
+                ws_send(st);
+            }
+        }
+        "ws-send" => ws_send(st),
         "request-name" => st.request_name = parse_str(&event.value),
 
         "method" => st.method = parse_str(&event.value),
         "url" => {
             let raw = parse_str(&event.value);
             parse_url_into_state(st, raw);
+            // Typing/pasting a ws(s):// URL switches the method to WS/WSS so the
+            // UI enters WebSocket mode.
+            let scheme = st.url.trim_start().to_ascii_lowercase();
+            if scheme.starts_with("wss://") {
+                st.method = "WSS".to_string();
+            } else if scheme.starts_with("ws://") {
+                st.method = "WS".to_string();
+            } else if st.ws_conn_id.is_some() && !is_ws_url(&st.url) {
+                // Navigated away from a WebSocket endpoint while connected —
+                // close the socket so it isn't orphaned.
+                ws_disconnect(st);
+            }
         }
 
         "req-tabs" if parse_str(&event.value) == "Body" && !is_body_method(&st.method) => {

@@ -16,6 +16,7 @@ pub mod wasm_file_viewer_loader;
 pub mod wasm_loader;
 pub mod wasm_plugin_settings;
 pub mod wasm_ui_component;
+pub mod websocket;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NetworkDeclarations {

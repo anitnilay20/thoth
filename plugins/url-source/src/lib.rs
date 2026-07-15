@@ -85,6 +85,39 @@ struct State {
     // ── Response cache (transient — never persisted) ──────────────────────
     #[serde(skip)]
     response: Option<ResponseState>,
+
+    // ── WebSocket state (transient — never persisted) ─────────────────────
+    /// Active connection id from `websocket::connect`, while connecting/open.
+    #[serde(skip)]
+    ws_conn_id: Option<String>,
+    /// True once the host reports the socket open.
+    #[serde(skip)]
+    ws_connected: bool,
+    /// Sent / received / system message log, newest last.
+    #[serde(skip)]
+    ws_log: Vec<WsLogEntry>,
+    /// The outgoing-message input box.
+    #[serde(skip)]
+    ws_send_text: String,
+    /// Total bytes sent / received on the current connection (for the status bar).
+    #[serde(skip)]
+    ws_bytes_sent: usize,
+    #[serde(skip)]
+    ws_bytes_recv: usize,
+}
+
+/// Direction of a WebSocket log entry.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum WsDir {
+    Sent,
+    Recv,
+    System,
+}
+
+#[derive(Clone, Debug)]
+pub struct WsLogEntry {
+    pub dir: WsDir,
+    pub text: String,
 }
 
 impl State {
@@ -112,6 +145,12 @@ impl State {
             consent_pending: false,
             pending_request_id: None,
             response: None,
+            ws_conn_id: None,
+            ws_connected: false,
+            ws_log: Vec::new(),
+            ws_send_text: String::new(),
+            ws_bytes_sent: 0,
+            ws_bytes_recv: 0,
         }
     }
 }

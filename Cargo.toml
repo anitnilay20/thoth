@@ -135,6 +135,9 @@ wasmtime-wasi-http = "43"
 # Host-terminated TLS for the plugin tcp-client import.
 rustls = "0.23"
 webpki-roots = "0.26"
+# WebSocket connections brokered for the plugin `websocket` import.
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
 # OS keychain for the plugin secure-storage import.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 wit-bindgen = "0.54.0"

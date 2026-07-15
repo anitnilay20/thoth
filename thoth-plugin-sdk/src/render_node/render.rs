@@ -88,10 +88,20 @@ impl RenderNode {
                 h.show(ui);
             }
 
-            // ── Input widgets (emit "change") ────────────────────────────────
+            // ── Input widgets (emit "change"; "submit" on Enter) ─────────────
             RenderNode::Input(i) => {
-                if i.show(ui).inner {
+                let out = i.show(ui);
+                if out.inner {
                     emit(events, &i.id, "change", i.value.clone());
+                }
+                // A single-line field loses focus when Enter is pressed; emit a
+                // "submit" so plugins can act on it (e.g. send). Multiline fields
+                // keep focus on Enter (newline), so they never submit here.
+                // Re-request focus so the field stays active for the next entry
+                // (a chat-style send box keeps typing without re-clicking).
+                if out.response.lost_focus() && ui.input(|inp| inp.key_pressed(egui::Key::Enter)) {
+                    emit(events, &i.id, "submit", i.value.clone());
+                    out.response.request_focus();
                 }
             }
             RenderNode::Select(s) => {
