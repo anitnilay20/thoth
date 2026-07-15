@@ -25,6 +25,7 @@ sha2 = "0.10"
 # with the server's public key. `rand` (getrandom's wasi backend) seeds OAEP.
 rsa = { version = "0.9", features = ["pem"] }
 rand = "0.8"
+sqlformat = "0.5.0"
 # Type-safe UI DSL builders (no egui — plugins only describe UI, never render).
 thoth-plugin-sdk = { path = "../../thoth-plugin-sdk", features = ["plugin"] }
 

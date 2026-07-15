@@ -192,7 +192,7 @@ impl egui::Widget for Button {
             .inner;
 
         if let Some(hover_text) = self.hover_text {
-            response = response.on_hover_text(hover_text);
+            response = crate::theme::hover_text(response, hover_text);
         }
 
         // Copy-to-clipboard on click, handled in-widget.

@@ -96,7 +96,7 @@ impl Tabs {
                             let resp = if header.is_empty() {
                                 resp
                             } else {
-                                resp.on_hover_text(header.as_str())
+                                crate::theme::hover_text(resp, header.as_str())
                             };
                             if resp.clicked() && !is_active {
                                 selected = i;
