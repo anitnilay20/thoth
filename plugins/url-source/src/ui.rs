@@ -281,7 +281,7 @@ fn build_request_column(st: &State) -> RenderNode {
 }
 
 fn build_response_column(st: &State) -> RenderNode {
-    if is_ws_url(&st.url) {
+    if is_ws_mode(st) {
         return build_ws_panel(st);
     }
 
@@ -408,7 +408,7 @@ fn ws_log_row(entry: &WsLogEntry) -> RenderNode {
 }
 
 fn build_url_bar(st: &State) -> RenderNode {
-    let method_options: Vec<SelectOption> = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+    let method_options: Vec<SelectOption> = ["GET", "POST", "PUT", "PATCH", "DELETE", "WS", "WSS"]
         .iter()
         .map(|m| SelectOption::builder().value(*m).label(*m).build())
         .collect();
@@ -444,15 +444,37 @@ fn build_url_bar(st: &State) -> RenderNode {
     )
 }
 
-/// True when the URL targets a WebSocket endpoint.
+/// True when the URL scheme is ws:// or wss://.
 pub fn is_ws_url(url: &str) -> bool {
     let u = url.trim_start().to_ascii_lowercase();
     u.starts_with("ws://") || u.starts_with("wss://")
 }
 
+/// WebSocket mode is active when the method is WS/WSS or the URL already uses a
+/// ws(s):// scheme (e.g. a pasted URL).
+pub fn is_ws_mode(st: &State) -> bool {
+    st.method == "WS" || st.method == "WSS" || is_ws_url(&st.url)
+}
+
+/// The URL to connect to, normalised to a ws(s):// scheme. If the URL already
+/// has a ws(s):// scheme it's used as-is; otherwise the scheme is derived from
+/// the selected method (WS → ws://, else wss://), replacing any http(s)://.
+fn ws_connect_url(st: &State) -> String {
+    let u = st.url.trim();
+    if is_ws_url(u) {
+        return u.to_string();
+    }
+    let scheme = if st.method == "WS" { "ws://" } else { "wss://" };
+    let bare = u
+        .strip_prefix("https://")
+        .or_else(|| u.strip_prefix("http://"))
+        .unwrap_or(u);
+    format!("{scheme}{bare}")
+}
+
 /// Connect/Disconnect for ws(s):// URLs; ⚡ Send otherwise.
 fn ws_or_send_button(st: &State) -> RenderNode {
-    if is_ws_url(&st.url) {
+    if is_ws_mode(st) {
         if st.ws_conn_id.is_some() {
             btn("ws-toggle", "Disconnect", true, ButtonColor::Danger)
         } else {
@@ -866,12 +888,12 @@ fn ws_connect(st: &mut State) {
     if st.url.is_empty() {
         return;
     }
+    let url = ws_connect_url(st);
     let headers = ws_headers(st);
-    match websocket::connect(&st.url, &headers) {
+    match websocket::connect(&url, &headers) {
         Ok(id) => {
             st.ws_conn_id = Some(id);
             st.ws_connected = false;
-            let url = st.url.clone();
             ws_log(st, WsDir::System, format!("connecting to {url}…"));
         }
         Err(e) => ws_log(st, WsDir::System, format!("connect failed: {}", e.message)),
