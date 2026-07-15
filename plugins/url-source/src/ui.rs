@@ -17,8 +17,8 @@ use serde_json::Value;
 use thoth_plugin_sdk::components::{
     Align, Badge, BgColor, Button, ButtonColor, Code, CodeEditor, Column, DataRow, DataRowIcon,
     IconButton, Input, JsonTree, KeyValueList, KvEntry, List, ListItem, ListItemAction,
-    ListItemBadge, Modal, Radio, Row, Scroll, Select, SelectOption, Separator, Spinner, Split,
-    TabAction, TableView, Tabs, Typography, TypographyVariant,
+    ListItemBadge, Modal, Radio, Row, Scroll, Select, SelectOption, Separator, Spacer, Spinner,
+    Split, TabAction, TableView, Tabs, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -380,6 +380,7 @@ fn build_ws_panel(st: &State) -> RenderNode {
                                 st.ws_connected && !st.ws_send_text.is_empty(),
                                 ButtonColor::Primary,
                             ),
+                            RenderNode::Spacer(Spacer::builder().size(8.0).build()),
                         ])
                         .build(),
                 ),
@@ -1006,7 +1007,13 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
 
     match event.widget_id.as_str() {
         "ws-toggle" => ws_toggle(st),
-        "ws-send-text" => st.ws_send_text = parse_str(&event.value),
+        "ws-send-text" => {
+            st.ws_send_text = parse_str(&event.value);
+            // Enter in the box sends.
+            if event.kind == "submit" {
+                ws_send(st);
+            }
+        }
         "ws-send" => ws_send(st),
         "request-name" => st.request_name = parse_str(&event.value),
 
