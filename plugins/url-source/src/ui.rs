@@ -15,10 +15,10 @@ use crate::{
 };
 use serde_json::Value;
 use thoth_plugin_sdk::components::{
-    Align, Badge, BgColor, Button, ButtonColor, Code, CodeEditor, Column, IconButton, Input,
-    JsonTree, KeyValueList, KvEntry, List, ListItem, ListItemAction, ListItemBadge, Modal, Radio,
-    Row, Scroll, Select, SelectOption, Separator, Spinner, Split, TabAction, TableView, Tabs,
-    Typography, TypographyVariant,
+    Align, Badge, BgColor, Button, ButtonColor, Code, CodeEditor, Column, DataRow, DataRowIcon,
+    IconButton, Input, JsonTree, KeyValueList, KvEntry, List, ListItem, ListItemAction,
+    ListItemBadge, Modal, Radio, Row, Scroll, Select, SelectOption, Separator, Spinner, Split,
+    TabAction, TableView, Tabs, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -339,7 +339,11 @@ fn build_ws_panel(st: &State) -> RenderNode {
     let log_rows: Vec<RenderNode> = if st.ws_log.is_empty() {
         vec![muted("No messages yet. Connect, then send a frame.")]
     } else {
-        st.ws_log.iter().map(ws_log_row).collect()
+        st.ws_log
+            .iter()
+            .enumerate()
+            .map(|(i, e)| ws_log_row(i, e))
+            .collect()
     };
 
     RenderNode::Column(
@@ -393,18 +397,31 @@ fn build_ws_panel(st: &State) -> RenderNode {
     )
 }
 
-/// One message-log line: direction arrow + text.
-fn ws_log_row(entry: &WsLogEntry) -> RenderNode {
-    let prefix = match entry.dir {
-        WsDir::Sent => "→ ",
-        WsDir::Recv => "← ",
-        WsDir::System => "• ",
+// Phosphor (regular) arrows for the WebSocket log direction.
+const ICON_ARROW_UP: &str = "\u{E08E}"; // ARROW_UP — sent
+const ICON_ARROW_DOWN: &str = "\u{E03E}"; // ARROW_DOWN — received
+const ICON_DOT: &str = "\u{E18A}"; // CIRCLE — system
+
+/// One message-log line as a DataRow with a colour-coded direction arrow:
+/// sent (↑, blue), received (↓, green), system (•, muted).
+fn ws_log_row(idx: usize, entry: &WsLogEntry) -> RenderNode {
+    let (glyph, color) = match entry.dir {
+        WsDir::Sent => (ICON_ARROW_UP, Some("#89b4fa".to_string())),
+        WsDir::Recv => (ICON_ARROW_DOWN, Some("#a6e3a1".to_string())),
+        WsDir::System => (ICON_DOT, None),
     };
-    let line = format!("{prefix}{}", entry.text);
-    match entry.dir {
-        WsDir::System => muted(&line),
-        _ => text(&line),
-    }
+    RenderNode::DataRow(
+        DataRow::builder()
+            .row_id(format!("ws-log-{idx}"))
+            .display_text(entry.text.clone())
+            .leading_icon(
+                DataRowIcon::builder()
+                    .glyph(glyph)
+                    .maybe_color(color)
+                    .build(),
+            )
+            .build(),
+    )
 }
 
 fn build_url_bar(st: &State) -> RenderNode {

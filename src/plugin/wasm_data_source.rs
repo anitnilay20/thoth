@@ -177,8 +177,10 @@ struct DataSourcePluginState {
     query_pending: Arc<AtomicUsize>,
     // WebSocket connections opened via the `websocket` import. Events flow back
     // on `ws_event_tx`; `ws_conns` maps a connection id to its command channel.
+    // `ws_conns` is shared so a consent-approval callback (which can't borrow
+    // `self`) can insert a connection once the user allows it.
     ws_event_tx: std::sync::mpsc::Sender<(String, WsEvent)>,
-    ws_conns: HashMap<String, tokio::sync::mpsc::UnboundedSender<WsCommand>>,
+    ws_conns: Arc<Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<WsCommand>>>>,
 }
 
 impl WasiView for DataSourcePluginState {
@@ -764,40 +766,75 @@ impl thoth::plugin::websocket::Host for DataSourcePluginState {
     ) -> std::result::Result<String, thoth::plugin::websocket::PluginError> {
         let ws_err =
             |code: u32, message: String| thoth::plugin::websocket::PluginError { code, message };
+        let conn_id = next_ws_id();
         match self.policy.check(&url) {
             Ok(CheckOutcome::Allowed) => {
-                let conn_id = next_ws_id();
                 let cmd_tx = crate::plugin::websocket::spawn(
                     url,
                     headers,
                     conn_id.clone(),
                     self.ws_event_tx.clone(),
                 );
-                self.ws_conns.insert(conn_id.clone(), cmd_tx);
+                if let Ok(mut map) = self.ws_conns.lock() {
+                    map.insert(conn_id.clone(), cmd_tx);
+                }
                 Ok(conn_id)
             }
             Ok(CheckOutcome::NeedsConsent { domain }) => {
-                // Inform + gate; the user re-connects after approving the host.
+                // Optimistically hand back the id (the plugin shows "connecting…")
+                // and defer the actual connect until the user decides. On ALLOW —
+                // one-time or remembered — spawn the connection; only "remember"
+                // updates the runtime allowlist. On DENY, emit a close so the
+                // plugin resets. Mirrors the async http consent path.
                 let _ = self.consent_tx.send(ConsentRequest {
                     domain: domain.clone(),
                     plugin_id: self.plugin_id.clone(),
                 });
                 let runtime_allowed = self.policy.runtime_allowed_handle();
-                let dom = domain.clone();
-                ConsentManager::push_http_consent(
-                    &domain,
-                    &self.plugin_id,
-                    Arc::new(move |remember: bool| {
-                        if remember && let Ok(mut list) = runtime_allowed.lock() {
-                            list.push(dom.clone());
-                        }
-                    }),
-                    Arc::new(|_| {}),
-                );
-                Err(ws_err(
-                    403,
-                    format!("domain '{domain}' not approved — waiting for user consent"),
-                ))
+                let conns = Arc::clone(&self.ws_conns);
+                // `mpsc::Sender` is not `Sync`, so wrap it for the consent closures.
+                let ev_tx = Arc::new(Mutex::new(self.ws_event_tx.clone()));
+
+                let (a_url, a_headers, a_id) = (url.clone(), headers.clone(), conn_id.clone());
+                let (a_conns, a_ev, a_dom) =
+                    (Arc::clone(&conns), Arc::clone(&ev_tx), domain.clone());
+                let on_allow = Arc::new(move |remember: bool| {
+                    let tx = match a_ev.lock() {
+                        Ok(t) => t.clone(),
+                        Err(_) => return,
+                    };
+                    let cmd_tx = crate::plugin::websocket::spawn(
+                        a_url.clone(),
+                        a_headers.clone(),
+                        a_id.clone(),
+                        tx,
+                    );
+                    if let Ok(mut map) = a_conns.lock() {
+                        map.insert(a_id.clone(), cmd_tx);
+                    }
+                    if remember && let Ok(mut list) = runtime_allowed.lock() {
+                        list.push(a_dom.clone());
+                    }
+                });
+
+                let (d_id, d_ev) = (conn_id.clone(), Arc::clone(&ev_tx));
+                let on_deny = Arc::new(move |_remember: bool| {
+                    if let Ok(tx) = d_ev.lock() {
+                        let _ = tx.send((
+                            d_id.clone(),
+                            WsEvent::Closed {
+                                code: 1008,
+                                reason: "connection denied".to_string(),
+                            },
+                        ));
+                    }
+                    if let Some(ctx) = crate::EGUI_CTX.get() {
+                        ctx.request_repaint();
+                    }
+                });
+
+                ConsentManager::push_http_consent(&domain, &self.plugin_id, on_allow, on_deny);
+                Ok(conn_id)
             }
             Err(violation) => Err(ws_err(403, format!("blocked: {violation:?}"))),
         }
@@ -822,7 +859,9 @@ impl thoth::plugin::websocket::Host for DataSourcePluginState {
     fn close(&mut self, id: String) {
         // Dropping the sender (remove) also closes; send Close first so the task
         // emits a clean close frame + event.
-        if let Some(tx) = self.ws_conns.remove(&id) {
+        if let Ok(mut map) = self.ws_conns.lock()
+            && let Some(tx) = map.remove(&id)
+        {
             let _ = tx.send(WsCommand::Close);
         }
     }
@@ -834,13 +873,13 @@ impl DataSourcePluginState {
         id: &str,
         cmd: WsCommand,
     ) -> std::result::Result<(), thoth::plugin::websocket::PluginError> {
-        match self.ws_conns.get(id) {
-            Some(tx) => tx
-                .send(cmd)
-                .map_err(|_| thoth::plugin::websocket::PluginError {
-                    code: 1,
-                    message: "connection closed".to_string(),
-                }),
+        let ws_err = |message: &str| thoth::plugin::websocket::PluginError {
+            code: 1,
+            message: message.to_string(),
+        };
+        let map = self.ws_conns.lock().map_err(|_| ws_err("lock poisoned"))?;
+        match map.get(id) {
+            Some(tx) => tx.send(cmd).map_err(|_| ws_err("connection closed")),
             None => Err(thoth::plugin::websocket::PluginError {
                 code: 1,
                 message: format!("no such connection: {id}"),
@@ -1038,7 +1077,7 @@ impl WasmDataSourceLoader {
             query_result_tx: query_result_tx.clone(),
             query_pending: Arc::clone(&query_pending),
             ws_event_tx,
-            ws_conns: HashMap::new(),
+            ws_conns: Arc::new(Mutex::new(HashMap::new())),
         };
 
         let mut store = Store::new(engine, state);
