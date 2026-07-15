@@ -37,11 +37,9 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
         .map(|s| s.start)
         .collect();
 
-    let format_button_tooltip_shortcut = if cfg!(target_os = "macos") {
-        String::from("⌥⇧F")
-    } else {
-        String::from("Alt + Shift + F")
-    };
+    // The plugin is compiled to wasm and can't detect the host OS, so use one
+    // representation for all platforms (⌥ = Option/Alt on macOS).
+    let format_button_tooltip_shortcut = "⌥/Alt + ⇧ + F";
 
     RenderNode::Column(
         Column::builder()
