@@ -231,6 +231,30 @@ pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
     ui.visuals().widgets.hovered.bg_fill
 }
 
+/// Tooltip text is rendered one step below body text (matching the app's
+/// "small" text scale) so tooltips read as secondary — egui's default
+/// `on_hover_text` uses full Body size, which looks oversized next to compact
+/// controls like icon buttons.
+pub const TOOLTIP_TEXT_SCALE: f32 = 0.85;
+
+/// Attach a tooltip to `response`, rendered slightly smaller than body text.
+/// Drop-in replacement for [`egui::Response::on_hover_text`] — use this for all
+/// tooltips so their sizing stays consistent.
+pub fn hover_text(response: egui::Response, text: impl Into<String>) -> egui::Response {
+    let text = text.into();
+    let size = (response
+        .ctx
+        .global_style()
+        .text_styles
+        .get(&egui::TextStyle::Body)
+        .map_or(14.0, |f| f.size)
+        * TOOLTIP_TEXT_SCALE)
+        .round();
+    response.on_hover_ui(|ui| {
+        ui.label(egui::RichText::new(text).size(size));
+    })
+}
+
 // ── Syntax token helpers ──────────────────────────────────────────────────────
 
 /// Resolved syntax colours for the active theme, one per [`TextToken`].

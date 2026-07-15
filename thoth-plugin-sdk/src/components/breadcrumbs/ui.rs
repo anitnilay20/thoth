@@ -67,8 +67,9 @@ impl Breadcrumbs {
                                 .join(delim);
                             let resp = ui
                                 .link(RichText::new(&segment.display).size(12.0).color(colors.fg))
-                                .on_hover_cursor(CursorIcon::PointingHand)
-                                .on_hover_text(format!("Navigate to {path}"));
+                                .on_hover_cursor(CursorIcon::PointingHand);
+                            let resp =
+                                crate::theme::hover_text(resp, format!("Navigate to {path}"));
                             if resp.clicked() {
                                 selected = Some(path);
                             }

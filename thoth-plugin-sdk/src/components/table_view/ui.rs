@@ -28,6 +28,11 @@ impl TableView {
         // borrow `self`; restore afterwards so cell state persists.
         let mut rows = std::mem::take(&mut self.rows);
 
+        // A right-click "Copy row / Copy column" is recorded here during
+        // rendering and resolved to clipboard text once, after the grid is
+        // drawn — so we never build a text matrix every frame just in case.
+        let copy_action = std::cell::Cell::new(None::<CopyAction>);
+
         let grid = colors.surface;
         let header_border = colors.surface_raised;
         let header_bg = colors.bg_panel;
@@ -94,9 +99,7 @@ impl TableView {
                                         r
                                     })
                                     .inner;
-                                if r.hovered() {
-                                    r.show_tooltip_text(h);
-                                }
+                                let _ = crate::theme::hover_text(r, h.as_str());
                                 paint_cell_borders(ui, grid, header_border);
                             });
                         }
@@ -117,12 +120,23 @@ impl TableView {
                                 );
                                 paint_cell_borders(ui, grid, grid);
                             });
+                            // The # gutter paints its text (no widget), so its
+                            // cell response catches the right-click directly.
+                            number_resp.context_menu(|ui| {
+                                copy_menu(ui, &copy_action, idx, None);
+                            });
                             if number_resp.clicked() {
                                 row_clicked = true;
                             }
 
                             for col in 0..num_cols {
                                 let align_right = right_aligned.get(col).copied().unwrap_or(false);
+                                // Interactive JSON-tree cells handle their own clicks,
+                                // so we don't overlay a right-click target on them.
+                                let is_tree = matches!(
+                                    rows.get(idx).and_then(|r| r.get(col)),
+                                    Some(crate::render_node::RenderNode::JsonTree(_))
+                                );
                                 let (_, response) = row.col(|ui| {
                                     egui::Frame::NONE
                                         .inner_margin(egui::Margin::symmetric(CELL_PAD, 0))
@@ -147,7 +161,30 @@ impl TableView {
                                             });
                                         });
                                     paint_cell_borders(ui, grid, grid);
+                                    // The cell's text widget senses only hover but
+                                    // still swallows the right-click before the cell
+                                    // response sees it, so overlay a full-cell click
+                                    // target on top to catch it. Skipped for JSON-tree
+                                    // cells, which need their own clicks (their blank
+                                    // area is still covered by the outer menu below).
+                                    if !is_tree {
+                                        let menu_resp = ui.interact(
+                                            ui.max_rect(),
+                                            ui.id().with("cell-copy-menu"),
+                                            egui::Sense::click(),
+                                        );
+                                        menu_resp.context_menu(|ui| {
+                                            copy_menu(ui, &copy_action, idx, Some(col));
+                                        });
+                                    }
                                 });
+                                // JSON-tree cells have no overlay; let the cell
+                                // response catch right-clicks on their blank area.
+                                if is_tree {
+                                    response.context_menu(|ui| {
+                                        copy_menu(ui, &copy_action, idx, Some(col));
+                                    });
+                                }
                                 if response.clicked() {
                                     row_clicked = true;
                                 }
@@ -158,6 +195,34 @@ impl TableView {
                         });
                     });
             });
+
+        // Resolve a requested copy to clipboard text, now that the grid is drawn
+        // and `rows` is free to read. Row → cells tab-separated; column → the
+        // whole column newline-separated, header first.
+        if let Some(action) = copy_action.get() {
+            let text = match action {
+                CopyAction::Row(r) => rows
+                    .get(r)
+                    .map(|row| row.iter().map(node_text).collect::<Vec<_>>().join("\t"))
+                    .unwrap_or_default(),
+                CopyAction::Column(c) => {
+                    let mut lines: Vec<String> = Vec::with_capacity(rows.len() + 1);
+                    if let Some(h) = headers.get(c) {
+                        lines.push(
+                            h.split_once("  ·  ")
+                                .map_or(h.as_str(), |(n, _)| n)
+                                .to_string(),
+                        );
+                    }
+                    lines.extend(
+                        rows.iter()
+                            .map(|row| row.get(c).map(node_text).unwrap_or_default()),
+                    );
+                    lines.join("\n")
+                }
+            };
+            ui.ctx().copy_text(text);
+        }
 
         self.rows = rows;
         clicked_row
@@ -247,9 +312,7 @@ impl TableView {
                                         r
                                     })
                                     .inner;
-                                if r.hovered() {
-                                    r.show_tooltip_text(h);
-                                }
+                                let _ = crate::theme::hover_text(r, h.as_str());
                                 paint_cell_borders(ui, grid, header_border);
                             });
                         }
@@ -306,6 +369,49 @@ impl TableView {
             });
 
         clicked_row
+    }
+}
+
+/// Best-effort plain text of a cell node, for clipboard copy. Covers the node
+/// kinds `typed_cell` produces (text, code, badge, and colored wrappers);
+/// anything else contributes nothing.
+fn node_text(node: &crate::render_node::RenderNode) -> String {
+    use crate::render_node::RenderNode as N;
+    match node {
+        N::Text(t) => t.text.clone(),
+        N::Code(c) => c.value.clone(),
+        N::Badge(b) => b.label.clone(),
+        N::Colored(c) => node_text(&c.child),
+        _ => String::new(),
+    }
+}
+
+/// A copy request recorded from the right-click menu during rendering and
+/// resolved to clipboard text after the grid is drawn.
+#[derive(Clone, Copy)]
+enum CopyAction {
+    Row(usize),
+    Column(usize),
+}
+
+/// Right-click "Copy row / Copy column" menu for a cell. Records the request in
+/// `action` (resolved to text post-render); doesn't touch the clipboard itself.
+/// `col` is `None` for the row-number gutter, which offers "Copy row" only.
+fn copy_menu(
+    ui: &mut egui::Ui,
+    action: &std::cell::Cell<Option<CopyAction>>,
+    row: usize,
+    col: Option<usize>,
+) {
+    if ui.button("Copy row").clicked() {
+        action.set(Some(CopyAction::Row(row)));
+        ui.close();
+    }
+    if let Some(col) = col
+        && ui.button("Copy column").clicked()
+    {
+        action.set(Some(CopyAction::Column(col)));
+        ui.close();
     }
 }
 

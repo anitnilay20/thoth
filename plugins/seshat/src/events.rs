@@ -243,10 +243,13 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         }
         // Editor events: "change" carries the new SQL; "run" is a keyboard
         // shortcut (⌘Enter = statement at caret / selection, ⌘⇧Enter = all);
-        // "run-marker" is a ▶ gutter click carrying a statement's char offset.
+        // "run-marker" is a ▶ gutter click carrying a statement's char offset;
+        // "format-editor" is the ⌥⇧F format shortcut (the SDK emits it on the
+        // editor's id, unlike the toolbar button which emits its own click).
         "sql" => match event.kind.as_str() {
             "change" => st.sql = parse_str(&event.value),
             "run" => run_editor(st, &event.value),
+            "format-editor" => format_query(st),
             "run-marker" => {
                 if let Ok(offset) = event.value.parse::<usize>() {
                     if let Some(text) = sql::statement_at(&st.sql, offset) {
@@ -275,8 +278,14 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         "save-query" => save_query(st),
         // Load a .sql file the user picks into the editor.
         "open-query" => open_query(st),
+        "format-editor" => format_query(st),
         _ => {}
     }
+}
+
+fn format_query(st: &mut State) {
+    use sqlformat::{format, FormatOptions, QueryParams};
+    st.sql = format(&st.sql, &QueryParams::default(), &FormatOptions::default());
 }
 
 /// Save the editor's SQL to a `.sql` file via the host's native save dialog.

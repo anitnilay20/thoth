@@ -144,7 +144,7 @@ fn render_plugin_signals(ui: &mut egui::Ui) {
             } else {
                 format!("{} {} {}", short, sig.key, sig.value)
             };
-            ui.label(text).on_hover_text(&group.plugin_id);
+            thoth_plugin_sdk::theme::hover_text(ui.label(text), group.plugin_id.as_str());
         }
     }
 }

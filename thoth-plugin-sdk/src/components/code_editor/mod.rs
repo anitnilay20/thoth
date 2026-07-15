@@ -123,6 +123,8 @@ pub struct CodeEditorOutput {
     pub run: Option<RunRequest>,
     /// Character offset of a clicked run-marker (▶ gutter button), if any.
     pub run_marker: Option<usize>,
+    /// Set when the user pressed a format shortcut (Option/Alt+Shift+F).
+    pub format: Option<()>,
 }
 
 /// Intern a runtime string into a `&'static str`, deduping so repeated calls
@@ -268,6 +270,10 @@ impl CodeEditor {
                     let words_fingerprint = self.words_fingerprint();
                     let completer_id =
                         ui.make_persistent_id(("sdk_code_editor_completer", id_source.as_str()));
+                    // Focus flag id (computed here while `id_source` is still
+                    // owned; it's moved into the editor below).
+                    let focus_id =
+                        ui.make_persistent_id(("sdk_code_editor_focus", id_source.as_str()));
                     let mut completer = ui
                         .ctx()
                         .memory(|m| m.data.get_temp::<(u64, Completer)>(completer_id))
@@ -309,6 +315,50 @@ impl CodeEditor {
                             }
                         });
                     }
+
+                    // Format shortcut (Option/Alt+Shift+F, matching VS Code).
+                    // Must run BEFORE the text editor consumes input: on macOS
+                    // the Option key is a *compose* modifier, so the OS turns
+                    // Option+Shift+F into the character "Ï" and delivers it as an
+                    // `Event::Text` that the TextEdit would otherwise insert.
+                    // Detect by PHYSICAL key — the logical key is mangled by
+                    // composition, so `consume_key(Key::F, …)` never matches on
+                    // macOS — then drop both the key and the composed text this
+                    // frame so nothing is typed.
+                    //
+                    // Gated on this editor having had focus last frame: with
+                    // several editors visible side-by-side (split tabs) they all
+                    // render each frame and read the same global input, so an
+                    // unguarded consume would route the shortcut to whichever
+                    // renders last, not the one the user is typing in. Focus is
+                    // only known after `show()`, so we use the previous frame's
+                    // value (a keypress can't land the same frame focus changes).
+                    let had_focus = ui
+                        .ctx()
+                        .memory(|m| m.data.get_temp::<bool>(focus_id).unwrap_or(false));
+                    let format = if had_focus {
+                        ui.input_mut(|i| {
+                            let is_fmt = |e: &egui::Event| {
+                                matches!(
+                                    e,
+                                    egui::Event::Key { key, physical_key, pressed: true, modifiers, .. }
+                                        if modifiers.alt
+                                            && modifiers.shift
+                                            && (*key == egui::Key::F
+                                                || *physical_key == Some(egui::Key::F))
+                                )
+                            };
+                            let hit = i.events.iter().any(is_fmt);
+                            if hit {
+                                i.events
+                                    .retain(|e| !(is_fmt(e) || matches!(e, egui::Event::Text(_))));
+                            }
+                            hit
+                        })
+                        .then_some(())
+                    } else {
+                        None
+                    };
 
                     let output = editor.show_with_completer(ui, &mut self.value, &mut completer);
                     let changed = output.response.changed();
@@ -352,7 +402,11 @@ impl CodeEditor {
                         None
                     };
 
+                    // Remember focus so next frame's format-shortcut gate can
+                    // route the key to the editor the user is actually in.
+                    let has_focus = output.response.has_focus();
                     ui.ctx().memory_mut(|m| {
+                        m.data.insert_temp(focus_id, has_focus);
                         m.data
                             .insert_temp(completer_id, (words_fingerprint, completer))
                     });
@@ -360,6 +414,7 @@ impl CodeEditor {
                         CodeEditorOutput {
                             changed,
                             run,
+                            format,
                             run_marker: None,
                         },
                         output.galley.clone(),

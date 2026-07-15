@@ -910,7 +910,8 @@ impl ContextComponent for SettingsDialog {
                                     {
                                         let _ = open::that(path);
                                     }
-                                    btn.on_hover_text(
+                                    thoth_plugin_sdk::theme::hover_text(
+                                        btn,
                                         crate::settings::Settings::settings_file_path()
                                             .map(|p| p.to_string_lossy().to_string())
                                             .unwrap_or_default(),
