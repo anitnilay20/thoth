@@ -772,7 +772,7 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
                 error: Some(format!("response parse error: {e}")),
                 ..Default::default()
             });
-            signals::emit_signal("http", "", SignalStatus::Error, 0);
+            signals::emit_signal("http", &st.method, SignalStatus::Error, 0);
             return;
         }
     };
@@ -836,13 +836,21 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             duration_ms,
             size_bytes,
         });
-        // HTTP status + payload size as a status-bar signal; >=400 reads as error.
+        // Status-bar signal: request method + HTTP status + latency; >=400 is error.
         let sig_status = if status >= 400 {
             SignalStatus::Error
         } else {
             SignalStatus::Ready
         };
-        signals::emit_signal("http", &format!("{status} · {size_bytes}B"), sig_status, 0);
+        let latency = duration_ms
+            .map(|ms| format!(" · {ms} ms"))
+            .unwrap_or_default();
+        signals::emit_signal(
+            "http",
+            &format!("{} {status}{latency}", st.method),
+            sig_status,
+            0,
+        );
     } else if let Some(err) = val.get("err") {
         let message = err
             .get("message")
@@ -853,10 +861,10 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             error: Some(message),
             ..Default::default()
         });
-        signals::emit_signal("http", "", SignalStatus::Error, 0);
+        signals::emit_signal("http", &st.method, SignalStatus::Error, 0);
     } else {
         // Payload had neither `ok` nor `err`: still clear the sticky Loading.
-        signals::emit_signal("http", "", SignalStatus::Error, 0);
+        signals::emit_signal("http", &st.method, SignalStatus::Error, 0);
     }
 }
 
@@ -1096,8 +1104,9 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
             st.pending_request_id = Some(request_id);
             st.loading = true;
             st.response = None;
-            // Push a "requesting" signal; handle_http_response overwrites it.
-            signals::emit_signal("http", "", SignalStatus::Loading, 0);
+            // Push a "requesting" signal (method only); the response overwrites
+            // it with method + status + latency.
+            signals::emit_signal("http", &st.method, SignalStatus::Loading, 0);
         }
 
         _ => {}
