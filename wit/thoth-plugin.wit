@@ -733,6 +733,37 @@ interface signals {
 }
 
 
+// websocket — host-provided import. The host owns WebSocket connections (via
+// tokio-tungstenite), enforces the same network policy / consent as http, and
+// answers server pings + sends periodic keepalive pings. Incoming frames and
+// lifecycle events are streamed to the plugin through handle-event (matching
+// the async http `submit` pattern), so the plugin never blocks on the socket.
+interface websocket {
+    use types.{plugin-error};
+
+    /// Open a WebSocket to `url` (ws:// or wss://) with optional extra request
+    /// headers (e.g. auth). Returns an opaque connection id immediately; the
+    /// connection completes asynchronously. The host then delivers lifecycle and
+    /// messages via handle-event with widget-id = <connection-id> and:
+    ///   kind = "ws-open"                                     (connected)
+    ///   kind = "ws-message", value = JSON {"text":"..."}
+    ///                              or JSON {"binary":"<base64>"}
+    ///   kind = "ws-error",   value = message
+    ///   kind = "ws-close",   value = JSON {"code":u16,"reason":"..."}
+    connect: func(url: string, headers: list<tuple<string, string>>)
+        -> result<string, plugin-error>;
+
+    /// Send a UTF-8 text frame on the connection.
+    send-text: func(id: string, text: string) -> result<_, plugin-error>;
+
+    /// Send a binary frame on the connection.
+    send-binary: func(id: string, bytes: list<u8>) -> result<_, plugin-error>;
+
+    /// Close the connection (sends a normal close frame). Idempotent.
+    close: func(id: string);
+}
+
+
 /// Every plugin must satisfy this base world.
 world base-plugin {
     export plugin-meta;
@@ -785,6 +816,7 @@ world data-source-plugin {
     import secure-storage;
     import db-runtime;
     import signals;
+    import websocket;
     export data-source;
     export ui-component;
     export tab-host;

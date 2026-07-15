@@ -168,4 +168,11 @@ pub trait PluginUiHost: Send {
     fn has_pending_query(&self) -> bool {
         false
     }
+
+    // ── websocket events (only data-source implements; default is a no-op) ───────
+
+    /// Drain WebSocket lifecycle + message events: `(connection_id, event)`.
+    fn drain_ws_events(&self) -> Vec<(String, crate::plugin::websocket::WsEvent)> {
+        Vec::new()
+    }
 }

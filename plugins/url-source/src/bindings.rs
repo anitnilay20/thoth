@@ -1560,6 +1560,346 @@ pub mod thoth {
                 }
             }
         }
+        /// websocket — host-provided import. The host owns WebSocket connections (via
+        /// tokio-tungstenite), enforces the same network policy / consent as http, and
+        /// answers server pings + sends periodic keepalive pings. Incoming frames and
+        /// lifecycle events are streamed to the plugin through handle-event (matching
+        /// the async http `submit` pattern), so the plugin never blocks on the socket.
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod websocket {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            pub type PluginError = super::super::super::thoth::plugin::types::PluginError;
+            #[allow(unused_unsafe, clippy::all)]
+            /// Open a WebSocket to `url` (ws:// or wss://) with optional extra request
+            /// headers (e.g. auth). Returns an opaque connection id immediately; the
+            /// connection completes asynchronously. The host then delivers lifecycle and
+            /// messages via handle-event with widget-id = <connection-id> and:
+            ///   kind = "ws-open"                                     (connected)
+            ///   kind = "ws-message", value = JSON {"text":"..."}
+            ///                              or JSON {"binary":"<base64>"}
+            ///   kind = "ws-error",   value = message
+            ///   kind = "ws-close",   value = JSON {"code":u16,"reason":"..."}
+            pub fn connect(
+                url: &str,
+                headers: &[(_rt::String, _rt::String)],
+            ) -> Result<_rt::String, PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = url;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let vec4 = headers;
+                    let len4 = vec4.len();
+                    let layout4 = _rt::alloc::Layout::from_size_align_unchecked(
+                        vec4.len() * (4 * ::core::mem::size_of::<*const u8>()),
+                        ::core::mem::size_of::<*const u8>(),
+                    );
+                    let result4 = if layout4.size() != 0 {
+                        let ptr = _rt::alloc::alloc(layout4).cast::<u8>();
+                        if ptr.is_null() {
+                            _rt::alloc::handle_alloc_error(layout4);
+                        }
+                        ptr
+                    } else {
+                        ::core::ptr::null_mut()
+                    };
+                    for (i, e) in vec4.into_iter().enumerate() {
+                        let base = result4
+                            .add(i * (4 * ::core::mem::size_of::<*const u8>()));
+                        {
+                            let (t1_0, t1_1) = e;
+                            let vec2 = t1_0;
+                            let ptr2 = vec2.as_ptr().cast::<u8>();
+                            let len2 = vec2.len();
+                            *base
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len2;
+                            *base.add(0).cast::<*mut u8>() = ptr2.cast_mut();
+                            let vec3 = t1_1;
+                            let ptr3 = vec3.as_ptr().cast::<u8>();
+                            let len3 = vec3.len();
+                            *base
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len3;
+                            *base
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr3.cast_mut();
+                        }
+                    }
+                    let ptr5 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/websocket@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "connect"]
+                        fn wit_import6(
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                        );
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import6(
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import6(ptr0.cast_mut(), len0, result4, len4, ptr5) };
+                    let l7 = i32::from(*ptr5.add(0).cast::<u8>());
+                    let result15 = match l7 {
+                        0 => {
+                            let e = {
+                                let l8 = *ptr5
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l9 = *ptr5
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len10 = l9;
+                                let bytes10 = _rt::Vec::from_raw_parts(
+                                    l8.cast(),
+                                    len10,
+                                    len10,
+                                );
+                                _rt::string_lift(bytes10)
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l11 = *ptr5
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l12 = *ptr5
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l13 = *ptr5
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len14 = l13;
+                                let bytes14 = _rt::Vec::from_raw_parts(
+                                    l12.cast(),
+                                    len14,
+                                    len14,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l11 as u32,
+                                    message: _rt::string_lift(bytes14),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    if layout4.size() != 0 {
+                        _rt::alloc::dealloc(result4.cast(), layout4);
+                    }
+                    result15
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Send a UTF-8 text frame on the connection.
+            pub fn send_text(id: &str, text: &str) -> Result<(), PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = id;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let vec1 = text;
+                    let ptr1 = vec1.as_ptr().cast::<u8>();
+                    let len1 = vec1.len();
+                    let ptr2 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/websocket@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "send-text"]
+                        fn wit_import3(
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                        );
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import3(
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import3(ptr0.cast_mut(), len0, ptr1.cast_mut(), len1, ptr2)
+                    };
+                    let l4 = i32::from(*ptr2.add(0).cast::<u8>());
+                    let result9 = match l4 {
+                        0 => {
+                            let e = ();
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l5 = *ptr2
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l6 = *ptr2
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l7 = *ptr2
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len8 = l7;
+                                let bytes8 = _rt::Vec::from_raw_parts(
+                                    l6.cast(),
+                                    len8,
+                                    len8,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l5 as u32,
+                                    message: _rt::string_lift(bytes8),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result9
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Send a binary frame on the connection.
+            pub fn send_binary(id: &str, bytes: &[u8]) -> Result<(), PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = id;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let vec1 = bytes;
+                    let ptr1 = vec1.as_ptr().cast::<u8>();
+                    let len1 = vec1.len();
+                    let ptr2 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/websocket@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "send-binary"]
+                        fn wit_import3(
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                        );
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import3(
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import3(ptr0.cast_mut(), len0, ptr1.cast_mut(), len1, ptr2)
+                    };
+                    let l4 = i32::from(*ptr2.add(0).cast::<u8>());
+                    let result9 = match l4 {
+                        0 => {
+                            let e = ();
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l5 = *ptr2
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l6 = *ptr2
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l7 = *ptr2
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len8 = l7;
+                                let bytes8 = _rt::Vec::from_raw_parts(
+                                    l6.cast(),
+                                    len8,
+                                    len8,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l5 as u32,
+                                    message: _rt::string_lift(bytes8),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result9
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Close the connection (sends a normal close frame). Idempotent.
+            pub fn close(id: &str) -> () {
+                unsafe {
+                    let vec0 = id;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/websocket@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "close"]
+                        fn wit_import1(_: *mut u8, _: usize);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import1(_: *mut u8, _: usize) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import1(ptr0.cast_mut(), len0) };
+                }
+            }
+        }
         /// ---------------------------------------------------------------------------
         /// file-dialog — host-provided native open/save file pickers with I/O.
         ///
@@ -4123,73 +4463,77 @@ pub(crate) use __export_data_source_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 2870] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xad\x15\x01A\x02\x01\
-A\x20\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
-\x0fsearch-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01\
-ks\x01r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
-uthor\x03\x08homepage\x03\x04icon\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04\
-codey\x07messages\x04\0\x0cplugin-error\x03\0\x06\x01r\x02\x03keys\x05values\x04\
-\0\x0csetting-data\x03\0\x08\x03\0\x18thoth:plugin/types@0.1.0\x05\0\x02\x03\0\0\
-\x0cplugin-error\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01o\
-\x02ss\x01p\x02\x01p}\x01k\x04\x01r\x04\x03urls\x06methods\x07headers\x03\x04bod\
-y\x05\x04\0\x0chttp-request\x03\0\x06\x01r\x03\x06status{\x07headers\x03\x04body\
-\x04\x04\0\x0dhttp-response\x03\0\x08\x01j\x01\x09\x01\x01\x01@\x01\x03req\x07\0\
-\x0a\x04\0\x05fetch\x01\x0b\x01@\x01\x03req\x07\0s\x04\0\x06submit\x01\x0c\x03\0\
-\x1ethoth:plugin/http-client@0.1.0\x05\x02\x01B\x05\x01@\0\0s\x04\0\x04read\x01\0\
-\x01j\0\x01s\x01@\x01\x04datas\0\x01\x04\0\x05write\x01\x02\x03\0!thoth:plugin/p\
-lugin-storage@0.1.0\x05\x03\x01B\x03\x01ks\x01@\x03\x05titles\x04icon\0\x0diniti\
-al-state\0\0s\x04\0\x08open-tab\x01\x01\x03\0\x1athoth:plugin/ui-tabs@0.1.0\x05\x04\
-\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\x01w\x01\x01\x01\
-@\x03\x04hosts\x04port{\x03tls\x7f\0\x02\x04\0\x07connect\x01\x03\x01p}\x01j\x01\
-\x04\x01\x01\x01@\x02\x02idw\x03maxy\0\x05\x04\0\x04read\x01\x06\x01j\x01y\x01\x01\
-\x01@\x02\x02idw\x05bytes\x04\0\x07\x04\0\x05write\x01\x08\x01j\0\x01\x01\x01@\x02\
-\x02idw\x04hosts\0\x09\x04\0\x09start-tls\x01\x0a\x01@\x01\x02idw\x01\0\x04\0\x05\
-close\x01\x0b\x03\0\x1dthoth:plugin/tcp-client@0.1.0\x05\x05\x01B\x0b\x02\x03\x02\
-\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\0\x01\x01\x01@\x02\x03keys\x06secret\
-s\0\x02\x04\0\x05write\x01\x03\x01ks\x01j\x01\x04\x01\x01\x01@\x01\x03keys\0\x05\
-\x04\0\x04read\x01\x06\x01@\x01\x03keys\0\x02\x04\0\x06delete\x01\x07\x03\0!thot\
-h:plugin/secure-storage@0.1.0\x05\x06\x01B\x02\x01@\x02\x06handles\x01qs\0s\x04\0\
-\x0csubmit-query\x01\0\x03\0\x1dthoth:plugin/db-runtime@0.1.0\x05\x07\x01B\x04\x01\
-m\x03\x05ready\x07loading\x05error\x04\0\x06status\x03\0\0\x01@\x04\x03keys\x05v\
-alues\x06status\x01\x06ttl-msy\x01\0\x04\0\x0bemit-signal\x01\x02\x03\0\x1athoth\
-:plugin/signals@0.1.0\x05\x08\x01B\x0d\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\
-\x03\0\0\x01r\x02\x04paths\x08contentss\x04\0\x0bopened-file\x03\0\x02\x01ps\x01\
-k\x03\x01j\x01\x05\x01\x01\x01@\x02\x05titles\x0aextensions\x04\0\x06\x04\0\x09o\
-pen-file\x01\x07\x01ks\x01j\x01\x08\x01\x01\x01@\x04\x05titles\x0cdefault-names\x0a\
-extensions\x04\x08contentss\0\x09\x04\0\x09save-file\x01\x0a\x03\0\x1ethoth:plug\
-in/file-dialog@0.1.0\x05\x09\x01B\x1c\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\
-\0\0\x01r\x04\x04names\x0bdescriptions\x08required\x7f\x05values\x04\0\x0cconfig\
--entry\x03\0\x02\x01r\x03\x04names\x09type-hints\x08nullable\x7f\x04\0\x0cfield-\
-schema\x03\0\x04\x01p\x05\x01r\x02\x04names\x06fields\x06\x04\0\x0dsource-schema\
-\x03\0\x07\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0bpane-output\x03\0\x09\
-\x01p\x03\x01@\0\0\x0b\x04\0\x0frequired-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\
-\x06config\x0b\0\x0d\x04\0\x07connect\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\
-\x01\x06handles\0\x10\x04\0\x06schema\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\
-\0\x05query\x01\x12\x01@\x01\x06handles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\
-\x01\x01\x01@\x01\x06handles\0\x14\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:p\
-lugin/data-source@0.1.0\x05\x0a\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-err\
-or\x03\0\0\x01r\x03\x09widget-ids\x04kinds\x05values\x04\0\x08ui-event\x03\0\x02\
-\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\
-\x01\x01\x01@\0\0\x06\x04\0\x09render-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\
-\0\x0chandle-event\x01\x08\x01k\x05\x01j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0er\
-ender-sidebar\x01\x0b\x04\0\x1fthoth:plugin/ui-component@0.1.0\x05\x0b\x01B\x11\x02\
-\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\
-\x01ks\x01@\0\0\x03\x04\0\x08tab-icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\
-\0\x09get-state\x01\x06\x01j\0\x01\x01\x01@\x01\x05states\0\x07\x04\0\x0finit-wi\
-th-state\x01\x08\x01@\0\x01\0\x04\0\x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-bl\
-urred\x01\x09\x04\0\x0don-tab-closed\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.\
-0\x05\x0c\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x0d\x04\0\x0bplugi\
-n-info\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plug\
-in-meta@0.1.0\x05\x0e\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\
-\x01@\0\x01\0\x04\0\x08on-close\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#t\
-hoth:plugin/plugin-lifecycle@0.1.0\x05\x0f\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0c\
-plugin-error\x03\0\0\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0fsettings-ou\
-tput\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\0\x0frender-settings\x01\x05\
-\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x10\x04\0%thoth:plugin/data-sourc\
-e-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12data-source-plugin\x03\0\0\0G\x09producers\
-\x01\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x060.41\
-.0";
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 3062] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xed\x16\x01A\x02\x01\
+A\"\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\x0f\
+search-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01ks\x01\
+r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06author\x03\
+\x08homepage\x03\x04icon\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04codey\x07\
+messages\x04\0\x0cplugin-error\x03\0\x06\x01r\x02\x03keys\x05values\x04\0\x0cset\
+ting-data\x03\0\x08\x03\0\x18thoth:plugin/types@0.1.0\x05\0\x02\x03\0\0\x0cplugi\
+n-error\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01o\x02ss\x01\
+p\x02\x01p}\x01k\x04\x01r\x04\x03urls\x06methods\x07headers\x03\x04body\x05\x04\0\
+\x0chttp-request\x03\0\x06\x01r\x03\x06status{\x07headers\x03\x04body\x04\x04\0\x0d\
+http-response\x03\0\x08\x01j\x01\x09\x01\x01\x01@\x01\x03req\x07\0\x0a\x04\0\x05\
+fetch\x01\x0b\x01@\x01\x03req\x07\0s\x04\0\x06submit\x01\x0c\x03\0\x1ethoth:plug\
+in/http-client@0.1.0\x05\x02\x01B\x05\x01@\0\0s\x04\0\x04read\x01\0\x01j\0\x01s\x01\
+@\x01\x04datas\0\x01\x04\0\x05write\x01\x02\x03\0!thoth:plugin/plugin-storage@0.\
+1.0\x05\x03\x01B\x03\x01ks\x01@\x03\x05titles\x04icon\0\x0dinitial-state\0\0s\x04\
+\0\x08open-tab\x01\x01\x03\0\x1athoth:plugin/ui-tabs@0.1.0\x05\x04\x01B\x11\x02\x03\
+\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\x01w\x01\x01\x01@\x03\x04hosts\x04\
+port{\x03tls\x7f\0\x02\x04\0\x07connect\x01\x03\x01p}\x01j\x01\x04\x01\x01\x01@\x02\
+\x02idw\x03maxy\0\x05\x04\0\x04read\x01\x06\x01j\x01y\x01\x01\x01@\x02\x02idw\x05\
+bytes\x04\0\x07\x04\0\x05write\x01\x08\x01j\0\x01\x01\x01@\x02\x02idw\x04hosts\0\
+\x09\x04\0\x09start-tls\x01\x0a\x01@\x01\x02idw\x01\0\x04\0\x05close\x01\x0b\x03\
+\0\x1dthoth:plugin/tcp-client@0.1.0\x05\x05\x01B\x0b\x02\x03\x02\x01\x01\x04\0\x0c\
+plugin-error\x03\0\0\x01j\0\x01\x01\x01@\x02\x03keys\x06secrets\0\x02\x04\0\x05w\
+rite\x01\x03\x01ks\x01j\x01\x04\x01\x01\x01@\x01\x03keys\0\x05\x04\0\x04read\x01\
+\x06\x01@\x01\x03keys\0\x02\x04\0\x06delete\x01\x07\x03\0!thoth:plugin/secure-st\
+orage@0.1.0\x05\x06\x01B\x02\x01@\x02\x06handles\x01qs\0s\x04\0\x0csubmit-query\x01\
+\0\x03\0\x1dthoth:plugin/db-runtime@0.1.0\x05\x07\x01B\x04\x01m\x03\x05ready\x07\
+loading\x05error\x04\0\x06status\x03\0\0\x01@\x04\x03keys\x05values\x06status\x01\
+\x06ttl-msy\x01\0\x04\0\x0bemit-signal\x01\x02\x03\0\x1athoth:plugin/signals@0.1\
+.0\x05\x08\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01o\x02ss\
+\x01p\x02\x01j\x01s\x01\x01\x01@\x02\x03urls\x07headers\x03\0\x04\x04\0\x07conne\
+ct\x01\x05\x01j\0\x01\x01\x01@\x02\x02ids\x04texts\0\x06\x04\0\x09send-text\x01\x07\
+\x01p}\x01@\x02\x02ids\x05bytes\x08\0\x06\x04\0\x0bsend-binary\x01\x09\x01@\x01\x02\
+ids\x01\0\x04\0\x05close\x01\x0a\x03\0\x1cthoth:plugin/websocket@0.1.0\x05\x09\x01\
+B\x0d\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x04paths\x08con\
+tentss\x04\0\x0bopened-file\x03\0\x02\x01ps\x01k\x03\x01j\x01\x05\x01\x01\x01@\x02\
+\x05titles\x0aextensions\x04\0\x06\x04\0\x09open-file\x01\x07\x01ks\x01j\x01\x08\
+\x01\x01\x01@\x04\x05titles\x0cdefault-names\x0aextensions\x04\x08contentss\0\x09\
+\x04\0\x09save-file\x01\x0a\x03\0\x1ethoth:plugin/file-dialog@0.1.0\x05\x0a\x01B\
+\x1c\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0bdesc\
+riptions\x08required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04n\
+ames\x09type-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\
+\x02\x04names\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-js\
+ons\x0bheight-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0f\
+required-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07\
+connect\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06\
+schema\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06\
+handles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\
+\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x0b\x01\
+B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04\
+kinds\x05values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hin\
+ty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09rende\
+r-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01\
+j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:pl\
+ugin/ui-component@0.1.0\x05\x0c\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-err\
+or\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-\
+icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\
+\x01\x01@\x01\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\
+\x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-close\
+d\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.0\x05\x0d\x02\x03\0\0\x0bplugin-inf\
+o\x01B\x04\x02\x03\x02\x01\x0e\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08\
+get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x0f\x01B\x05\x01@\x01\
+\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08on-close\x01\x01\
+\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x10\
+\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jso\
+ns\x0bheight-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\
+\0\x04\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.\
+0\x05\x11\x04\0%thoth:plugin/data-source-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12dat\
+a-source-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\
+\x070.227.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {
