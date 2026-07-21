@@ -158,7 +158,7 @@ impl ChartWindow {
                 let x = row
                     .get(self.x_col)
                     .and_then(|c| c.trim().parse::<f64>().ok())
-                    .unwrap_or(i as f64);
+                    .unwrap_or((page.offset + i as u64) as f64);
                 Some([x, y])
             })
             .collect();
@@ -191,7 +191,11 @@ impl ChartWindow {
     }
 }
 
-/// A compact scrollable preview table (first `VIEW_ROWS`).
+/// Rows rendered in the table preview. The chart view still plots the full
+/// page; the (non-virtualized) grid just shows a small prefix so it stays cheap.
+const TABLE_PREVIEW_ROWS: usize = 100;
+
+/// A compact scrollable preview table (first `TABLE_PREVIEW_ROWS`).
 fn render_table(ui: &mut egui::Ui, page: &crate::plugin::datasets::Page) {
     egui::ScrollArea::both().show(ui, |ui| {
         egui::Grid::new("dataset_table")
@@ -201,12 +205,21 @@ fn render_table(ui: &mut egui::Ui, page: &crate::plugin::datasets::Page) {
                     ui.label(egui::RichText::new(&c.name).strong());
                 }
                 ui.end_row();
-                for row in &page.rows {
+                for row in page.rows.iter().take(TABLE_PREVIEW_ROWS) {
                     for cell in row {
                         ui.label(cell);
                     }
                     ui.end_row();
                 }
             });
+        if page.rows.len() > TABLE_PREVIEW_ROWS {
+            ui.label(
+                egui::RichText::new(format!(
+                    "Showing first {TABLE_PREVIEW_ROWS} of {} rows",
+                    page.total
+                ))
+                .weak(),
+            );
+        }
     });
 }

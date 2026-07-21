@@ -316,7 +316,7 @@ impl DataProducerGuest for Seshat {
                     message: "result has no columns/rows".to_string(),
                 });
             };
-            let columns = cols
+            let columns: Vec<ProducerColumn> = cols
                 .iter()
                 .map(|c| ProducerColumn {
                     name: c
@@ -331,12 +331,19 @@ impl DataProducerGuest for Seshat {
                         .to_string(),
                 })
                 .collect();
+            // Normalize every row to the column count so downstream column
+            // indexing stays aligned: pad short/non-array rows with empty
+            // cells and drop any extras.
+            let width = columns.len();
             let rows = rows
                 .iter()
                 .map(|row| {
-                    row.as_array()
+                    let mut cells: Vec<String> = row
+                        .as_array()
                         .map(|cs| cs.iter().map(cell_to_string).collect())
-                        .unwrap_or_default()
+                        .unwrap_or_default();
+                    cells.resize(width, String::new());
+                    cells
                 })
                 .collect();
             let name = st

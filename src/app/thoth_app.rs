@@ -2069,10 +2069,9 @@ impl ThothApp {
         };
         match pane.loader.provide_dataset() {
             Ok(ds) => {
-                let (columns, hints): (Vec<String>, Vec<String>) = ds.columns.into_iter().unzip();
-                let cols: Vec<crate::plugin::datasets::DatasetColumn> = columns
+                let cols: Vec<crate::plugin::datasets::DatasetColumn> = ds
+                    .columns
                     .into_iter()
-                    .zip(hints)
                     .map(|(name, type_hint)| crate::plugin::datasets::DatasetColumn {
                         name,
                         type_hint,

@@ -17,6 +17,10 @@ use std::time::Instant;
 
 /// Most datasets kept before LRU eviction of the least-recently-accessed.
 const MAX_DATASETS: usize = 32;
+/// Aggregate memory budget across all stored datasets. The least-recently-
+/// accessed are evicted until the total fits (a single dataset larger than
+/// this is still kept — we can't do better than one).
+const MAX_BYTES: usize = 128 * 1024 * 1024;
 /// Hard cap on rows returned by a single `read`, so a huge dataset never
 /// crosses the boundary at once.
 pub const MAX_READ_LIMIT: u32 = 1000;
@@ -54,6 +58,9 @@ struct Stored {
     meta: DatasetMeta,
     rows: Vec<Vec<String>>,
     last_access: Instant,
+    /// Estimated heap footprint of this dataset, tracked so the registry can
+    /// enforce [`MAX_BYTES`] without re-summing every entry.
+    size: usize,
 }
 
 #[derive(Default)]
@@ -61,7 +68,38 @@ struct Registry {
     map: HashMap<String, Stored>,
     /// Publish order for stable listing.
     order: Vec<String>,
+    /// Running sum of every `Stored::size`, kept in step via [`Registry::drop_dataset`].
+    bytes: usize,
     seq: u64,
+}
+
+impl Registry {
+    /// Remove a dataset by id, keeping `order` and the `bytes` total in step.
+    fn drop_dataset(&mut self, id: &str) {
+        if let Some(s) = self.map.remove(id) {
+            self.bytes = self.bytes.saturating_sub(s.size);
+        }
+        self.order.retain(|o| o != id);
+    }
+}
+
+/// Estimated heap footprint of a dataset's rows + metadata strings.
+fn dataset_bytes(meta: &DatasetMeta, rows: &[Vec<String>]) -> usize {
+    let cells: usize = rows
+        .iter()
+        .map(|r| {
+            std::mem::size_of::<Vec<String>>()
+                + r.iter()
+                    .map(|c| std::mem::size_of::<String>() + c.len())
+                    .sum::<usize>()
+        })
+        .sum();
+    let cols: usize = meta
+        .columns
+        .iter()
+        .map(|c| c.name.len() + c.type_hint.len())
+        .sum();
+    cells + cols + meta.name.len() + meta.source_plugin.len() + meta.source_instance.len()
 }
 
 static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Registry::default()));
@@ -94,30 +132,34 @@ pub fn publish(
         row_count: rows.len() as u64,
         columns,
     };
+    let size = dataset_bytes(&meta, &rows);
+    reg.bytes += size;
     reg.map.insert(
         id.clone(),
         Stored {
             meta,
             rows,
             last_access: Instant::now(),
+            size,
         },
     );
     reg.order.push(id.clone());
 
-    // LRU eviction when over the cap.
-    while reg.order.len() > MAX_DATASETS {
-        // Find the least-recently-accessed still-present id.
-        if let Some(victim) = reg
+    // LRU eviction while over either the count or the byte budget. Keep at
+    // least the just-published dataset (guard on len > 1) so a single
+    // oversized dataset doesn't loop forever.
+    while reg.order.len() > 1 && (reg.order.len() > MAX_DATASETS || reg.bytes > MAX_BYTES) {
+        // Least-recently-accessed still-present id (never the new one — it's
+        // the most recently accessed).
+        let Some(victim) = reg
             .order
             .iter()
             .min_by_key(|id| reg.map.get(*id).map(|s| s.last_access))
             .cloned()
-        {
-            reg.map.remove(&victim);
-            reg.order.retain(|o| o != &victim);
-        } else {
+        else {
             break;
-        }
+        };
+        reg.drop_dataset(&victim);
     }
     id
 }
@@ -156,8 +198,7 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
 /// Remove a dataset (idempotent).
 pub fn release(id: &str) {
     if let Ok(mut reg) = REGISTRY.lock() {
-        reg.map.remove(id);
-        reg.order.retain(|o| o != id);
+        reg.drop_dataset(id);
     }
 }
 
@@ -172,8 +213,7 @@ pub fn retain_instances(open: &std::collections::HashSet<String>) {
             .map(|s| s.meta.id.clone())
             .collect();
         for id in dropped {
-            reg.map.remove(&id);
-            reg.order.retain(|o| o != &id);
+            reg.drop_dataset(&id);
         }
     }
 }
@@ -189,6 +229,7 @@ mod tests {
         if let Ok(mut reg) = REGISTRY.lock() {
             reg.map.clear();
             reg.order.clear();
+            reg.bytes = 0;
             reg.seq = 0;
         }
         guard
@@ -254,5 +295,36 @@ mod tests {
         let metas = list();
         assert_eq!(metas.len(), 1);
         assert_eq!(metas[0].name, "b");
+    }
+
+    #[test]
+    fn byte_budget_evicts_lru() {
+        let _g = reset();
+        // Each row alone is the whole budget, so publishing a second one forces
+        // eviction of the older (least-recently-accessed) dataset.
+        let big_row = || vec![vec!["x".repeat(MAX_BYTES)]];
+
+        publish(
+            "p",
+            "p#1",
+            "first".into(),
+            "k".into(),
+            vec![],
+            vec![col("v")],
+            big_row(),
+        );
+        publish(
+            "p",
+            "p#2",
+            "second".into(),
+            "k".into(),
+            vec![],
+            vec![col("v")],
+            big_row(),
+        );
+
+        let metas = list();
+        assert_eq!(metas.len(), 1, "over budget → only the survivor remains");
+        assert_eq!(metas[0].name, "second");
     }
 }
