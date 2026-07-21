@@ -34,6 +34,13 @@
 //   Migration: update ConfigEntry construction to supply description (human-
 //   readable label) and required (bool) in addition to name and value.
 //
+// [BREAKING] file-loader.get-range is now a required export. Plugins compiled
+//   against the previous interface (without it) will fail component
+//   instantiation.
+//   Migration: implement get_range(start, count) — read the requested records
+//   in a single sequential pass. A minimal body may loop your existing get(),
+//   though a native bulk read is preferred for large files.
+//
 // ---------------------------------------------------------------------------
 
 package thoth:plugin@0.1.0;
@@ -148,6 +155,13 @@ interface file-loader {
     /// Return the record at `idx` serialised as a JSON string.
     /// Called lazily as the user scrolls — must be fast and stateless.
     get: func(idx: u64) -> result<string, plugin-error>;
+
+    /// Return records `[start, start + count)` as JSON strings, in order.
+    /// A bulk, sequential read for consumers that cross many records at once
+    /// (e.g. the dataset bus, export). Fewer than `count` items means the file
+    /// ended. Implementations MUST read this in a single sequential pass — do
+    /// not call `get(idx)` in a loop, which is O(n²) for stream-parsed formats.
+    get-range: func(start: u64, count: u64) -> result<list<string>, plugin-error>;
 
     /// Return the raw bytes of the record at `idx` without JSON parsing.
     /// Used by the copy-to-clipboard and export paths.
@@ -764,6 +778,36 @@ interface websocket {
 }
 
 
+// data-producer — a capability a plugin EXPORTS to offer its current data to
+// the pull bus (#113). When a consumer requests data and the user picks this
+// plugin's tab, the host calls `provide-dataset` and owns the single returned
+// copy. v1 carries cells as strings — a simple JSON-ish seam designed to move
+// to Apache Arrow IPC later without reshaping the contract.
+interface data-producer {
+    use types.{plugin-error};
+
+    // A column: display name + a SQL-ish type hint the host maps to a
+    // ColumnType (alignment / colour). Keeps the wire format stringly-typed.
+    record dataset-column {
+        name: string,
+        type-hint: string,
+    }
+
+    // A full tabular dataset. Row-major; each cell is already rendered to a
+    // string for v1.
+    record dataset {
+        name: string,
+        kind: string,                    // free-form, e.g. "sql-result"
+        columns: list<dataset-column>,
+        rows: list<list<string>>,
+    }
+
+    // Return the producer tab's current dataset. Called by the host on demand
+    // (never proactively); the host owns the returned copy.
+    provide-dataset: func() -> result<dataset, plugin-error>;
+}
+
+
 /// Every plugin must satisfy this base world.
 world base-plugin {
     export plugin-meta;
@@ -820,6 +864,7 @@ world data-source-plugin {
     export data-source;
     export ui-component;
     export tab-host;
+    export data-producer;
 }
 
 /// A plugin that adds a new export format or destination.

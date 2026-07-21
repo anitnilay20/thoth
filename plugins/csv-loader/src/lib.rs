@@ -18,7 +18,7 @@ use bindings::exports::thoth::plugin::{
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
 };
 use bindings::thoth::plugin::types::PluginError;
-use csv::ReaderBuilder;
+use csv::{ByteRecord, Position, ReaderBuilder, StringRecord};
 use serde_json::{Map, Value};
 
 #[derive(PluginMeta)]
@@ -39,6 +39,10 @@ struct State {
     file: PathBuf,
     /// Delimiter byte: b',' for CSV, b'\t' for TSV.
     delimiter: u8,
+    /// Byte position of the start of each data record (header excluded),
+    /// captured once during `open()`. Lets `get(idx)` seek straight to a
+    /// record — O(1) random access instead of re-parsing from row 0.
+    positions: Vec<Position>,
 }
 
 static STATE: PluginState<State> = PluginState::new();
@@ -83,13 +87,26 @@ impl FileLoaderGuest for CsvPlugin {
             .map(str::to_owned)
             .collect();
 
-        // Count records without loading them all into memory.
-        let count = rdr.records().count() as u64;
+        // Single sequential pass: record the byte position at the start of each
+        // data record (only the ~24-byte Position, not the row itself), so
+        // random access later is a seek rather than a re-parse from row 0.
+        let mut positions = Vec::new();
+        let mut record = ByteRecord::new();
+        loop {
+            let pos = rdr.position().clone();
+            match rdr.read_byte_record(&mut record) {
+                Ok(true) => positions.push(pos),
+                Ok(false) => break,
+                Err(e) => return Err(plugin_err(1, e.to_string())),
+            }
+        }
 
+        let count = positions.len() as u64;
         STATE.set(State {
             headers,
             file: PathBuf::from(path),
             delimiter,
+            positions,
         });
 
         Ok(count)
@@ -98,27 +115,45 @@ impl FileLoaderGuest for CsvPlugin {
     fn get(idx: u64) -> Result<String, PluginError> {
         STATE
             .try_with(|state| {
-                let mut rdr = ReaderBuilder::new()
-                    .delimiter(state.delimiter)
-                    .has_headers(true)
-                    .from_path(&state.file)
-                    .map_err(|e| plugin_err(1, e.to_string()))?;
-
                 let row = usize::try_from(idx).map_err(|_| plugin_err(2, "index out of range"))?;
-                let record = rdr
-                    .records()
-                    .nth(row)
-                    .ok_or_else(|| plugin_err(2, "index out of range"))?
-                    .map_err(|e| plugin_err(1, e.to_string()))?;
+                let mut rdr = reader_seeked(state, row)?;
+                let mut record = StringRecord::new();
+                if !rdr
+                    .read_record(&mut record)
+                    .map_err(|e| plugin_err(1, e.to_string()))?
+                {
+                    return Err(plugin_err(2, "index out of range"));
+                }
+                record_to_json(&state.headers, &record)
+            })
+            .unwrap_or_else(|| Err(plugin_err(2, "file not opened")))
+    }
 
-                let obj: Map<String, Value> = state
-                    .headers
-                    .iter()
-                    .zip(record.iter())
-                    .map(|(k, v)| (k.clone(), Value::String(v.to_owned())))
-                    .collect();
+    fn get_range(start: u64, count: u64) -> Result<Vec<String>, PluginError> {
+        STATE
+            .try_with(|state| {
+                let start =
+                    usize::try_from(start).map_err(|_| plugin_err(2, "start out of range"))?;
+                let count = usize::try_from(count).unwrap_or(usize::MAX);
+                if start >= state.positions.len() {
+                    return Ok(Vec::new());
+                }
 
-                serde_json::to_string(&Value::Object(obj)).map_err(|e| plugin_err(3, e.to_string()))
+                // One seek to `start`, then a single sequential pass of `count`
+                // records — O(count), no re-parse from row 0.
+                let mut rdr = reader_seeked(state, start)?;
+                let mut out = Vec::with_capacity(count.min(4096));
+                let mut record = StringRecord::new();
+                while out.len() < count {
+                    if !rdr
+                        .read_record(&mut record)
+                        .map_err(|e| plugin_err(1, e.to_string()))?
+                    {
+                        break;
+                    }
+                    out.push(record_to_json(&state.headers, &record)?);
+                }
+                Ok(out)
             })
             .unwrap_or_else(|| Err(plugin_err(2, "file not opened")))
     }
@@ -127,19 +162,16 @@ impl FileLoaderGuest for CsvPlugin {
         STATE
             .try_with(|state| {
                 // Return the original (unparsed) CSV/TSV bytes for this record by
-                // reading the ByteRecord at `idx` and reconstructing the delimited line.
-                let mut rdr = ReaderBuilder::new()
-                    .delimiter(state.delimiter)
-                    .has_headers(true)
-                    .from_path(&state.file)
-                    .map_err(|e| plugin_err(1, e.to_string()))?;
-
+                // seeking to the record at `idx` and reconstructing the delimited line.
                 let row = usize::try_from(idx).map_err(|_| plugin_err(2, "index out of range"))?;
-                let record = rdr
-                    .byte_records()
-                    .nth(row)
-                    .ok_or_else(|| plugin_err(2, "index out of range"))?
-                    .map_err(|e| plugin_err(1, e.to_string()))?;
+                let mut rdr = reader_seeked(state, row)?;
+                let mut record = ByteRecord::new();
+                if !rdr
+                    .read_byte_record(&mut record)
+                    .map_err(|e| plugin_err(1, e.to_string()))?
+                {
+                    return Err(plugin_err(2, "index out of range"));
+                }
 
                 // Re-serialize through the CSV writer so fields containing the
                 // delimiter, quotes, or newlines stay properly escaped.
@@ -209,4 +241,33 @@ fn plugin_err(code: u32, message: impl Into<String>) -> PluginError {
         code,
         message: message.into(),
     }
+}
+
+/// Open a fresh reader and seek to the start of data record `row`. Uses the
+/// position index from `open()`, so this is O(1) rather than a scan from row 0.
+/// The reader is built with `has_headers(false)` — we seek straight to a data
+/// record, so there is no header line to skip.
+fn reader_seeked(state: &State, row: usize) -> Result<csv::Reader<std::fs::File>, PluginError> {
+    let pos = state
+        .positions
+        .get(row)
+        .cloned()
+        .ok_or_else(|| plugin_err(2, "index out of range"))?;
+    let mut rdr = ReaderBuilder::new()
+        .delimiter(state.delimiter)
+        .has_headers(false)
+        .from_path(&state.file)
+        .map_err(|e| plugin_err(1, e.to_string()))?;
+    rdr.seek(pos).map_err(|e| plugin_err(1, e.to_string()))?;
+    Ok(rdr)
+}
+
+/// Zip a record against the header row into a JSON object string.
+fn record_to_json(headers: &[String], record: &StringRecord) -> Result<String, PluginError> {
+    let obj: Map<String, Value> = headers
+        .iter()
+        .zip(record.iter())
+        .map(|(k, v)| (k.clone(), Value::String(v.to_owned())))
+        .collect();
+    serde_json::to_string(&Value::Object(obj)).map_err(|e| plugin_err(3, e.to_string()))
 }

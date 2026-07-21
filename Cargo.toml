@@ -147,6 +147,7 @@ tempfile = "3.15"
 egui_code_editor = "0.2.24"
 egui_commonmark = "0.23"
 egui_dock = "0.19"
+egui_plot = "0.35"
 raw-window-handle = "0.6.2"
 rmcp = { version = "1.5", features = ["server", "transport-io", "macros"] }
 schemars = "0.8"

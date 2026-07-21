@@ -293,6 +293,13 @@ impl FileViewer {
         self.loader.as_ref().map(|l| l.len()).unwrap_or(0)
     }
 
+    /// Read this tab's live loader into a tabular dataset for the data bus
+    /// (#113). Works for any backing loader — JSON, NDJSON, or a file-loader
+    /// plugin (csv-loader, …) — so every file tab is a producer by default.
+    pub fn to_dataset(&mut self) -> Option<crate::file::to_dataset::DatasetTable> {
+        crate::file::to_dataset::loader_to_dataset(self.loader.as_mut()?)
+    }
+
     // ========================================================================
     // Keyboard Shortcut Support - Navigation & Tree Operations
     // ========================================================================

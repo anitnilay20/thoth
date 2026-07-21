@@ -3795,6 +3795,361 @@ pub mod exports {
                         * ::core::mem::size_of::<*const u8>()],
                 );
             }
+            /// data-producer — a capability a plugin EXPORTS to offer its current data to
+            /// the pull bus (#113). When a consumer requests data and the user picks this
+            /// plugin's tab, the host calls `provide-dataset` and owns the single returned
+            /// copy. v1 carries cells as strings — a simple JSON-ish seam designed to move
+            /// to Apache Arrow IPC later without reshaping the contract.
+            #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+            pub mod data_producer {
+                #[used]
+                #[doc(hidden)]
+                static __FORCE_SECTION_REF: fn() = super::super::super::super::__link_custom_section_describing_imports;
+                use super::super::super::super::_rt;
+                pub type PluginError = super::super::super::super::thoth::plugin::types::PluginError;
+                /// A column: display name + a SQL-ish type hint the host maps to a
+                /// ColumnType (alignment / colour). Keeps the wire format stringly-typed.
+                #[derive(Clone)]
+                pub struct DatasetColumn {
+                    pub name: _rt::String,
+                    pub type_hint: _rt::String,
+                }
+                impl ::core::fmt::Debug for DatasetColumn {
+                    fn fmt(
+                        &self,
+                        f: &mut ::core::fmt::Formatter<'_>,
+                    ) -> ::core::fmt::Result {
+                        f.debug_struct("DatasetColumn")
+                            .field("name", &self.name)
+                            .field("type-hint", &self.type_hint)
+                            .finish()
+                    }
+                }
+                /// A full tabular dataset. Row-major; each cell is already rendered to a
+                /// string for v1.
+                #[derive(Clone)]
+                pub struct Dataset {
+                    pub name: _rt::String,
+                    pub kind: _rt::String,
+                    /// free-form, e.g. "sql-result"
+                    pub columns: _rt::Vec<DatasetColumn>,
+                    pub rows: _rt::Vec<_rt::Vec<_rt::String>>,
+                }
+                impl ::core::fmt::Debug for Dataset {
+                    fn fmt(
+                        &self,
+                        f: &mut ::core::fmt::Formatter<'_>,
+                    ) -> ::core::fmt::Result {
+                        f.debug_struct("Dataset")
+                            .field("name", &self.name)
+                            .field("kind", &self.kind)
+                            .field("columns", &self.columns)
+                            .field("rows", &self.rows)
+                            .finish()
+                    }
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_provide_dataset_cabi<T: Guest>() -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let result0 = T::provide_dataset();
+                    let ptr1 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result0 {
+                        Ok(e) => {
+                            *ptr1.add(0).cast::<u8>() = (0i32) as u8;
+                            let Dataset {
+                                name: name2,
+                                kind: kind2,
+                                columns: columns2,
+                                rows: rows2,
+                            } = e;
+                            let vec3 = (name2.into_bytes()).into_boxed_slice();
+                            let ptr3 = vec3.as_ptr().cast::<u8>();
+                            let len3 = vec3.len();
+                            ::core::mem::forget(vec3);
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len3;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr3.cast_mut();
+                            let vec4 = (kind2.into_bytes()).into_boxed_slice();
+                            let ptr4 = vec4.as_ptr().cast::<u8>();
+                            let len4 = vec4.len();
+                            ::core::mem::forget(vec4);
+                            *ptr1
+                                .add(4 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len4;
+                            *ptr1
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr4.cast_mut();
+                            let vec8 = columns2;
+                            let len8 = vec8.len();
+                            let layout8 = _rt::alloc::Layout::from_size_align_unchecked(
+                                vec8.len() * (4 * ::core::mem::size_of::<*const u8>()),
+                                ::core::mem::size_of::<*const u8>(),
+                            );
+                            let result8 = if layout8.size() != 0 {
+                                let ptr = _rt::alloc::alloc(layout8).cast::<u8>();
+                                if ptr.is_null() {
+                                    _rt::alloc::handle_alloc_error(layout8);
+                                }
+                                ptr
+                            } else {
+                                ::core::ptr::null_mut()
+                            };
+                            for (i, e) in vec8.into_iter().enumerate() {
+                                let base = result8
+                                    .add(i * (4 * ::core::mem::size_of::<*const u8>()));
+                                {
+                                    let DatasetColumn { name: name5, type_hint: type_hint5 } = e;
+                                    let vec6 = (name5.into_bytes()).into_boxed_slice();
+                                    let ptr6 = vec6.as_ptr().cast::<u8>();
+                                    let len6 = vec6.len();
+                                    ::core::mem::forget(vec6);
+                                    *base
+                                        .add(::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>() = len6;
+                                    *base.add(0).cast::<*mut u8>() = ptr6.cast_mut();
+                                    let vec7 = (type_hint5.into_bytes()).into_boxed_slice();
+                                    let ptr7 = vec7.as_ptr().cast::<u8>();
+                                    let len7 = vec7.len();
+                                    ::core::mem::forget(vec7);
+                                    *base
+                                        .add(3 * ::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>() = len7;
+                                    *base
+                                        .add(2 * ::core::mem::size_of::<*const u8>())
+                                        .cast::<*mut u8>() = ptr7.cast_mut();
+                                }
+                            }
+                            *ptr1
+                                .add(6 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len8;
+                            *ptr1
+                                .add(5 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = result8;
+                            let vec11 = rows2;
+                            let len11 = vec11.len();
+                            let layout11 = _rt::alloc::Layout::from_size_align_unchecked(
+                                vec11.len() * (2 * ::core::mem::size_of::<*const u8>()),
+                                ::core::mem::size_of::<*const u8>(),
+                            );
+                            let result11 = if layout11.size() != 0 {
+                                let ptr = _rt::alloc::alloc(layout11).cast::<u8>();
+                                if ptr.is_null() {
+                                    _rt::alloc::handle_alloc_error(layout11);
+                                }
+                                ptr
+                            } else {
+                                ::core::ptr::null_mut()
+                            };
+                            for (i, e) in vec11.into_iter().enumerate() {
+                                let base = result11
+                                    .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                {
+                                    let vec10 = e;
+                                    let len10 = vec10.len();
+                                    let layout10 = _rt::alloc::Layout::from_size_align_unchecked(
+                                        vec10.len() * (2 * ::core::mem::size_of::<*const u8>()),
+                                        ::core::mem::size_of::<*const u8>(),
+                                    );
+                                    let result10 = if layout10.size() != 0 {
+                                        let ptr = _rt::alloc::alloc(layout10).cast::<u8>();
+                                        if ptr.is_null() {
+                                            _rt::alloc::handle_alloc_error(layout10);
+                                        }
+                                        ptr
+                                    } else {
+                                        ::core::ptr::null_mut()
+                                    };
+                                    for (i, e) in vec10.into_iter().enumerate() {
+                                        let base = result10
+                                            .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                        {
+                                            let vec9 = (e.into_bytes()).into_boxed_slice();
+                                            let ptr9 = vec9.as_ptr().cast::<u8>();
+                                            let len9 = vec9.len();
+                                            ::core::mem::forget(vec9);
+                                            *base
+                                                .add(::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>() = len9;
+                                            *base.add(0).cast::<*mut u8>() = ptr9.cast_mut();
+                                        }
+                                    }
+                                    *base
+                                        .add(::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>() = len10;
+                                    *base.add(0).cast::<*mut u8>() = result10;
+                                }
+                            }
+                            *ptr1
+                                .add(8 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len11;
+                            *ptr1
+                                .add(7 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = result11;
+                        }
+                        Err(e) => {
+                            *ptr1.add(0).cast::<u8>() = (1i32) as u8;
+                            let super::super::super::super::thoth::plugin::types::PluginError {
+                                code: code12,
+                                message: message12,
+                            } = e;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(code12);
+                            let vec13 = (message12.into_bytes()).into_boxed_slice();
+                            let ptr13 = vec13.as_ptr().cast::<u8>();
+                            let len13 = vec13.len();
+                            ::core::mem::forget(vec13);
+                            *ptr1
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len13;
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr13.cast_mut();
+                        }
+                    };
+                    ptr1
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_provide_dataset<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = *arg0
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l1, l2, 1);
+                            let l3 = *arg0
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l4 = *arg0
+                                .add(4 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l3, l4, 1);
+                            let l5 = *arg0
+                                .add(5 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l6 = *arg0
+                                .add(6 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            let base11 = l5;
+                            let len11 = l6;
+                            for i in 0..len11 {
+                                let base = base11
+                                    .add(i * (4 * ::core::mem::size_of::<*const u8>()));
+                                {
+                                    let l7 = *base.add(0).cast::<*mut u8>();
+                                    let l8 = *base
+                                        .add(::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>();
+                                    _rt::cabi_dealloc(l7, l8, 1);
+                                    let l9 = *base
+                                        .add(2 * ::core::mem::size_of::<*const u8>())
+                                        .cast::<*mut u8>();
+                                    let l10 = *base
+                                        .add(3 * ::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>();
+                                    _rt::cabi_dealloc(l9, l10, 1);
+                                }
+                            }
+                            _rt::cabi_dealloc(
+                                base11,
+                                len11 * (4 * ::core::mem::size_of::<*const u8>()),
+                                ::core::mem::size_of::<*const u8>(),
+                            );
+                            let l12 = *arg0
+                                .add(7 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l13 = *arg0
+                                .add(8 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            let base19 = l12;
+                            let len19 = l13;
+                            for i in 0..len19 {
+                                let base = base19
+                                    .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                {
+                                    let l14 = *base.add(0).cast::<*mut u8>();
+                                    let l15 = *base
+                                        .add(::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>();
+                                    let base18 = l14;
+                                    let len18 = l15;
+                                    for i in 0..len18 {
+                                        let base = base18
+                                            .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                        {
+                                            let l16 = *base.add(0).cast::<*mut u8>();
+                                            let l17 = *base
+                                                .add(::core::mem::size_of::<*const u8>())
+                                                .cast::<usize>();
+                                            _rt::cabi_dealloc(l16, l17, 1);
+                                        }
+                                    }
+                                    _rt::cabi_dealloc(
+                                        base18,
+                                        len18 * (2 * ::core::mem::size_of::<*const u8>()),
+                                        ::core::mem::size_of::<*const u8>(),
+                                    );
+                                }
+                            }
+                            _rt::cabi_dealloc(
+                                base19,
+                                len19 * (2 * ::core::mem::size_of::<*const u8>()),
+                                ::core::mem::size_of::<*const u8>(),
+                            );
+                        }
+                        _ => {
+                            let l20 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l21 = *arg0
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l20, l21, 1);
+                        }
+                    }
+                }
+                pub trait Guest {
+                    /// Return the producer tab's current dataset. Called by the host on demand
+                    /// (never proactively); the host owns the returned copy.
+                    fn provide_dataset() -> Result<Dataset, PluginError>;
+                }
+                #[doc(hidden)]
+                macro_rules! __export_thoth_plugin_data_producer_0_1_0_cabi {
+                    ($ty:ident with_types_in $($path_to_types:tt)*) => {
+                        const _ : () = { #[unsafe (export_name =
+                        "thoth:plugin/data-producer@0.1.0#provide-dataset")] unsafe
+                        extern "C" fn export_provide_dataset() -> * mut u8 { unsafe {
+                        $($path_to_types)*:: _export_provide_dataset_cabi::<$ty > () } }
+                        #[unsafe (export_name =
+                        "cabi_post_thoth:plugin/data-producer@0.1.0#provide-dataset")]
+                        unsafe extern "C" fn _post_return_provide_dataset(arg0 : * mut
+                        u8,) { unsafe { $($path_to_types)*::
+                        __post_return_provide_dataset::<$ty > (arg0) } } };
+                    };
+                }
+                #[doc(hidden)]
+                pub(crate) use __export_thoth_plugin_data_producer_0_1_0_cabi;
+                #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                struct _RetArea(
+                    [::core::mem::MaybeUninit<
+                        u8,
+                    >; 9 * ::core::mem::size_of::<*const u8>()],
+                );
+                static mut _RET_AREA: _RetArea = _RetArea(
+                    [::core::mem::MaybeUninit::uninit(); 9
+                        * ::core::mem::size_of::<*const u8>()],
+                );
+            }
             /// ---------------------------------------------------------------------------
             /// plugin-meta — required by every plugin
             ///
@@ -4445,6 +4800,9 @@ macro_rules! __export_data_source_plugin_impl {
         exports::thoth::plugin::tab_host::__export_thoth_plugin_tab_host_0_1_0_cabi!($ty
         with_types_in $($path_to_types_root)*:: exports::thoth::plugin::tab_host);
         $($path_to_types_root)*::
+        exports::thoth::plugin::data_producer::__export_thoth_plugin_data_producer_0_1_0_cabi!($ty
+        with_types_in $($path_to_types_root)*:: exports::thoth::plugin::data_producer);
+        $($path_to_types_root)*::
         exports::thoth::plugin::plugin_meta::__export_thoth_plugin_plugin_meta_0_1_0_cabi!($ty
         with_types_in $($path_to_types_root)*:: exports::thoth::plugin::plugin_meta);
         $($path_to_types_root)*::
@@ -4463,9 +4821,9 @@ pub(crate) use __export_data_source_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 3062] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xed\x16\x01A\x02\x01\
-A\"\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\x0f\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 3248] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xa7\x18\x01A\x02\x01\
+A$\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\x0f\
 search-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01ks\x01\
 r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06author\x03\
 \x08homepage\x03\x04icon\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04codey\x07\
@@ -4523,17 +4881,21 @@ or\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-
 icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\
 \x01\x01@\x01\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\
 \x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-close\
-d\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.0\x05\x0d\x02\x03\0\0\x0bplugin-inf\
-o\x01B\x04\x02\x03\x02\x01\x0e\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08\
-get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x0f\x01B\x05\x01@\x01\
-\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08on-close\x01\x01\
-\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x10\
-\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jso\
-ns\x0bheight-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\
-\0\x04\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.\
-0\x05\x11\x04\0%thoth:plugin/data-source-plugin@0.1.0\x04\0\x0b\x18\x01\0\x12dat\
-a-source-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\
-\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+d\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.0\x05\x0d\x01B\x0c\x02\x03\x02\x01\x01\
+\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x04names\x09type-hints\x04\0\x0edataset-\
+column\x03\0\x02\x01p\x03\x01ps\x01p\x05\x01r\x04\x04names\x04kinds\x07columns\x04\
+\x04rows\x06\x04\0\x07dataset\x03\0\x07\x01j\x01\x08\x01\x01\x01@\0\0\x09\x04\0\x0f\
+provide-dataset\x01\x0a\x04\0\x20thoth:plugin/data-producer@0.1.0\x05\x0e\x02\x03\
+\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x0f\x04\0\x0bplugin-info\x03\0\0\x01\
+@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x10\
+\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08\
+on-close\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-life\
+cycle@0.1.0\x05\x11\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01\
+r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\
+\x01\x01\x01@\0\0\x04\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugi\
+n-settings@0.1.0\x05\x12\x04\0%thoth:plugin/data-source-plugin@0.1.0\x04\0\x0b\x18\
+\x01\0\x12data-source-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0d\
+wit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

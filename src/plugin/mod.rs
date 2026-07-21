@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::helpers::default_rate_limit;
 use serde::{Deserialize, Serialize};
 
+pub mod datasets;
 pub mod manager;
 pub mod marketplace;
 pub mod network_policy;

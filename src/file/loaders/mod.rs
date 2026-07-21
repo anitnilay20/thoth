@@ -110,6 +110,27 @@ impl FileType {
         }
     }
 
+    /// Read records `[start, start + count)` in one bulk, sequential pass.
+    ///
+    /// For plugin loaders this is a single WASM call (see the `get-range`
+    /// export) — far cheaper than looping `get(idx)`, which is O(n²) for
+    /// stream-parsed formats like CSV. Native loaders already offer O(1)
+    /// random access, so they just loop `get`.
+    pub fn get_range(&mut self, start: usize, count: usize) -> Result<Vec<Value>> {
+        match self {
+            FileType::Plugin(f) => f.get_range(start, count),
+            FileType::PluginWithViewer(f) => f.get_range(start, count),
+            other => {
+                let end = start.saturating_add(count).min(other.len());
+                let mut out = Vec::with_capacity(end.saturating_sub(start));
+                for i in start..end {
+                    out.push(other.get(i)?);
+                }
+                Ok(out)
+            }
+        }
+    }
+
     /// Get the raw bytes for an element at the specified index.
     pub fn raw_slice(&self, idx: usize) -> Result<Vec<u8>> {
         match self {
@@ -180,4 +201,48 @@ pub fn load_file_auto(path: &Path) -> Result<(DetectedFileType, FileType)> {
         DetectedFileType::JsonObject => FileType::Single(SingleValueFile::open(path)?),
     };
     Ok((detected, file_type))
+}
+
+#[cfg(test)]
+mod get_range_tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn json_array_loader(json: &str) -> FileType {
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(json.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+        FileType::JsonArray(JsonArrayFile::open(tmp.path()).unwrap())
+    }
+
+    /// Extract the `n` field of each returned record as an i64.
+    fn ns(vals: &[serde_json::Value]) -> Vec<i64> {
+        vals.iter().map(|v| v["n"].as_i64().unwrap()).collect()
+    }
+
+    #[test]
+    fn get_range_native_fallback_slices() {
+        let mut loader = json_array_loader(r#"[{"n":0},{"n":1},{"n":2},{"n":3},{"n":4}]"#);
+        assert_eq!(loader.len(), 5);
+        // Mid-range window.
+        assert_eq!(ns(&loader.get_range(1, 2).unwrap()), [1, 2]);
+        // Whole file.
+        assert_eq!(ns(&loader.get_range(0, 5).unwrap()), [0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn get_range_clamps_count_past_end() {
+        let mut loader = json_array_loader(r#"[{"n":0},{"n":1},{"n":2}]"#);
+        // Asking for more than exists returns only what's there.
+        assert_eq!(ns(&loader.get_range(1, 100).unwrap()), [1, 2]);
+    }
+
+    #[test]
+    fn get_range_start_past_end_is_empty() {
+        let mut loader = json_array_loader(r#"[{"n":0},{"n":1}]"#);
+        assert!(loader.get_range(5, 10).unwrap().is_empty());
+        // Exactly at the end is also empty.
+        assert!(loader.get_range(2, 10).unwrap().is_empty());
+    }
 }

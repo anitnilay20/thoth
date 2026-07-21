@@ -14,6 +14,10 @@ use serde::Serialize;
 use serde_json::json;
 
 use bindings::exports::thoth::plugin::{
+    data_producer::{
+        Dataset as ProducerDataset, DatasetColumn as ProducerColumn, Guest as DataProducerGuest,
+        PluginError as ProducerError,
+    },
     data_source::{ConfigEntry, Guest as DataSourceGuest, PaneOutput, PluginError, SourceSchema},
     plugin_lifecycle::Guest as LifecycleGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
@@ -289,6 +293,82 @@ impl UiComponentGuest for Seshat {
             apply_event(st, &event);
             Ok(ui_out(build_ui(st)))
         })
+    }
+}
+
+// ── data-producer: hand the current query result to the dataset bus ──────────
+
+impl DataProducerGuest for Seshat {
+    fn provide_dataset() -> Result<ProducerDataset, ProducerError> {
+        STATE.with(|st| {
+            let Some(Ok(value)) = st.result.as_ref() else {
+                return Err(ProducerError {
+                    code: 1,
+                    message: "no query result to provide".to_string(),
+                });
+            };
+            let (Some(cols), Some(rows)) = (
+                value.get("columns").and_then(|c| c.as_array()),
+                value.get("rows").and_then(|r| r.as_array()),
+            ) else {
+                return Err(ProducerError {
+                    code: 1,
+                    message: "result has no columns/rows".to_string(),
+                });
+            };
+            let columns: Vec<ProducerColumn> = cols
+                .iter()
+                .map(|c| ProducerColumn {
+                    name: c
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    type_hint: c
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                })
+                .collect();
+            // Normalize every row to the column count so downstream column
+            // indexing stays aligned: pad short/non-array rows with empty
+            // cells and drop any extras.
+            let width = columns.len();
+            let rows = rows
+                .iter()
+                .map(|row| {
+                    let mut cells: Vec<String> = row
+                        .as_array()
+                        .map(|cs| cs.iter().map(cell_to_string).collect())
+                        .unwrap_or_default();
+                    cells.resize(width, String::new());
+                    cells
+                })
+                .collect();
+            let name = st
+                .last_run_sql
+                .as_deref()
+                .and_then(|s| s.trim().lines().next())
+                .map(|line| line.chars().take(48).collect::<String>())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "query result".to_string());
+            Ok(ProducerDataset {
+                name,
+                kind: "sql-result".to_string(),
+                columns,
+                rows,
+            })
+        })
+    }
+}
+
+/// Render a result cell JSON value as a plain string for the dataset payload.
+fn cell_to_string(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
     }
 }
 

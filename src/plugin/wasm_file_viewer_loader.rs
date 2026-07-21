@@ -143,6 +143,26 @@ impl WasmFileViewerLoader {
         serde_json::from_str(&json).map_err(Into::into)
     }
 
+    /// Bulk sequential read of `[start, start + count)` — one WASM call.
+    pub fn get_range(&mut self, start: usize, count: usize) -> Result<Vec<Value>> {
+        let WasmViewerInner { store, bindings } = self.inner.get_mut().unwrap();
+        store
+            .set_fuel(u64::MAX / 2)
+            .map_err(|e| ThothError::Unknown {
+                message: e.to_string(),
+            })?;
+        let rows = bindings
+            .thoth_plugin_file_loader()
+            .call_get_range(store, start as u64, count as u64)
+            .map_err(|e| ThothError::Unknown {
+                message: e.to_string(),
+            })?
+            .map_err(|e| ThothError::Unknown { message: e.message })?;
+        rows.iter()
+            .map(|json| serde_json::from_str(json).map_err(Into::into))
+            .collect()
+    }
+
     pub fn raw_bytes(&self, idx: usize) -> Result<Vec<u8>> {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let WasmViewerInner { store, bindings } = &mut *guard;

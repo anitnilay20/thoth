@@ -1300,6 +1300,30 @@ impl WasmDataSourceLoader {
             .map_err(|e| ThothError::Unknown { message: e.message })
     }
 
+    /// Call the plugin's `provide-dataset` export (data-producer capability).
+    pub fn provide_dataset(&self) -> Result<crate::plugin::plugin_ui_host::ProvidedDataset> {
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let WasmDataSourceInner { store, bindings } = &mut *guard;
+        refuel(store)?;
+        let ds = bindings
+            .thoth_plugin_data_producer()
+            .call_provide_dataset(store)
+            .map_err(|e| ThothError::Unknown {
+                message: e.to_string(),
+            })?
+            .map_err(|e| ThothError::Unknown { message: e.message })?;
+        Ok(crate::plugin::plugin_ui_host::ProvidedDataset {
+            name: ds.name,
+            kind: ds.kind,
+            columns: ds
+                .columns
+                .into_iter()
+                .map(|c| (c.name, c.type_hint))
+                .collect(),
+            rows: ds.rows,
+        })
+    }
+
     /// Release the connection.
     pub fn close(&self, handle: &str) {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -1736,6 +1760,14 @@ impl PluginUiHost for WasmDataSourceLoader {
 
     fn drain_ws_events(&self) -> Vec<(String, WsEvent)> {
         self.ws_event_rx.try_iter().collect()
+    }
+
+    fn is_data_producer(&self) -> bool {
+        true
+    }
+
+    fn provide_dataset(&self) -> Result<crate::plugin::plugin_ui_host::ProvidedDataset> {
+        WasmDataSourceLoader::provide_dataset(self)
     }
 }
 

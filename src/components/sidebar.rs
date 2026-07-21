@@ -99,6 +99,8 @@ pub enum SidebarEvent {
     /// A widget interaction from the plugin's sidebar panel.
     PluginSidebarEvent(crate::plugin::render_node::UiEvent),
     OpenSettings,
+    /// Open the built-in chart view (consumes the dataset bus).
+    NewChart,
 }
 
 pub struct SidebarOutput {
@@ -330,6 +332,14 @@ impl Sidebar {
             accent,
         ) {
             events.push(SidebarEvent::SectionToggled(SidebarSection::Bookmarks));
+        }
+
+        if rail_button(
+            ui,
+            sidebar_btn(egui_phosphor::regular::CHART_LINE, "New Chart", false),
+            accent,
+        ) {
+            events.push(SidebarEvent::NewChart);
         }
 
         if rail_button(

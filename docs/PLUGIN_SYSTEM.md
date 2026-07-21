@@ -310,13 +310,14 @@ interface file-loader {
     use types.{plugin-error};
 
     supported-extensions: func() -> list<string>;
-    open:      func(path: string)  -> result<u64, plugin-error>;
-    get:       func(idx: u64)      -> result<string, plugin-error>;
-    raw-bytes: func(idx: u64)      -> result<list<u8>, plugin-error>;
+    open:      func(path: string)          -> result<u64, plugin-error>;
+    get:       func(idx: u64)              -> result<string, plugin-error>;
+    get-range: func(start: u64, count: u64) -> result<list<string>, plugin-error>;
+    raw-bytes: func(idx: u64)              -> result<list<u8>, plugin-error>;
 }
 ```
 
-`open` indexes the file and returns the total record count. `get` returns a single record as a JSON object string. `raw-bytes` returns the same record as raw UTF-8 bytes (used by copy-to-clipboard and exporters).
+`open` indexes the file and returns the total record count. `get` returns a single record as a JSON object string. `get-range` returns records `[start, start + count)` as JSON strings in one bulk, sequential read — used by consumers that cross many records at once (the dataset bus, export); implement it as a single pass rather than looping `get`, which is O(n²) for stream-parsed formats. `raw-bytes` returns a record as raw UTF-8 bytes (used by copy-to-clipboard and exporters).
 
 ### `file-viewer` — capability: `file-viewer`
 
@@ -622,6 +623,10 @@ impl FileLoaderGuest for CsvPlugin {
 
     fn get(idx: u64) -> Result<String, PluginError> {
         // ... return record at idx as JSON object string
+    }
+
+    fn get_range(start: u64, count: u64) -> Result<Vec<String>, PluginError> {
+        // ... return records [start, start + count) in one sequential pass
     }
 
     fn raw_bytes(idx: u64) -> Result<Vec<u8>, PluginError> {
