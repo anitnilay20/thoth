@@ -45,6 +45,7 @@ pub(crate) const ICON_KEY: &str = "\u{E2D6}";
 pub(crate) const ICON_CIRCLE: &str = "\u{E18A}";
 pub(crate) const ICON_FLOPPY_DISK: &str = "\u{E248}"; // save query to a .sql file
 pub(crate) const ICON_FOLDER_OPEN: &str = "\u{E256}"; // open a .sql file
+pub(crate) const ICON_STACK_PLUS: &str = "\u{EDF6}"; // publish result to Datasets
 pub(crate) const ICON_FORMAT: &str = "\u{E48A}"; // format the SQL query
                                                  // structure-view glyphs
 pub(crate) const ICON_LINK: &str = "\u{E2E2}"; // foreign key

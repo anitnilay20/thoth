@@ -1451,6 +1451,8 @@ impl ThothApp {
             })
             .collect();
         crate::plugin::signals::retain_instances(&open_instances);
+        // Datasets are cleared when their producing instance closes too.
+        crate::plugin::datasets::retain_instances(&open_instances);
 
         let (
             file_path_opt,

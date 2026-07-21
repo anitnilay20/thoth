@@ -8,6 +8,7 @@ pub use common::traits;
 pub mod bookmarks;
 pub mod central_panel;
 pub mod data_source_panel;
+pub mod datasets_panel;
 pub mod drag_and_drop;
 pub mod error_modal;
 pub mod file_viewer;
