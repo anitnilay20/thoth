@@ -1978,7 +1978,6 @@ impl ThothApp {
     /// Open tabs that can produce a dataset (currently: plugin panes exporting
     /// the `data-producer` capability). Returns `(tab id, display label)`.
     fn gather_producers(&self) -> Vec<(crate::app::tab_manager::TabId, String)> {
-        use crate::file::loaders::FileKind;
         self.window_state
             .tab_manager
             .tabs
@@ -1995,10 +1994,11 @@ impl ThothApp {
                         .unwrap_or_else(|| pane.plugin_id.clone());
                     return Some((*id, label));
                 }
-                // Core producer: an open JSON/NDJSON file tab.
-                if matches!(tab.file_type, FileKind::Json | FileKind::Ndjson)
-                    && let Some(path) = tab.file_path.as_ref()
-                {
+                // Core producer: any open file tab. This includes files loaded
+                // by a file-loader plugin (csv-loader, …), because the tab's
+                // live loader exposes records uniformly — so every file-loader
+                // plugin is a producer by default.
+                if let Some(path) = tab.file_path.as_ref() {
                     let label = path
                         .file_name()
                         .and_then(|n| n.to_str())
@@ -2015,11 +2015,13 @@ impl ThothApp {
     /// `provide-dataset`, store the single copy in the registry, and bind the
     /// handle to the chart view.
     fn chart_fetch_from(&mut self, tab_id: crate::app::tab_manager::TabId) {
-        let Some(tab) = self.window_state.tab_manager.tabs.get(&tab_id) else {
+        let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) else {
             return;
         };
 
-        // Core producer: an open JSON/NDJSON file tab (host-native, no plugin).
+        // Core producer: an open file tab (host-native or loaded by a
+        // file-loader plugin). Read records straight from the tab's live
+        // loader so CSV and every other file-loader format works uniformly.
         if tab.active_plugin_pane.is_none() {
             let Some(path) = tab.file_path.clone() else {
                 return;
@@ -2029,7 +2031,7 @@ impl ThothApp {
                 .and_then(|n| n.to_str())
                 .unwrap_or("file")
                 .to_string();
-            match crate::file::to_dataset::file_to_dataset(&path) {
+            match tab.central_panel.to_dataset() {
                 Some((cols, rows)) => {
                     let columns: Vec<crate::plugin::datasets::DatasetColumn> = cols
                         .into_iter()

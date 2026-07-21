@@ -110,6 +110,27 @@ impl FileType {
         }
     }
 
+    /// Read records `[start, start + count)` in one bulk, sequential pass.
+    ///
+    /// For plugin loaders this is a single WASM call (see the `get-range`
+    /// export) — far cheaper than looping `get(idx)`, which is O(n²) for
+    /// stream-parsed formats like CSV. Native loaders already offer O(1)
+    /// random access, so they just loop `get`.
+    pub fn get_range(&mut self, start: usize, count: usize) -> Result<Vec<Value>> {
+        match self {
+            FileType::Plugin(f) => f.get_range(start, count),
+            FileType::PluginWithViewer(f) => f.get_range(start, count),
+            other => {
+                let end = start.saturating_add(count).min(other.len());
+                let mut out = Vec::with_capacity(end.saturating_sub(start));
+                for i in start..end {
+                    out.push(other.get(i)?);
+                }
+                Ok(out)
+            }
+        }
+    }
+
     /// Get the raw bytes for an element at the specified index.
     pub fn raw_slice(&self, idx: usize) -> Result<Vec<u8>> {
         match self {

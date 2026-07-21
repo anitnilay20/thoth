@@ -294,4 +294,10 @@ impl CentralPanel {
     pub fn get_selected_path(&self) -> Option<&String> {
         self.file_viewer.get_selected_path()
     }
+
+    /// Read this tab's live loader as a tabular dataset for the data bus
+    /// (#113). See [`FileViewer::to_dataset`].
+    pub fn to_dataset(&mut self) -> Option<crate::file::to_dataset::DatasetTable> {
+        self.file_viewer.to_dataset()
+    }
 }

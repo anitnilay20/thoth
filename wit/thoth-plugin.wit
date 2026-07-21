@@ -149,6 +149,13 @@ interface file-loader {
     /// Called lazily as the user scrolls — must be fast and stateless.
     get: func(idx: u64) -> result<string, plugin-error>;
 
+    /// Return records `[start, start + count)` as JSON strings, in order.
+    /// A bulk, sequential read for consumers that cross many records at once
+    /// (e.g. the dataset bus, export). Fewer than `count` items means the file
+    /// ended. Implementations MUST read this in a single sequential pass — do
+    /// not call `get(idx)` in a loop, which is O(n²) for stream-parsed formats.
+    get-range: func(start: u64, count: u64) -> result<list<string>, plugin-error>;
+
     /// Return the raw bytes of the record at `idx` without JSON parsing.
     /// Used by the copy-to-clipboard and export paths.
     raw-bytes: func(idx: u64) -> result<list<u8>, plugin-error>;

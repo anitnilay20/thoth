@@ -346,6 +346,119 @@ pub mod exports {
                 }
                 #[doc(hidden)]
                 #[allow(non_snake_case)]
+                pub unsafe fn _export_get_range_cabi<T: Guest>(
+                    arg0: i64,
+                    arg1: i64,
+                ) -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let result0 = T::get_range(arg0 as u64, arg1 as u64);
+                    let ptr1 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result0 {
+                        Ok(e) => {
+                            *ptr1.add(0).cast::<u8>() = (0i32) as u8;
+                            let vec3 = e;
+                            let len3 = vec3.len();
+                            let layout3 = _rt::alloc::Layout::from_size_align_unchecked(
+                                vec3.len() * (2 * ::core::mem::size_of::<*const u8>()),
+                                ::core::mem::size_of::<*const u8>(),
+                            );
+                            let result3 = if layout3.size() != 0 {
+                                let ptr = _rt::alloc::alloc(layout3).cast::<u8>();
+                                if ptr.is_null() {
+                                    _rt::alloc::handle_alloc_error(layout3);
+                                }
+                                ptr
+                            } else {
+                                ::core::ptr::null_mut()
+                            };
+                            for (i, e) in vec3.into_iter().enumerate() {
+                                let base = result3
+                                    .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                {
+                                    let vec2 = (e.into_bytes()).into_boxed_slice();
+                                    let ptr2 = vec2.as_ptr().cast::<u8>();
+                                    let len2 = vec2.len();
+                                    ::core::mem::forget(vec2);
+                                    *base
+                                        .add(::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>() = len2;
+                                    *base.add(0).cast::<*mut u8>() = ptr2.cast_mut();
+                                }
+                            }
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len3;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = result3;
+                        }
+                        Err(e) => {
+                            *ptr1.add(0).cast::<u8>() = (1i32) as u8;
+                            let super::super::super::super::thoth::plugin::types::PluginError {
+                                code: code4,
+                                message: message4,
+                            } = e;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(code4);
+                            let vec5 = (message4.into_bytes()).into_boxed_slice();
+                            let ptr5 = vec5.as_ptr().cast::<u8>();
+                            let len5 = vec5.len();
+                            ::core::mem::forget(vec5);
+                            *ptr1
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len5;
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr5.cast_mut();
+                        }
+                    };
+                    ptr1
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_get_range<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = *arg0
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            let base5 = l1;
+                            let len5 = l2;
+                            for i in 0..len5 {
+                                let base = base5
+                                    .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                {
+                                    let l3 = *base.add(0).cast::<*mut u8>();
+                                    let l4 = *base
+                                        .add(::core::mem::size_of::<*const u8>())
+                                        .cast::<usize>();
+                                    _rt::cabi_dealloc(l3, l4, 1);
+                                }
+                            }
+                            _rt::cabi_dealloc(
+                                base5,
+                                len5 * (2 * ::core::mem::size_of::<*const u8>()),
+                                ::core::mem::size_of::<*const u8>(),
+                            );
+                        }
+                        _ => {
+                            let l6 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l7 = *arg0
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l6, l7, 1);
+                        }
+                    }
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
                 pub unsafe fn _export_raw_bytes_cabi<T: Guest>(arg0: i64) -> *mut u8 {
                     #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
                     let result0 = T::raw_bytes(arg0 as u64);
@@ -425,6 +538,15 @@ pub mod exports {
                     /// Return the record at `idx` serialised as a JSON string.
                     /// Called lazily as the user scrolls — must be fast and stateless.
                     fn get(idx: u64) -> Result<_rt::String, PluginError>;
+                    /// Return records `[start, start + count)` as JSON strings, in order.
+                    /// A bulk, sequential read for consumers that cross many records at once
+                    /// (e.g. the dataset bus, export). Fewer than `count` items means the file
+                    /// ended. Implementations MUST read this in a single sequential pass — do
+                    /// not call `get(idx)` in a loop, which is O(n²) for stream-parsed formats.
+                    fn get_range(
+                        start: u64,
+                        count: u64,
+                    ) -> Result<_rt::Vec<_rt::String>, PluginError>;
                     /// Return the raw bytes of the record at `idx` without JSON parsing.
                     /// Used by the copy-to-clipboard and export paths.
                     fn raw_bytes(idx: u64) -> Result<_rt::Vec<u8>, PluginError>;
@@ -455,6 +577,14 @@ pub mod exports {
                         "cabi_post_thoth:plugin/file-loader@0.1.0#get")] unsafe extern
                         "C" fn _post_return_get(arg0 : * mut u8,) { unsafe {
                         $($path_to_types)*:: __post_return_get::<$ty > (arg0) } }
+                        #[unsafe (export_name =
+                        "thoth:plugin/file-loader@0.1.0#get-range")] unsafe extern "C" fn
+                        export_get_range(arg0 : i64, arg1 : i64,) -> * mut u8 { unsafe {
+                        $($path_to_types)*:: _export_get_range_cabi::<$ty > (arg0, arg1)
+                        } } #[unsafe (export_name =
+                        "cabi_post_thoth:plugin/file-loader@0.1.0#get-range")] unsafe
+                        extern "C" fn _post_return_get_range(arg0 : * mut u8,) { unsafe {
+                        $($path_to_types)*:: __post_return_get_range::<$ty > (arg0) } }
                         #[unsafe (export_name =
                         "thoth:plugin/file-loader@0.1.0#raw-bytes")] unsafe extern "C" fn
                         export_raw_bytes(arg0 : i64,) -> * mut u8 { unsafe {
@@ -1448,19 +1578,20 @@ pub(crate) use __export_file_viewer_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1260] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xe3\x08\x01A\x02\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1299] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x8a\x09\x01A\x02\x01\
 A\x0e\x01B\x0a\x01m\x06\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x0fsearch-provider\x10new-ui-component\x04\0\x0acapability\x03\0\0\x01p\x01\x01\
 ks\x01r\x08\x02ids\x04names\x07versions\x0bdescriptions\x0ccapabilities\x02\x06a\
 uthor\x03\x08homepage\x03\x04icon\x03\x04\0\x0bplugin-info\x03\0\x04\x01r\x02\x04\
 codey\x07messages\x04\0\x0cplugin-error\x03\0\x06\x01r\x02\x03keys\x05values\x04\
 \0\x0csetting-data\x03\0\x08\x03\0\x18thoth:plugin/types@0.1.0\x05\0\x02\x03\0\0\
-\x0cplugin-error\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01p\
+\x0cplugin-error\x01B\x12\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01p\
 s\x01@\0\0\x02\x04\0\x14supported-extensions\x01\x03\x01j\x01w\x01\x01\x01@\x01\x04\
 paths\0\x04\x04\0\x04open\x01\x05\x01j\x01s\x01\x01\x01@\x01\x03idxw\0\x06\x04\0\
-\x03get\x01\x07\x01p}\x01j\x01\x08\x01\x01\x01@\x01\x03idxw\0\x09\x04\0\x09raw-b\
-ytes\x01\x0a\x04\0\x1ethoth:plugin/file-loader@0.1.0\x05\x02\x01B\x0f\x02\x03\x02\
+\x03get\x01\x07\x01j\x01\x02\x01\x01\x01@\x02\x05startw\x05countw\0\x08\x04\0\x09\
+get-range\x01\x09\x01p}\x01j\x01\x0a\x01\x01\x01@\x01\x03idxw\0\x0b\x04\0\x09raw\
+-bytes\x01\x0c\x04\0\x1ethoth:plugin/file-loader@0.1.0\x05\x02\x01B\x0f\x02\x03\x02\
 \x01\x01\x04\0\x0cplugin-error\x03\0\0\x01m\x02\x05table\x06custom\x04\0\x0cdisp\
 lay-mode\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0drender-output\
 \x03\0\x04\x01@\0\0\x03\x04\0\x11preferred-display\x01\x06\x01j\x01\x05\x01\x01\x01\
