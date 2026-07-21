@@ -764,13 +764,12 @@ interface websocket {
 }
 
 
-// datasets — host-provided import: the pull half of the plugin data ecosystem
-// (#118). A producer publishes a tabular Dataset to a host registry; the host
-// Datasets panel browses/previews it, and (later, #114) consumer plugins read
-// it paged. v1 carries cells as strings — a simple JSON-ish seam designed to
-// migrate to Apache Arrow IPC later without reshaping the interface. The host
-// LRU-evicts old datasets and clears a producer's datasets when it closes.
-interface datasets {
+// data-producer — a capability a plugin EXPORTS to offer its current data to
+// the pull bus (#113). When a consumer requests data and the user picks this
+// plugin's tab, the host calls `provide-dataset` and owns the single returned
+// copy. v1 carries cells as strings — a simple JSON-ish seam designed to move
+// to Apache Arrow IPC later without reshaping the contract.
+interface data-producer {
     use types.{plugin-error};
 
     // A column: display name + a SQL-ish type hint the host maps to a
@@ -780,47 +779,18 @@ interface datasets {
         type-hint: string,
     }
 
-    // A full tabular dataset published by a producer. Row-major; each cell is
-    // already rendered to a string for v1.
+    // A full tabular dataset. Row-major; each cell is already rendered to a
+    // string for v1.
     record dataset {
         name: string,
         kind: string,                    // free-form, e.g. "sql-result"
-        tags: list<string>,
         columns: list<dataset-column>,
         rows: list<list<string>>,
     }
 
-    // Registry metadata for a published dataset (no rows).
-    record dataset-meta {
-        id: string,
-        name: string,
-        source-plugin: string,
-        kind: string,
-        tags: list<string>,
-        row-count: u64,
-        columns: list<dataset-column>,
-    }
-
-    // A contiguous page of rows for paged reads.
-    record dataset-page {
-        columns: list<dataset-column>,
-        rows: list<list<string>>,
-        offset: u64,
-        total: u64,
-    }
-
-    // Publish a dataset; the host stores it and returns its id.
-    publish: func(data: dataset) -> result<string, plugin-error>;
-
-    // Metadata for all currently-published datasets.
-    list-datasets: func() -> list<dataset-meta>;
-
-    // Read rows [offset, offset + limit). `limit` is capped by the host so a
-    // huge dataset never crosses the boundary at once.
-    read: func(id: string, offset: u64, limit: u32) -> result<dataset-page, plugin-error>;
-
-    // Release a dataset this plugin published (ref-count / eviction hint).
-    release: func(id: string);
+    // Return the producer tab's current dataset. Called by the host on demand
+    // (never proactively); the host owns the returned copy.
+    provide-dataset: func() -> result<dataset, plugin-error>;
 }
 
 
@@ -877,10 +847,10 @@ world data-source-plugin {
     import db-runtime;
     import signals;
     import websocket;
-    import datasets;
     export data-source;
     export ui-component;
     export tab-host;
+    export data-producer;
 }
 
 /// A plugin that adds a new export format or destination.

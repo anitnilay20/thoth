@@ -175,4 +175,29 @@ pub trait PluginUiHost: Send {
     fn drain_ws_events(&self) -> Vec<(String, crate::plugin::websocket::WsEvent)> {
         Vec::new()
     }
+
+    // ── data-producer (dataset bus) ──────────────────────────────────────────────
+
+    /// Whether this plugin can produce a dataset (exports `data-producer`).
+    fn is_data_producer(&self) -> bool {
+        false
+    }
+
+    /// Fetch this producer's current dataset (host calls the `provide-dataset`
+    /// export on demand). Default: not a producer.
+    fn provide_dataset(&self) -> Result<ProvidedDataset> {
+        Err(crate::error::ThothError::Unknown {
+            message: "plugin is not a data producer".to_string(),
+        })
+    }
+}
+
+/// A dataset returned by a producer's `provide-dataset` export, in plain
+/// host-side types (no bindgen dependency) so it can cross into the bus.
+pub struct ProvidedDataset {
+    pub name: String,
+    pub kind: String,
+    /// `(column name, SQL-ish type hint)` pairs.
+    pub columns: Vec<(String, String)>,
+    pub rows: Vec<Vec<String>>,
 }

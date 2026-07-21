@@ -888,89 +888,6 @@ impl DataSourcePluginState {
     }
 }
 
-// ── datasets WIT import — publish/list/read against the host registry ────────
-
-impl thoth::plugin::datasets::Host for DataSourcePluginState {
-    fn publish(
-        &mut self,
-        data: thoth::plugin::datasets::Dataset,
-    ) -> std::result::Result<String, thoth::plugin::datasets::PluginError> {
-        let columns = data.columns.into_iter().map(from_wit_col).collect();
-        let id = crate::plugin::datasets::publish(
-            &self.plugin_id,
-            &self.instance_id,
-            data.name,
-            data.kind,
-            data.tags,
-            columns,
-            data.rows,
-        );
-        Ok(id)
-    }
-
-    fn list_datasets(&mut self) -> Vec<thoth::plugin::datasets::DatasetMeta> {
-        crate::plugin::datasets::list()
-            .into_iter()
-            .map(to_wit_meta)
-            .collect()
-    }
-
-    fn read(
-        &mut self,
-        id: String,
-        offset: u64,
-        limit: u32,
-    ) -> std::result::Result<
-        thoth::plugin::datasets::DatasetPage,
-        thoth::plugin::datasets::PluginError,
-    > {
-        match crate::plugin::datasets::read(&id, offset, limit) {
-            Some(page) => Ok(thoth::plugin::datasets::DatasetPage {
-                columns: page.columns.into_iter().map(to_wit_col).collect(),
-                rows: page.rows,
-                offset: page.offset,
-                total: page.total,
-            }),
-            None => Err(thoth::plugin::datasets::PluginError {
-                code: 1,
-                message: format!("no such dataset: {id}"),
-            }),
-        }
-    }
-
-    fn release(&mut self, id: String) {
-        crate::plugin::datasets::release(&id);
-    }
-}
-
-fn from_wit_col(
-    c: thoth::plugin::datasets::DatasetColumn,
-) -> crate::plugin::datasets::DatasetColumn {
-    crate::plugin::datasets::DatasetColumn {
-        name: c.name,
-        type_hint: c.type_hint,
-    }
-}
-
-fn to_wit_col(c: crate::plugin::datasets::DatasetColumn) -> thoth::plugin::datasets::DatasetColumn {
-    thoth::plugin::datasets::DatasetColumn {
-        name: c.name,
-        type_hint: c.type_hint,
-    }
-}
-
-fn to_wit_meta(m: crate::plugin::datasets::DatasetMeta) -> thoth::plugin::datasets::DatasetMeta {
-    thoth::plugin::datasets::DatasetMeta {
-        id: m.id,
-        name: m.name,
-        source_plugin: m.source_plugin,
-        kind: m.kind,
-        tags: m.tags,
-        row_count: m.row_count,
-        columns: m.columns.into_iter().map(to_wit_col).collect(),
-    }
-}
-
 // ── file-dialog WIT import — native open/save pickers (host-mediated I/O) ─────
 
 fn fd_err(message: impl Into<String>) -> thoth::plugin::file_dialog::PluginError {
@@ -1255,14 +1172,6 @@ impl WasmDataSourceLoader {
             },
         )?;
 
-        // 10. Register the datasets import (publish/list/read against the registry).
-        thoth::plugin::datasets::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
-            |e| ThothError::PluginLoadError {
-                path: wasm_path.to_path_buf(),
-                reason: e.to_string(),
-            },
-        )?;
-
         let bindings =
             DataSourcePlugin::instantiate(&mut store, &component, &linker).map_err(|e| {
                 ThothError::PluginLoadError {
@@ -1389,6 +1298,30 @@ impl WasmDataSourceLoader {
                 message: e.to_string(),
             })?
             .map_err(|e| ThothError::Unknown { message: e.message })
+    }
+
+    /// Call the plugin's `provide-dataset` export (data-producer capability).
+    pub fn provide_dataset(&self) -> Result<crate::plugin::plugin_ui_host::ProvidedDataset> {
+        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        let WasmDataSourceInner { store, bindings } = &mut *guard;
+        refuel(store)?;
+        let ds = bindings
+            .thoth_plugin_data_producer()
+            .call_provide_dataset(store)
+            .map_err(|e| ThothError::Unknown {
+                message: e.to_string(),
+            })?
+            .map_err(|e| ThothError::Unknown { message: e.message })?;
+        Ok(crate::plugin::plugin_ui_host::ProvidedDataset {
+            name: ds.name,
+            kind: ds.kind,
+            columns: ds
+                .columns
+                .into_iter()
+                .map(|c| (c.name, c.type_hint))
+                .collect(),
+            rows: ds.rows,
+        })
     }
 
     /// Release the connection.
@@ -1827,6 +1760,14 @@ impl PluginUiHost for WasmDataSourceLoader {
 
     fn drain_ws_events(&self) -> Vec<(String, WsEvent)> {
         self.ws_event_rx.try_iter().collect()
+    }
+
+    fn is_data_producer(&self) -> bool {
+        true
+    }
+
+    fn provide_dataset(&self) -> Result<crate::plugin::plugin_ui_host::ProvidedDataset> {
+        WasmDataSourceLoader::provide_dataset(self)
     }
 }
 

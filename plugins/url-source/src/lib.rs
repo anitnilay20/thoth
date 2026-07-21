@@ -11,6 +11,9 @@ use thoth_plugin_sdk::state::PluginState;
 use thoth_plugin_sdk::PluginMeta;
 
 use bindings::exports::thoth::plugin::{
+    data_producer::{
+        Dataset as ProducerDataset, Guest as DataProducerGuest, PluginError as ProducerError,
+    },
     data_source::{
         ConfigEntry, FieldSchema, Guest as DataSourceGuest, PaneOutput, PluginError, SourceSchema,
     },
@@ -907,6 +910,18 @@ impl SettingsGuest for UrlSourcePlugin {
         Ok(SettingsOutput {
             node_json: serde_json::to_string(&node).unwrap_or_default(),
             height_hint: 0,
+        })
+    }
+}
+
+// ── data-producer: url-source doesn't yet expose its response as a dataset ───
+// (structured-response → dataset is a follow-up); required export, so return a
+// clear error for now.
+impl DataProducerGuest for UrlSourcePlugin {
+    fn provide_dataset() -> Result<ProducerDataset, ProducerError> {
+        Err(ProducerError {
+            code: 1,
+            message: "url-source does not provide datasets yet".to_string(),
         })
     }
 }
