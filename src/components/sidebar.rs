@@ -5,7 +5,6 @@ use crate::components::bookmarks::{Bookmarks, BookmarksEvent, BookmarksProps};
 use crate::components::data_source_panel::{
     DataSourcePanel, DataSourcePanelEvent, DataSourcePanelProps,
 };
-use crate::components::datasets_panel::DatasetsPanel;
 use crate::components::marketplace::{Marketplace, MarketplaceProps};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 use crate::components::search::{Search, SearchEvent, SearchProps};
@@ -23,8 +22,6 @@ pub enum SidebarSection {
     RecentFiles,
     Search,
     Bookmarks,
-    /// Host registry of datasets published by plugins (#113).
-    Datasets,
     DataSource {
         plugin_id: String,
     },
@@ -119,7 +116,6 @@ pub struct Sidebar {
     recent_files: RecentFiles,
     search: Search,
     bookmarks: Bookmarks,
-    datasets_panel: DatasetsPanel,
 
     data_source_panel: HashMap<String, DataSourcePanel>,
 }
@@ -130,7 +126,6 @@ impl Default for Sidebar {
             recent_files: RecentFiles,
             search: Search::default(),
             bookmarks: Bookmarks::default(),
-            datasets_panel: DatasetsPanel::default(),
             data_source_panel: HashMap::new(),
         }
     }
@@ -223,9 +218,6 @@ impl Sidebar {
                         }
                     }
                 }
-            }
-            Some(SidebarSection::Datasets) => {
-                self.datasets_panel.render(ui);
             }
             Some(SidebarSection::DataSource { plugin_id }) => {
                 if let Some(panel) = self.data_source_panel.get_mut(plugin_id.as_str()) {
@@ -338,18 +330,6 @@ impl Sidebar {
             accent,
         ) {
             events.push(SidebarEvent::SectionToggled(SidebarSection::Bookmarks));
-        }
-
-        if rail_button(
-            ui,
-            sidebar_btn(
-                egui_phosphor::regular::STACK,
-                "Datasets",
-                props.selected_section == Some(SidebarSection::Datasets),
-            ),
-            accent,
-        ) {
-            events.push(SidebarEvent::SectionToggled(SidebarSection::Datasets));
         }
 
         if rail_button(

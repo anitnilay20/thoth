@@ -9,7 +9,7 @@ use thoth_plugin_sdk::render_node::RenderNode;
 use crate::constants::{KEYWORDS, SPECIAL, TYPES};
 use crate::state::State;
 use crate::ui::results::results_view;
-use crate::{ICON_FLOPPY_DISK, ICON_FOLDER_OPEN, ICON_FORMAT, ICON_PLAY, ICON_STACK_PLUS};
+use crate::{ICON_FLOPPY_DISK, ICON_FOLDER_OPEN, ICON_FORMAT, ICON_PLAY};
 
 pub(crate) fn editor_view(st: &State) -> RenderNode {
     // The database this editor queries against — also what autocomplete is
@@ -136,16 +136,6 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                         "Format the SQL query ({})",
                                         format_button_tooltip_shortcut
                                     ))
-                                    .build(),
-                            ),
-                            RenderNode::IconButton(
-                                IconButton::builder()
-                                    .id("publish-dataset")
-                                    .icon(ICON_STACK_PLUS)
-                                    .frame(true)
-                                    .size(Size::Small)
-                                    .disabled(!matches!(&st.result, Some(Ok(_))))
-                                    .tooltip("Publish result to Datasets")
                                     .build(),
                             ),
                         ])

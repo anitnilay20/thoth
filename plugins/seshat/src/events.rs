@@ -4,7 +4,6 @@
 use serde_json::Value;
 
 use crate::bindings::exports::thoth::plugin::ui_component::UiEvent;
-use crate::bindings::thoth::plugin::datasets::{self, Dataset, DatasetColumn};
 use crate::bindings::thoth::plugin::signals::{self, Status as SignalStatus};
 use crate::bindings::thoth::plugin::{file_dialog, secure_storage, ui_tabs};
 use crate::db::{self, ColumnInfo, TableInfo};
@@ -280,87 +279,7 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         // Load a .sql file the user picks into the editor.
         "open-query" => open_query(st),
         "format-editor" => format_query(st),
-        // Publish the current result to the host Datasets registry.
-        "publish-dataset" => publish_result(st),
         _ => {}
-    }
-}
-
-/// Publish the last successful query result as a dataset the host registry can
-/// list/preview (and other plugins can read).
-fn publish_result(st: &mut State) {
-    let Some(Ok(value)) = st.result.as_ref() else {
-        return;
-    };
-    let (Some(cols), Some(rows)) = (
-        value.get("columns").and_then(|c| c.as_array()),
-        value.get("rows").and_then(|r| r.as_array()),
-    ) else {
-        return;
-    };
-
-    let columns: Vec<DatasetColumn> = cols
-        .iter()
-        .map(|c| DatasetColumn {
-            name: c
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or("")
-                .to_string(),
-            type_hint: c
-                .get("type")
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string(),
-        })
-        .collect();
-    let data_rows: Vec<Vec<String>> = rows
-        .iter()
-        .map(|row| {
-            row.as_array()
-                .map(|cs| cs.iter().map(cell_to_string).collect())
-                .unwrap_or_default()
-        })
-        .collect();
-
-    // Name from the first line of the run SQL; tags carry connection + database.
-    let name = st
-        .last_run_sql
-        .as_deref()
-        .and_then(|s| s.trim().lines().next())
-        .map(|line| line.chars().take(48).collect::<String>())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "query result".to_string());
-    let mut tags = Vec::new();
-    if let Some(conn) = st
-        .active
-        .as_ref()
-        .and_then(|id| st.connections.iter().find(|c| &c.id == id))
-    {
-        tags.push(conn.name.clone());
-    }
-    if let Some(p) = st.active_profile.as_ref() {
-        tags.push(p.database.clone());
-    }
-
-    let dataset = Dataset {
-        name,
-        kind: "sql-result".to_string(),
-        tags,
-        columns,
-        rows: data_rows,
-    };
-    if let Err(e) = datasets::publish(&dataset) {
-        st.error = Some(format!("Publish failed: {}", e.message));
-    }
-}
-
-/// Render a result cell JSON value as a plain string for the dataset payload.
-fn cell_to_string(v: &serde_json::Value) -> String {
-    match v {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Null => String::new(),
-        other => other.to_string(),
     }
 }
 
