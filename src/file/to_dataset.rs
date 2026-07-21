@@ -140,11 +140,48 @@ fn type_hint(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::file::loaders::{FileType, JsonArrayFile};
     use serde_json::json;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn json_array_loader(json: &str) -> FileType {
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.write_all(json.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+        FileType::JsonArray(JsonArrayFile::open(tmp.path()).unwrap())
+    }
 
     #[test]
     fn empty_records_none() {
         assert!(records_to_dataset(&[]).is_none());
+    }
+
+    #[test]
+    fn loader_to_dataset_reads_live_loader() {
+        let mut loader = json_array_loader(r#"[{"a":1,"b":"x"},{"a":2,"b":"y"}]"#);
+        let (cols, rows) = loader_to_dataset(&mut loader).unwrap();
+        let names: Vec<&str> = cols.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"a") && names.contains(&"b"));
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn loader_to_dataset_crosses_chunk_boundary() {
+        // More than CHUNK rows, so loader_to_dataset must loop get_range and
+        // accumulate across multiple bulk reads.
+        let n = CHUNK + 500;
+        let arr: Vec<serde_json::Value> = (0..n).map(|i| json!({ "n": i })).collect();
+        let mut loader = json_array_loader(&serde_json::to_string(&arr).unwrap());
+        let (cols, rows) = loader_to_dataset(&mut loader).unwrap();
+        assert_eq!(cols.len(), 1);
+        assert_eq!(cols[0].0, "n");
+        assert_eq!(rows.len(), n);
+        // Order preserved across chunk seams.
+        assert_eq!(rows[0][0], "0");
+        assert_eq!(rows[CHUNK][0], CHUNK.to_string());
+        assert_eq!(rows[n - 1][0], (n - 1).to_string());
     }
 
     #[test]

@@ -302,6 +302,39 @@ mod tests {
         assert_eq!(metas[0].name, "b");
     }
 
+    fn publish_small(instance: &str, name: &str) -> String {
+        publish(
+            "p",
+            instance,
+            name.into(),
+            "k".into(),
+            vec![],
+            vec![col("v")],
+            vec![vec!["1".into()]],
+        )
+    }
+
+    #[test]
+    fn release_removes_dataset() {
+        let _g = reset();
+        let id = publish_small("p#1", "a");
+        assert_eq!(list().len(), 1);
+        release(&id);
+        assert!(list().is_empty());
+        assert!(read(&id, 0, 1).is_none());
+        // Idempotent.
+        release(&id);
+    }
+
+    #[test]
+    fn count_cap_holds_at_max() {
+        let _g = reset();
+        for i in 0..(MAX_DATASETS + 5) {
+            publish_small(&format!("p#{i}"), &format!("d{i}"));
+        }
+        assert_eq!(list().len(), MAX_DATASETS, "count cap enforced");
+    }
+
     #[test]
     fn byte_budget_evicts_lru() {
         let _g = reset();
