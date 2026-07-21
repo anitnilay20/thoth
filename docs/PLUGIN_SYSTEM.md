@@ -102,6 +102,7 @@ WASM wins on portability, safety, and distribution simplicity. A plugin author c
 | **UI Component** | `new-ui-component` | Renders a fully interactive panel — owns its own state machine |
 | **Exporter** | `exporter` | Adds new export formats or destinations |
 | **Search Provider** | `search-provider` | Extends the search experience with custom indexing or remote results |
+| **Data Producer** | `data-producer` | Offers a dataset to the data bus (#113); appears as a source in a consumer's picker. Pairs with the `data-producer` export |
 
 A single plugin can declare multiple capabilities. `file-viewer` always pairs with `file-loader` — use the `file-viewer-plugin` world for this combination. `data-source` always pairs with `ui-component` — use the `data-source-plugin` world.
 
@@ -181,6 +182,7 @@ interface types {
         exporter,
         search-provider,
         new-ui-component,
+        data-producer,
     }
 
     record plugin-info {

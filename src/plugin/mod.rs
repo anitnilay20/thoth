@@ -79,6 +79,8 @@ pub enum Capability {
     #[serde(rename = "new-ui-component")]
     NewUIComponent,
     Theme,
+    /// Opts the plugin in as a dataset producer for the data bus (#113).
+    DataProducer,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +141,7 @@ impl Display for Capability {
                 Capability::SearchProvider => "Search Provider",
                 Capability::NewUIComponent => "New UI Component",
                 Capability::Theme => "Theme",
+                Capability::DataProducer => "Data Producer",
             }
         )
     }

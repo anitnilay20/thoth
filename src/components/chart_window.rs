@@ -36,11 +36,28 @@ pub enum ChartAction {
     ChangeSource,
 }
 
+/// Where a producer's data comes from — used to group the picker.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ProducerKind {
+    /// A core file tab (JSON/NDJSON or a file-loader plugin like CSV).
+    File,
+    /// A plugin pane that declares the `data-producer` capability.
+    Plugin,
+}
+
+/// An open tab eligible to provide a dataset, offered in the picker.
+#[derive(Clone)]
+pub struct ProducerRef {
+    pub tab_id: TabId,
+    pub label: String,
+    pub kind: ProducerKind,
+}
+
 #[derive(Default)]
 pub struct ChartWindow {
     pub open: bool,
     /// Producer tabs offered in the picker (set by the app when opening).
-    pub producers: Vec<(TabId, String)>,
+    pub producers: Vec<ProducerRef>,
     /// Registry handle of the fetched dataset (None ⇒ show the picker).
     handle: Option<String>,
     source_name: String,
@@ -52,7 +69,7 @@ pub struct ChartWindow {
 
 impl ChartWindow {
     /// Open the picker with the given producer tabs.
-    pub fn open_picker(&mut self, producers: Vec<(TabId, String)>) {
+    pub fn open_picker(&mut self, producers: Vec<ProducerRef>) {
         self.open = true;
         self.handle = None;
         self.producers = producers;
@@ -76,13 +93,30 @@ impl ChartWindow {
             ui.add_space(4.0);
             if self.producers.is_empty() {
                 ui.label(
-                    egui::RichText::new("No open producer tabs. Open a data-source tab (e.g. run a Seshat query) and try again.")
-                        .weak(),
+                    egui::RichText::new(
+                        "No open data sources. Open a file (JSON, NDJSON, CSV) or run a \
+                         query in a producer plugin, then try again.",
+                    )
+                    .weak(),
                 );
+                return action;
             }
-            for (id, label) in &self.producers {
-                if ui.button(label).clicked() {
-                    action = Some(ChartAction::Pick(*id));
+
+            // Group the sources so files and plugins are visually distinct.
+            for (heading, kind) in [
+                ("Files", ProducerKind::File),
+                ("Plugins", ProducerKind::Plugin),
+            ] {
+                let mut group = self.producers.iter().filter(|p| p.kind == kind).peekable();
+                if group.peek().is_none() {
+                    continue;
+                }
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(heading).weak().small());
+                for p in group {
+                    if ui.button(&p.label).clicked() {
+                        action = Some(ChartAction::Pick(p.tab_id));
+                    }
                 }
             }
             return action;

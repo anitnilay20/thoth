@@ -61,6 +61,10 @@ interface types {
         exporter,
         search-provider,
         new-ui-component,
+        // A dataset producer for the data bus (#113): the plugin exports
+        // data-producer.provide-dataset and opts in to being offered as a
+        // source in the consumer's picker.
+        data-producer,
     }
 
     /// Maps from src/wit/mod.rs `Plugin` struct.

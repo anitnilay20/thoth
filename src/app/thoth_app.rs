@@ -1975,40 +1975,62 @@ impl ThothApp {
         None
     }
 
-    /// Open tabs that can produce a dataset (currently: plugin panes exporting
-    /// the `data-producer` capability). Returns `(tab id, display label)`.
-    fn gather_producers(&self) -> Vec<(crate::app::tab_manager::TabId, String)> {
+    /// Open tabs eligible to provide a dataset for the picker: plugin panes
+    /// whose manifest declares the `data-producer` capability (and whose loader
+    /// supports the call), plus every open file tab (core JSON/NDJSON and
+    /// file-loader plugins are producers by default).
+    fn gather_producers(&self) -> Vec<crate::components::chart_window::ProducerRef> {
+        use crate::components::chart_window::{ProducerKind, ProducerRef};
         self.window_state
             .tab_manager
             .tabs
             .iter()
             .filter_map(|(id, tab)| {
-                // Plugin producer tabs (export data-producer).
+                // Plugin producer tabs: must declare the capability in their
+                // manifest AND export a working provide-dataset.
                 if let Some(pane) = tab.active_plugin_pane.as_ref() {
-                    if !pane.loader.is_data_producer() {
+                    if !pane.loader.is_data_producer()
+                        || !self.plugin_declares_producer(&pane.plugin_id)
+                    {
                         return None;
                     }
                     let label = pane
                         .cached_tab_title
                         .clone()
                         .unwrap_or_else(|| pane.plugin_id.clone());
-                    return Some((*id, label));
+                    return Some(ProducerRef {
+                        tab_id: *id,
+                        label,
+                        kind: ProducerKind::Plugin,
+                    });
                 }
                 // Core producer: any open file tab. This includes files loaded
                 // by a file-loader plugin (csv-loader, …), because the tab's
-                // live loader exposes records uniformly — so every file-loader
-                // plugin is a producer by default.
+                // live loader exposes records uniformly.
                 if let Some(path) = tab.file_path.as_ref() {
                     let label = path
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("file")
                         .to_string();
-                    return Some((*id, label));
+                    return Some(ProducerRef {
+                        tab_id: *id,
+                        label,
+                        kind: ProducerKind::File,
+                    });
                 }
                 None
             })
             .collect()
+    }
+
+    /// Whether the plugin with `plugin_id` declares the `data-producer`
+    /// capability in its manifest.
+    fn plugin_declares_producer(&self, plugin_id: &str) -> bool {
+        matches!(PLUGIN_MANAGER.get(), Some(Some(pm))
+            if pm
+                .get_plugin_by_id(plugin_id)
+                .is_some_and(|p| p.capabilities.contains(&crate::plugin::Capability::DataProducer)))
     }
 
     /// Route a dataset request to the chosen producer tab: call its
