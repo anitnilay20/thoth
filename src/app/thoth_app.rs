@@ -1447,11 +1447,13 @@ impl ThothApp {
             .window_state
             .tab_manager
             .tabs
-            .values()
-            .filter_map(|t| {
-                t.active_plugin_pane
-                    .as_ref()
-                    .map(|p| p.loader.instance_id().to_string())
+            .iter()
+            .filter_map(|(id, t)| match t.active_plugin_pane.as_ref() {
+                // Plugin producer/consumer instances.
+                Some(p) => Some(p.loader.instance_id().to_string()),
+                // Core file tabs act as dataset producers under a stable marker.
+                None if t.file_path.is_some() => Some(format!("core#{id}")),
+                None => None,
             })
             .collect();
         crate::plugin::signals::retain_instances(&open_instances);
@@ -1976,20 +1978,35 @@ impl ThothApp {
     /// Open tabs that can produce a dataset (currently: plugin panes exporting
     /// the `data-producer` capability). Returns `(tab id, display label)`.
     fn gather_producers(&self) -> Vec<(crate::app::tab_manager::TabId, String)> {
+        use crate::file::loaders::FileKind;
         self.window_state
             .tab_manager
             .tabs
             .iter()
             .filter_map(|(id, tab)| {
-                let pane = tab.active_plugin_pane.as_ref()?;
-                if !pane.loader.is_data_producer() {
-                    return None;
+                // Plugin producer tabs (export data-producer).
+                if let Some(pane) = tab.active_plugin_pane.as_ref() {
+                    if !pane.loader.is_data_producer() {
+                        return None;
+                    }
+                    let label = pane
+                        .cached_tab_title
+                        .clone()
+                        .unwrap_or_else(|| pane.plugin_id.clone());
+                    return Some((*id, label));
                 }
-                let label = pane
-                    .cached_tab_title
-                    .clone()
-                    .unwrap_or_else(|| pane.plugin_id.clone());
-                Some((*id, label))
+                // Core producer: an open JSON/NDJSON file tab.
+                if matches!(tab.file_type, FileKind::Json | FileKind::Ndjson)
+                    && let Some(path) = tab.file_path.as_ref()
+                {
+                    let label = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("file")
+                        .to_string();
+                    return Some((*id, label));
+                }
+                None
             })
             .collect()
     }
@@ -2001,6 +2018,50 @@ impl ThothApp {
         let Some(tab) = self.window_state.tab_manager.tabs.get(&tab_id) else {
             return;
         };
+
+        // Core producer: an open JSON/NDJSON file tab (host-native, no plugin).
+        if tab.active_plugin_pane.is_none() {
+            let Some(path) = tab.file_path.clone() else {
+                return;
+            };
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("file")
+                .to_string();
+            match crate::file::to_dataset::file_to_dataset(&path) {
+                Some((cols, rows)) => {
+                    let columns: Vec<crate::plugin::datasets::DatasetColumn> = cols
+                        .into_iter()
+                        .map(|(name, type_hint)| crate::plugin::datasets::DatasetColumn {
+                            name,
+                            type_hint,
+                        })
+                        .collect();
+                    let col_count = columns.len();
+                    let handle = crate::plugin::datasets::publish(
+                        "com.thoth.core",
+                        &format!("core#{tab_id}"),
+                        name.clone(),
+                        "file".to_string(),
+                        Vec::new(),
+                        columns,
+                        rows,
+                    );
+                    self.chart.set_dataset(handle, name, col_count);
+                }
+                None => {
+                    crate::notification::NotificationManager::notify_error(
+                        crate::notification::Notification::new(
+                            "Dataset unavailable",
+                            "Could not read this file as a table.",
+                        ),
+                    );
+                }
+            }
+            return;
+        }
+
         let Some(pane) = tab.active_plugin_pane.as_ref() else {
             return;
         };
