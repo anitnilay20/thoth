@@ -39,6 +39,8 @@ pub struct ThothApp {
     last_active_plugin_tab: Option<crate::app::tab_manager::TabId>,
     /// The plugin whose sidebar is currently mounted (independent of any tab).
     sidebar_plugin: Option<SidebarPluginRuntime>,
+    /// Built-in chart view — consumes the dataset bus (#113/#133).
+    chart: components::chart_window::ChartWindow,
 }
 
 /// Build the synthetic `http-response` UiEvent delivered to a plugin when an
@@ -193,6 +195,7 @@ impl ThothApp {
             session_restore_active_index,
             last_active_plugin_tab: None,
             sidebar_plugin: None,
+            chart: components::chart_window::ChartWindow::default(),
         }
     }
 
@@ -462,6 +465,7 @@ impl App for ThothApp {
         }
 
         self.render_error_modal(&ctx);
+        self.render_chart_window(&ctx);
         self.render_update_consent_modal(ui);
 
         if let Some(new_settings) = settings::Settings::take_if_dirty(&ctx) {
@@ -1959,10 +1963,102 @@ impl ThothApp {
                 components::sidebar::SidebarEvent::OpenSettings => {
                     self.settings_dialog.open(&self.settings);
                 }
+                components::sidebar::SidebarEvent::NewChart => {
+                    let producers = self.gather_producers();
+                    self.chart.open_picker(producers);
+                }
             }
         }
 
         None
+    }
+
+    /// Open tabs that can produce a dataset (currently: plugin panes exporting
+    /// the `data-producer` capability). Returns `(tab id, display label)`.
+    fn gather_producers(&self) -> Vec<(crate::app::tab_manager::TabId, String)> {
+        self.window_state
+            .tab_manager
+            .tabs
+            .iter()
+            .filter_map(|(id, tab)| {
+                let pane = tab.active_plugin_pane.as_ref()?;
+                if !pane.loader.is_data_producer() {
+                    return None;
+                }
+                let label = pane
+                    .cached_tab_title
+                    .clone()
+                    .unwrap_or_else(|| pane.plugin_id.clone());
+                Some((*id, label))
+            })
+            .collect()
+    }
+
+    /// Route a dataset request to the chosen producer tab: call its
+    /// `provide-dataset`, store the single copy in the registry, and bind the
+    /// handle to the chart view.
+    fn chart_fetch_from(&mut self, tab_id: crate::app::tab_manager::TabId) {
+        let Some(tab) = self.window_state.tab_manager.tabs.get(&tab_id) else {
+            return;
+        };
+        let Some(pane) = tab.active_plugin_pane.as_ref() else {
+            return;
+        };
+        match pane.loader.provide_dataset() {
+            Ok(ds) => {
+                let (columns, hints): (Vec<String>, Vec<String>) = ds.columns.into_iter().unzip();
+                let cols: Vec<crate::plugin::datasets::DatasetColumn> = columns
+                    .into_iter()
+                    .zip(hints)
+                    .map(|(name, type_hint)| crate::plugin::datasets::DatasetColumn {
+                        name,
+                        type_hint,
+                    })
+                    .collect();
+                let col_count = cols.len();
+                let handle = crate::plugin::datasets::publish(
+                    &pane.plugin_id,
+                    pane.loader.instance_id(),
+                    ds.name.clone(),
+                    ds.kind,
+                    Vec::new(),
+                    cols,
+                    ds.rows,
+                );
+                self.chart.set_dataset(handle, ds.name, col_count);
+            }
+            Err(e) => {
+                crate::notification::NotificationManager::notify_error(
+                    crate::notification::Notification::new("Dataset unavailable", &e.to_string()),
+                );
+            }
+        }
+    }
+
+    /// Render the built-in chart window and service its picker actions.
+    fn render_chart_window(&mut self, ctx: &egui::Context) {
+        use crate::components::chart_window::ChartAction;
+        if !self.chart.open {
+            return;
+        }
+        let mut open = self.chart.open;
+        let mut action = None;
+        egui::Window::new("Chart")
+            .open(&mut open)
+            .resizable(true)
+            .default_size([640.0, 460.0])
+            .show(ctx, |ui| {
+                action = self.chart.render(ui);
+            });
+        self.chart.open = open;
+        match action {
+            Some(ChartAction::Pick(id)) => self.chart_fetch_from(id),
+            Some(ChartAction::ChangeSource) => {
+                let producers = self.gather_producers();
+                self.chart.open_picker(producers);
+            }
+            None => {}
+        }
     }
 
     fn render_error_modal(&mut self, ctx: &egui::Context) {
