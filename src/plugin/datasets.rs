@@ -99,7 +99,12 @@ fn dataset_bytes(meta: &DatasetMeta, rows: &[Vec<String>]) -> usize {
         .iter()
         .map(|c| c.name.len() + c.type_hint.len())
         .sum();
-    cells + cols + meta.name.len() + meta.source_plugin.len() + meta.source_instance.len()
+    let tags: usize = meta
+        .tags
+        .iter()
+        .map(|t| std::mem::size_of::<String>() + t.len())
+        .sum();
+    cells + cols + tags + meta.name.len() + meta.source_plugin.len() + meta.source_instance.len()
 }
 
 static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Registry::default()));

@@ -247,10 +247,7 @@ fn plugin_err(code: u32, message: impl Into<String>) -> PluginError {
 /// position index from `open()`, so this is O(1) rather than a scan from row 0.
 /// The reader is built with `has_headers(false)` — we seek straight to a data
 /// record, so there is no header line to skip.
-fn reader_seeked(
-    state: &State,
-    row: usize,
-) -> Result<csv::Reader<std::fs::File>, PluginError> {
+fn reader_seeked(state: &State, row: usize) -> Result<csv::Reader<std::fs::File>, PluginError> {
     let pos = state
         .positions
         .get(row)

@@ -34,6 +34,13 @@
 //   Migration: update ConfigEntry construction to supply description (human-
 //   readable label) and required (bool) in addition to name and value.
 //
+// [BREAKING] file-loader.get-range is now a required export. Plugins compiled
+//   against the previous interface (without it) will fail component
+//   instantiation.
+//   Migration: implement get_range(start, count) — read the requested records
+//   in a single sequential pass. A minimal body may loop your existing get(),
+//   though a native bulk read is preferred for large files.
+//
 // ---------------------------------------------------------------------------
 
 package thoth:plugin@0.1.0;
