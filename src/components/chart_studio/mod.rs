@@ -110,7 +110,6 @@ impl ChartType {
 pub struct ChartOptions {
     pub legend: bool,
     pub grid: bool,
-    pub smooth: bool,
     pub stacked: bool,
     /// Draw the numeric value on each bar / point.
     pub data_labels: bool,
@@ -121,7 +120,6 @@ impl Default for ChartOptions {
         Self {
             legend: true,
             grid: true,
-            smooth: false,
             stacked: false,
             data_labels: false,
         }
@@ -262,4 +260,6 @@ pub enum ChartTabAction {
     Edit,
     /// Re-fetch the source data and rebuild the chart (and its axis names).
     Refresh,
+    /// Export the chart region (in points) as a PNG.
+    ExportPng(eframe::egui::Rect),
 }

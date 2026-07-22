@@ -49,6 +49,9 @@ pub struct ThothApp {
         Vec<String>,
         Vec<Vec<String>>,
     )>,
+    /// Pending chart PNG export: `(chart rect in points, screenshot requested?)`
+    /// — drives the two-frame screenshot → crop → save flow.
+    chart_export: Option<(egui::Rect, bool)>,
 }
 
 /// Build the synthetic `http-response` UiEvent delivered to a plugin when an
@@ -205,6 +208,7 @@ impl ThothApp {
             sidebar_plugin: None,
             chart_counter: 0,
             chart_source: None,
+            chart_export: None,
         }
     }
 
@@ -475,6 +479,7 @@ impl App for ThothApp {
 
         self.render_error_modal(&ctx);
         self.render_update_consent_modal(ui);
+        self.poll_chart_export(&ctx);
 
         if let Some(new_settings) = settings::Settings::take_if_dirty(&ctx) {
             self.apply_new_settings(new_settings);
@@ -1698,6 +1703,7 @@ impl ThothApp {
                 match action {
                     ChartTabAction::Edit => self.chart_edit(tab_id),
                     ChartTabAction::Refresh => self.chart_refresh(tab_id),
+                    ChartTabAction::ExportPng(rect) => self.chart_export = Some((rect, false)),
                 }
             }
         }
@@ -2213,6 +2219,31 @@ impl ThothApp {
         self.window_state.tab_manager.focus_tab(tab_id);
     }
 
+    /// Drive the chart PNG export: request a viewport screenshot, then on the
+    /// next frame crop it to the chart's rect and save via a file dialog.
+    fn poll_chart_export(&mut self, ctx: &egui::Context) {
+        let Some((rect, requested)) = self.chart_export else {
+            return;
+        };
+        if !requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            self.chart_export = Some((rect, true));
+            ctx.request_repaint();
+            return;
+        }
+        let image = ctx.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+        });
+        if let Some(image) = image {
+            self.chart_export = None;
+            let region = image.region(&rect, Some(ctx.pixels_per_point()));
+            save_chart_png(&region);
+        }
+    }
+
     fn render_error_modal(&mut self, ctx: &egui::Context) {
         use crate::components::traits::StatefulComponent;
         use crate::error::RecoveryAction;
@@ -2304,6 +2335,37 @@ impl ThothApp {
 
 /// A resolved data source: `(display name, columns [(name, type-hint)], rows)`.
 type ResolvedDataset = (String, Vec<(String, String)>, Vec<Vec<String>>);
+
+/// Encode a cropped screenshot as PNG and save it via a file dialog.
+fn save_chart_png(image: &egui::ColorImage) {
+    let [w, h] = image.size;
+    let mut bytes: Vec<u8> = Vec::with_capacity(w * h * 4);
+    for px in &image.pixels {
+        bytes.extend_from_slice(&px.to_array());
+    }
+    let Some(buf) = image::RgbaImage::from_raw(w as u32, h as u32, bytes) else {
+        return;
+    };
+    if let Some(path) = rfd::FileDialog::new()
+        .set_file_name("chart.png")
+        .add_filter("PNG image", &["png"])
+        .save_file()
+    {
+        let ok = buf.save_with_format(&path, image::ImageFormat::Png).is_ok();
+        if ok {
+            crate::notification::NotificationManager::notify(
+                crate::notification::Notification::new(
+                    "Chart exported",
+                    &path.display().to_string(),
+                ),
+            );
+        } else {
+            crate::notification::NotificationManager::notify_error(
+                crate::notification::Notification::new("Export failed", "Could not write the PNG."),
+            );
+        }
+    }
+}
 
 /// Build the Chart Studio column schema (name + numeric flag) from resolved
 /// `(name, type-hint)` columns and the sampled rows.

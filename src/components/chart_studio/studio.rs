@@ -463,11 +463,10 @@ impl ChartStudio {
         let rows = [
             ("Show legend", self.options.legend),
             ("Show gridlines", self.options.grid),
-            ("Smooth curves", self.options.smooth),
             ("Stacked", self.options.stacked),
             ("Data labels", self.options.data_labels),
         ];
-        let mut toggled = [false; 5];
+        let mut toggled = [false; 4];
         for (i, (label, enabled)) in rows.iter().enumerate() {
             ui.horizontal(|ui| {
                 if ui
@@ -492,12 +491,9 @@ impl ChartStudio {
             self.options.grid = !self.options.grid;
         }
         if toggled[2] {
-            self.options.smooth = !self.options.smooth;
-        }
-        if toggled[3] {
             self.options.stacked = !self.options.stacked;
         }
-        if toggled[4] {
+        if toggled[3] {
             self.options.data_labels = !self.options.data_labels;
         }
     }

@@ -208,8 +208,9 @@ impl ChartTab {
         use thoth_plugin_sdk::components::{IconButton, Typography, TypographyVariant};
         let mut action = None;
 
-        // Header: title/subtitle on the left, Edit + Refresh tools on the right.
+        // Header: title/subtitle on the left, tools on the right.
         ui.add_space(6.0);
+        let mut want_export = false;
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.add(
@@ -226,6 +227,30 @@ impl ChartTab {
                 );
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(
+                        IconButton::builder()
+                            .icon(egui_phosphor::regular::DOWNLOAD_SIMPLE)
+                            .frame(true)
+                            .tooltip("Export chart as PNG")
+                            .build(),
+                    )
+                    .clicked()
+                {
+                    want_export = true;
+                }
+                if ui
+                    .add(
+                        IconButton::builder()
+                            .icon(egui_phosphor::regular::COPY)
+                            .frame(true)
+                            .tooltip("Copy chart config")
+                            .build(),
+                    )
+                    .clicked()
+                {
+                    ui.ctx().copy_text(self.config_json());
+                }
                 if ui
                     .add(
                         IconButton::builder()
@@ -260,7 +285,7 @@ impl ChartTab {
         }
 
         // Chart surface
-        egui::Frame::new()
+        let frame_rect = egui::Frame::new()
             .fill(colors.surface)
             .stroke(Stroke::new(1.0, colors.surface_raised))
             .corner_radius(8.0)
@@ -279,8 +304,36 @@ impl ChartTab {
                     ChartType::Radar => self.render_radar(ui, colors, size),
                     ChartType::Heatmap => self.render_heatmap(ui, colors, size),
                 }
-            });
+            })
+            .response
+            .rect;
+
+        // Export uses the rendered chart-surface rect (known after drawing it).
+        if want_export {
+            action = Some(ChartTabAction::ExportPng(frame_rect));
+        }
         action
+    }
+
+    /// The chart's configuration as pretty JSON (for the "Copy config" action).
+    fn config_json(&self) -> String {
+        let name = |c: usize| self.columns.get(c).cloned().unwrap_or_default();
+        let cfg = serde_json::json!({
+            "chartType": self.chart_type.label(),
+            "source": self.source_label,
+            "x": name(self.x_col),
+            "y": self.y_cols.iter().map(|&c| name(c)).collect::<Vec<_>>(),
+            "aggregation": self.aggregation.label(),
+            "topN": self.top_n,
+            "sort": self.sort.label(),
+            "options": {
+                "legend": self.options.legend,
+                "grid": self.options.grid,
+                "stacked": self.options.stacked,
+                "dataLabels": self.options.data_labels,
+            },
+        });
+        serde_json::to_string_pretty(&cfg).unwrap_or_default()
     }
 
     // ── cartesian (egui_plot) ────────────────────────────────────────────────
@@ -449,7 +502,9 @@ impl ChartTab {
                 continue;
             }
             let color = palette[si % palette.len()];
-            let mut line = Line::new(self.columns[col].clone(), PlotPoints::from(pts.clone()))
+            // Always draw a smooth (Catmull-Rom) curve through the points.
+            let curve = catmull_rom(&pts);
+            let mut line = Line::new(self.columns[col].clone(), PlotPoints::from(curve))
                 .color(color)
                 .width(2.0);
             if area {
@@ -1032,6 +1087,40 @@ fn angle_diff(a: f32, b: f32) -> f32 {
 /// Brighten a series colour toward the foreground for hover emphasis.
 fn lighten(c: Color32, fg: Color32) -> Color32 {
     lerp_color(c, fg, 0.4)
+}
+
+/// Smooth a polyline with a centripetal-ish Catmull-Rom spline, subdividing
+/// each segment. Fewer than 3 points pass through unchanged.
+fn catmull_rom(pts: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    if pts.len() < 3 {
+        return pts.to_vec();
+    }
+    const STEPS: usize = 16;
+    let p = |i: isize| pts[i.clamp(0, pts.len() as isize - 1) as usize];
+    let mut out = Vec::with_capacity(pts.len() * STEPS);
+    for i in 0..pts.len() - 1 {
+        let p0 = p(i as isize - 1);
+        let p1 = p(i as isize);
+        let p2 = p(i as isize + 1);
+        let p3 = p(i as isize + 2);
+        for s in 0..STEPS {
+            let t = s as f64 / STEPS as f64;
+            let t2 = t * t;
+            let t3 = t2 * t;
+            let axis = |a: f64, b: f64, c: f64, d: f64| {
+                0.5 * ((2.0 * b)
+                    + (-a + c) * t
+                    + (2.0 * a - 5.0 * b + 4.0 * c - d) * t2
+                    + (-a + 3.0 * b - 3.0 * c + d) * t3)
+            };
+            out.push([
+                axis(p0[0], p1[0], p2[0], p3[0]),
+                axis(p0[1], p1[1], p2[1], p3[1]),
+            ]);
+        }
+    }
+    out.push(pts[pts.len() - 1]);
+    out
 }
 
 /// Draw a small numeric data label at plot position `(x, y)` for `value`.
