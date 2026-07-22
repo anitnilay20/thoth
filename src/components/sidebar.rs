@@ -180,6 +180,11 @@ impl Sidebar {
         self.chart_studio.set_open_charts(open);
     }
 
+    /// Load an existing chart into the Chart Studio for editing.
+    pub fn edit_chart(&mut self, spec: ChartSpec, columns: Vec<ColumnInfo>) {
+        self.chart_studio.edit(spec, columns);
+    }
+
     /// Lazily initialise a panel for `plugin_id` with the given loader.
     /// No-op if the panel already exists and has a loader (avoids resetting an active session).
     pub fn init_data_source_panel(

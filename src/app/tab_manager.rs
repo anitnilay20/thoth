@@ -117,6 +117,11 @@ pub enum TabEvent {
     TabClosed(TabId),
     OpenFilePicker,
     OpenRecentFile(std::path::PathBuf),
+    /// A toolbar action from a chart tab (Edit / Refresh).
+    ChartAction {
+        tab_id: TabId,
+        action: crate::components::chart_studio::ChartTabAction,
+    },
 }
 
 /// Implements egui_dock::TabViewer. Holds mutable refs to tabs and settings so each
@@ -171,9 +176,16 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         // Chart Studio tabs paint a chart directly — no file/plugin central panel.
         if let Some(chart) = tab.chart.as_mut() {
             let colors = self.colors.unwrap_or_default();
-            egui::Frame::new()
+            let action = egui::Frame::new()
                 .inner_margin(egui::Margin::symmetric(16, 8))
-                .show(ui, |ui| chart.render(ui, &colors));
+                .show(ui, |ui| chart.render(ui, &colors))
+                .inner;
+            if let Some(action) = action {
+                self.events.push(TabEvent::ChartAction {
+                    tab_id: *tab_id,
+                    action,
+                });
+            }
             return;
         }
 

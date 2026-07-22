@@ -10,7 +10,8 @@ use std::f32::consts::TAU;
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Stroke, Vec2};
 use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints, Points};
 
-use super::{ChartOptions, ChartSpec, ChartType, series_palette};
+use super::{ChartOptions, ChartSpec, ChartTabAction, ChartType, series_palette};
+use crate::app::tab_manager::TabId;
 use crate::theme::ThemeColors;
 
 /// Rows kept per chart (bounds memory / render cost for huge sources).
@@ -20,7 +21,6 @@ const HEATMAP_COL_CAP: usize = 8;
 
 pub struct ChartTab {
     tab_title: String,
-    header_title: String,
     subtitle: String,
     chart_type: ChartType,
     columns: Vec<String>,
@@ -28,6 +28,9 @@ pub struct ChartTab {
     x_col: usize,
     y_cols: Vec<usize>,
     options: ChartOptions,
+    /// The producer tab this chart was built from (for Refresh / Edit).
+    source_tab: TabId,
+    source_label: String,
 }
 
 impl ChartTab {
@@ -40,40 +43,90 @@ impl ChartTab {
         index: usize,
     ) -> Self {
         rows.truncate(ROW_CAP);
-        let name = |c: usize| columns.get(c).cloned().unwrap_or_default();
-        let y_names = spec
-            .y_cols
-            .iter()
-            .map(|&c| name(c))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let header_title = format!(
-            "{}: {} / {}",
-            spec.chart_type.label(),
-            y_names,
-            name(spec.x_col)
-        );
-        let subtitle = format!(
-            "{} · {} rows · {} series",
-            spec.source_label,
-            rows.len(),
-            spec.y_cols.len()
-        );
-        Self {
+        let mut tab = Self {
             tab_title: format!("{} {index}", spec.chart_type.label()),
-            header_title,
-            subtitle,
+            subtitle: String::new(),
             chart_type: spec.chart_type,
             columns,
             rows,
             x_col: spec.x_col,
             y_cols: spec.y_cols.clone(),
             options: spec.options,
-        }
+            source_tab: spec.source_tab,
+            source_label: spec.source_label.clone(),
+        };
+        tab.rebuild_subtitle();
+        tab
     }
 
     pub fn tab_title(&self) -> String {
         self.tab_title.clone()
+    }
+
+    pub fn source_tab(&self) -> TabId {
+        self.source_tab
+    }
+
+    /// Compact one-line summary for the status bar.
+    pub fn status_summary(&self) -> String {
+        format!(
+            "{} · {} rows · {} series",
+            self.chart_type.label(),
+            self.rows.len(),
+            self.y_cols.len()
+        )
+    }
+
+    /// Reconstruct the spec, so the studio can re-open this chart for editing.
+    pub fn to_spec(&self) -> ChartSpec {
+        ChartSpec {
+            source_tab: self.source_tab,
+            source_label: self.source_label.clone(),
+            chart_type: self.chart_type,
+            x_col: self.x_col,
+            y_cols: self.y_cols.clone(),
+            options: self.options,
+            edit_target: None,
+        }
+    }
+
+    /// Replace the data snapshot (Refresh): keep the spec but clamp axis indices
+    /// to the new column count and rebuild the subtitle.
+    pub fn update_data(&mut self, columns: Vec<String>, mut rows: Vec<Vec<String>>) {
+        rows.truncate(ROW_CAP);
+        let max_col = columns.len().saturating_sub(1);
+        self.x_col = self.x_col.min(max_col);
+        for c in &mut self.y_cols {
+            *c = (*c).min(max_col);
+        }
+        self.columns = columns;
+        self.rows = rows;
+        self.rebuild_subtitle();
+    }
+
+    fn rebuild_subtitle(&mut self) {
+        self.subtitle = format!(
+            "{} · {} rows · {} series",
+            self.source_label,
+            self.rows.len(),
+            self.y_cols.len()
+        );
+    }
+
+    fn header_title(&self) -> String {
+        let name = |c: usize| self.columns.get(c).cloned().unwrap_or_default();
+        let y_names = self
+            .y_cols
+            .iter()
+            .map(|&c| name(c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "{}: {} / {}",
+            self.chart_type.label(),
+            y_names,
+            name(self.x_col)
+        )
     }
 
     // ── data helpers ────────────────────────────────────────────────────────
@@ -103,27 +156,58 @@ impl ChartTab {
 
     // ── entry point ─────────────────────────────────────────────────────────
 
-    pub fn render(&mut self, ui: &mut egui::Ui, colors: &ThemeColors) {
-        // Header
+    pub fn render(&mut self, ui: &mut egui::Ui, colors: &ThemeColors) -> Option<ChartTabAction> {
+        use thoth_plugin_sdk::components::IconButton;
+        let mut action = None;
+
+        // Header: title/subtitle on the left, Edit + Refresh tools on the right.
         ui.add_space(6.0);
-        ui.vertical(|ui| {
-            ui.label(
-                RichText::new(&self.header_title)
-                    .color(colors.fg)
-                    .size(14.0)
-                    .strong(),
-            );
-            ui.label(
-                RichText::new(&self.subtitle)
-                    .color(colors.fg_muted)
-                    .size(11.0),
-            );
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label(
+                    RichText::new(self.header_title())
+                        .color(colors.fg)
+                        .size(14.0)
+                        .strong(),
+                );
+                ui.label(
+                    RichText::new(&self.subtitle)
+                        .color(colors.fg_muted)
+                        .size(11.0),
+                );
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(
+                        IconButton::builder()
+                            .icon(egui_phosphor::regular::ARROWS_CLOCKWISE)
+                            .frame(true)
+                            .tooltip("Refresh data from source")
+                            .build(),
+                    )
+                    .clicked()
+                {
+                    action = Some(ChartTabAction::Refresh);
+                }
+                if ui
+                    .add(
+                        IconButton::builder()
+                            .icon(egui_phosphor::regular::PENCIL_SIMPLE)
+                            .frame(true)
+                            .tooltip("Edit chart in Chart Studio")
+                            .build(),
+                    )
+                    .clicked()
+                {
+                    action = Some(ChartTabAction::Edit);
+                }
+            });
         });
         ui.add_space(8.0);
 
         if self.rows.is_empty() {
             ui.label(RichText::new("This dataset has no rows to plot.").color(colors.fg_muted));
-            return;
+            return action;
         }
 
         // Chart surface
@@ -147,6 +231,7 @@ impl ChartTab {
                     ChartType::Heatmap => self.render_heatmap(ui, colors, size),
                 }
             });
+        action
     }
 
     // ── cartesian (egui_plot) ────────────────────────────────────────────────
@@ -155,7 +240,7 @@ impl ChartTab {
         let palette = series_palette(colors);
         let categorical = !matches!(self.chart_type, ChartType::Scatter);
 
-        let mut plot = Plot::new(("chart_plot", self.header_title.as_str()))
+        let mut plot = Plot::new("chart_plot")
             .show_grid(self.options.grid)
             .allow_scroll(false);
         if self.options.legend {

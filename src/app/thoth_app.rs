@@ -1530,6 +1530,11 @@ impl ThothApp {
             components::status_bar::StatusBarStatus::Ready
         };
 
+        let active_id = self.window_state.tab_manager.active_tab_id();
+        let chart_summary: Option<String> = active_id
+            .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
+            .and_then(|t| t.chart.as_ref().map(|c| c.status_summary()));
+
         let status_bar_output = self.window_state.status_bar.render(
             ui,
             components::status_bar::StatusBarProps {
@@ -1542,6 +1547,7 @@ impl ThothApp {
                 active_plugin: active_plugin_id
                     .as_ref()
                     .map(|(p, i)| (p.as_str(), i.as_str())),
+                chart_summary: chart_summary.as_deref(),
             },
         );
 
@@ -1686,6 +1692,13 @@ impl ThothApp {
             }
             TabEvent::OpenRecentFile(path) => {
                 self.window_state.tab_manager.open_file(path, nav_capacity);
+            }
+            TabEvent::ChartAction { tab_id, action } => {
+                use crate::components::chart_studio::ChartTabAction;
+                match action {
+                    ChartTabAction::Edit => self.chart_edit(tab_id),
+                    ChartTabAction::Refresh => self.chart_refresh(tab_id),
+                }
             }
         }
     }
@@ -2087,32 +2100,17 @@ impl ThothApp {
     /// feed the column schema (name + numeric flag) to the config panel.
     fn chart_select_source(&mut self, tab_id: crate::app::tab_manager::TabId) {
         let Some((_name, cols, rows)) = self.resolve_dataset(tab_id) else {
-            crate::notification::NotificationManager::notify_error(
-                crate::notification::Notification::new(
-                    "Dataset unavailable",
-                    "Could not read this source as a table.",
-                ),
-            );
+            Self::notify_dataset_unavailable();
             return;
         };
-        let columns: Vec<crate::components::chart_studio::ColumnInfo> = cols
-            .iter()
-            .enumerate()
-            .map(|(c, (name, hint))| {
-                let numeric =
-                    matches!(hint.as_str(), "integer" | "float") || column_is_numeric(&rows, c);
-                crate::components::chart_studio::ColumnInfo {
-                    name: name.clone(),
-                    numeric,
-                }
-            })
-            .collect();
+        let columns = columns_info(&cols, &rows);
         let colnames = cols.into_iter().map(|(n, _)| n).collect();
         self.chart_source = Some((tab_id, colnames, rows));
         self.window_state.sidebar.set_chart_columns(columns);
     }
 
-    /// Build a chart tab from a spec and open it in the dock.
+    /// Build a chart from a spec: either update the edited tab in place or open
+    /// a new dock tab.
     fn chart_generate(&mut self, spec: crate::components::chart_studio::ChartSpec) {
         let resolved = match &self.chart_source {
             Some((t, cols, rows)) if *t == spec.source_tab => Some((cols.clone(), rows.clone())),
@@ -2121,12 +2119,7 @@ impl ThothApp {
                 .map(|(_n, cols, rows)| (cols.into_iter().map(|(n, _)| n).collect(), rows)),
         };
         let Some((colnames, rows)) = resolved else {
-            crate::notification::NotificationManager::notify_error(
-                crate::notification::Notification::new(
-                    "Dataset unavailable",
-                    "Could not read this source as a table.",
-                ),
-            );
+            Self::notify_dataset_unavailable();
             return;
         };
         self.chart_counter += 1;
@@ -2136,12 +2129,83 @@ impl ThothApp {
             rows,
             self.chart_counter,
         );
+        // Editing: replace the target tab's chart in place.
+        if let Some(target) = spec.edit_target
+            && let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&target)
+            && tab.chart.is_some()
+        {
+            tab.chart = Some(chart);
+            self.window_state.tab_manager.focus_tab(target);
+            return;
+        }
         let nav_capacity = self.settings.performance.navigation_history_size;
         let id = self.window_state.tab_manager.open_new_tab(nav_capacity);
         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
             tab.chart = Some(chart);
         }
         self.window_state.tab_manager.focus_tab(id);
+    }
+
+    /// Load a chart tab's config back into the studio panel for editing, and
+    /// open the panel.
+    fn chart_edit(&mut self, tab_id: crate::app::tab_manager::TabId) {
+        let Some(mut spec) = self
+            .window_state
+            .tab_manager
+            .tabs
+            .get(&tab_id)
+            .and_then(|t| t.chart.as_ref().map(|c| c.to_spec()))
+        else {
+            return;
+        };
+        spec.edit_target = Some(tab_id);
+        // Best-effort: resolve the source's current columns so the axis pickers
+        // are populated (empty if the source tab is gone).
+        let columns = match self.resolve_dataset(spec.source_tab) {
+            Some((_n, cols, rows)) => {
+                let ci = columns_info(&cols, &rows);
+                let colnames = cols.into_iter().map(|(n, _)| n).collect();
+                self.chart_source = Some((spec.source_tab, colnames, rows));
+                ci
+            }
+            None => Vec::new(),
+        };
+        self.window_state.sidebar.edit_chart(spec, columns);
+        self.window_state.sidebar_expanded = true;
+        self.window_state.sidebar_selected_section =
+            Some(components::sidebar::SidebarSection::ChartStudio);
+    }
+
+    /// Re-fetch a chart tab's source data and rebuild it (incl. axis names).
+    fn chart_refresh(&mut self, tab_id: crate::app::tab_manager::TabId) {
+        let Some(source) = self
+            .window_state
+            .tab_manager
+            .tabs
+            .get(&tab_id)
+            .and_then(|t| t.chart.as_ref().map(|c| c.source_tab()))
+        else {
+            return;
+        };
+        let Some((_name, cols, rows)) = self.resolve_dataset(source) else {
+            Self::notify_dataset_unavailable();
+            return;
+        };
+        let colnames: Vec<String> = cols.into_iter().map(|(n, _)| n).collect();
+        if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
+            && let Some(chart) = tab.chart.as_mut()
+        {
+            chart.update_data(colnames, rows);
+        }
+    }
+
+    fn notify_dataset_unavailable() {
+        crate::notification::NotificationManager::notify_error(
+            crate::notification::Notification::new(
+                "Dataset unavailable",
+                "Could not read this source as a table.",
+            ),
+        );
     }
 
     /// Activate an existing tab by id.
@@ -2240,6 +2304,23 @@ impl ThothApp {
 
 /// A resolved data source: `(display name, columns [(name, type-hint)], rows)`.
 type ResolvedDataset = (String, Vec<(String, String)>, Vec<Vec<String>>);
+
+/// Build the Chart Studio column schema (name + numeric flag) from resolved
+/// `(name, type-hint)` columns and the sampled rows.
+fn columns_info(
+    cols: &[(String, String)],
+    rows: &[Vec<String>],
+) -> Vec<crate::components::chart_studio::ColumnInfo> {
+    cols.iter()
+        .enumerate()
+        .map(
+            |(c, (name, hint))| crate::components::chart_studio::ColumnInfo {
+                name: name.clone(),
+                numeric: matches!(hint.as_str(), "integer" | "float") || column_is_numeric(rows, c),
+            },
+        )
+        .collect()
+}
 
 /// True when a majority of sampled rows parse as numbers in column `c` — used
 /// to decide which columns the Chart Studio offers as Y series.

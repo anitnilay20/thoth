@@ -44,6 +44,10 @@ pub struct StatusBarProps<'a> {
     /// derives the status indicator from that *instance's* live signals
     /// (instance-scoped so two tabs of the same plugin stay independent).
     pub active_plugin: Option<(&'a str, &'a str)>,
+
+    /// Set when the active tab is a Chart Studio chart: a short summary line
+    /// (e.g. "Bar · 12 rows · 2 series") shown in place of file/plugin info.
+    pub chart_summary: Option<&'a str>,
 }
 
 /// Status indicator for the status bar
@@ -326,7 +330,11 @@ impl ContextComponent for StatusBar {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
 
-                    if let Some((plugin_id, instance_id)) = props.active_plugin {
+                    if let Some(summary) = props.chart_summary {
+                        // Chart tab: show a compact chart summary.
+                        ui.label(icon_rich_text(egui_phosphor::regular::CHART_LINE, 12.0));
+                        ui.label(summary);
+                    } else if let Some((plugin_id, instance_id)) = props.active_plugin {
                         // Plugin pane tab: file/item counts are meaningless here,
                         // so show the plugin and its live signals instead.
                         render_active_plugin_signals(ui, plugin_id, instance_id);

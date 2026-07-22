@@ -5,7 +5,8 @@
 //! Emits [`ChartStudioEvent`]s up to the app, which does the data fetching and
 //! tab creation.
 
-use eframe::egui::{self, RichText};
+use eframe::egui::{self, Align2, FontId, RichText, Sense, Stroke, StrokeKind, Vec2};
+use thoth_plugin_sdk::components::{SidebarHeader, Typography, TypographyVariant};
 
 use super::{
     ChartOptions, ChartSpec, ChartType, ColumnInfo, ProducerKind, ProducerRef, series_palette,
@@ -13,12 +14,15 @@ use super::{
 use crate::app::tab_manager::TabId;
 use crate::theme::ThemeColors;
 
+/// Horizontal inset, matching `SidebarHeader`/list rows.
+const PAD_X: f32 = 8.0;
+
 /// What the config panel is asking the app to do.
 pub enum ChartStudioEvent {
     /// The user picked a data source; the app should resolve its columns and
     /// feed them back via [`ChartStudio::set_columns`].
     SelectSource(TabId),
-    /// Build a chart tab from this spec.
+    /// Build (or update) a chart tab from this spec.
     Generate(ChartSpec),
     /// Activate an already-open chart tab.
     FocusChart(TabId),
@@ -38,6 +42,9 @@ pub struct ChartStudio {
     options: ChartOptions,
     /// Open chart tabs `(tab id, title)` for the "Open Charts" list.
     open_charts: Vec<(TabId, String)>,
+    /// When `Some`, the panel is editing this existing chart tab (Generate
+    /// updates it in place and reads "Update Chart").
+    editing: Option<TabId>,
 }
 
 impl ChartStudio {
@@ -62,6 +69,21 @@ impl ChartStudio {
         self.columns = columns;
     }
 
+    /// Load an existing chart's spec + columns for editing.
+    pub fn edit(&mut self, spec: ChartSpec, columns: Vec<ColumnInfo>) {
+        self.selected = Some(spec.source_tab);
+        self.chart_type = spec.chart_type;
+        self.x_col = spec.x_col;
+        self.y_cols = if spec.y_cols.is_empty() {
+            vec![0]
+        } else {
+            spec.y_cols
+        };
+        self.options = spec.options;
+        self.columns = columns;
+        self.editing = spec.edit_target;
+    }
+
     /// Update the "Open Charts" list.
     pub fn set_open_charts(&mut self, open: Vec<(TabId, String)>) {
         self.open_charts = open;
@@ -79,49 +101,64 @@ impl ChartStudio {
     pub fn render(&mut self, ui: &mut egui::Ui) -> Vec<ChartStudioEvent> {
         let colors = ThemeColors::from_ctx(ui.ctx());
         let mut events = Vec::new();
-        ui.spacing_mut().item_spacing = egui::vec2(6.0, 8.0);
-        ui.add_space(8.0);
 
-        self.data_source_section(ui, &colors, &mut events);
-        ui.add_space(6.0);
-        self.chart_type_section(ui, &colors);
+        // Flush section header (aligns with other sidebar panels).
+        ui.add(SidebarHeader::builder().title("CHART STUDIO").build());
 
-        if !self.columns.is_empty() {
-            ui.add_space(6.0);
-            self.axes_section(ui, &colors);
-            ui.add_space(6.0);
-            self.options_section(ui);
-        }
+        // Everything else is inset to match the list rows' left padding.
+        let width = (ui.clip_rect().width() - 2.0 * PAD_X).max(120.0);
+        egui::Frame::new()
+            .inner_margin(egui::Margin {
+                left: PAD_X as i8,
+                right: PAD_X as i8,
+                top: 4,
+                bottom: 8,
+            })
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(6.0, 8.0);
 
-        ui.add_space(10.0);
-        self.generate_button(ui, &colors, &mut events);
+                self.data_source_section(ui, &colors, width, &mut events);
+                ui.add_space(6.0);
+                self.chart_type_section(ui, &colors, width);
 
-        if !self.open_charts.is_empty() {
-            ui.add_space(12.0);
-            self.open_charts_section(ui, &colors, &mut events);
-        }
+                if !self.columns.is_empty() {
+                    ui.add_space(6.0);
+                    self.axes_section(ui, &colors, width);
+                    ui.add_space(6.0);
+                    self.options_section(ui, &colors);
+                }
+
+                ui.add_space(10.0);
+                self.generate_button(ui, &colors, width, &mut events);
+
+                if !self.open_charts.is_empty() {
+                    ui.add_space(14.0);
+                    self.open_charts_section(ui, &colors, &mut events);
+                }
+            });
 
         events
     }
 
-    fn section_label(ui: &mut egui::Ui, colors: &ThemeColors, text: &str) {
+    fn subsection_label(ui: &mut egui::Ui, text: &str) {
         ui.add_space(2.0);
-        ui.label(
-            RichText::new(text.to_uppercase())
-                .color(colors.sidebar_header)
-                .size(10.0)
-                .strong(),
+        ui.add(
+            Typography::builder()
+                .text(text)
+                .variant(TypographyVariant::PanelHeader)
+                .build(),
         );
-        ui.separator();
+        ui.add_space(2.0);
     }
 
     fn data_source_section(
         &mut self,
         ui: &mut egui::Ui,
         colors: &ThemeColors,
+        width: f32,
         events: &mut Vec<ChartStudioEvent>,
     ) {
-        Self::section_label(ui, colors, "Data Source");
+        Self::subsection_label(ui, "DATA SOURCE");
         if self.producers.is_empty() {
             ui.label(
                 RichText::new("No open data sources. Open a file or a producer plugin.")
@@ -138,11 +175,16 @@ impl ChartStudio {
 
         egui::ComboBox::from_id_salt("chart_ds")
             .selected_text(selected_label)
-            .width(ui.available_width() - 4.0)
+            .width(width)
             .show_ui(ui, |ui| {
+                ui.set_min_width(width);
                 for kind in [ProducerKind::File, ProducerKind::Plugin] {
-                    let group: Vec<&ProducerRef> =
-                        self.producers.iter().filter(|p| p.kind == kind).collect();
+                    let group: Vec<(TabId, String)> = self
+                        .producers
+                        .iter()
+                        .filter(|p| p.kind == kind)
+                        .map(|p| (p.tab_id, p.label.clone()))
+                        .collect();
                     if group.is_empty() {
                         continue;
                     }
@@ -151,65 +193,91 @@ impl ChartStudio {
                         ProducerKind::Plugin => "Plugins",
                     };
                     ui.label(RichText::new(heading).color(colors.fg_muted).size(10.0));
-                    for p in group {
-                        let is_sel = self.selected == Some(p.tab_id);
-                        if ui.selectable_label(is_sel, &p.label).clicked() && !is_sel {
-                            self.selected = Some(p.tab_id);
-                            events.push(ChartStudioEvent::SelectSource(p.tab_id));
+                    for (id, label) in group {
+                        let is_sel = self.selected == Some(id);
+                        if ui.selectable_label(is_sel, label).clicked() && !is_sel {
+                            self.selected = Some(id);
+                            events.push(ChartStudioEvent::SelectSource(id));
                         }
                     }
                 }
             });
     }
 
-    fn chart_type_section(&mut self, ui: &mut egui::Ui, colors: &ThemeColors) {
-        Self::section_label(ui, colors, "Chart Type");
+    fn chart_type_section(&mut self, ui: &mut egui::Ui, colors: &ThemeColors, width: f32) {
+        Self::subsection_label(ui, "CHART TYPE");
         let spacing = 5.0;
         let cols = 4;
-        let cell = ((ui.available_width() - spacing * (cols as f32 - 1.0)) / cols as f32)
-            .clamp(40.0, 80.0);
-        let prev_spacing = ui.spacing().item_spacing;
+        let cell = ((width - spacing * (cols as f32 - 1.0)) / cols as f32).clamp(42.0, 84.0);
+        let prev = ui.spacing().item_spacing;
         ui.spacing_mut().item_spacing = egui::vec2(spacing, spacing);
         for chunk in ChartType::ALL.chunks(cols) {
             ui.horizontal(|ui| {
                 for &ct in chunk {
-                    let selected = self.chart_type == ct;
-                    let text = RichText::new(format!("{}\n{}", ct.icon(), ct.label()))
-                        .size(10.0)
-                        .color(if selected {
-                            colors.accent
-                        } else {
-                            colors.fg_muted
-                        });
-                    let mut btn = egui::Button::new(text)
-                        .min_size(egui::vec2(cell, cell))
-                        .wrap();
-                    btn = if selected {
-                        btn.fill(colors.surface_active)
-                            .stroke(egui::Stroke::new(1.0, colors.accent))
-                    } else {
-                        btn.fill(colors.surface)
-                            .stroke(egui::Stroke::new(1.0, colors.surface_raised))
-                    };
-                    if ui.add(btn).clicked() {
-                        self.chart_type = ct;
-                    }
+                    self.chart_type_cell(ui, colors, ct, cell);
                 }
             });
         }
-        ui.spacing_mut().item_spacing = prev_spacing;
+        ui.spacing_mut().item_spacing = prev;
     }
 
-    fn axes_section(&mut self, ui: &mut egui::Ui, colors: &ThemeColors) {
-        Self::section_label(ui, colors, "Axes");
+    /// A single chart-type button: a large icon over a small label, painted so
+    /// the glyph reads clearly (icon-button sized).
+    fn chart_type_cell(
+        &mut self,
+        ui: &mut egui::Ui,
+        colors: &ThemeColors,
+        ct: ChartType,
+        cell: f32,
+    ) {
+        let selected = self.chart_type == ct;
+        let (rect, resp) = ui.allocate_exact_size(Vec2::splat(cell), Sense::click());
+        let hovered = resp.hovered();
+        let (fill, stroke_c, fg) = if selected {
+            (colors.surface_active, colors.accent, colors.accent)
+        } else if hovered {
+            (colors.surface_raised, colors.accent_secondary, colors.fg)
+        } else {
+            (colors.surface, colors.surface_raised, colors.fg_muted)
+        };
+        let painter = ui.painter();
+        painter.rect(
+            rect,
+            4.0,
+            fill,
+            Stroke::new(1.0, stroke_c),
+            StrokeKind::Inside,
+        );
+        painter.text(
+            rect.center() - Vec2::new(0.0, 9.0),
+            Align2::CENTER_CENTER,
+            ct.icon(),
+            FontId::proportional(22.0),
+            fg,
+        );
+        painter.text(
+            rect.center() + Vec2::new(0.0, 15.0),
+            Align2::CENTER_CENTER,
+            ct.label(),
+            FontId::proportional(9.5),
+            fg,
+        );
+        if resp.clicked() {
+            self.chart_type = ct;
+        }
+    }
+
+    fn axes_section(&mut self, ui: &mut egui::Ui, colors: &ThemeColors, width: f32) {
+        Self::subsection_label(ui, "AXES");
         let names: Vec<String> = self.columns.iter().map(|c| c.name.clone()).collect();
 
         ui.label(RichText::new("X Axis").color(colors.fg_muted).size(10.0));
         self.x_col = self.x_col.min(names.len().saturating_sub(1));
         egui::ComboBox::from_id_salt("chart_x")
             .selected_text(names.get(self.x_col).cloned().unwrap_or_default())
-            .width(ui.available_width() - 4.0)
+            .width(width)
             .show_ui(ui, |ui| {
+                ui.set_min_width(width);
                 for (i, n) in names.iter().enumerate() {
                     ui.selectable_value(&mut self.x_col, i, n);
                 }
@@ -225,7 +293,6 @@ impl ChartStudio {
 
         let numeric = self.numeric_cols();
         let palette = series_palette(colors);
-        // Radial / single-series types collapse to one Y row.
         if self.chart_type.single_series() {
             self.y_cols.truncate(1);
             if self.y_cols.is_empty() {
@@ -233,24 +300,26 @@ impl ChartStudio {
             }
         }
 
+        let multi = !self.chart_type.single_series() && self.y_cols.len() > 1;
+        let combo_w = if multi { width - 26.0 } else { width };
         let mut remove: Option<usize> = None;
         for i in 0..self.y_cols.len() {
             ui.horizontal(|ui| {
-                let (rect, _) =
-                    ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                let (sw, _) = ui.allocate_exact_size(Vec2::splat(10.0), Sense::hover());
                 ui.painter()
-                    .rect_filled(rect, 2.0, palette[i % palette.len()]);
+                    .rect_filled(sw, 2.0, palette[i % palette.len()]);
                 let mut sel = self.y_cols[i];
                 egui::ComboBox::from_id_salt(("chart_y", i))
                     .selected_text(names.get(sel).cloned().unwrap_or_default())
-                    .width(ui.available_width() - if self.y_cols.len() > 1 { 26.0 } else { 6.0 })
+                    .width(combo_w)
                     .show_ui(ui, |ui| {
+                        ui.set_min_width(combo_w);
                         for &ni in &numeric {
                             ui.selectable_value(&mut sel, ni, &names[ni]);
                         }
                     });
                 self.y_cols[i] = sel;
-                if self.y_cols.len() > 1
+                if multi
                     && ui
                         .button(RichText::new(egui_phosphor::regular::X).color(colors.fg_muted))
                         .clicked()
@@ -263,7 +332,6 @@ impl ChartStudio {
             self.y_cols.remove(i);
         }
 
-        // "Add series" for the multi-series types (cap at palette size).
         if !self.chart_type.single_series()
             && self.y_cols.len() < palette.len()
             && !numeric.is_empty()
@@ -284,9 +352,8 @@ impl ChartStudio {
         }
     }
 
-    fn options_section(&mut self, ui: &mut egui::Ui) {
-        let colors = ThemeColors::from_ctx(ui.ctx());
-        Self::section_label(ui, &colors, "Options");
+    fn options_section(&mut self, ui: &mut egui::Ui, _colors: &ThemeColors) {
+        Self::subsection_label(ui, "OPTIONS");
         let o = &mut self.options;
         ui.checkbox(&mut o.legend, RichText::new("Show legend").size(11.0));
         ui.checkbox(&mut o.grid, RichText::new("Show gridlines").size(11.0));
@@ -298,18 +365,22 @@ impl ChartStudio {
         &mut self,
         ui: &mut egui::Ui,
         colors: &ThemeColors,
+        width: f32,
         events: &mut Vec<ChartStudioEvent>,
     ) {
         let ready = self.selected.is_some() && !self.columns.is_empty() && !self.y_cols.is_empty();
+        let editing = self.editing.is_some();
+        let (label, icon) = if editing {
+            ("Update Chart", egui_phosphor::regular::CHECK)
+        } else {
+            ("Generate Chart", egui_phosphor::regular::CHART_LINE)
+        };
         let btn = egui::Button::new(
-            RichText::new(format!(
-                "{}  Generate Chart",
-                egui_phosphor::regular::CHART_LINE
-            ))
-            .color(colors.bg)
-            .strong(),
+            RichText::new(format!("{icon}  {label}"))
+                .color(colors.bg)
+                .strong(),
         )
-        .min_size(egui::vec2(ui.available_width() - 4.0, 30.0))
+        .min_size(egui::vec2(width, 30.0))
         .fill(if ready {
             colors.accent_secondary
         } else {
@@ -329,7 +400,23 @@ impl ChartStudio {
                 x_col: self.x_col,
                 y_cols: self.y_cols.clone(),
                 options: self.options,
+                edit_target: self.editing,
             }));
+            self.editing = None;
+        }
+        if editing
+            && ui
+                .add(
+                    egui::Button::new(
+                        RichText::new("Cancel edit")
+                            .color(colors.fg_muted)
+                            .size(11.0),
+                    )
+                    .frame(false),
+                )
+                .clicked()
+        {
+            self.editing = None;
         }
     }
 
@@ -339,7 +426,7 @@ impl ChartStudio {
         colors: &ThemeColors,
         events: &mut Vec<ChartStudioEvent>,
     ) {
-        Self::section_label(ui, colors, "Open Charts");
+        Self::subsection_label(ui, "OPEN CHARTS");
         for (id, title) in &self.open_charts {
             let resp = ui.add(
                 egui::Label::new(
@@ -347,7 +434,7 @@ impl ChartStudio {
                         .color(colors.fg_muted)
                         .size(11.0),
                 )
-                .sense(egui::Sense::click())
+                .sense(Sense::click())
                 .truncate(),
             );
             if resp.clicked() {

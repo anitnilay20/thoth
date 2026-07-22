@@ -173,4 +173,16 @@ pub struct ChartSpec {
     pub x_col: usize,
     pub y_cols: Vec<usize>,
     pub options: ChartOptions,
+    /// When `Some`, "Generate" updates this existing chart tab in place
+    /// (the panel is editing it) rather than opening a new one.
+    pub edit_target: Option<TabId>,
+}
+
+/// A toolbar action raised from a chart tab's header.
+#[derive(Clone, Copy)]
+pub enum ChartTabAction {
+    /// Load this chart's config back into the studio panel for editing.
+    Edit,
+    /// Re-fetch the source data and rebuild the chart (and its axis names).
+    Refresh,
 }
