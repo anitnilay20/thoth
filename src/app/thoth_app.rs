@@ -2156,6 +2156,8 @@ impl ThothApp {
             rows,
             self.chart_counter,
         );
+        // Creating/updating a chart changes the persisted session.
+        self.session_dirty = true;
         // Editing: replace the target tab's chart in place.
         if let Some(target) = spec.edit_target
             && let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&target)
@@ -2223,6 +2225,7 @@ impl ThothApp {
             && let Some(chart) = tab.chart.as_mut()
         {
             chart.update_data(colnames, rows);
+            self.session_dirty = true;
         }
     }
 
