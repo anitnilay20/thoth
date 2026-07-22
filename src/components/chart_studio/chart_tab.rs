@@ -241,29 +241,48 @@ impl ChartTab {
         let palette = series_palette(colors);
         let categorical = !matches!(self.chart_type, ChartType::Scatter);
 
-        let mut plot = Plot::new("chart_plot")
-            .show_grid(self.options.grid)
-            .allow_scroll(false);
-        if self.options.legend {
-            plot = plot.legend(Legend::default());
-        }
-        // Map categorical x ticks back to their string labels.
-        if categorical && !matches!(self.chart_type, ChartType::HBar) {
-            let labels: Vec<String> = (0..self.rows.len()).map(|r| self.x_label(r)).collect();
-            plot = plot.x_axis_formatter(move |mark, _| tick_label(&labels, mark.value));
-        }
-        if matches!(self.chart_type, ChartType::HBar) {
-            let labels: Vec<String> = (0..self.rows.len()).map(|r| self.x_label(r)).collect();
-            plot = plot.y_axis_formatter(move |mark, _| tick_label(&labels, mark.value));
-        }
+        // Subtle, theme-matched grid lines (egui_plot draws the grid with the
+        // noninteractive `bg_stroke`, which defaults to a harsh near-white).
+        let resp = ui
+            .scope(|ui| {
+                ui.visuals_mut().widgets.noninteractive.bg_stroke =
+                    Stroke::new(1.0, with_alpha(colors.surface_raised, 0.55));
 
-        let resp = plot.show(ui, |plot_ui| match self.chart_type {
-            ChartType::Line | ChartType::Area => self.plot_lines(plot_ui, &palette),
-            ChartType::Scatter => self.plot_scatter(plot_ui, &palette),
-            ChartType::Histogram => self.plot_histogram(plot_ui, &palette),
-            ChartType::HBar => self.plot_bars(plot_ui, &palette, true),
-            _ => self.plot_bars(plot_ui, &palette, false),
-        });
+                let mut plot = Plot::new("chart_plot")
+                    .show_grid(self.options.grid)
+                    // Static display chart: always fit the data to the frame,
+                    // with X and Y scaled independently (no locked aspect, no
+                    // stale zoom/pan).
+                    .auto_bounds(egui::Vec2b::TRUE)
+                    .set_margin_fraction(egui::vec2(0.04, 0.08))
+                    .allow_scroll(false)
+                    .allow_drag(false)
+                    .allow_zoom(false)
+                    .allow_boxed_zoom(false);
+                if self.options.legend {
+                    plot = plot.legend(Legend::default());
+                }
+                // Map categorical ticks back to their string labels.
+                if categorical && !matches!(self.chart_type, ChartType::HBar) {
+                    let labels: Vec<String> =
+                        (0..self.rows.len()).map(|r| self.x_label(r)).collect();
+                    plot = plot.x_axis_formatter(move |mark, _| tick_label(&labels, mark.value));
+                }
+                if matches!(self.chart_type, ChartType::HBar) {
+                    let labels: Vec<String> =
+                        (0..self.rows.len()).map(|r| self.x_label(r)).collect();
+                    plot = plot.y_axis_formatter(move |mark, _| tick_label(&labels, mark.value));
+                }
+
+                plot.show(ui, |plot_ui| match self.chart_type {
+                    ChartType::Line | ChartType::Area => self.plot_lines(plot_ui, &palette),
+                    ChartType::Scatter => self.plot_scatter(plot_ui, &palette),
+                    ChartType::Histogram => self.plot_histogram(plot_ui, &palette),
+                    ChartType::HBar => self.plot_bars(plot_ui, &palette, true),
+                    _ => self.plot_bars(plot_ui, &palette, false),
+                })
+            })
+            .inner;
 
         // Hover: show the full data row for the point/bar under the cursor.
         if let Some(pos) = resp.response.hover_pos()
