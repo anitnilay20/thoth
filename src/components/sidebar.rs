@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
 use crate::app::persistent_state::Bookmark;
+use crate::app::tab_manager::TabId;
 use crate::components::bookmarks::{Bookmarks, BookmarksEvent, BookmarksProps};
+use crate::components::chart_studio::{
+    ChartSpec, ChartStudio, ChartStudioEvent, ColumnInfo, ProducerRef,
+};
 use crate::components::data_source_panel::{
     DataSourcePanel, DataSourcePanelEvent, DataSourcePanelProps,
 };
@@ -30,6 +34,8 @@ pub enum SidebarSection {
         plugin_id: String,
     },
     MarketPlace,
+    /// The Chart Studio config panel.
+    ChartStudio,
 }
 
 /// Props passed to the Sidebar (immutable, one-way binding)
@@ -99,8 +105,13 @@ pub enum SidebarEvent {
     /// A widget interaction from the plugin's sidebar panel.
     PluginSidebarEvent(crate::plugin::render_node::UiEvent),
     OpenSettings,
-    /// Open the built-in chart view (consumes the dataset bus).
-    NewChart,
+    // Chart Studio events
+    /// The user picked a chart data source; resolve its columns.
+    ChartSelectSource(TabId),
+    /// Build a chart tab from this spec.
+    ChartGenerate(ChartSpec),
+    /// Activate an already-open chart tab.
+    ChartFocus(TabId),
 }
 
 pub struct SidebarOutput {
@@ -120,6 +131,7 @@ pub struct Sidebar {
     bookmarks: Bookmarks,
 
     data_source_panel: HashMap<String, DataSourcePanel>,
+    chart_studio: ChartStudio,
 }
 
 impl Default for Sidebar {
@@ -129,6 +141,7 @@ impl Default for Sidebar {
             search: Search::default(),
             bookmarks: Bookmarks::default(),
             data_source_panel: HashMap::new(),
+            chart_studio: ChartStudio::default(),
         }
     }
 }
@@ -152,6 +165,21 @@ fn rail_button(ui: &mut egui::Ui, button: IconButton, accent: egui::Color32) -> 
 }
 
 impl Sidebar {
+    /// Refresh the Chart Studio's eligible data-source list.
+    pub fn set_chart_producers(&mut self, producers: Vec<ProducerRef>) {
+        self.chart_studio.set_producers(producers);
+    }
+
+    /// Feed the resolved column schema for the selected chart source.
+    pub fn set_chart_columns(&mut self, columns: Vec<ColumnInfo>) {
+        self.chart_studio.set_columns(columns);
+    }
+
+    /// Update the Chart Studio's "Open Charts" list.
+    pub fn set_chart_open(&mut self, open: Vec<(TabId, String)>) {
+        self.chart_studio.set_open_charts(open);
+    }
+
     /// Lazily initialise a panel for `plugin_id` with the given loader.
     /// No-op if the panel already exists and has a loader (avoids resetting an active session).
     pub fn init_data_source_panel(
@@ -266,6 +294,21 @@ impl Sidebar {
             Some(SidebarSection::MarketPlace) => {
                 Marketplace::render(ui, MarketplaceProps);
             }
+            Some(SidebarSection::ChartStudio) => {
+                for ev in self.chart_studio.render(ui) {
+                    match ev {
+                        ChartStudioEvent::SelectSource(id) => {
+                            events.push(SidebarEvent::ChartSelectSource(id));
+                        }
+                        ChartStudioEvent::Generate(spec) => {
+                            events.push(SidebarEvent::ChartGenerate(spec));
+                        }
+                        ChartStudioEvent::FocusChart(id) => {
+                            events.push(SidebarEvent::ChartFocus(id));
+                        }
+                    }
+                }
+            }
             None => {}
         }
     }
@@ -336,10 +379,14 @@ impl Sidebar {
 
         if rail_button(
             ui,
-            sidebar_btn(egui_phosphor::regular::CHART_LINE, "New Chart", false),
+            sidebar_btn(
+                egui_phosphor::regular::CHART_LINE,
+                "Chart Studio",
+                props.selected_section == Some(SidebarSection::ChartStudio),
+            ),
             accent,
         ) {
-            events.push(SidebarEvent::NewChart);
+            events.push(SidebarEvent::SectionToggled(SidebarSection::ChartStudio));
         }
 
         if rail_button(
