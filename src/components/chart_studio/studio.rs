@@ -12,12 +12,14 @@
 use eframe::egui;
 use thoth_plugin_sdk::components::{
     Button, ButtonColor, ButtonType, Icon, IconButton, List, ListEvent, ListItem, ListItemPrefix,
-    Select, SelectOption, SidebarHeader, Size, ToggleSwitch, Typography, TypographyVariant,
+    NumberInput, Select, SelectOption, SidebarHeader, Size, ToggleSwitch, Typography,
+    TypographyVariant,
 };
 use thoth_plugin_sdk::theme::color_to_hex;
 
 use super::{
-    ChartOptions, ChartSpec, ChartType, ColumnInfo, ProducerKind, ProducerRef, series_palette,
+    Aggregation, ChartOptions, ChartSpec, ChartType, ColumnInfo, ProducerKind, ProducerRef,
+    SortMode, series_palette,
 };
 use crate::app::tab_manager::TabId;
 use crate::theme::ThemeColors;
@@ -48,6 +50,9 @@ pub struct ChartStudio {
     x_col: usize,
     y_cols: Vec<usize>,
     options: ChartOptions,
+    aggregation: Aggregation,
+    top_n: usize,
+    sort: SortMode,
     /// Open chart tabs `(tab id, title)` for the "Open Charts" list.
     open_charts: Vec<(TabId, String)>,
     /// When `Some`, the panel is editing this existing chart tab (Generate
@@ -88,6 +93,9 @@ impl ChartStudio {
             spec.y_cols
         };
         self.options = spec.options;
+        self.aggregation = spec.aggregation;
+        self.top_n = spec.top_n;
+        self.sort = spec.sort;
         self.columns = columns;
         self.editing = spec.edit_target;
     }
@@ -133,6 +141,8 @@ impl ChartStudio {
                 if !self.columns.is_empty() {
                     ui.add_space(6.0);
                     self.axes_section(ui, &colors, width);
+                    ui.add_space(6.0);
+                    self.data_section(ui, width);
                     ui.add_space(6.0);
                     self.options_section(ui);
                 }
@@ -374,6 +384,80 @@ impl ChartStudio {
         }
     }
 
+    fn data_section(&mut self, ui: &mut egui::Ui, width: f32) {
+        Self::group_label(ui, "TRANSFORM");
+
+        Self::field_label(ui, "Aggregate");
+        let agg_opts: Vec<SelectOption> = Aggregation::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                SelectOption::builder()
+                    .value(i.to_string())
+                    .label(a.label())
+                    .build()
+            })
+            .collect();
+        let cur = Aggregation::ALL
+            .iter()
+            .position(|a| *a == self.aggregation)
+            .unwrap_or(0);
+        let mut agg_sel = Select::builder()
+            .id("chart_agg")
+            .value(cur.to_string())
+            .options(agg_opts)
+            .width(width)
+            .size(Size::Medium)
+            .build();
+        if let Some(v) = agg_sel.show(ui).inner.selected
+            && let Ok(i) = v.parse::<usize>()
+            && let Some(a) = Aggregation::ALL.get(i)
+        {
+            self.aggregation = *a;
+        }
+
+        ui.add_space(6.0);
+        Self::field_label(ui, "Sort");
+        let sort_opts: Vec<SelectOption> = SortMode::ALL
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                SelectOption::builder()
+                    .value(i.to_string())
+                    .label(s.label())
+                    .build()
+            })
+            .collect();
+        let cur = SortMode::ALL
+            .iter()
+            .position(|s| *s == self.sort)
+            .unwrap_or(0);
+        let mut sort_sel = Select::builder()
+            .id("chart_sort")
+            .value(cur.to_string())
+            .options(sort_opts)
+            .width(width)
+            .size(Size::Medium)
+            .build();
+        if let Some(v) = sort_sel.show(ui).inner.selected
+            && let Ok(i) = v.parse::<usize>()
+            && let Some(s) = SortMode::ALL.get(i)
+        {
+            self.sort = *s;
+        }
+
+        ui.add_space(6.0);
+        Self::field_label(ui, "Top N (0 = all)");
+        let mut top = NumberInput::builder()
+            .id("chart_topn")
+            .value(self.top_n as f64)
+            .min(0.0)
+            .max(1000.0)
+            .build();
+        top.show(ui);
+        self.top_n = top.value.max(0.0) as usize;
+    }
+
     fn options_section(&mut self, ui: &mut egui::Ui) {
         Self::group_label(ui, "OPTIONS");
         let rows = [
@@ -455,6 +539,9 @@ impl ChartStudio {
                 x_col: self.x_col,
                 y_cols: self.y_cols.clone(),
                 options: self.options,
+                aggregation: self.aggregation,
+                top_n: self.top_n,
+                sort: self.sort,
                 edit_target: self.editing,
             }));
             self.editing = None;

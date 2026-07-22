@@ -10,7 +10,10 @@ use std::f32::consts::TAU;
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, Stroke, Vec2};
 use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints, Points};
 
-use super::{ChartOptions, ChartSpec, ChartTabAction, ChartType, series_palette};
+use super::{
+    Aggregation, ChartOptions, ChartSpec, ChartTabAction, ChartType, SortMode, series_palette,
+    transform,
+};
 use crate::app::tab_manager::TabId;
 use crate::theme::ThemeColors;
 
@@ -23,14 +26,22 @@ pub struct ChartTab {
     tab_title: String,
     subtitle: String,
     chart_type: ChartType,
+    /// Render-ready (shaped) columns / rows and their X / Y indices.
     columns: Vec<String>,
     rows: Vec<Vec<String>>,
     x_col: usize,
     y_cols: Vec<usize>,
     options: ChartOptions,
+    // ── source spec, kept so Refresh can re-shape and Edit can reconstruct ──
     /// The producer tab this chart was built from (for Refresh / Edit).
     source_tab: TabId,
     source_label: String,
+    /// X / Y column indices into the *source* dataset (pre-shaping).
+    src_x_col: usize,
+    src_y_cols: Vec<usize>,
+    aggregation: Aggregation,
+    top_n: usize,
+    sort: SortMode,
     /// Fit the cartesian plot to the data on the next frame (set on create and
     /// after a data refresh); cleared once fitted so the user can pan/zoom.
     needs_fit: bool,
@@ -46,17 +57,31 @@ impl ChartTab {
         index: usize,
     ) -> Self {
         rows.truncate(ROW_CAP);
+        let shaped = transform::shape(
+            &columns,
+            &rows,
+            spec.x_col,
+            &spec.y_cols,
+            spec.aggregation,
+            spec.top_n,
+            spec.sort,
+        );
         let mut tab = Self {
             tab_title: format!("{} {index}", spec.chart_type.label()),
             subtitle: String::new(),
             chart_type: spec.chart_type,
-            columns,
-            rows,
-            x_col: spec.x_col,
-            y_cols: spec.y_cols.clone(),
+            columns: shaped.columns,
+            rows: shaped.rows,
+            x_col: shaped.x_col,
+            y_cols: shaped.y_cols,
             options: spec.options,
             source_tab: spec.source_tab,
             source_label: spec.source_label.clone(),
+            src_x_col: spec.x_col,
+            src_y_cols: spec.y_cols.clone(),
+            aggregation: spec.aggregation,
+            top_n: spec.top_n,
+            sort: spec.sort,
             needs_fit: true,
         };
         tab.rebuild_subtitle();
@@ -87,24 +112,38 @@ impl ChartTab {
             source_tab: self.source_tab,
             source_label: self.source_label.clone(),
             chart_type: self.chart_type,
-            x_col: self.x_col,
-            y_cols: self.y_cols.clone(),
+            x_col: self.src_x_col,
+            y_cols: self.src_y_cols.clone(),
             options: self.options,
+            aggregation: self.aggregation,
+            top_n: self.top_n,
+            sort: self.sort,
             edit_target: None,
         }
     }
 
-    /// Replace the data snapshot (Refresh): keep the spec but clamp axis indices
-    /// to the new column count and rebuild the subtitle.
+    /// Replace the data snapshot (Refresh): re-shape the fresh source rows with
+    /// the same spec (clamping source indices to the new column count).
     pub fn update_data(&mut self, columns: Vec<String>, mut rows: Vec<Vec<String>>) {
         rows.truncate(ROW_CAP);
         let max_col = columns.len().saturating_sub(1);
-        self.x_col = self.x_col.min(max_col);
-        for c in &mut self.y_cols {
+        self.src_x_col = self.src_x_col.min(max_col);
+        for c in &mut self.src_y_cols {
             *c = (*c).min(max_col);
         }
-        self.columns = columns;
-        self.rows = rows;
+        let shaped = transform::shape(
+            &columns,
+            &rows,
+            self.src_x_col,
+            &self.src_y_cols,
+            self.aggregation,
+            self.top_n,
+            self.sort,
+        );
+        self.columns = shaped.columns;
+        self.rows = shaped.rows;
+        self.x_col = shaped.x_col;
+        self.y_cols = shaped.y_cols;
         self.needs_fit = true;
         self.rebuild_subtitle();
     }

@@ -13,17 +13,19 @@
 
 mod chart_tab;
 mod studio;
+mod transform;
 
 pub use chart_tab::ChartTab;
 pub use studio::{ChartStudio, ChartStudioEvent};
 
 use eframe::egui::Color32;
+use serde::{Deserialize, Serialize};
 
 use crate::app::tab_manager::TabId;
 use crate::theme::ThemeColors;
 
 /// The eleven chart types offered in the studio.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum ChartType {
     #[default]
     Bar,
@@ -104,12 +106,16 @@ impl ChartType {
 }
 
 /// Toggle options shared across chart types (not all apply to every type).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ChartOptions {
     pub legend: bool,
     pub grid: bool,
     pub smooth: bool,
     pub stacked: bool,
+    /// Draw the numeric value on each bar / point.
+    pub data_labels: bool,
+    /// Use a log-scaled Y axis (cartesian types).
+    pub log_y: bool,
 }
 
 impl Default for ChartOptions {
@@ -119,6 +125,74 @@ impl Default for ChartOptions {
             grid: true,
             smooth: false,
             stacked: false,
+            data_labels: false,
+            log_y: false,
+        }
+    }
+}
+
+/// How to combine rows that share the same X value.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Aggregation {
+    /// No grouping — one mark per row.
+    #[default]
+    None,
+    Sum,
+    Average,
+    Count,
+    Min,
+    Max,
+}
+
+impl Aggregation {
+    pub const ALL: [Aggregation; 6] = [
+        Aggregation::None,
+        Aggregation::Sum,
+        Aggregation::Average,
+        Aggregation::Count,
+        Aggregation::Min,
+        Aggregation::Max,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Aggregation::None => "None",
+            Aggregation::Sum => "Sum",
+            Aggregation::Average => "Average",
+            Aggregation::Count => "Count",
+            Aggregation::Min => "Min",
+            Aggregation::Max => "Max",
+        }
+    }
+}
+
+/// Row ordering applied after aggregation.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum SortMode {
+    #[default]
+    None,
+    ValueDesc,
+    ValueAsc,
+    LabelAsc,
+    LabelDesc,
+}
+
+impl SortMode {
+    pub const ALL: [SortMode; 5] = [
+        SortMode::None,
+        SortMode::ValueDesc,
+        SortMode::ValueAsc,
+        SortMode::LabelAsc,
+        SortMode::LabelDesc,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SortMode::None => "None",
+            SortMode::ValueDesc => "Value ↓",
+            SortMode::ValueAsc => "Value ↑",
+            SortMode::LabelAsc => "Label A–Z",
+            SortMode::LabelDesc => "Label Z–A",
         }
     }
 }
@@ -173,6 +247,12 @@ pub struct ChartSpec {
     pub x_col: usize,
     pub y_cols: Vec<usize>,
     pub options: ChartOptions,
+    /// How to combine rows sharing an X value.
+    pub aggregation: Aggregation,
+    /// Keep only the top-N groups/rows by value (0 = all).
+    pub top_n: usize,
+    /// Row ordering.
+    pub sort: SortMode,
     /// When `Some`, "Generate" updates this existing chart tab in place
     /// (the panel is editing it) rather than opening a new one.
     pub edit_target: Option<TabId>,
