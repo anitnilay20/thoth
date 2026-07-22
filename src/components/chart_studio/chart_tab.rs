@@ -45,6 +45,9 @@ pub struct ChartTab {
     /// Fit the cartesian plot to the data on the next frame (set on create and
     /// after a data refresh); cleared once fitted so the user can pan/zoom.
     needs_fit: bool,
+    /// Row under the cursor last frame, used to highlight it (cartesian charts
+    /// detect after drawing, so highlight lags one frame — invisible in use).
+    hovered_row: Option<usize>,
 }
 
 impl ChartTab {
@@ -83,6 +86,7 @@ impl ChartTab {
             top_n: spec.top_n,
             sort: spec.sort,
             needs_fit: true,
+            hovered_row: None,
         };
         tab.rebuild_subtitle();
         tab
@@ -286,6 +290,8 @@ impl ChartTab {
         let categorical = !matches!(self.chart_type, ChartType::Scatter);
         // Fit once (on create / refresh / edit); afterwards the user pans/zooms.
         let fit = std::mem::take(&mut self.needs_fit);
+        // Highlight the row hovered last frame (detection happens post-draw).
+        let hov = self.hovered_row;
 
         let resp = ui
             .scope(|ui| {
@@ -321,21 +327,25 @@ impl ChartTab {
 
                 plot.show(ui, |plot_ui| match self.chart_type {
                     ChartType::Line | ChartType::Area => self.plot_lines(plot_ui, &palette),
-                    ChartType::Scatter => self.plot_scatter(plot_ui, &palette),
+                    ChartType::Scatter => self.plot_scatter(plot_ui, &palette, hov, colors.fg),
                     ChartType::Histogram => self.plot_histogram(plot_ui, &palette),
-                    ChartType::HBar => self.plot_bars(plot_ui, &palette, true),
-                    _ => self.plot_bars(plot_ui, &palette, false),
+                    ChartType::HBar => self.plot_bars(plot_ui, &palette, true, hov, colors.fg),
+                    _ => self.plot_bars(plot_ui, &palette, false, hov, colors.fg),
                 })
             })
             .inner;
 
-        // Hover: show the full data row for the point/bar under the cursor.
-        if let Some(pos) = resp.response.hover_pos()
-            && resp.transform.frame().contains(pos)
-            && let Some(row) = self.cartesian_hover_row(pos, &resp.transform)
-        {
+        // Hover: highlight + show the full data row for the point/bar under the
+        // cursor (remembered for next frame's highlight).
+        let hovered = resp
+            .response
+            .hover_pos()
+            .filter(|p| resp.transform.frame().contains(*p))
+            .and_then(|p| self.cartesian_hover_row(p, &resp.transform));
+        if let Some(row) = hovered {
             self.show_row_tooltip(&resp.response, row);
         }
+        self.hovered_row = hovered;
     }
 
     /// The row under the cursor for a cartesian chart (index-based for
@@ -426,7 +436,13 @@ impl ChartTab {
         }
     }
 
-    fn plot_scatter(&self, plot_ui: &mut egui_plot::PlotUi, palette: &[Color32; 8]) {
+    fn plot_scatter(
+        &self,
+        plot_ui: &mut egui_plot::PlotUi,
+        palette: &[Color32; 8],
+        hovered: Option<usize>,
+        fg: Color32,
+    ) {
         for (si, &col) in self.y_cols.iter().enumerate() {
             let pts: Vec<[f64; 2]> = (0..self.rows.len())
                 .filter_map(|r| {
@@ -444,11 +460,32 @@ impl ChartTab {
                     .radius(3.0)
                     .filled(true),
             );
+            // Emphasise the hovered point.
+            if let Some(r) = hovered
+                && let (Some(y), x) = (
+                    self.val(r, col),
+                    self.val(r, self.x_col).unwrap_or(r as f64),
+                )
+            {
+                plot_ui.points(
+                    Points::new(String::new(), PlotPoints::from(vec![[x, y]]))
+                        .color(lighten(palette[si % palette.len()], fg))
+                        .radius(6.0)
+                        .filled(true),
+                );
+            }
         }
     }
 
     #[allow(clippy::needless_range_loop)] // r indexes both self.rows (via val) and stack_base
-    fn plot_bars(&self, plot_ui: &mut egui_plot::PlotUi, palette: &[Color32; 8], horizontal: bool) {
+    fn plot_bars(
+        &self,
+        plot_ui: &mut egui_plot::PlotUi,
+        palette: &[Color32; 8],
+        horizontal: bool,
+        hovered: Option<usize>,
+        fg: Color32,
+    ) {
         let n = self.y_cols.len().max(1);
         let group_w = 0.82;
         let bar_w = group_w / n as f64;
@@ -468,9 +505,15 @@ impl ChartTab {
                         0.0,
                     )
                 };
+                // Brighten the hovered category's bars.
+                let fill = if hovered == Some(r) {
+                    lighten(color, fg)
+                } else {
+                    color
+                };
                 let mut bar = Bar::new(arg, v)
                     .name(&self.columns[col])
-                    .fill(color)
+                    .fill(fill)
                     .width(width)
                     .base_offset(base);
                 if horizontal {
@@ -588,28 +631,33 @@ impl ChartTab {
         } else {
             0.0
         };
+        let (h_dist, h_ang) = pointer_polar(ui, center);
         let painter = ui.painter();
         let mut a0 = -TAU / 4.0;
-        let mut bounds = Vec::with_capacity(slices.len());
+        let mut hovered_row = None;
         for (i, (r, v)) in slices.iter().enumerate() {
             let a1 = a0 + (*v / total) as f32 * TAU;
+            let is_hover =
+                h_dist.is_some_and(|d| d >= inner && d <= radius && h_ang >= a0 && h_ang < a1);
+            if is_hover {
+                hovered_row = Some(*r);
+            }
+            let base = palette[i % palette.len()];
+            let fill = if is_hover {
+                lighten(base, colors.fg)
+            } else {
+                base
+            };
             let poly = annular_sector(center, inner, radius, a0, a1);
             painter.add(egui::Shape::convex_polygon(
                 poly,
-                palette[i % palette.len()],
+                fill,
                 Stroke::new(1.5, colors.bg),
             ));
-            bounds.push((*r, a0, a1));
             a0 = a1;
         }
-        if let Some(pos) = ui.ctx().pointer_hover_pos() {
-            let dist = (pos - center).length();
-            if dist >= inner
-                && dist <= radius
-                && let Some(row) = wedge_row(center, pos, &bounds)
-            {
-                self.show_row_tooltip(&area, row);
-            }
+        if let Some(row) = hovered_row {
+            self.show_row_tooltip(&area, row);
         }
     }
 
@@ -630,35 +678,34 @@ impl ChartTab {
             .map(|(i, (r, _))| (self.x_label(*r), palette[i % palette.len()]))
             .collect();
         let (center, radius, area) = self.radial_frame(ui, colors, size, &entries);
+        let (h_dist, h_ang) = pointer_polar(ui, center);
         let painter = ui.painter();
         let n = items.len().max(1);
         let seg = TAU / n as f32;
         let mut a0 = -TAU / 4.0;
-        let mut bounds = Vec::with_capacity(items.len());
+        let mut hovered_row = None;
         for (i, (r, v)) in items.iter().enumerate() {
             let ri = (*v / max) as f32 * radius;
+            let is_hover = h_dist.is_some_and(|d| d <= ri && h_ang >= a0 && h_ang < a0 + seg);
+            if is_hover {
+                hovered_row = Some(*r);
+            }
+            let base = with_alpha(palette[i % palette.len()], 0.82);
+            let fill = if is_hover {
+                lighten(base, colors.fg)
+            } else {
+                base
+            };
             let poly = annular_sector(center, 0.0, ri, a0, a0 + seg);
             painter.add(egui::Shape::convex_polygon(
                 poly,
-                with_alpha(palette[i % palette.len()], 0.82),
+                fill,
                 Stroke::new(1.0, colors.bg),
             ));
-            bounds.push((*r, a0, a0 + seg, ri));
             a0 += seg;
         }
-        if let Some(pos) = ui.ctx().pointer_hover_pos() {
-            let dist = (pos - center).length();
-            if let Some(row) = wedge_row(
-                center,
-                pos,
-                &bounds
-                    .iter()
-                    .map(|&(r, a0, a1, _)| (r, a0, a1))
-                    .collect::<Vec<_>>(),
-            ) && bounds.iter().any(|&(r, _, _, ri)| r == row && dist <= ri)
-            {
-                self.show_row_tooltip(&area, row);
-            }
+        if let Some(row) = hovered_row {
+            self.show_row_tooltip(&area, row);
         }
     }
 
@@ -771,6 +818,15 @@ impl ChartTab {
         let cw = grid.width() / cols.len() as f32;
         let rh = grid.height() / rows.max(1) as f32;
 
+        // Row under the cursor (for highlight + tooltip).
+        let hover_r = ui
+            .ctx()
+            .pointer_hover_pos()
+            .filter(|p| grid.contains(*p) && rh > 0.0)
+            .map(|p| ((p.y - grid.top()) / rh).floor() as i32)
+            .filter(|&r| r >= 0 && (r as usize) < rows)
+            .map(|r| r as usize);
+
         // Per-column min/max for normalisation.
         let ranges: Vec<(f64, f64)> = cols
             .iter()
@@ -816,6 +872,14 @@ impl ChartTab {
                 let cell =
                     Rect::from_min_size(Pos2::new(x + 1.0, y + 1.0), Vec2::new(cw - 2.0, rh - 2.0));
                 painter.rect_filled(cell, 2.0, heat_color(t, colors));
+                if hover_r == Some(r) {
+                    painter.rect_stroke(
+                        cell,
+                        2.0,
+                        Stroke::new(1.5, colors.fg),
+                        egui::StrokeKind::Inside,
+                    );
+                }
                 if rh > 18.0
                     && cw > 34.0
                     && let Some(v) = self.val(r, c)
@@ -831,15 +895,8 @@ impl ChartTab {
             }
         }
 
-        // Hover: the row (line) under the cursor.
-        if let Some(pos) = ui.ctx().pointer_hover_pos()
-            && grid.contains(pos)
-            && rh > 0.0
-        {
-            let r = ((pos.y - grid.top()) / rh).floor() as i32;
-            if r >= 0 && (r as usize) < rows {
-                self.show_row_tooltip(&area, r as usize);
-            }
+        if let Some(r) = hover_r {
+            self.show_row_tooltip(&area, r);
         }
     }
 
@@ -885,22 +942,25 @@ fn annular_sector(center: Pos2, r_inner: f32, r_outer: f32, a0: f32, a1: f32) ->
     pts
 }
 
-/// Which wedge (row) the cursor is over, by angle. `bounds` is `(row, a0, a1)`
-/// with angles measured like `annular_sector` (from `-TAU/4`, increasing).
-fn wedge_row(center: Pos2, pos: Pos2, bounds: &[(usize, f32, f32)]) -> Option<usize> {
-    let start = -TAU / 4.0;
-    let v = pos - center;
-    let mut a = v.y.atan2(v.x);
-    while a < start {
-        a += TAU;
+/// The cursor's polar position relative to `center`: `(distance, angle)` with
+/// the angle normalised to `[-TAU/4, -TAU/4 + TAU)` to match `annular_sector`.
+/// Distance is `None` when the cursor isn't over the window.
+fn pointer_polar(ui: &egui::Ui, center: Pos2) -> (Option<f32>, f32) {
+    match ui.ctx().pointer_hover_pos() {
+        Some(p) => {
+            let v = p - center;
+            let start = -TAU / 4.0;
+            let mut a = v.y.atan2(v.x);
+            while a < start {
+                a += TAU;
+            }
+            while a >= start + TAU {
+                a -= TAU;
+            }
+            (Some(v.length()), a)
+        }
+        None => (None, 0.0),
     }
-    while a >= start + TAU {
-        a -= TAU;
-    }
-    bounds
-        .iter()
-        .find(|(_, a0, a1)| a >= *a0 && a < *a1)
-        .map(|(r, _, _)| *r)
 }
 
 /// Smallest absolute angular distance between two angles (radians).
@@ -910,6 +970,11 @@ fn angle_diff(a: f32, b: f32) -> f32 {
         d = TAU - d;
     }
     d
+}
+
+/// Brighten a series colour toward the foreground for hover emphasis.
+fn lighten(c: Color32, fg: Color32) -> Color32 {
+    lerp_color(c, fg, 0.4)
 }
 
 fn with_alpha(c: Color32, a: f32) -> Color32 {
