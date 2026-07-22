@@ -257,13 +257,89 @@ impl ChartTab {
             plot = plot.y_axis_formatter(move |mark, _| tick_label(&labels, mark.value));
         }
 
-        plot.show(ui, |plot_ui| match self.chart_type {
+        let resp = plot.show(ui, |plot_ui| match self.chart_type {
             ChartType::Line | ChartType::Area => self.plot_lines(plot_ui, &palette),
             ChartType::Scatter => self.plot_scatter(plot_ui, &palette),
             ChartType::Histogram => self.plot_histogram(plot_ui, &palette),
             ChartType::HBar => self.plot_bars(plot_ui, &palette, true),
             _ => self.plot_bars(plot_ui, &palette, false),
         });
+
+        // Hover: show the full data row for the point/bar under the cursor.
+        if let Some(pos) = resp.response.hover_pos()
+            && resp.transform.frame().contains(pos)
+            && let Some(row) = self.cartesian_hover_row(pos, &resp.transform)
+        {
+            self.show_row_tooltip(&resp.response, row);
+        }
+    }
+
+    /// The row under the cursor for a cartesian chart (index-based for
+    /// categorical types, nearest point for scatter). `None` for histogram
+    /// (bins aggregate rows) or when the cursor isn't near data.
+    fn cartesian_hover_row(&self, pos: egui::Pos2, t: &egui_plot::PlotTransform) -> Option<usize> {
+        if matches!(self.chart_type, ChartType::Histogram) {
+            return None;
+        }
+        if matches!(self.chart_type, ChartType::Scatter) {
+            let mut best: Option<(f32, usize)> = None;
+            for r in 0..self.rows.len() {
+                let x = self.val(r, self.x_col).unwrap_or(r as f64);
+                for &col in &self.y_cols {
+                    if let Some(y) = self.val(r, col) {
+                        let d = t
+                            .position_from_point(&egui_plot::PlotPoint::new(x, y))
+                            .distance(pos);
+                        if best.is_none_or(|(bd, _)| d < bd) {
+                            best = Some((d, r));
+                        }
+                    }
+                }
+            }
+            return best.filter(|(d, _)| *d <= 24.0).map(|(_, r)| r);
+        }
+        let pt = t.value_from_position(pos);
+        let v = if matches!(self.chart_type, ChartType::HBar) {
+            pt.y
+        } else {
+            pt.x
+        };
+        let i = v.round();
+        (i >= 0.0 && (i as usize) < self.rows.len() && (v - i).abs() <= 0.5).then_some(i as usize)
+    }
+
+    /// Show a tooltip at the pointer listing every column of `row`.
+    fn show_row_tooltip(&self, area: &egui::Response, row: usize) {
+        egui::Tooltip::for_widget(area)
+            .at_pointer()
+            .show(|ui| self.row_tooltip(ui, row));
+    }
+
+    fn row_tooltip(&self, ui: &mut egui::Ui, row: usize) {
+        use thoth_plugin_sdk::components::{Typography, TypographyVariant};
+        let Some(r) = self.rows.get(row) else {
+            return;
+        };
+        egui::Grid::new("chart_row_tip")
+            .num_columns(2)
+            .spacing([12.0, 2.0])
+            .show(ui, |ui| {
+                for (c, name) in self.columns.iter().enumerate() {
+                    ui.add(
+                        Typography::builder()
+                            .text(name)
+                            .variant(TypographyVariant::Label)
+                            .build(),
+                    );
+                    ui.add(
+                        Typography::builder()
+                            .text(r.get(c).cloned().unwrap_or_default())
+                            .variant(TypographyVariant::Body)
+                            .build(),
+                    );
+                    ui.end_row();
+                }
+            });
     }
 
     fn plot_lines(&self, plot_ui: &mut egui_plot::PlotUi, palette: &[Color32; 8]) {
@@ -393,8 +469,8 @@ impl ChartTab {
         colors: &ThemeColors,
         size: Vec2,
         entries: &[(String, Color32)],
-    ) -> (Pos2, f32) {
-        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ) -> (Pos2, f32, egui::Response) {
+        let (rect, area) = ui.allocate_exact_size(size, egui::Sense::hover());
         let legend_w = if self.options.legend && !entries.is_empty() {
             (size.x * 0.28).min(160.0)
         } else {
@@ -422,17 +498,14 @@ impl ChartTab {
                 y += 18.0;
             }
         }
-        (plot_rect.center(), radius)
+        (plot_rect.center(), radius, area)
     }
 
     fn render_pie(&self, ui: &mut egui::Ui, colors: &ThemeColors, size: Vec2) {
         let col = *self.y_cols.first().unwrap_or(&0);
-        let slices: Vec<(String, f64)> = (0..self.rows.len())
-            .filter_map(|r| {
-                self.val(r, col)
-                    .filter(|v| *v > 0.0)
-                    .map(|v| (self.x_label(r), v))
-            })
+        // Keep the source row index so hover can show its full row.
+        let slices: Vec<(usize, f64)> = (0..self.rows.len())
+            .filter_map(|r| self.val(r, col).filter(|v| *v > 0.0).map(|v| (r, v)))
             .collect();
         let total: f64 = slices.iter().map(|(_, v)| v).sum();
         if total <= 0.0 {
@@ -443,9 +516,9 @@ impl ChartTab {
         let entries: Vec<(String, Color32)> = slices
             .iter()
             .enumerate()
-            .map(|(i, (l, _))| (l.clone(), palette[i % palette.len()]))
+            .map(|(i, (r, _))| (self.x_label(*r), palette[i % palette.len()]))
             .collect();
-        let (center, radius) = self.radial_frame(ui, colors, size, &entries);
+        let (center, radius, area) = self.radial_frame(ui, colors, size, &entries);
         let inner = if matches!(self.chart_type, ChartType::Doughnut) {
             radius * 0.55
         } else {
@@ -453,7 +526,8 @@ impl ChartTab {
         };
         let painter = ui.painter();
         let mut a0 = -TAU / 4.0;
-        for (i, (_, v)) in slices.iter().enumerate() {
+        let mut bounds = Vec::with_capacity(slices.len());
+        for (i, (r, v)) in slices.iter().enumerate() {
             let a1 = a0 + (*v / total) as f32 * TAU;
             let poly = annular_sector(center, inner, radius, a0, a1);
             painter.add(egui::Shape::convex_polygon(
@@ -461,14 +535,24 @@ impl ChartTab {
                 palette[i % palette.len()],
                 Stroke::new(1.5, colors.bg),
             ));
+            bounds.push((*r, a0, a1));
             a0 = a1;
+        }
+        if let Some(pos) = ui.ctx().pointer_hover_pos() {
+            let dist = (pos - center).length();
+            if dist >= inner
+                && dist <= radius
+                && let Some(row) = wedge_row(center, pos, &bounds)
+            {
+                self.show_row_tooltip(&area, row);
+            }
         }
     }
 
     fn render_polar(&self, ui: &mut egui::Ui, colors: &ThemeColors, size: Vec2) {
         let col = *self.y_cols.first().unwrap_or(&0);
-        let items: Vec<(String, f64)> = (0..self.rows.len())
-            .filter_map(|r| self.val(r, col).map(|v| (self.x_label(r), v.max(0.0))))
+        let items: Vec<(usize, f64)> = (0..self.rows.len())
+            .filter_map(|r| self.val(r, col).map(|v| (r, v.max(0.0))))
             .collect();
         let max = items.iter().map(|(_, v)| *v).fold(0.0_f64, f64::max);
         if max <= 0.0 {
@@ -479,22 +563,38 @@ impl ChartTab {
         let entries: Vec<(String, Color32)> = items
             .iter()
             .enumerate()
-            .map(|(i, (l, _))| (l.clone(), palette[i % palette.len()]))
+            .map(|(i, (r, _))| (self.x_label(*r), palette[i % palette.len()]))
             .collect();
-        let (center, radius) = self.radial_frame(ui, colors, size, &entries);
+        let (center, radius, area) = self.radial_frame(ui, colors, size, &entries);
         let painter = ui.painter();
         let n = items.len().max(1);
         let seg = TAU / n as f32;
         let mut a0 = -TAU / 4.0;
-        for (i, (_, v)) in items.iter().enumerate() {
-            let r = (*v / max) as f32 * radius;
-            let poly = annular_sector(center, 0.0, r, a0, a0 + seg);
+        let mut bounds = Vec::with_capacity(items.len());
+        for (i, (r, v)) in items.iter().enumerate() {
+            let ri = (*v / max) as f32 * radius;
+            let poly = annular_sector(center, 0.0, ri, a0, a0 + seg);
             painter.add(egui::Shape::convex_polygon(
                 poly,
                 with_alpha(palette[i % palette.len()], 0.82),
                 Stroke::new(1.0, colors.bg),
             ));
+            bounds.push((*r, a0, a0 + seg, ri));
             a0 += seg;
+        }
+        if let Some(pos) = ui.ctx().pointer_hover_pos() {
+            let dist = (pos - center).length();
+            if let Some(row) = wedge_row(
+                center,
+                pos,
+                &bounds
+                    .iter()
+                    .map(|&(r, a0, a1, _)| (r, a0, a1))
+                    .collect::<Vec<_>>(),
+            ) && bounds.iter().any(|&(r, _, _, ri)| r == row && dist <= ri)
+            {
+                self.show_row_tooltip(&area, row);
+            }
         }
     }
 
@@ -520,7 +620,7 @@ impl ChartTab {
             self.empty_note(ui, "No positive values to plot.");
             return;
         }
-        let (center, radius) = self.radial_frame(ui, colors, size, &entries);
+        let (center, radius, area) = self.radial_frame(ui, colors, size, &entries);
         let painter = ui.painter();
         let angle = |j: usize| -TAU / 4.0 + j as f32 / axes as f32 * TAU;
 
@@ -567,6 +667,22 @@ impl ChartTab {
                 Stroke::new(2.0, color),
             ));
         }
+
+        // Hover: the axis (row) nearest the cursor's angle.
+        if let Some(pos) = ui.ctx().pointer_hover_pos() {
+            let v = pos - center;
+            if v.length() <= radius {
+                let a = v.y.atan2(v.x);
+                let mut best = (f32::MAX, 0usize);
+                for j in 0..axes {
+                    let d = angle_diff(a, angle(j));
+                    if d < best.0 {
+                        best = (d, j);
+                    }
+                }
+                self.show_row_tooltip(&area, best.1);
+            }
+        }
     }
 
     fn render_heatmap(&self, ui: &mut egui::Ui, colors: &ThemeColors, size: Vec2) {
@@ -579,7 +695,7 @@ impl ChartTab {
             self.empty_note(ui, "No numeric columns for a heatmap.");
             return;
         }
-        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let (rect, area) = ui.allocate_exact_size(size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
         let pad_left = 70.0;
         let pad_top = 22.0;
@@ -650,6 +766,17 @@ impl ChartTab {
                 }
             }
         }
+
+        // Hover: the row (line) under the cursor.
+        if let Some(pos) = ui.ctx().pointer_hover_pos()
+            && grid.contains(pos)
+            && rh > 0.0
+        {
+            let r = ((pos.y - grid.top()) / rh).floor() as i32;
+            if r >= 0 && (r as usize) < rows {
+                self.show_row_tooltip(&area, r as usize);
+            }
+        }
     }
 
     fn empty_note(&self, ui: &mut egui::Ui, msg: &str) {
@@ -692,6 +819,33 @@ fn annular_sector(center: Pos2, r_inner: f32, r_outer: f32, a0: f32, a1: f32) ->
         }
     }
     pts
+}
+
+/// Which wedge (row) the cursor is over, by angle. `bounds` is `(row, a0, a1)`
+/// with angles measured like `annular_sector` (from `-TAU/4`, increasing).
+fn wedge_row(center: Pos2, pos: Pos2, bounds: &[(usize, f32, f32)]) -> Option<usize> {
+    let start = -TAU / 4.0;
+    let v = pos - center;
+    let mut a = v.y.atan2(v.x);
+    while a < start {
+        a += TAU;
+    }
+    while a >= start + TAU {
+        a -= TAU;
+    }
+    bounds
+        .iter()
+        .find(|(_, a0, a1)| a >= *a0 && a < *a1)
+        .map(|(r, _, _)| *r)
+}
+
+/// Smallest absolute angular distance between two angles (radians).
+fn angle_diff(a: f32, b: f32) -> f32 {
+    let mut d = (a - b).abs() % TAU;
+    if d > TAU / 2.0 {
+        d = TAU - d;
+    }
+    d
 }
 
 fn with_alpha(c: Color32, a: f32) -> Color32 {
