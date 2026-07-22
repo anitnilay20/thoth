@@ -7,7 +7,7 @@
 
 use std::f32::consts::TAU;
 
-use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, Stroke, Vec2};
+use eframe::egui::{self, Color32, FontId, Pos2, Rect, Stroke, Vec2};
 use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints, Points};
 
 use super::{ChartOptions, ChartSpec, ChartTabAction, ChartType, series_palette};
@@ -157,23 +157,24 @@ impl ChartTab {
     // ── entry point ─────────────────────────────────────────────────────────
 
     pub fn render(&mut self, ui: &mut egui::Ui, colors: &ThemeColors) -> Option<ChartTabAction> {
-        use thoth_plugin_sdk::components::IconButton;
+        use thoth_plugin_sdk::components::{IconButton, Typography, TypographyVariant};
         let mut action = None;
 
         // Header: title/subtitle on the left, Edit + Refresh tools on the right.
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                ui.label(
-                    RichText::new(self.header_title())
-                        .color(colors.fg)
-                        .size(14.0)
-                        .strong(),
+                ui.add(
+                    Typography::builder()
+                        .text(self.header_title())
+                        .variant(TypographyVariant::BodyLarge)
+                        .build(),
                 );
-                ui.label(
-                    RichText::new(&self.subtitle)
-                        .color(colors.fg_muted)
-                        .size(11.0),
+                ui.add(
+                    Typography::builder()
+                        .text(&self.subtitle)
+                        .variant(TypographyVariant::BodyMuted)
+                        .build(),
                 );
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -206,7 +207,7 @@ impl ChartTab {
         ui.add_space(8.0);
 
         if self.rows.is_empty() {
-            ui.label(RichText::new("This dataset has no rows to plot.").color(colors.fg_muted));
+            self.empty_note(ui, "This dataset has no rows to plot.");
             return action;
         }
 
@@ -435,7 +436,7 @@ impl ChartTab {
             .collect();
         let total: f64 = slices.iter().map(|(_, v)| v).sum();
         if total <= 0.0 {
-            self.empty_note(ui, colors, "No positive values to plot.");
+            self.empty_note(ui, "No positive values to plot.");
             return;
         }
         let palette = series_palette(colors);
@@ -471,7 +472,7 @@ impl ChartTab {
             .collect();
         let max = items.iter().map(|(_, v)| *v).fold(0.0_f64, f64::max);
         if max <= 0.0 {
-            self.empty_note(ui, colors, "No positive values to plot.");
+            self.empty_note(ui, "No positive values to plot.");
             return;
         }
         let palette = series_palette(colors);
@@ -500,7 +501,7 @@ impl ChartTab {
     fn render_radar(&self, ui: &mut egui::Ui, colors: &ThemeColors, size: Vec2) {
         let axes = self.rows.len();
         if axes < 3 {
-            self.empty_note(ui, colors, "Radar needs at least 3 rows.");
+            self.empty_note(ui, "Radar needs at least 3 rows.");
             return;
         }
         let palette = series_palette(colors);
@@ -516,7 +517,7 @@ impl ChartTab {
             .flat_map(|&c| (0..axes).filter_map(move |r| self.val(r, c)))
             .fold(0.0_f64, f64::max);
         if max <= 0.0 {
-            self.empty_note(ui, colors, "No positive values to plot.");
+            self.empty_note(ui, "No positive values to plot.");
             return;
         }
         let (center, radius) = self.radial_frame(ui, colors, size, &entries);
@@ -575,7 +576,7 @@ impl ChartTab {
             .take(HEATMAP_COL_CAP)
             .collect();
         if cols.is_empty() {
-            self.empty_note(ui, colors, "No numeric columns for a heatmap.");
+            self.empty_note(ui, "No numeric columns for a heatmap.");
             return;
         }
         let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
@@ -651,8 +652,14 @@ impl ChartTab {
         }
     }
 
-    fn empty_note(&self, ui: &mut egui::Ui, colors: &ThemeColors, msg: &str) {
-        ui.label(RichText::new(msg).color(colors.fg_muted));
+    fn empty_note(&self, ui: &mut egui::Ui, msg: &str) {
+        use thoth_plugin_sdk::components::{Typography, TypographyVariant};
+        ui.add(
+            Typography::builder()
+                .text(msg)
+                .variant(TypographyVariant::BodyMuted)
+                .build(),
+        );
     }
 }
 

@@ -176,6 +176,9 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         // Chart Studio tabs paint a chart directly — no file/plugin central panel.
         if let Some(chart) = tab.chart.as_mut() {
             let colors = self.colors.unwrap_or_default();
+            // Fill the whole leaf with the app background (egui_dock doesn't
+            // clear it, and there's no central panel here to provide a fill).
+            ui.painter().rect_filled(ui.max_rect(), 0.0, colors.bg);
             let action = egui::Frame::new()
                 .inner_margin(egui::Margin::symmetric(16, 8))
                 .show(ui, |ui| chart.render(ui, &colors))
