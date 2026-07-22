@@ -114,7 +114,6 @@ impl ChartStudio {
         ui.add(SidebarHeader::builder().title("CHART STUDIO").build());
 
         // Everything else is inset to match the list rows' left padding.
-        let width = (ui.clip_rect().width() - 2.0 * PAD_X).max(120.0);
         egui::Frame::new()
             .inner_margin(egui::Margin {
                 left: PAD_X as i8,
@@ -124,6 +123,8 @@ impl ChartStudio {
             })
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(6.0, 8.0);
+                // Fit the panel width exactly — no horizontal scrolling.
+                let width = ui.available_width();
 
                 self.data_source_section(ui, &colors, width, &mut events);
                 ui.add_space(6.0);
@@ -223,7 +224,8 @@ impl ChartStudio {
         Self::group_label(ui, "CHART TYPE");
         let spacing = 5.0;
         let cols = 4;
-        let cell = ((width - spacing * (cols as f32 - 1.0)) / cols as f32).clamp(42.0, 84.0);
+        // Never exceed the row width (avoids horizontal overflow on narrow panels).
+        let cell = ((width - spacing * (cols as f32 - 1.0)) / cols as f32).clamp(1.0, 84.0);
         let prev = ui.spacing().item_spacing;
         ui.spacing_mut().item_spacing = egui::vec2(spacing, spacing);
         for chunk in ChartType::ALL.chunks(cols) {
@@ -306,7 +308,8 @@ impl ChartStudio {
         }
 
         let multi = !self.chart_type.single_series() && self.y_cols.len() > 1;
-        let combo_w = if multi { width - 40.0 } else { width - 16.0 };
+        // Leave room for the colour swatch (and the remove button when multi).
+        let combo_w = if multi { width - 52.0 } else { width - 22.0 };
         let mut remove: Option<usize> = None;
         for i in 0..self.y_cols.len() {
             ui.horizontal(|ui| {

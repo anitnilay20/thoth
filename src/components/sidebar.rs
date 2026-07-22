@@ -594,7 +594,9 @@ impl ContextComponent for Sidebar {
                     egui::Frame::NONE
                         .inner_margin(Margin::ZERO)
                         .show(&mut content_ui, |ui| {
-                            egui::ScrollArea::both()
+                            // Vertical-only: sidebar content must fit the panel
+                            // width (no horizontal scrolling).
+                            egui::ScrollArea::vertical()
                                 .show(ui, |ui| self.render_content(ui, &props, &mut events));
                         });
 
