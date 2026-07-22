@@ -9,6 +9,7 @@ use std::f32::consts::TAU;
 
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, Stroke, Vec2};
 use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoint, PlotPoints, Points, Text};
+use serde::{Deserialize, Serialize};
 
 use super::{
     Aggregation, ChartOptions, ChartSpec, ChartTabAction, ChartType, SortMode, series_palette,
@@ -98,6 +99,54 @@ impl ChartTab {
 
     pub fn source_tab(&self) -> TabId {
         self.source_tab
+    }
+
+    /// Serialize the chart (data snapshot + spec) for session persistence.
+    pub fn to_persisted_json(&self) -> String {
+        let p = PersistedChart {
+            tab_title: self.tab_title.clone(),
+            chart_type: self.chart_type,
+            columns: self.columns.clone(),
+            rows: self.rows.clone(),
+            x_col: self.x_col,
+            y_cols: self.y_cols.clone(),
+            options: self.options,
+            source_label: self.source_label.clone(),
+            src_x_col: self.src_x_col,
+            src_y_cols: self.src_y_cols.clone(),
+            aggregation: self.aggregation,
+            top_n: self.top_n,
+            sort: self.sort,
+        };
+        serde_json::to_string(&p).unwrap_or_default()
+    }
+
+    /// Rebuild a chart from a persisted snapshot. The original data source is
+    /// gone across restarts, so `source_tab` is a sentinel — Refresh/Edit
+    /// degrade gracefully (the snapshot still renders).
+    pub fn from_persisted_json(json: &str) -> Option<Self> {
+        let p: PersistedChart = serde_json::from_str(json).ok()?;
+        let mut tab = Self {
+            tab_title: p.tab_title,
+            subtitle: String::new(),
+            chart_type: p.chart_type,
+            columns: p.columns,
+            rows: p.rows,
+            x_col: p.x_col,
+            y_cols: p.y_cols,
+            options: p.options,
+            source_tab: TabId::MAX,
+            source_label: p.source_label,
+            src_x_col: p.src_x_col,
+            src_y_cols: p.src_y_cols,
+            aggregation: p.aggregation,
+            top_n: p.top_n,
+            sort: p.sort,
+            needs_fit: true,
+            hovered_row: None,
+        };
+        tab.rebuild_subtitle();
+        Some(tab)
     }
 
     /// Compact one-line summary for the status bar.
@@ -1082,6 +1131,24 @@ fn angle_diff(a: f32, b: f32) -> f32 {
         d = TAU - d;
     }
     d
+}
+
+/// Serializable snapshot of a chart for session persistence.
+#[derive(Serialize, Deserialize)]
+struct PersistedChart {
+    tab_title: String,
+    chart_type: ChartType,
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    x_col: usize,
+    y_cols: Vec<usize>,
+    options: ChartOptions,
+    source_label: String,
+    src_x_col: usize,
+    src_y_cols: Vec<usize>,
+    aggregation: Aggregation,
+    top_n: usize,
+    sort: SortMode,
 }
 
 /// Brighten a series colour toward the foreground for hover emphasis.

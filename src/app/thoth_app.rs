@@ -1291,6 +1291,20 @@ impl ThothApp {
                         tab_manager.open_file(p, nav_capacity);
                     }
                 }
+                PersistedTabKind::Chart { state } => {
+                    if let Some(chart) =
+                        crate::components::chart_studio::ChartTab::from_persisted_json(state)
+                    {
+                        let id = if tab_manager.active_tab_mut().is_some_and(|t| t.is_empty()) {
+                            tab_manager.active_tab_id().unwrap()
+                        } else {
+                            tab_manager.open_new_tab(nav_capacity)
+                        };
+                        if let Some(t) = tab_manager.tabs.get_mut(&id) {
+                            t.chart = Some(chart);
+                        }
+                    }
+                }
                 PersistedTabKind::Plugin { plugin_id, state } => {
                     // PLUGIN_MANAGER is set by a background thread; it may not be ready yet.
                     match PLUGIN_MANAGER.get() {
@@ -1407,12 +1421,19 @@ impl ThothApp {
             .filter_map(|id| {
                 let tab = self.window_state.tab_manager.tabs.get(&id)?;
                 let entry = tab
-                    .file_path
+                    .chart
                     .as_ref()
-                    .map(|path| PersistedTab {
-                        kind: PersistedTabKind::File {
-                            path: path.to_string_lossy().into_owned(),
+                    .map(|chart| PersistedTab {
+                        kind: PersistedTabKind::Chart {
+                            state: chart.to_persisted_json(),
                         },
+                    })
+                    .or_else(|| {
+                        tab.file_path.as_ref().map(|path| PersistedTab {
+                            kind: PersistedTabKind::File {
+                                path: path.to_string_lossy().into_owned(),
+                            },
+                        })
                     })
                     .or_else(|| {
                         tab.active_plugin_pane.as_ref().map(|pane| PersistedTab {
