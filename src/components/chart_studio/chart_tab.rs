@@ -8,7 +8,7 @@
 use std::f32::consts::TAU;
 
 use eframe::egui::{self, Color32, FontId, Pos2, Rect, Stroke, Vec2};
-use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoints, Points};
+use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoint, PlotPoints, Points, Text};
 
 use super::{
     Aggregation, ChartOptions, ChartSpec, ChartTabAction, ChartType, SortMode, series_palette,
@@ -292,6 +292,8 @@ impl ChartTab {
         let fit = std::mem::take(&mut self.needs_fit);
         // Highlight the row hovered last frame (detection happens post-draw).
         let hov = self.hovered_row;
+        let labels = self.options.data_labels;
+        let fg = colors.fg;
 
         let resp = ui
             .scope(|ui| {
@@ -313,6 +315,19 @@ impl ChartTab {
                 if self.options.legend {
                     plot = plot.legend(Legend::default());
                 }
+                // Axis titles from the chosen columns (swapped for H-Bar).
+                let x_name = self.columns.get(self.x_col).cloned().unwrap_or_default();
+                let y_name = self
+                    .y_cols
+                    .first()
+                    .and_then(|&c| self.columns.get(c))
+                    .cloned()
+                    .unwrap_or_default();
+                if matches!(self.chart_type, ChartType::HBar) {
+                    plot = plot.x_axis_label(y_name).y_axis_label(x_name);
+                } else {
+                    plot = plot.x_axis_label(x_name).y_axis_label(y_name);
+                }
                 // Map categorical ticks back to their string labels.
                 if categorical && !matches!(self.chart_type, ChartType::HBar) {
                     let labels: Vec<String> =
@@ -326,11 +341,13 @@ impl ChartTab {
                 }
 
                 plot.show(ui, |plot_ui| match self.chart_type {
-                    ChartType::Line | ChartType::Area => self.plot_lines(plot_ui, &palette),
-                    ChartType::Scatter => self.plot_scatter(plot_ui, &palette, hov, colors.fg),
-                    ChartType::Histogram => self.plot_histogram(plot_ui, &palette),
-                    ChartType::HBar => self.plot_bars(plot_ui, &palette, true, hov, colors.fg),
-                    _ => self.plot_bars(plot_ui, &palette, false, hov, colors.fg),
+                    ChartType::Line | ChartType::Area => {
+                        self.plot_lines(plot_ui, &palette, labels, fg)
+                    }
+                    ChartType::Scatter => self.plot_scatter(plot_ui, &palette, hov, fg, labels),
+                    ChartType::Histogram => self.plot_histogram(plot_ui, &palette, labels, fg),
+                    ChartType::HBar => self.plot_bars(plot_ui, &palette, true, hov, fg, labels),
+                    _ => self.plot_bars(plot_ui, &palette, false, hov, fg, labels),
                 })
             })
             .inner;
@@ -416,7 +433,13 @@ impl ChartTab {
             });
     }
 
-    fn plot_lines(&self, plot_ui: &mut egui_plot::PlotUi, palette: &[Color32; 8]) {
+    fn plot_lines(
+        &self,
+        plot_ui: &mut egui_plot::PlotUi,
+        palette: &[Color32; 8],
+        labels: bool,
+        fg: Color32,
+    ) {
         let area = matches!(self.chart_type, ChartType::Area);
         for (si, &col) in self.y_cols.iter().enumerate() {
             let pts: Vec<[f64; 2]> = (0..self.rows.len())
@@ -426,13 +449,18 @@ impl ChartTab {
                 continue;
             }
             let color = palette[si % palette.len()];
-            let mut line = Line::new(self.columns[col].clone(), PlotPoints::from(pts))
+            let mut line = Line::new(self.columns[col].clone(), PlotPoints::from(pts.clone()))
                 .color(color)
                 .width(2.0);
             if area {
                 line = line.fill(0.0).fill_alpha(0.18);
             }
             plot_ui.line(line);
+            if labels {
+                for p in &pts {
+                    data_label(plot_ui, p[0], p[1], p[1], fg);
+                }
+            }
         }
     }
 
@@ -442,6 +470,7 @@ impl ChartTab {
         palette: &[Color32; 8],
         hovered: Option<usize>,
         fg: Color32,
+        labels: bool,
     ) {
         for (si, &col) in self.y_cols.iter().enumerate() {
             let pts: Vec<[f64; 2]> = (0..self.rows.len())
@@ -455,11 +484,16 @@ impl ChartTab {
                 continue;
             }
             plot_ui.points(
-                Points::new(self.columns[col].clone(), PlotPoints::from(pts))
+                Points::new(self.columns[col].clone(), PlotPoints::from(pts.clone()))
                     .color(palette[si % palette.len()])
                     .radius(3.0)
                     .filled(true),
             );
+            if labels {
+                for p in &pts {
+                    data_label(plot_ui, p[0], p[1], p[1], fg);
+                }
+            }
             // Emphasise the hovered point.
             if let Some(r) = hovered
                 && let (Some(y), x) = (
@@ -478,6 +512,7 @@ impl ChartTab {
     }
 
     #[allow(clippy::needless_range_loop)] // r indexes both self.rows (via val) and stack_base
+    #[allow(clippy::too_many_arguments)]
     fn plot_bars(
         &self,
         plot_ui: &mut egui_plot::PlotUi,
@@ -485,6 +520,7 @@ impl ChartTab {
         horizontal: bool,
         hovered: Option<usize>,
         fg: Color32,
+        labels: bool,
     ) {
         let n = self.y_cols.len().max(1);
         let group_w = 0.82;
@@ -520,6 +556,14 @@ impl ChartTab {
                     bar = bar.horizontal();
                 }
                 bars.push(bar);
+                if labels {
+                    let end = base + v;
+                    if horizontal {
+                        data_label(plot_ui, end, arg, v, fg);
+                    } else {
+                        data_label(plot_ui, arg, end, v, fg);
+                    }
+                }
                 if self.options.stacked {
                     stack_base[r] += v;
                 }
@@ -528,7 +572,13 @@ impl ChartTab {
         }
     }
 
-    fn plot_histogram(&self, plot_ui: &mut egui_plot::PlotUi, palette: &[Color32; 8]) {
+    fn plot_histogram(
+        &self,
+        plot_ui: &mut egui_plot::PlotUi,
+        palette: &[Color32; 8],
+        labels: bool,
+        fg: Color32,
+    ) {
         let col = *self.y_cols.first().unwrap_or(&0);
         let vals: Vec<f64> = (0..self.rows.len())
             .filter_map(|r| self.val(r, col))
@@ -561,6 +611,13 @@ impl ChartTab {
                     .fill(palette[0])
             })
             .collect();
+        if labels {
+            for (i, &c) in counts.iter().enumerate() {
+                if c > 0.0 {
+                    data_label(plot_ui, min + step * (i as f64 + 0.5), c, c, fg);
+                }
+            }
+        }
         plot_ui.bar_chart(
             BarChart::new(format!("{} (count)", self.columns[col]), bars).color(palette[0]),
         );
@@ -975,6 +1032,15 @@ fn angle_diff(a: f32, b: f32) -> f32 {
 /// Brighten a series colour toward the foreground for hover emphasis.
 fn lighten(c: Color32, fg: Color32) -> Color32 {
     lerp_color(c, fg, 0.4)
+}
+
+/// Draw a small numeric data label at plot position `(x, y)` for `value`.
+fn data_label(plot_ui: &mut egui_plot::PlotUi, x: f64, y: f64, value: f64, fg: Color32) {
+    plot_ui.text(
+        Text::new("", PlotPoint::new(x, y), fmt_num(value))
+            .color(fg)
+            .anchor(egui::Align2::CENTER_BOTTOM),
+    );
 }
 
 fn with_alpha(c: Color32, a: f32) -> Color32 {

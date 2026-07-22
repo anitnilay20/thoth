@@ -465,8 +465,9 @@ impl ChartStudio {
             ("Show gridlines", self.options.grid),
             ("Smooth curves", self.options.smooth),
             ("Stacked", self.options.stacked),
+            ("Data labels", self.options.data_labels),
         ];
-        let mut toggled = [false; 4];
+        let mut toggled = [false; 5];
         for (i, (label, enabled)) in rows.iter().enumerate() {
             ui.horizontal(|ui| {
                 if ui
@@ -495,6 +496,9 @@ impl ChartStudio {
         }
         if toggled[3] {
             self.options.stacked = !self.options.stacked;
+        }
+        if toggled[4] {
+            self.options.data_labels = !self.options.data_labels;
         }
     }
 

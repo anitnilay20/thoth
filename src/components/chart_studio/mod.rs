@@ -114,8 +114,6 @@ pub struct ChartOptions {
     pub stacked: bool,
     /// Draw the numeric value on each bar / point.
     pub data_labels: bool,
-    /// Use a log-scaled Y axis (cartesian types).
-    pub log_y: bool,
 }
 
 impl Default for ChartOptions {
@@ -126,7 +124,6 @@ impl Default for ChartOptions {
             smooth: false,
             stacked: false,
             data_labels: false,
-            log_y: false,
         }
     }
 }
