@@ -31,6 +31,9 @@ pub struct ChartTab {
     /// The producer tab this chart was built from (for Refresh / Edit).
     source_tab: TabId,
     source_label: String,
+    /// Fit the cartesian plot to the data on the next frame (set on create and
+    /// after a data refresh); cleared once fitted so the user can pan/zoom.
+    needs_fit: bool,
 }
 
 impl ChartTab {
@@ -54,6 +57,7 @@ impl ChartTab {
             options: spec.options,
             source_tab: spec.source_tab,
             source_label: spec.source_label.clone(),
+            needs_fit: true,
         };
         tab.rebuild_subtitle();
         tab
@@ -101,6 +105,7 @@ impl ChartTab {
         }
         self.columns = columns;
         self.rows = rows;
+        self.needs_fit = true;
         self.rebuild_subtitle();
     }
 
@@ -237,28 +242,29 @@ impl ChartTab {
 
     // ── cartesian (egui_plot) ────────────────────────────────────────────────
 
-    fn render_plot(&self, ui: &mut egui::Ui, colors: &ThemeColors) {
+    fn render_plot(&mut self, ui: &mut egui::Ui, colors: &ThemeColors) {
         let palette = series_palette(colors);
         let categorical = !matches!(self.chart_type, ChartType::Scatter);
+        // Fit once (on create / refresh / edit); afterwards the user pans/zooms.
+        let fit = std::mem::take(&mut self.needs_fit);
 
-        // Subtle, theme-matched grid lines (egui_plot draws the grid with the
-        // noninteractive `bg_stroke`, which defaults to a harsh near-white).
         let resp = ui
             .scope(|ui| {
-                ui.visuals_mut().widgets.noninteractive.bg_stroke =
-                    Stroke::new(1.0, with_alpha(colors.surface_raised, 0.55));
+                // egui_plot derives grid-line + tick colours from the text
+                // colour; muting it gives faint, theme-matched gridlines.
+                ui.visuals_mut().override_text_color = Some(colors.fg_muted);
 
                 let mut plot = Plot::new("chart_plot")
                     .show_grid(self.options.grid)
-                    // Static display chart: always fit the data to the frame,
-                    // with X and Y scaled independently (no locked aspect, no
-                    // stale zoom/pan).
-                    .auto_bounds(egui::Vec2b::TRUE)
-                    .set_margin_fraction(egui::vec2(0.04, 0.08))
-                    .allow_scroll(false)
-                    .allow_drag(false)
-                    .allow_zoom(false)
-                    .allow_boxed_zoom(false);
+                    // Our Frame already draws the surface + border, so skip
+                    // egui_plot's background rect (and its harsh border line).
+                    .show_background(false)
+                    // X and Y scale independently; the user can pan/zoom.
+                    .set_margin_fraction(egui::vec2(0.04, 0.08));
+                if fit {
+                    // Fit the data to the frame this frame only.
+                    plot = plot.auto_bounds(egui::Vec2b::TRUE);
+                }
                 if self.options.legend {
                     plot = plot.legend(Legend::default());
                 }
