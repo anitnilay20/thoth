@@ -447,17 +447,55 @@ impl ChartTab {
                     plot = plot.y_axis_formatter(move |mark, _| tick_label(&labels, mark.value));
                 }
 
+                // Bar-family charts return their geometry so we can paint
+                // rounded bars over the (transparent) egui_plot bars below.
                 plot.show(ui, |plot_ui| match self.chart_type {
                     ChartType::Line | ChartType::Area => {
-                        self.plot_lines(plot_ui, &palette, labels, fg)
+                        self.plot_lines(plot_ui, &palette, labels, fg);
+                        Vec::new()
                     }
-                    ChartType::Scatter => self.plot_scatter(plot_ui, &palette, hov, fg, labels),
-                    ChartType::Histogram => self.plot_histogram(plot_ui, &palette, labels, fg),
-                    ChartType::HBar => self.plot_bars(plot_ui, &palette, true, hov, fg, labels),
-                    _ => self.plot_bars(plot_ui, &palette, false, hov, fg, labels),
+                    ChartType::Scatter => {
+                        self.plot_scatter(plot_ui, &palette, hov, fg, labels);
+                        Vec::new()
+                    }
+                    ChartType::Histogram => self.histogram_bars(plot_ui, &palette),
+                    ChartType::HBar => self.value_bars(plot_ui, &palette, true, hov, fg),
+                    _ => self.value_bars(plot_ui, &palette, false, hov, fg),
                 })
             })
             .inner;
+
+        // Paint rounded bars (egui_plot's Bar can't round corners) + labels,
+        // clipped to the plot frame, using the plot transform.
+        let bars = resp.inner;
+        if !bars.is_empty() {
+            let horizontal = matches!(self.chart_type, ChartType::HBar);
+            let painter = ui.painter().with_clip_rect(*resp.transform.frame());
+            for b in &bars {
+                let tl = resp
+                    .transform
+                    .position_from_point(&PlotPoint::new(b.lo[0], b.hi[1]));
+                let br = resp
+                    .transform
+                    .position_from_point(&PlotPoint::new(b.hi[0], b.lo[1]));
+                let rect = Rect::from_two_pos(tl, br);
+                let radius = (rect.width().min(rect.height()) * 0.3).min(4.0);
+                painter.rect_filled(rect, radius, b.color);
+            }
+            if labels {
+                for b in &bars {
+                    let at = resp
+                        .transform
+                        .position_from_point(&PlotPoint::new(b.at[0], b.at[1]));
+                    let (anchor, at) = if horizontal {
+                        (egui::Align2::LEFT_CENTER, at + egui::vec2(3.0, 0.0))
+                    } else {
+                        (egui::Align2::CENTER_BOTTOM, at - egui::vec2(0.0, 2.0))
+                    };
+                    painter.text(at, anchor, fmt_num(b.value), FontId::proportional(10.0), fg);
+                }
+            }
+        }
 
         // Hover: highlight + show the full data row for the point/bar under the
         // cursor (remembered for next frame's highlight).
@@ -620,25 +658,27 @@ impl ChartTab {
         }
     }
 
+    /// Build the value bars (bar / h-bar). Adds transparent egui_plot bars so
+    /// the axes/grid/bounds are correct, and returns rounded-rect geometry to
+    /// paint over them.
     #[allow(clippy::needless_range_loop)] // r indexes both self.rows (via val) and stack_base
-    #[allow(clippy::too_many_arguments)]
-    fn plot_bars(
+    fn value_bars(
         &self,
         plot_ui: &mut egui_plot::PlotUi,
         palette: &[Color32; 8],
         horizontal: bool,
         hovered: Option<usize>,
         fg: Color32,
-        labels: bool,
-    ) {
+    ) -> Vec<BarRect> {
         let n = self.y_cols.len().max(1);
         let group_w = 0.82;
         let bar_w = group_w / n as f64;
+        let mut geo = Vec::new();
         // Stacking accumulates a base offset per row *across* series.
         let mut stack_base = vec![0.0_f64; self.rows.len()];
         for (si, &col) in self.y_cols.iter().enumerate() {
             let color = palette[si % palette.len()];
-            let mut bars = Vec::new();
+            let mut bounds = Vec::new();
             for r in 0..self.rows.len() {
                 let Some(v) = self.val(r, col) else { continue };
                 let (arg, width, base) = if self.options.stacked {
@@ -650,50 +690,64 @@ impl ChartTab {
                         0.0,
                     )
                 };
-                // Brighten the hovered category's bars.
-                let fill = if hovered == Some(r) {
-                    lighten(color, fg)
-                } else {
-                    color
-                };
+                let end = base + v;
+                // Transparent bar drives egui_plot's bounds only.
                 let mut bar = Bar::new(arg, v)
-                    .name(&self.columns[col])
-                    .fill(fill)
+                    .fill(Color32::TRANSPARENT)
+                    .stroke(Stroke::NONE)
                     .width(width)
                     .base_offset(base);
                 if horizontal {
                     bar = bar.horizontal();
                 }
-                bars.push(bar);
-                if labels {
-                    let end = base + v;
-                    if horizontal {
-                        data_label(plot_ui, end, arg, v, fg);
-                    } else {
-                        data_label(plot_ui, arg, end, v, fg);
-                    }
-                }
+                bounds.push(bar);
+                let fill = if hovered == Some(r) {
+                    lighten(color, fg)
+                } else {
+                    color
+                };
+                let (lo, hi, at) = if horizontal {
+                    (
+                        [base, arg - width / 2.0],
+                        [end, arg + width / 2.0],
+                        [end, arg],
+                    )
+                } else {
+                    (
+                        [arg - width / 2.0, base],
+                        [arg + width / 2.0, end],
+                        [arg, end],
+                    )
+                };
+                geo.push(BarRect {
+                    lo,
+                    hi,
+                    at,
+                    color: fill,
+                    value: v,
+                });
                 if self.options.stacked {
                     stack_base[r] += v;
                 }
             }
-            plot_ui.bar_chart(BarChart::new(self.columns[col].clone(), bars).color(color));
+            plot_ui.bar_chart(BarChart::new(self.columns[col].clone(), bounds));
         }
+        geo
     }
 
-    fn plot_histogram(
+    /// Build histogram bars (bin a single numeric column). Same transparent-
+    /// bounds + rounded-geometry approach as [`value_bars`].
+    fn histogram_bars(
         &self,
         plot_ui: &mut egui_plot::PlotUi,
         palette: &[Color32; 8],
-        labels: bool,
-        fg: Color32,
-    ) {
+    ) -> Vec<BarRect> {
         let col = *self.y_cols.first().unwrap_or(&0);
         let vals: Vec<f64> = (0..self.rows.len())
             .filter_map(|r| self.val(r, col))
             .collect();
         if vals.is_empty() {
-            return;
+            return Vec::new();
         }
         let min = vals.iter().cloned().fold(f64::INFINITY, f64::min);
         let max = vals.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
@@ -711,25 +765,37 @@ impl ChartTab {
             }
             counts[b] += 1.0;
         }
-        let bars: Vec<Bar> = counts
+        let bounds: Vec<Bar> = counts
             .iter()
             .enumerate()
             .map(|(i, &c)| {
                 Bar::new(min + step * (i as f64 + 0.5), c)
                     .width(step * 0.94)
-                    .fill(palette[0])
+                    .fill(Color32::TRANSPARENT)
+                    .stroke(Stroke::NONE)
             })
             .collect();
-        if labels {
-            for (i, &c) in counts.iter().enumerate() {
-                if c > 0.0 {
-                    data_label(plot_ui, min + step * (i as f64 + 0.5), c, c, fg);
+        plot_ui.bar_chart(BarChart::new(
+            format!("{} (count)", self.columns[col]),
+            bounds,
+        ));
+        let w = step * 0.94;
+        counts
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|&(_, c)| c > 0.0)
+            .map(|(i, c)| {
+                let center = min + step * (i as f64 + 0.5);
+                BarRect {
+                    lo: [center - w / 2.0, 0.0],
+                    hi: [center + w / 2.0, c],
+                    at: [center, c],
+                    color: palette[0],
+                    value: c,
                 }
-            }
-        }
-        plot_ui.bar_chart(
-            BarChart::new(format!("{} (count)", self.columns[col]), bars).color(palette[0]),
-        );
+            })
+            .collect()
     }
 
     // ── radial + heatmap (custom painter) ─────────────────────────────────────
@@ -1136,6 +1202,18 @@ fn angle_diff(a: f32, b: f32) -> f32 {
         d = TAU - d;
     }
     d
+}
+
+/// A bar to paint as a rounded rectangle, in plot coordinates.
+struct BarRect {
+    /// Lower corner `[x, y]` (min of both axes).
+    lo: [f64; 2],
+    /// Upper corner `[x, y]` (max of both axes).
+    hi: [f64; 2],
+    /// Where the data label anchors (bar end, centred on the category axis).
+    at: [f64; 2],
+    color: Color32,
+    value: f64,
 }
 
 /// Serializable snapshot of a chart for session persistence.
