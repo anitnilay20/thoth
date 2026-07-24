@@ -57,11 +57,11 @@ impl ChartTab {
     pub fn from_spec(
         spec: &ChartSpec,
         columns: Vec<String>,
-        mut rows: Vec<Vec<String>>,
+        rows: Vec<Vec<String>>,
         index: usize,
     ) -> Self {
-        rows.truncate(ROW_CAP);
-        let shaped = transform::shape(
+        // Aggregate over ALL source rows, then cap only the rendered snapshot.
+        let mut shaped = transform::shape(
             &columns,
             &rows,
             spec.x_col,
@@ -70,6 +70,7 @@ impl ChartTab {
             spec.top_n,
             spec.sort,
         );
+        shaped.rows.truncate(ROW_CAP);
         let mut tab = Self {
             tab_title: format!("{} {index}", spec.chart_type.label()),
             subtitle: String::new(),
@@ -177,14 +178,14 @@ impl ChartTab {
 
     /// Replace the data snapshot (Refresh): re-shape the fresh source rows with
     /// the same spec (clamping source indices to the new column count).
-    pub fn update_data(&mut self, columns: Vec<String>, mut rows: Vec<Vec<String>>) {
-        rows.truncate(ROW_CAP);
+    pub fn update_data(&mut self, columns: Vec<String>, rows: Vec<Vec<String>>) {
         let max_col = columns.len().saturating_sub(1);
         self.src_x_col = self.src_x_col.min(max_col);
         for c in &mut self.src_y_cols {
             *c = (*c).min(max_col);
         }
-        let shaped = transform::shape(
+        // Aggregate over ALL source rows, then cap only the rendered snapshot.
+        let mut shaped = transform::shape(
             &columns,
             &rows,
             self.src_x_col,
@@ -193,6 +194,7 @@ impl ChartTab {
             self.top_n,
             self.sort,
         );
+        shaped.rows.truncate(ROW_CAP);
         self.columns = shaped.columns;
         self.rows = shaped.rows;
         self.x_col = shaped.x_col;
@@ -431,7 +433,10 @@ impl ChartTab {
                     plot = plot.x_axis_label(x_name).y_axis_label(y_name);
                 }
                 // Map categorical ticks back to their string labels.
-                if categorical && !matches!(self.chart_type, ChartType::HBar) {
+                // Histogram bars sit at numeric bin centres, not row indices,
+                // so it keeps the default numeric tick labels.
+                if categorical && !matches!(self.chart_type, ChartType::HBar | ChartType::Histogram)
+                {
                     let labels: Vec<String> =
                         (0..self.rows.len()).map(|r| self.x_label(r)).collect();
                     plot = plot.x_axis_formatter(move |mark, _| tick_label(&labels, mark.value));

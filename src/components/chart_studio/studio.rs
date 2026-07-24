@@ -86,11 +86,14 @@ impl ChartStudio {
     pub fn edit(&mut self, spec: ChartSpec, columns: Vec<ColumnInfo>) {
         self.selected = Some(spec.source_tab);
         self.chart_type = spec.chart_type;
-        self.x_col = spec.x_col;
+        // Clamp indices to the freshly-resolved schema — the source may have
+        // fewer columns now than when the chart was created.
+        let max_col = columns.len().saturating_sub(1);
+        self.x_col = spec.x_col.min(max_col);
         self.y_cols = if spec.y_cols.is_empty() {
             vec![0]
         } else {
-            spec.y_cols
+            spec.y_cols.into_iter().map(|c| c.min(max_col)).collect()
         };
         self.options = spec.options;
         self.aggregation = spec.aggregation;
@@ -292,6 +295,12 @@ impl ChartStudio {
         }
 
         ui.add_space(6.0);
+        // Heatmap plots every numeric column and ignores the Y selection, so
+        // don't offer a (no-op) Y picker for it.
+        if self.chart_type == ChartType::Heatmap {
+            Self::field_label(ui, "Plots all numeric columns");
+            return;
+        }
         let y_label = if self.chart_type.single_series() {
             "Value"
         } else {
