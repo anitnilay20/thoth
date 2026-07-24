@@ -3,7 +3,7 @@ name         = "Seshat"
 version      = "0.1.0"
 description  = "Database client — connect, browse schemas, run SQL (Postgres, MySQL)"
 author       = "Thoth contributors"
-capabilities = ["data-source", "new-ui-component"]
+capabilities = ["data-source", "new-ui-component", "data-producer"]
 icon         = ""    # egui_phosphor::regular::DATABASE
 
 [data-source]

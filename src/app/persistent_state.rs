@@ -25,6 +25,11 @@ pub enum PersistedTabKind {
         #[serde(default)]
         state: Option<String>,
     },
+    /// A Chart Studio chart, stored as an opaque JSON snapshot (columns + rows
+    /// + spec) so it re-renders without needing its original data source.
+    Chart {
+        state: String,
+    },
 }
 
 /// A tab entry that can be restored on the next launch.

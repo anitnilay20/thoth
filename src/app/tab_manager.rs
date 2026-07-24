@@ -30,6 +30,9 @@ pub struct TabState {
     pub active_plugin_pane: Option<ActivePluginPane>,
     pub plugin_sidebar_output: Option<UiOutput>,
     pub central_panel: CentralPanel,
+    /// When `Some`, this is a Chart Studio tab that paints a chart directly
+    /// (no file or plugin pane).
+    pub chart: Option<crate::components::chart_studio::ChartTab>,
 }
 
 impl TabState {
@@ -46,10 +49,18 @@ impl TabState {
             active_plugin_pane: None,
             plugin_sidebar_output: None,
             central_panel: CentralPanel::default(),
+            chart: None,
         }
     }
 
     pub fn title(&self) -> String {
+        if let Some(chart) = &self.chart {
+            return format!(
+                "{}  {}",
+                egui_phosphor::regular::CHART_LINE,
+                chart.tab_title()
+            );
+        }
         if let Some(pane) = &self.active_plugin_pane {
             let title = pane
                 .cached_tab_title
@@ -69,7 +80,7 @@ impl TabState {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.file_path.is_none() && self.active_plugin_pane.is_none()
+        self.file_path.is_none() && self.active_plugin_pane.is_none() && self.chart.is_none()
     }
 }
 
@@ -106,6 +117,11 @@ pub enum TabEvent {
     TabClosed(TabId),
     OpenFilePicker,
     OpenRecentFile(std::path::PathBuf),
+    /// A toolbar action from a chart tab (Edit / Refresh).
+    ChartAction {
+        tab_id: TabId,
+        action: crate::components::chart_studio::ChartTabAction,
+    },
 }
 
 /// Implements egui_dock::TabViewer. Holds mutable refs to tabs and settings so each
@@ -156,6 +172,25 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         let Some(tab) = self.tabs.get_mut(tab_id) else {
             return;
         };
+
+        // Chart Studio tabs paint a chart directly — no file/plugin central panel.
+        if let Some(chart) = tab.chart.as_mut() {
+            let colors = self.colors.unwrap_or_default();
+            // Fill the whole leaf with the app background (egui_dock doesn't
+            // clear it, and there's no central panel here to provide a fill).
+            ui.painter().rect_filled(ui.max_rect(), 0.0, colors.bg);
+            let action = egui::Frame::new()
+                .inner_margin(egui::Margin::symmetric(16, 8))
+                .show(ui, |ui| chart.render(ui, &colors))
+                .inner;
+            if let Some(action) = action {
+                self.events.push(TabEvent::ChartAction {
+                    tab_id: *tab_id,
+                    action,
+                });
+            }
+            return;
+        }
 
         let previous_path = tab.central_panel.get_selected_path().cloned();
 
@@ -371,6 +406,15 @@ impl TabManager {
         }
         self.tabs.remove(&id);
         was_empty
+    }
+
+    /// Make the tab with `id` the active, focused tab (if it exists).
+    pub fn focus_tab(&mut self, id: TabId) {
+        if let Some(path) = self.dock_state.find_tab(&id) {
+            let _ = self.dock_state.set_active_tab(path);
+            self.dock_state
+                .set_focused_node_and_surface(path.node_path());
+        }
     }
 
     /// Open a new empty tab and return its id.

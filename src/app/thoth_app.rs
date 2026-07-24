@@ -39,8 +39,19 @@ pub struct ThothApp {
     last_active_plugin_tab: Option<crate::app::tab_manager::TabId>,
     /// The plugin whose sidebar is currently mounted (independent of any tab).
     sidebar_plugin: Option<SidebarPluginRuntime>,
-    /// Built-in chart view — consumes the dataset bus (#113/#133).
-    chart: components::chart_window::ChartWindow,
+    /// Per-session counter for chart-tab titles ("Bar 1", "Line 2", …).
+    chart_counter: usize,
+    /// Cached resolution of the Chart Studio's selected source
+    /// `(tab id, column names, string rows)`, reused between column-preview and
+    /// Generate to avoid re-fetching.
+    chart_source: Option<(
+        crate::app::tab_manager::TabId,
+        Vec<String>,
+        Vec<Vec<String>>,
+    )>,
+    /// Pending chart PNG export: `(chart rect in points, screenshot requested?)`
+    /// — drives the two-frame screenshot → crop → save flow.
+    chart_export: Option<(egui::Rect, bool)>,
 }
 
 /// Build the synthetic `http-response` UiEvent delivered to a plugin when an
@@ -195,7 +206,9 @@ impl ThothApp {
             session_restore_active_index,
             last_active_plugin_tab: None,
             sidebar_plugin: None,
-            chart: components::chart_window::ChartWindow::default(),
+            chart_counter: 0,
+            chart_source: None,
+            chart_export: None,
         }
     }
 
@@ -465,8 +478,8 @@ impl App for ThothApp {
         }
 
         self.render_error_modal(&ctx);
-        self.render_chart_window(&ctx);
         self.render_update_consent_modal(ui);
+        self.poll_chart_export(&ctx);
 
         if let Some(new_settings) = settings::Settings::take_if_dirty(&ctx) {
             self.apply_new_settings(new_settings);
@@ -1278,6 +1291,20 @@ impl ThothApp {
                         tab_manager.open_file(p, nav_capacity);
                     }
                 }
+                PersistedTabKind::Chart { state } => {
+                    if let Some(chart) =
+                        crate::components::chart_studio::ChartTab::from_persisted_json(state)
+                    {
+                        let id = if tab_manager.active_tab_mut().is_some_and(|t| t.is_empty()) {
+                            tab_manager.active_tab_id().unwrap()
+                        } else {
+                            tab_manager.open_new_tab(nav_capacity)
+                        };
+                        if let Some(t) = tab_manager.tabs.get_mut(&id) {
+                            t.chart = Some(chart);
+                        }
+                    }
+                }
                 PersistedTabKind::Plugin { plugin_id, state } => {
                     // PLUGIN_MANAGER is set by a background thread; it may not be ready yet.
                     match PLUGIN_MANAGER.get() {
@@ -1394,12 +1421,19 @@ impl ThothApp {
             .filter_map(|id| {
                 let tab = self.window_state.tab_manager.tabs.get(&id)?;
                 let entry = tab
-                    .file_path
+                    .chart
                     .as_ref()
-                    .map(|path| PersistedTab {
-                        kind: PersistedTabKind::File {
-                            path: path.to_string_lossy().into_owned(),
+                    .map(|chart| PersistedTab {
+                        kind: PersistedTabKind::Chart {
+                            state: chart.to_persisted_json(),
                         },
+                    })
+                    .or_else(|| {
+                        tab.file_path.as_ref().map(|path| PersistedTab {
+                            kind: PersistedTabKind::File {
+                                path: path.to_string_lossy().into_owned(),
+                            },
+                        })
                     })
                     .or_else(|| {
                         tab.active_plugin_pane.as_ref().map(|pane| PersistedTab {
@@ -1522,6 +1556,11 @@ impl ThothApp {
             components::status_bar::StatusBarStatus::Ready
         };
 
+        let active_id = self.window_state.tab_manager.active_tab_id();
+        let chart_summary: Option<String> = active_id
+            .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
+            .and_then(|t| t.chart.as_ref().map(|c| c.status_summary()));
+
         let status_bar_output = self.window_state.status_bar.render(
             ui,
             components::status_bar::StatusBarProps {
@@ -1534,6 +1573,7 @@ impl ThothApp {
                 active_plugin: active_plugin_id
                     .as_ref()
                     .map(|(p, i)| (p.as_str(), i.as_str())),
+                chart_summary: chart_summary.as_deref(),
             },
         );
 
@@ -1679,6 +1719,14 @@ impl ThothApp {
             TabEvent::OpenRecentFile(path) => {
                 self.window_state.tab_manager.open_file(path, nav_capacity);
             }
+            TabEvent::ChartAction { tab_id, action } => {
+                use crate::components::chart_studio::ChartTabAction;
+                match action {
+                    ChartTabAction::Edit => self.chart_edit(tab_id),
+                    ChartTabAction::Refresh => self.chart_refresh(tab_id),
+                    ChartTabAction::ExportPng(rect) => self.chart_export = Some((rect, false)),
+                }
+            }
         }
     }
 
@@ -1758,6 +1806,18 @@ impl ThothApp {
             .and_then(|path_str| {
                 super::persistent_state::PersistentState::load_search_history(path_str).ok()
             });
+
+        // Feed the Chart Studio its live source list + open-chart list.
+        let producers = self.gather_producers();
+        self.window_state.sidebar.set_chart_producers(producers);
+        let open_charts: Vec<(crate::app::tab_manager::TabId, String)> = self
+            .window_state
+            .tab_manager
+            .tabs
+            .iter()
+            .filter_map(|(id, t)| t.chart.as_ref().map(|c| (*id, c.tab_title())))
+            .collect();
+        self.window_state.sidebar.set_chart_open(open_charts);
 
         let output = self.window_state.sidebar.render(
             ui,
@@ -1965,9 +2025,14 @@ impl ThothApp {
                 components::sidebar::SidebarEvent::OpenSettings => {
                     self.settings_dialog.open(&self.settings);
                 }
-                components::sidebar::SidebarEvent::NewChart => {
-                    let producers = self.gather_producers();
-                    self.chart.open_picker(producers);
+                components::sidebar::SidebarEvent::ChartSelectSource(tab_id) => {
+                    self.chart_select_source(tab_id);
+                }
+                components::sidebar::SidebarEvent::ChartGenerate(spec) => {
+                    self.chart_generate(spec);
+                }
+                components::sidebar::SidebarEvent::ChartFocus(tab_id) => {
+                    self.focus_tab(tab_id);
                 }
             }
         }
@@ -1975,151 +2040,231 @@ impl ThothApp {
         None
     }
 
-    /// Open tabs that can produce a dataset (currently: plugin panes exporting
-    /// the `data-producer` capability). Returns `(tab id, display label)`.
-    fn gather_producers(&self) -> Vec<(crate::app::tab_manager::TabId, String)> {
+    /// Open tabs eligible to provide a dataset for the picker: plugin panes
+    /// whose manifest declares the `data-producer` capability (and whose loader
+    /// supports the call), plus every open file tab (core JSON/NDJSON and
+    /// file-loader plugins are producers by default).
+    fn gather_producers(&self) -> Vec<crate::components::chart_studio::ProducerRef> {
+        use crate::components::chart_studio::{ProducerKind, ProducerRef};
         self.window_state
             .tab_manager
             .tabs
             .iter()
             .filter_map(|(id, tab)| {
-                // Plugin producer tabs (export data-producer).
+                // Plugin producer tabs: must declare the capability in their
+                // manifest AND export a working provide-dataset.
                 if let Some(pane) = tab.active_plugin_pane.as_ref() {
-                    if !pane.loader.is_data_producer() {
+                    if !pane.loader.is_data_producer()
+                        || !self.plugin_declares_producer(&pane.plugin_id)
+                    {
                         return None;
                     }
                     let label = pane
                         .cached_tab_title
                         .clone()
                         .unwrap_or_else(|| pane.plugin_id.clone());
-                    return Some((*id, label));
+                    return Some(ProducerRef {
+                        tab_id: *id,
+                        label,
+                        kind: ProducerKind::Plugin,
+                    });
                 }
                 // Core producer: any open file tab. This includes files loaded
                 // by a file-loader plugin (csv-loader, …), because the tab's
-                // live loader exposes records uniformly — so every file-loader
-                // plugin is a producer by default.
+                // live loader exposes records uniformly.
                 if let Some(path) = tab.file_path.as_ref() {
                     let label = path
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("file")
                         .to_string();
-                    return Some((*id, label));
+                    return Some(ProducerRef {
+                        tab_id: *id,
+                        label,
+                        kind: ProducerKind::File,
+                    });
                 }
                 None
             })
             .collect()
     }
 
-    /// Route a dataset request to the chosen producer tab: call its
-    /// `provide-dataset`, store the single copy in the registry, and bind the
-    /// handle to the chart view.
-    fn chart_fetch_from(&mut self, tab_id: crate::app::tab_manager::TabId) {
-        let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) else {
-            return;
-        };
+    /// Whether the plugin with `plugin_id` declares the `data-producer`
+    /// capability in its manifest.
+    fn plugin_declares_producer(&self, plugin_id: &str) -> bool {
+        matches!(PLUGIN_MANAGER.get(), Some(Some(pm))
+            if pm
+                .get_plugin_by_id(plugin_id)
+                .is_some_and(|p| p.capabilities.contains(&crate::plugin::Capability::DataProducer)))
+    }
 
-        // Core producer: an open file tab (host-native or loaded by a
-        // file-loader plugin). Read records straight from the tab's live
-        // loader so CSV and every other file-loader format works uniformly.
+    /// Resolve a producer tab's data directly (no registry): file tabs read
+    /// their live loader, plugin panes call `provide-dataset`. Returns
+    /// `(display name, columns [(name, type-hint)], string rows)`.
+    fn resolve_dataset(
+        &mut self,
+        tab_id: crate::app::tab_manager::TabId,
+    ) -> Option<ResolvedDataset> {
+        let tab = self.window_state.tab_manager.tabs.get_mut(&tab_id)?;
         if tab.active_plugin_pane.is_none() {
-            let Some(path) = tab.file_path.clone() else {
-                return;
-            };
+            let path = tab.file_path.clone()?;
             let name = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("file")
                 .to_string();
-            match tab.central_panel.to_dataset() {
-                Some((cols, rows)) => {
-                    let columns: Vec<crate::plugin::datasets::DatasetColumn> = cols
-                        .into_iter()
-                        .map(|(name, type_hint)| crate::plugin::datasets::DatasetColumn {
-                            name,
-                            type_hint,
-                        })
-                        .collect();
-                    let col_count = columns.len();
-                    let handle = crate::plugin::datasets::publish(
-                        "com.thoth.core",
-                        &format!("core#{tab_id}"),
-                        name.clone(),
-                        "file".to_string(),
-                        Vec::new(),
-                        columns,
-                        rows,
-                    );
-                    self.chart.set_dataset(handle, name, col_count);
-                }
-                None => {
-                    crate::notification::NotificationManager::notify_error(
-                        crate::notification::Notification::new(
-                            "Dataset unavailable",
-                            "Could not read this file as a table.",
-                        ),
-                    );
-                }
-            }
-            return;
+            let (cols, rows) = tab.central_panel.to_dataset()?;
+            return Some((name, cols, rows));
         }
-
-        let Some(pane) = tab.active_plugin_pane.as_ref() else {
-            return;
-        };
+        let pane = tab.active_plugin_pane.as_ref()?;
         match pane.loader.provide_dataset() {
-            Ok(ds) => {
-                let cols: Vec<crate::plugin::datasets::DatasetColumn> = ds
-                    .columns
-                    .into_iter()
-                    .map(|(name, type_hint)| crate::plugin::datasets::DatasetColumn {
-                        name,
-                        type_hint,
-                    })
-                    .collect();
-                let col_count = cols.len();
-                let handle = crate::plugin::datasets::publish(
-                    &pane.plugin_id,
-                    pane.loader.instance_id(),
-                    ds.name.clone(),
-                    ds.kind,
-                    Vec::new(),
-                    cols,
-                    ds.rows,
-                );
-                self.chart.set_dataset(handle, ds.name, col_count);
-            }
-            Err(e) => {
-                crate::notification::NotificationManager::notify_error(
-                    crate::notification::Notification::new("Dataset unavailable", &e.to_string()),
-                );
-            }
+            Ok(ds) => Some((ds.name, ds.columns, ds.rows)),
+            Err(_) => None,
         }
     }
 
-    /// Render the built-in chart window and service its picker actions.
-    fn render_chart_window(&mut self, ctx: &egui::Context) {
-        use crate::components::chart_window::ChartAction;
-        if !self.chart.open {
+    /// The user picked a chart data source: resolve it, cache the snapshot, and
+    /// feed the column schema (name + numeric flag) to the config panel.
+    fn chart_select_source(&mut self, tab_id: crate::app::tab_manager::TabId) {
+        let Some((_name, cols, rows)) = self.resolve_dataset(tab_id) else {
+            Self::notify_dataset_unavailable();
+            return;
+        };
+        let columns = columns_info(&cols, &rows);
+        let colnames = cols.into_iter().map(|(n, _)| n).collect();
+        self.chart_source = Some((tab_id, colnames, rows));
+        self.window_state.sidebar.set_chart_columns(columns);
+    }
+
+    /// Build a chart from a spec: either update the edited tab in place or open
+    /// a new dock tab.
+    fn chart_generate(&mut self, spec: crate::components::chart_studio::ChartSpec) {
+        let resolved = match &self.chart_source {
+            Some((t, cols, rows)) if *t == spec.source_tab => Some((cols.clone(), rows.clone())),
+            _ => self
+                .resolve_dataset(spec.source_tab)
+                .map(|(_n, cols, rows)| (cols.into_iter().map(|(n, _)| n).collect(), rows)),
+        };
+        let Some((colnames, rows)) = resolved else {
+            Self::notify_dataset_unavailable();
+            return;
+        };
+        self.chart_counter += 1;
+        let chart = crate::components::chart_studio::ChartTab::from_spec(
+            &spec,
+            colnames,
+            rows,
+            self.chart_counter,
+        );
+        // Creating/updating a chart changes the persisted session.
+        self.session_dirty = true;
+        // Editing: replace the target tab's chart in place.
+        if let Some(target) = spec.edit_target
+            && let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&target)
+            && tab.chart.is_some()
+        {
+            tab.chart = Some(chart);
+            self.window_state.tab_manager.focus_tab(target);
             return;
         }
-        let mut open = self.chart.open;
-        let mut action = None;
-        egui::Window::new("Chart")
-            .open(&mut open)
-            .resizable(true)
-            .default_size([640.0, 460.0])
-            .show(ctx, |ui| {
-                action = self.chart.render(ui);
-            });
-        self.chart.open = open;
-        match action {
-            Some(ChartAction::Pick(id)) => self.chart_fetch_from(id),
-            Some(ChartAction::ChangeSource) => {
-                let producers = self.gather_producers();
-                self.chart.open_picker(producers);
+        let nav_capacity = self.settings.performance.navigation_history_size;
+        let id = self.window_state.tab_manager.open_new_tab(nav_capacity);
+        if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
+            tab.chart = Some(chart);
+        }
+        self.window_state.tab_manager.focus_tab(id);
+    }
+
+    /// Load a chart tab's config back into the studio panel for editing, and
+    /// open the panel.
+    fn chart_edit(&mut self, tab_id: crate::app::tab_manager::TabId) {
+        let Some(mut spec) = self
+            .window_state
+            .tab_manager
+            .tabs
+            .get(&tab_id)
+            .and_then(|t| t.chart.as_ref().map(|c| c.to_spec()))
+        else {
+            return;
+        };
+        spec.edit_target = Some(tab_id);
+        // Best-effort: resolve the source's current columns so the axis pickers
+        // are populated (empty if the source tab is gone).
+        let columns = match self.resolve_dataset(spec.source_tab) {
+            Some((_n, cols, rows)) => {
+                let ci = columns_info(&cols, &rows);
+                let colnames = cols.into_iter().map(|(n, _)| n).collect();
+                self.chart_source = Some((spec.source_tab, colnames, rows));
+                ci
             }
-            None => {}
+            None => Vec::new(),
+        };
+        self.window_state.sidebar.edit_chart(spec, columns);
+        self.window_state.sidebar_expanded = true;
+        self.window_state.sidebar_selected_section =
+            Some(components::sidebar::SidebarSection::ChartStudio);
+    }
+
+    /// Re-fetch a chart tab's source data and rebuild it (incl. axis names).
+    fn chart_refresh(&mut self, tab_id: crate::app::tab_manager::TabId) {
+        let Some(source) = self
+            .window_state
+            .tab_manager
+            .tabs
+            .get(&tab_id)
+            .and_then(|t| t.chart.as_ref().map(|c| c.source_tab()))
+        else {
+            return;
+        };
+        let Some((_name, cols, rows)) = self.resolve_dataset(source) else {
+            Self::notify_dataset_unavailable();
+            return;
+        };
+        let colnames: Vec<String> = cols.into_iter().map(|(n, _)| n).collect();
+        if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
+            && let Some(chart) = tab.chart.as_mut()
+        {
+            chart.update_data(colnames, rows);
+            self.session_dirty = true;
+        }
+    }
+
+    fn notify_dataset_unavailable() {
+        crate::notification::NotificationManager::notify_error(
+            crate::notification::Notification::new(
+                "Dataset unavailable",
+                "Could not read this source as a table.",
+            ),
+        );
+    }
+
+    /// Activate an existing tab by id.
+    fn focus_tab(&mut self, tab_id: crate::app::tab_manager::TabId) {
+        self.window_state.tab_manager.focus_tab(tab_id);
+    }
+
+    /// Drive the chart PNG export: request a viewport screenshot, then on the
+    /// next frame crop it to the chart's rect and save via a file dialog.
+    fn poll_chart_export(&mut self, ctx: &egui::Context) {
+        let Some((rect, requested)) = self.chart_export else {
+            return;
+        };
+        if !requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            self.chart_export = Some((rect, true));
+            ctx.request_repaint();
+            return;
+        }
+        let image = ctx.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+        });
+        if let Some(image) = image {
+            self.chart_export = None;
+            let region = image.region(&rect, Some(ctx.pixels_per_point()));
+            save_chart_png(&region);
         }
     }
 
@@ -2210,4 +2355,70 @@ impl ThothApp {
             None => {}
         }
     }
+}
+
+/// A resolved data source: `(display name, columns [(name, type-hint)], rows)`.
+type ResolvedDataset = (String, Vec<(String, String)>, Vec<Vec<String>>);
+
+/// Encode a cropped screenshot as PNG and save it via a file dialog.
+fn save_chart_png(image: &egui::ColorImage) {
+    let [w, h] = image.size;
+    let mut bytes: Vec<u8> = Vec::with_capacity(w * h * 4);
+    for px in &image.pixels {
+        bytes.extend_from_slice(&px.to_array());
+    }
+    let Some(buf) = image::RgbaImage::from_raw(w as u32, h as u32, bytes) else {
+        return;
+    };
+    if let Some(path) = rfd::FileDialog::new()
+        .set_file_name("chart.png")
+        .add_filter("PNG image", &["png"])
+        .save_file()
+    {
+        let ok = buf.save_with_format(&path, image::ImageFormat::Png).is_ok();
+        if ok {
+            crate::notification::NotificationManager::notify(
+                crate::notification::Notification::new(
+                    "Chart exported",
+                    &path.display().to_string(),
+                ),
+            );
+        } else {
+            crate::notification::NotificationManager::notify_error(
+                crate::notification::Notification::new("Export failed", "Could not write the PNG."),
+            );
+        }
+    }
+}
+
+/// Build the Chart Studio column schema (name + numeric flag) from resolved
+/// `(name, type-hint)` columns and the sampled rows.
+fn columns_info(
+    cols: &[(String, String)],
+    rows: &[Vec<String>],
+) -> Vec<crate::components::chart_studio::ColumnInfo> {
+    cols.iter()
+        .enumerate()
+        .map(
+            |(c, (name, hint))| crate::components::chart_studio::ColumnInfo {
+                name: name.clone(),
+                numeric: matches!(hint.as_str(), "integer" | "float") || column_is_numeric(rows, c),
+            },
+        )
+        .collect()
+}
+
+/// True when a majority of sampled rows parse as numbers in column `c` — used
+/// to decide which columns the Chart Studio offers as Y series.
+fn column_is_numeric(rows: &[Vec<String>], c: usize) -> bool {
+    let sample = rows.len().clamp(1, 32);
+    let ok = (0..sample)
+        .filter(|&r| {
+            rows[r]
+                .get(c)
+                .and_then(|s| s.trim().parse::<f64>().ok())
+                .is_some()
+        })
+        .count();
+    ok * 2 >= sample
 }
