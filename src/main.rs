@@ -161,6 +161,10 @@ fn main() -> Result<()> {
             );
             cc.egui_ctx.set_fonts(fonts);
 
+            // Let `DataView` render nodes read dataset rows from the host's
+            // single-owned registry by handle (the data never enters plugins).
+            thoth_plugin_sdk::dataset::set_dataset_resolver(app::resolve_dataset_for_view);
+
             let mut app = app::ThothApp::new(settings, file_to_open);
             app.setup_native_menu(cc);
             Ok(Box::new(app))

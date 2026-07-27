@@ -218,6 +218,10 @@ pub(crate) struct State {
     /// introspection can run concurrently with (and alongside) a query.
     pub pending: Vec<(String, Kind)>,
     pub result: Option<Result<Value, String>>,
+    /// Registry handle for the current result published to the data bus; the
+    /// results pane renders it as a host-owned `DataView`. `None` until a
+    /// resultset is published.
+    pub dataset_handle: Option<String>,
     /// The SQL of the most recently executed query (a single statement, a
     /// selection, or the whole script) — what the results grid and Explain
     /// reflect, so Explain analyses exactly what was run, not the whole editor.
@@ -300,6 +304,7 @@ impl State {
             query_started: None,
             pending: Vec::new(),
             result: None,
+            dataset_handle: None,
             last_run_sql: None,
             row_limit: ROW_PAGE,
             run_limited: false,

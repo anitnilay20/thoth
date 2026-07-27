@@ -2360,6 +2360,28 @@ impl ThothApp {
 /// A resolved data source: `(display name, columns [(name, type-hint)], rows)`.
 type ResolvedDataset = (String, Vec<(String, String)>, Vec<Vec<String>>);
 
+/// Resolver installed into the SDK so `DataView` render nodes read dataset rows
+/// from the host's single-owned registry by handle. The rows are served from
+/// the host's copy; they never re-enter the plugin.
+pub fn resolve_dataset_for_view(
+    handle: &str,
+    limit: u32,
+) -> Option<thoth_plugin_sdk::dataset::DatasetPage> {
+    let page = crate::plugin::datasets::read(handle, 0, limit)?;
+    Some(thoth_plugin_sdk::dataset::DatasetPage {
+        columns: page
+            .columns
+            .into_iter()
+            .map(|c| thoth_plugin_sdk::dataset::DatasetColumn {
+                name: c.name,
+                type_hint: c.type_hint,
+            })
+            .collect(),
+        rows: page.rows,
+        total: page.total,
+    })
+}
+
 /// Encode a cropped screenshot as PNG and save it via a file dialog.
 fn save_chart_png(image: &egui::ColorImage) {
     let [w, h] = image.size;

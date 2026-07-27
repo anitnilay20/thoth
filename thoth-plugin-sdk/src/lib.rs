@@ -28,6 +28,7 @@
 #![deny(missing_docs)]
 
 pub mod components;
+pub mod dataset;
 pub(crate) mod helpers;
 pub mod prelude;
 pub mod settings;

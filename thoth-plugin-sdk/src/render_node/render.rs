@@ -81,6 +81,9 @@ impl RenderNode {
             RenderNode::Table(t) => {
                 t.show(ui, events);
             }
+            RenderNode::DataView(d) => {
+                d.show(ui);
+            }
             RenderNode::Breadcrumbs(b) => {
                 b.clone().show(ui);
             }
