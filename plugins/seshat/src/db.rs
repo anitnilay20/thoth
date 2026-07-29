@@ -186,8 +186,9 @@ impl Engine {
             // MySQL's ANALYZE only emits TREE format, so JSON stays estimate-only
             // (no actual run times — the plan renderer bars by cost instead).
             Engine::Mysql => format!("EXPLAIN FORMAT=JSON {sql}"),
-            // Elasticsearch has no SQL EXPLAIN; the Query-DSL body is echoed back so
-            // the Explain tab shows the request that ran rather than a plan.
+            // Elasticsearch has no SQL EXPLAIN. Its Explain tab isn't rendered and
+            // `load_explain` refuses early, so this arm is unreachable in practice;
+            // echo the body rather than fabricate a plan.
             Engine::Elasticsearch => sql.to_string(),
         }
     }

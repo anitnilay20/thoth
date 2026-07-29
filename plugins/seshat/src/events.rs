@@ -382,9 +382,10 @@ fn load_more(st: &mut State) {
     execute_current(st);
 }
 
-/// Submit the last-run query with the current row cap. A cappable SELECT gets a
-/// `LIMIT row_limit + 1` appended so the extra row signals "more available";
-/// anything else runs unchanged. Shared by fresh runs and "Load more".
+/// Submit the last-run query with the current row cap. A cappable query gets one
+/// extra row requested (`LIMIT n+1` for SQL, `"size": n+1` for Elasticsearch) so
+/// the extra row signals "more available"; anything else runs unchanged. Shared
+/// by fresh runs and "Load more".
 fn execute_current(st: &mut State) {
     let Some(base) = st.last_run_sql.clone() else {
         return;
@@ -395,8 +396,15 @@ fn execute_current(st: &mut State) {
     // Push a "running" signal to the host status bar; the result handler
     // overwrites it with the row count + latency (Ready) or an Error.
     signals::emit_signal("rows", "", SignalStatus::Loading, 0);
-    let (sql, limited) = match sql::add_limit(&base, st.row_limit + 1) {
-        Some(capped) => (capped, true),
+    // Elasticsearch caps rows per query dialect (Query-DSL `size`, SQL/ES|QL
+    // LIMIT); both use the same +1 sentinel-row convention as the SQL engines.
+    let capped = if st.engine() == crate::db::Engine::Elasticsearch {
+        crate::es::cap(&base, st.row_limit + 1)
+    } else {
+        sql::add_limit(&base, st.row_limit + 1)
+    };
+    let (sql, limited) = match capped {
+        Some(c) => (c, true),
         None => (base, false),
     };
     st.run_limited = limited;
@@ -408,6 +416,12 @@ fn execute_current(st: &mut State) {
 /// per-SQL so it only re-executes when the last-run query changed. No-op until a
 /// query has actually been run. Engine-specific via [`Engine::explain_sql`].
 fn load_explain(st: &mut State) {
+    // Elasticsearch has no EXPLAIN; its Explain tab isn't rendered, but a tab
+    // re-pointed from a SQL connection can still carry `results_tab == Explain`,
+    // so refuse here too rather than re-running the search as a "plan".
+    if st.engine() == crate::db::Engine::Elasticsearch {
+        return;
+    }
     let Some(sql) = st.last_run_sql.as_ref().map(|s| s.trim().to_string()) else {
         return;
     };
