@@ -625,4 +625,52 @@ mod test {
             Err(PolicyViolation::UserBlocked)
         ));
     }
+
+    #[test]
+    fn check_data_source_still_rejects_invalid_urls() {
+        let mut np = policy(&["*"], &[]);
+        assert!(matches!(
+            np.check_data_source("not-a-url"),
+            Err(PolicyViolation::InvalidUrl(_))
+        ));
+        // A URL that parses but carries no host is also rejected.
+        assert!(matches!(
+            np.check_data_source("file:///etc/passwd"),
+            Err(PolicyViolation::InvalidUrl(_))
+        ));
+    }
+
+    #[test]
+    fn check_data_source_still_enforces_https() {
+        let user = PluginNetworkPolicy {
+            allowed_domains: vec!["*".to_string()],
+            blocked_domains: vec![],
+            require_https: true,
+            rate_limit_rpm: 10,
+        };
+        let plugin = NetworkDeclarations {
+            allowed_domains: vec![],
+            require_https: true,
+            rate_limit_rpm: 10,
+        };
+        let mut np = NetworkPolicy::from_plugin_and_settings(&plugin, &user);
+        assert!(matches!(
+            np.check_data_source("http://es.internal:9200/"),
+            Err(PolicyViolation::HttpNotAllowed)
+        ));
+        assert!(matches!(
+            np.check_data_source("https://es.internal:9200/"),
+            Ok(CheckOutcome::Allowed)
+        ));
+    }
+
+    #[test]
+    fn check_data_source_still_requires_consent_for_unknown_host() {
+        // Not in the allowlist → consent gate, exactly as `check` behaves.
+        let mut np = policy(&["known.example.com"], &[]);
+        assert!(matches!(
+            np.check_data_source("http://unknown.example.com/"),
+            Ok(CheckOutcome::NeedsConsent { domain }) if domain == "unknown.example.com"
+        ));
+    }
 }

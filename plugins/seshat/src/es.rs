@@ -577,8 +577,23 @@ pub(crate) fn dialect(text: &str) -> Dialect {
     }
 }
 
+/// Does this ES|QL query already contain a real `LIMIT` pipeline stage?
+///
+/// A plain substring search would also match identifiers — `rate_limit`,
+/// `limits`, a column called `limit_reached` — and wrongly leave the query
+/// uncapped. ES|QL stages are pipe-separated, so only a stage whose *first
+/// token* is `LIMIT` counts.
+fn has_esql_limit_stage(query: &str) -> bool {
+    query.split('|').any(|stage| {
+        stage
+            .split_whitespace()
+            .next()
+            .is_some_and(|word| word.eq_ignore_ascii_case("LIMIT"))
+    })
+}
+
 /// Elasticsearch's default `index.max_result_window`. A `size` beyond this is
-/// rejected by the server, so the row cap stops growing here.
+/// rejected by the server, so the row cap is clamped here.
 pub(crate) const MAX_RESULT_WINDOW: usize = 10_000;
 
 /// Cap an Elasticsearch query to `n` rows, whichever dialect it's written in.
@@ -592,7 +607,7 @@ pub(crate) fn cap(text: &str, n: usize) -> Option<String> {
         // ES|QL caps with a pipeline stage: `FROM idx | LIMIT n`.
         Dialect::Esql => {
             let t = text.trim();
-            if t.to_ascii_uppercase().contains("LIMIT") {
+            if has_esql_limit_stage(t) {
                 return None;
             }
             Some(format!("{t} | LIMIT {n}"))
@@ -603,20 +618,21 @@ pub(crate) fn cap(text: &str, n: usize) -> Option<String> {
 
 /// Cap a Query-DSL search to `n` hits by injecting `"size": n` into its body.
 ///
-/// Returns `None` (leave the query alone) when the query can't or shouldn't be
-/// capped:
+/// `n` is clamped to [`MAX_RESULT_WINDOW`] — the server rejects a larger `size`,
+/// and returning `None` here would leave the body unsized, which silently falls
+/// back to Elasticsearch's default of 10 hits (the opposite of a large limit).
+///
+/// Returns `None` (leave the query alone) only when the query shouldn't be
+/// capped at all:
 ///   * the body already sets `size` — respect the user's explicit choice, just
 ///     as `add_limit` bails when a `LIMIT` is already present;
 ///   * the body is an aggregation request, where `size` controls hits rather
-///     than buckets and capping would mislead;
-///   * `n` exceeds [`MAX_RESULT_WINDOW`], which the server would reject.
+///     than buckets and capping would mislead.
 ///
 /// The returned text keeps the leading `<index>` line so it round-trips through
 /// [`split_query`]; only the *submitted* copy is rewritten, never the editor's.
 pub(crate) fn add_size(text: &str, n: usize) -> Option<String> {
-    if n > MAX_RESULT_WINDOW {
-        return None;
-    }
+    let n = n.min(MAX_RESULT_WINDOW);
     // SQL / ES|QL bodies aren't Query DSL — those are capped by their own
     // dialects (see `cap`), so never rewrite them here.
     if matches!(dialect(text), Dialect::Sql | Dialect::Esql) {
@@ -863,9 +879,14 @@ mod tests {
     }
 
     #[test]
-    fn add_size_refuses_beyond_max_result_window() {
-        assert_eq!(add_size("books", MAX_RESULT_WINDOW + 1), None);
-        assert!(add_size("books", MAX_RESULT_WINDOW).is_some());
+    fn add_size_clamps_to_max_result_window() {
+        // Beyond the window we must still emit a `size` — returning the body
+        // unsized would silently fall back to ES's default of 10 hits.
+        let out = add_size("books", MAX_RESULT_WINDOW + 5000).unwrap();
+        assert_eq!(split_query(&out).1["size"], MAX_RESULT_WINDOW);
+        // At the boundary the requested value is used verbatim.
+        let out = add_size("books", MAX_RESULT_WINDOW).unwrap();
+        assert_eq!(split_query(&out).1["size"], MAX_RESULT_WINDOW);
     }
 
     #[test]
@@ -899,6 +920,30 @@ mod tests {
             Some("FROM books | LIMIT 101")
         );
         assert_eq!(cap("FROM books | LIMIT 5", 101), None);
+    }
+
+    #[test]
+    fn esql_limit_stage_detection_ignores_identifiers() {
+        // Real LIMIT stages (any casing, any spacing) are detected.
+        assert!(has_esql_limit_stage("FROM books | LIMIT 5"));
+        assert!(has_esql_limit_stage("FROM books | limit 5"));
+        assert!(has_esql_limit_stage("FROM books |   LIMIT   5"));
+        assert!(has_esql_limit_stage("FROM b | SORT x | LIMIT 10"));
+
+        // Identifiers that merely contain "limit" must NOT count.
+        assert!(!has_esql_limit_stage("FROM logs | WHERE rate_limit > 5"));
+        assert!(!has_esql_limit_stage("FROM logs | KEEP limits"));
+        assert!(!has_esql_limit_stage("FROM logs | KEEP limit_reached"));
+        assert!(!has_esql_limit_stage("FROM books"));
+    }
+
+    #[test]
+    fn cap_still_applies_when_limit_only_appears_as_identifier() {
+        // Regression: a substring check would have skipped capping here.
+        assert_eq!(
+            cap("FROM logs | WHERE rate_limit > 5", 101).as_deref(),
+            Some("FROM logs | WHERE rate_limit > 5 | LIMIT 101")
+        );
     }
 
     // ── columnar (_sql / ES|QL) result mapping ──────────────────────────────
