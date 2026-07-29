@@ -7,7 +7,7 @@ use serde_json::Value;
 use thoth_plugin_sdk::state::PluginState;
 
 use crate::bindings::thoth::plugin::{db_runtime, plugin_storage};
-use crate::db::{self, ColumnInfo, Engine, TableDetail, TableInfo};
+use crate::db::{self, AuthMode, ColumnInfo, Engine, TableDetail, TableInfo};
 
 // ── connection + form models ──────────────────────────────────────────────────
 
@@ -25,6 +25,10 @@ pub(crate) struct Connection {
     pub user: String,
     #[serde(default)]
     pub tls: bool,
+    /// Authentication mechanism. Defaults to `Password` for back-compat with
+    /// connections saved before Elasticsearch's None/ApiKey modes existed.
+    #[serde(default)]
+    pub auth: AuthMode,
     /// Optional environment colour (a semantic token like `error`/`warning`/
     /// `success`) shown as a left accent + status-dot tint, so prod vs local
     /// reads at a glance. `None` = no accent.
@@ -60,6 +64,8 @@ pub(crate) struct Form {
     pub user: String,
     pub password: String,
     pub tls: bool,
+    /// Authentication mechanism selected in the dialog.
+    pub auth: AuthMode,
     /// Environment colour token (empty = none).
     pub color: String,
 }
@@ -75,6 +81,7 @@ impl Default for Form {
             user: "postgres".into(),
             password: String::new(),
             tls: false,
+            auth: AuthMode::Password,
             color: String::new(),
         }
     }
@@ -93,6 +100,7 @@ impl Form {
             user: self.user.clone(),
             password: self.password.clone(),
             tls: self.tls,
+            auth: self.auth,
         }
     }
 }
@@ -340,7 +348,8 @@ pub(crate) static STATE: PluginState<State> = PluginState::new();
 
 /// Engines offered in the connection dialog's engine picker, in display order.
 /// The picker renders these; the click handler maps the row index back to one.
-pub(crate) const SUPPORTED_ENGINES: [Engine; 2] = [Engine::Postgres, Engine::Mysql];
+pub(crate) const SUPPORTED_ENGINES: [Engine; 3] =
+    [Engine::Postgres, Engine::Mysql, Engine::Elasticsearch];
 
 /// Rows rendered per tree level before a "Show more" row appears (and how many
 /// each "Show more" click reveals).
@@ -353,6 +362,7 @@ pub(crate) const ROW_PAGE: usize = 100;
 pub(crate) fn engine_from_value(v: &str) -> Engine {
     match v {
         "mysql" => Engine::Mysql,
+        "elasticsearch" => Engine::Elasticsearch,
         _ => Engine::Postgres,
     }
 }
@@ -360,12 +370,14 @@ pub(crate) fn engine_label(e: Engine) -> &'static str {
     match e {
         Engine::Postgres => "PostgreSQL",
         Engine::Mysql => "MySQL",
+        Engine::Elasticsearch => "Elasticsearch",
     }
 }
 pub(crate) fn engine_badge(e: Engine) -> (&'static str, &'static str) {
     match e {
         Engine::Postgres => ("PG", "blue"),
         Engine::Mysql => ("MY", "orange"),
+        Engine::Elasticsearch => ("ES", "success"),
     }
 }
 

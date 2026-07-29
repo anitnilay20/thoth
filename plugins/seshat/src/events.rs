@@ -117,6 +117,14 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         "f-database" | "database" => st.form.database = parse_str(&event.value),
         "f-user" | "user" => st.form.user = parse_str(&event.value),
         "f-password" | "password" => st.form.password = parse_str(&event.value),
+        "f-apikey" | "apikey" => st.form.password = parse_str(&event.value),
+        "f-auth" if event.kind == "change" => {
+            st.form.auth = match parse_str(&event.value).as_str() {
+                "none" => crate::db::AuthMode::None,
+                "apikey" => crate::db::AuthMode::ApiKey,
+                _ => crate::db::AuthMode::Password,
+            };
+        }
         "f-tls" | "tls" => st.form.tls = serde_json::from_str(&event.value).unwrap_or(false),
         "f-color" if event.kind == "change" => st.form.color = parse_str(&event.value),
 
@@ -482,6 +490,7 @@ fn activate_connection(st: &mut State, conn: &Connection) {
         user: conn.user.clone(),
         password,
         tls: conn.tls,
+        auth: conn.auth,
     });
     st.active = Some(conn.id.clone());
     st.result = None;
@@ -732,20 +741,24 @@ fn open_filter_match(st: &State, index: usize) {
     };
     // No LIMIT here — the run path caps rows and offers "Load more" (matching
     // open_table_data_named).
-    let (target_db, sql) = if conn.engine == crate::db::Engine::Mysql {
-        // MySQL: the schema is the database; qualify in the current connection.
-        let db = m.database.clone().unwrap_or_else(|| m.schema.clone());
-        let db = db.replace('`', "``");
-        let table = m.name.replace('`', "``");
-        (None, format!("SELECT * FROM `{db}`.`{table}`"))
-    } else {
-        // Postgres: open a tab connected to the match's database.
-        let schema = m.schema.replace('"', "\"\"");
-        let table = m.name.replace('"', "\"\"");
-        (
-            m.database.clone(),
-            format!("SELECT * FROM \"{schema}\".\"{table}\""),
-        )
+    let (target_db, sql) = match conn.engine {
+        crate::db::Engine::Elasticsearch => (None, es_search_query(&m.name)),
+        crate::db::Engine::Mysql => {
+            // MySQL: the schema is the database; qualify in the current connection.
+            let db = m.database.clone().unwrap_or_else(|| m.schema.clone());
+            let db = db.replace('`', "``");
+            let table = m.name.replace('`', "``");
+            (None, format!("SELECT * FROM `{db}`.`{table}`"))
+        }
+        crate::db::Engine::Postgres => {
+            // Postgres: open a tab connected to the match's database.
+            let schema = m.schema.replace('"', "\"\"");
+            let table = m.name.replace('"', "\"\"");
+            (
+                m.database.clone(),
+                format!("SELECT * FROM \"{schema}\".\"{table}\""),
+            )
+        }
     };
     open_tab(
         &conn.name,
@@ -801,6 +814,13 @@ fn open_structure_tab(st: &State, i: usize, j: usize, k: usize) {
 
 /// Open a table (by schema + name) as a `SELECT *` data tab against the active
 /// connection's browsed database. Shared by the tree and the filter results.
+/// The editor text that opens an Elasticsearch index: the index name on the
+/// first line, then a `match_all` Query-DSL body — the format `es::split_query`
+/// parses. This is the ES analogue of `SELECT * FROM table`.
+fn es_search_query(index: &str) -> String {
+    format!("{index}\n{{ \"query\": {{ \"match_all\": {{}} }} }}")
+}
+
 fn open_table_data_named(st: &State, schema: &str, table: &str) {
     let Some(conn) = st
         .active
@@ -810,14 +830,18 @@ fn open_table_data_named(st: &State, schema: &str, table: &str) {
         return;
     };
     // No LIMIT here — the run path caps rows and offers "Load more".
-    let sql = if conn.engine == crate::db::Engine::Mysql {
-        let schema = schema.replace('`', "``");
-        let table = table.replace('`', "``");
-        format!("SELECT * FROM `{schema}`.`{table}`")
-    } else {
-        let schema = schema.replace('"', "\"\"");
-        let table = table.replace('"', "\"\"");
-        format!("SELECT * FROM \"{schema}\".\"{table}\"")
+    let sql = match conn.engine {
+        crate::db::Engine::Elasticsearch => es_search_query(table),
+        crate::db::Engine::Mysql => {
+            let schema = schema.replace('`', "``");
+            let table = table.replace('`', "``");
+            format!("SELECT * FROM `{schema}`.`{table}`")
+        }
+        crate::db::Engine::Postgres => {
+            let schema = schema.replace('"', "\"\"");
+            let table = table.replace('"', "\"\"");
+            format!("SELECT * FROM \"{schema}\".\"{table}\"")
+        }
     };
     open_tab(
         &conn.name,
@@ -887,6 +911,7 @@ pub(crate) fn activate_from_state(st: &mut State, state: &str) {
             user: conn.user.clone(),
             password,
             tls: conn.tls,
+            auth: conn.auth,
         });
         st.active = Some(conn.id);
         // Restore the previously-selected database (if the snapshot carried one),
@@ -954,6 +979,7 @@ fn activate_structure(st: &mut State, v: &Value) {
         user: conn.user.clone(),
         password,
         tls: conn.tls,
+        auth: conn.auth,
     });
     st.active = Some(conn.id);
     st.view = crate::state::View::Structure {
@@ -981,6 +1007,9 @@ fn apply_engine_defaults(st: &mut State, engine: crate::db::Engine) {
     st.form.port = d.port.to_string();
     st.form.user = d.user.to_string();
     st.form.database = d.database.to_string();
+    // Reset auth to the engine's default. Only Elasticsearch offers a choice;
+    // SQL engines are always password-based.
+    st.form.auth = crate::db::AuthMode::Password;
 }
 
 /// Open the dialog pre-filled with an existing connection, in edit mode.
@@ -998,6 +1027,7 @@ fn edit_connection(st: &mut State, index: usize) {
         user: conn.user.clone(),
         password,
         tls: conn.tls,
+        auth: conn.auth,
         color: conn.color.clone().unwrap_or_default(),
     };
     st.editing = Some(conn.id);
@@ -1047,6 +1077,7 @@ fn connect_from_form(st: &mut State) {
         database: profile.database.clone(),
         user: profile.user.clone(),
         tls: profile.tls,
+        auth: st.form.auth,
         color,
     };
     // Persist the password to the keychain first; if that fails we must NOT save
