@@ -437,7 +437,12 @@ fn execute_current(st: &mut State) {
     };
     st.loading = true;
     st.result = None;
-    st.dataset_handle = None;
+    // Drop the previous result's dataset from the host registry now, so a query
+    // that errors or returns no rows still frees it (a successful run instead
+    // replaces it via a fresh publish below).
+    if let Some(handle) = st.dataset_handle.take() {
+        dataset_bus::release(&handle);
+    }
     st.query_started = Some(std::time::Instant::now());
     // Push a "running" signal to the host status bar; the result handler
     // overwrites it with the row count + latency (Ready) or an Error.

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 pub struct DataView {
     /// Stable id for this node (persists the table/JSON/raw toggle across frames).
     #[builder(default)]
+    #[serde(default)]
     pub id: String,
     /// Registry handle returned by `dataset-bus.publish`.
     pub handle: String,
@@ -204,13 +205,12 @@ impl DataView {
                                 .collect()
                         })
                         .collect();
-                    let mut events = Vec::new();
                     TableView::builder()
                         .headers(headers)
                         .rows(rows)
                         .column_types(column_types)
                         .build()
-                        .show(ui, &mut events);
+                        .show(ui, events);
                 }
             });
     }

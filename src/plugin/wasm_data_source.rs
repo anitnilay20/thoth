@@ -782,11 +782,17 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
         columns: Vec<thoth::plugin::data_producer::DatasetColumn>,
         rows: Vec<Vec<String>>,
     ) {
-        crate::plugin::datasets::update(&handle, to_registry_columns(columns), rows);
+        // Scoped to this instance so a plugin can only mutate its own datasets.
+        crate::plugin::datasets::update(
+            &self.instance_id,
+            &handle,
+            to_registry_columns(columns),
+            rows,
+        );
     }
 
     fn release(&mut self, handle: String) {
-        crate::plugin::datasets::release(&handle);
+        crate::plugin::datasets::release(&self.instance_id, &handle);
     }
 }
 

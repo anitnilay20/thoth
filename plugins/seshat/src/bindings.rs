@@ -2177,6 +2177,9 @@ pub mod thoth {
             /// A fresh publish REPLACES this instance's previous dataset (the old rows
             /// are dropped immediately) — to refresh in place without dropping, use
             /// `update` with the same handle.
+            /// Returns an empty string if publishing fails (the registry lock could not
+            /// be acquired); callers must treat that sentinel as "not published" rather
+            /// than embedding it as a `data-view` handle.
             pub fn publish(
                 name: &str,
                 columns: &[DatasetColumn],
