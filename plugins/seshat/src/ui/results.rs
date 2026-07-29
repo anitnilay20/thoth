@@ -13,28 +13,31 @@ use crate::{
 };
 
 pub fn results_view(state: &State) -> RenderNode {
+    // Elasticsearch has no query planner exposed as an EXPLAIN, so the Explain
+    // tab is omitted for it rather than showing a re-run of the search dressed
+    // up as a plan. The tab-change handler matches on the tab *label*, so
+    // dropping one here can't misroute the others.
+    let explain = state.engine() != crate::db::Engine::Elasticsearch;
+
+    let mut headers = vec!["Results".to_string(), "Messages".to_string()];
+    let mut icons = vec![ICON_TABLE.to_string(), ICON_CHAT_TEXT.to_string()];
+    let mut children = vec![results(state), messages(state)];
+    if explain {
+        headers.push("Explain".to_string());
+        icons.push(ICON_TREE_STRUCTURE.to_string());
+        children.push(result_explain(state));
+    }
+    headers.push("Stats".to_string());
+    icons.push(ICON_CHART_BAR.to_string());
+    children.push(stats(state));
+
     RenderNode::Tabs(
         Tabs::builder()
             .id("query-output")
-            .headers(vec![
-                "Results".into(),
-                "Messages".into(),
-                "Explain".into(),
-                "Stats".into(),
-            ])
-            .icons(vec![
-                ICON_TABLE.to_string(),
-                ICON_CHAT_TEXT.to_string(),
-                ICON_TREE_STRUCTURE.to_string(),
-                ICON_CHART_BAR.to_string(),
-            ])
+            .headers(headers)
+            .icons(icons)
             .size(Size::Small)
-            .children(vec![
-                results(state),
-                messages(state),
-                result_explain(state),
-                stats(state),
-            ])
+            .children(children)
             .build(),
     )
 }

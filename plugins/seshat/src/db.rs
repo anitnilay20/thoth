@@ -17,6 +17,7 @@ pub enum Engine {
     #[default]
     Postgres,
     Mysql,
+    Elasticsearch,
 }
 
 /// A connection target: one database server plus credentials.
@@ -28,6 +29,22 @@ pub struct Profile {
     pub user: String,
     pub password: String,
     pub tls: bool,
+    /// How to authenticate. SQL engines use `Password`; Elasticsearch also
+    /// supports `None` (open cluster) and `ApiKey` (the key is in `password`).
+    pub auth: AuthMode,
+}
+
+/// The authentication mechanism a connection uses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AuthMode {
+    /// No credentials (Elasticsearch with security disabled).
+    None,
+    /// Username + password (the default for SQL engines).
+    #[default]
+    Password,
+    /// A single encoded secret sent as an API key (Elasticsearch).
+    ApiKey,
 }
 
 /// A result column with its engine-specific type name.
@@ -155,6 +172,7 @@ pub fn adapter(engine: Engine) -> Box<dyn DbAdapter> {
     match engine {
         Engine::Postgres => Box::new(crate::pg::Postgres),
         Engine::Mysql => Box::new(crate::mysql::Mysql),
+        Engine::Elasticsearch => Box::new(crate::es::Elasticsearch),
     }
 }
 
@@ -168,6 +186,10 @@ impl Engine {
             // MySQL's ANALYZE only emits TREE format, so JSON stays estimate-only
             // (no actual run times — the plan renderer bars by cost instead).
             Engine::Mysql => format!("EXPLAIN FORMAT=JSON {sql}"),
+            // Elasticsearch has no SQL EXPLAIN. Its Explain tab isn't rendered and
+            // `load_explain` refuses early, so this arm is unreachable in practice;
+            // echo the body rather than fabricate a plan.
+            Engine::Elasticsearch => sql.to_string(),
         }
     }
 }

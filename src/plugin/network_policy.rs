@@ -111,6 +111,27 @@ impl NetworkPolicy {
     }
 
     pub fn check(&mut self, url: &str) -> Result<CheckOutcome, PolicyViolation> {
+        self.check_inner(url, true)
+    }
+
+    /// Like [`check`], but WITHOUT the per-minute rate cap. Used for HTTP requests
+    /// issued by a data-source plugin (e.g. the Elasticsearch engine): these are
+    /// database-client traffic, not calls to a public API. A single user action —
+    /// testing a connection, expanding the schema tree, running a query — fans out
+    /// into many REST calls, so a per-minute cap would reject ordinary use and, on
+    /// tripping, surface a misleading "rate limit exceeded" that masks the real
+    /// connection error. This mirrors [`check_tcp`], which is likewise uncapped for
+    /// the SQL engines. All other security checks (HTTPS, allowlist, block list,
+    /// SSRF/consent) still apply.
+    pub fn check_data_source(&mut self, url: &str) -> Result<CheckOutcome, PolicyViolation> {
+        self.check_inner(url, false)
+    }
+
+    fn check_inner(
+        &mut self,
+        url: &str,
+        enforce_rate_limit: bool,
+    ) -> Result<CheckOutcome, PolicyViolation> {
         let parsed_url =
             Url::parse(url).map_err(|err| PolicyViolation::InvalidUrl(err.to_string()))?;
 
@@ -119,7 +140,7 @@ impl NetworkPolicy {
             .ok_or_else(|| PolicyViolation::InvalidUrl(format!("URL has no host: {url}")))?
             .to_string();
 
-        if self.is_rate_limited() {
+        if enforce_rate_limit && self.is_rate_limited() {
             return Err(PolicyViolation::RateLimitExceeded);
         }
 
@@ -562,5 +583,94 @@ mod test {
                 Ok(CheckOutcome::Allowed)
             ));
         }
+    }
+
+    #[test]
+    fn check_data_source_does_not_rate_limit() {
+        // The Elasticsearch engine's HTTP calls are database-client traffic: many
+        // requests per user action must not trip the per-minute cap (rpm is 10 here
+        // on purpose), unlike the public-API `check` path.
+        let mut np = policy(&["*"], &[]);
+        for _ in 0..50 {
+            assert!(matches!(
+                np.check_data_source("http://es.internal:9200/_search"),
+                Ok(CheckOutcome::Allowed)
+            ));
+        }
+    }
+
+    #[test]
+    fn check_rate_limits_but_check_data_source_does_not() {
+        // Same policy: `check` trips after the cap, `check_data_source` never does.
+        let mut np = policy(&["*"], &[]);
+        let mut tripped = false;
+        for _ in 0..20 {
+            if matches!(
+                np.check("http://api.example.com/x"),
+                Err(PolicyViolation::RateLimitExceeded)
+            ) {
+                tripped = true;
+                break;
+            }
+        }
+        assert!(tripped, "check should hit the rate cap");
+    }
+
+    #[test]
+    fn check_data_source_still_enforces_block_list() {
+        // Bypassing the rate cap must not bypass other security checks.
+        let mut np = policy(&["*"], &["evil.example.com"]);
+        assert!(matches!(
+            np.check_data_source("http://evil.example.com/"),
+            Err(PolicyViolation::UserBlocked)
+        ));
+    }
+
+    #[test]
+    fn check_data_source_still_rejects_invalid_urls() {
+        let mut np = policy(&["*"], &[]);
+        assert!(matches!(
+            np.check_data_source("not-a-url"),
+            Err(PolicyViolation::InvalidUrl(_))
+        ));
+        // A URL that parses but carries no host is also rejected.
+        assert!(matches!(
+            np.check_data_source("file:///etc/passwd"),
+            Err(PolicyViolation::InvalidUrl(_))
+        ));
+    }
+
+    #[test]
+    fn check_data_source_still_enforces_https() {
+        let user = PluginNetworkPolicy {
+            allowed_domains: vec!["*".to_string()],
+            blocked_domains: vec![],
+            require_https: true,
+            rate_limit_rpm: 10,
+        };
+        let plugin = NetworkDeclarations {
+            allowed_domains: vec![],
+            require_https: true,
+            rate_limit_rpm: 10,
+        };
+        let mut np = NetworkPolicy::from_plugin_and_settings(&plugin, &user);
+        assert!(matches!(
+            np.check_data_source("http://es.internal:9200/"),
+            Err(PolicyViolation::HttpNotAllowed)
+        ));
+        assert!(matches!(
+            np.check_data_source("https://es.internal:9200/"),
+            Ok(CheckOutcome::Allowed)
+        ));
+    }
+
+    #[test]
+    fn check_data_source_still_requires_consent_for_unknown_host() {
+        // Not in the allowlist → consent gate, exactly as `check` behaves.
+        let mut np = policy(&["known.example.com"], &[]);
+        assert!(matches!(
+            np.check_data_source("http://unknown.example.com/"),
+            Ok(CheckOutcome::NeedsConsent { domain }) if domain == "unknown.example.com"
+        ));
     }
 }

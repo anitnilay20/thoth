@@ -55,9 +55,14 @@ fn engine_step(prefix: &str) -> RenderNode {
         .iter()
         .map(|&e| {
             let (short, color) = engine_badge(e);
+            let kind = if e == crate::db::Engine::Elasticsearch {
+                "Search"
+            } else {
+                "SQL"
+            };
             ListItem::builder()
                 .title(engine_label(e))
-                .description("SQL")
+                .description(kind)
                 .badge(ListItemBadge::builder().text(short).color(color).build())
                 .build()
         })
@@ -113,32 +118,21 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
             true,
             db_placeholder,
         ),
-        // User + Password.
-        RenderNode::Split(
-            Split::builder()
-                .gap(12.0)
-                .widths(vec![1.0, 1.0])
-                .children(vec![
-                    text_input(&id("f-user"), "User", &st.form.user, true, ""),
-                    RenderNode::Input(
-                        Input::builder()
-                            .id(id("f-password"))
-                            .label("Password")
-                            .value(st.form.password.clone())
-                            .password(true)
-                            .grow(true)
-                            .build(),
-                    ),
-                ])
-                .build(),
-        ),
-        RenderNode::Checkbox(
-            Checkbox::builder()
-                .id(id("f-tls"))
-                .label("Require TLS")
-                .checked(st.form.tls)
-                .build(),
-        ),
+    ];
+
+    // Authentication section. Elasticsearch supports three modes (None / Password
+    // / API key) chosen via a selector; SQL engines are always password-based, so
+    // they just show the User + Password fields.
+    fields.extend(auth_fields(st, prefix));
+
+    fields.push(RenderNode::Checkbox(
+        Checkbox::builder()
+            .id(id("f-tls"))
+            .label("Require TLS")
+            .checked(st.form.tls)
+            .build(),
+    ));
+    fields.push(
         // Environment colour: a semantic token shown as the connection's accent
         // + status-dot tint, so prod vs local reads at a glance.
         RenderNode::Select(
@@ -172,7 +166,7 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
                 .size(Size::Small)
                 .build(),
         ),
-    ];
+    );
 
     if let Some(status) = &st.test_status {
         let (color, text) = match status {
@@ -190,6 +184,89 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
     fields.push(footer(prefix, true, connect_label));
 
     RenderNode::Column(Column::builder().gap(10.0).children(fields).build())
+}
+
+/// The authentication fields for the credentials step.
+///
+/// SQL engines (Postgres/MySQL) are always username+password, so they show the
+/// plain User + Password split with no selector. Elasticsearch adds a mode
+/// selector (None / Password / API key) and swaps the credential inputs to match
+/// the chosen mode.
+fn auth_fields(st: &State, prefix: &str) -> Vec<RenderNode> {
+    use crate::db::{AuthMode, Engine};
+    let id = |name: &str| format!("{prefix}{name}");
+
+    // User + Password split, reused by SQL engines and ES password mode.
+    let user_password = || {
+        RenderNode::Split(
+            Split::builder()
+                .gap(12.0)
+                .widths(vec![1.0, 1.0])
+                .children(vec![
+                    text_input(&id("f-user"), "User", &st.form.user, true, ""),
+                    RenderNode::Input(
+                        Input::builder()
+                            .id(id("f-password"))
+                            .label("Password")
+                            .value(st.form.password.clone())
+                            .password(true)
+                            .grow(true)
+                            .build(),
+                    ),
+                ])
+                .build(),
+        )
+    };
+
+    // Non-Elasticsearch engines: no auth selector, just credentials.
+    if st.form.engine != Engine::Elasticsearch {
+        return vec![user_password()];
+    }
+
+    // Elasticsearch: a mode selector, then mode-specific inputs.
+    let mode_value = match st.form.auth {
+        AuthMode::None => "none",
+        AuthMode::Password => "password",
+        AuthMode::ApiKey => "apikey",
+    };
+    let selector = RenderNode::Select(
+        Select::builder()
+            .id(id("f-auth"))
+            .value(mode_value.to_string())
+            .prefix_label("Auth: ")
+            .options(vec![
+                SelectOption::builder()
+                    .value("none")
+                    .label("No authentication")
+                    .build(),
+                SelectOption::builder()
+                    .value("password")
+                    .label("Username & password")
+                    .build(),
+                SelectOption::builder()
+                    .value("apikey")
+                    .label("API key")
+                    .build(),
+            ])
+            .size(Size::Small)
+            .build(),
+    );
+
+    let mut out = vec![selector];
+    match st.form.auth {
+        AuthMode::None => {}
+        AuthMode::Password => out.push(user_password()),
+        AuthMode::ApiKey => out.push(RenderNode::Input(
+            Input::builder()
+                .id(id("f-apikey"))
+                .label("API key (encoded)")
+                .value(st.form.password.clone())
+                .password(true)
+                .grow(true)
+                .build(),
+        )),
+    }
+    out
 }
 
 /// The dialog footer: Back + Test on the form step, Cancel + Connect always

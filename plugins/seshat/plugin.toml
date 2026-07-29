@@ -1,7 +1,7 @@
 id           = "com.thoth.seshat"
 name         = "Seshat"
 version      = "0.1.0"
-description  = "Database client — connect, browse schemas, run SQL (Postgres, MySQL)"
+description  = "Database client — connect, browse schemas, run SQL (Postgres, MySQL) or Query DSL (Elasticsearch)"
 author       = "Thoth contributors"
 capabilities = ["data-source", "new-ui-component", "data-producer"]
 icon         = ""    # egui_phosphor::regular::DATABASE
@@ -11,7 +11,14 @@ display_name = "Database"
 
 # Seshat connects to user-supplied database hosts (any host:port), so it declares
 # general-purpose network scope; per-host consent still gates unknown hosts.
+#
+# Note: the Elasticsearch engine's HTTP calls are treated as database-client
+# traffic and are exempt from the per-minute rate cap host-side (see
+# NetworkPolicy::check_data_source), for the same reason the SQL engines' raw TCP
+# connections are — one user action fans out into many requests. This declared
+# limit therefore only bounds any non-data-source traffic (of which there is
+# none today); it is kept generous to be safe.
 [network]
 allowed_domains = ["*"]
 require_https   = false
-rate_limit_rpm  = 120
+rate_limit_rpm  = 6000

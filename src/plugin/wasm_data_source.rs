@@ -243,7 +243,7 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
         thoth::plugin::http_client::HttpResponse,
         thoth::plugin::http_client::PluginError,
     > {
-        match self.policy.check(&req.url) {
+        match self.policy.check_data_source(&req.url) {
             Ok(CheckOutcome::Allowed) => {
                 execute_http_request(req).map_err(|e| thoth::plugin::http_client::PluginError {
                     code: 1,
@@ -293,7 +293,7 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
         let tx = self.http_tx.clone();
         let id = request_id.clone();
 
-        match self.policy.check(&req.url) {
+        match self.policy.check_data_source(&req.url) {
             Ok(CheckOutcome::Allowed) => {
                 // Increment before spawning so has_pending_http() is true
                 // on the very next poll.
