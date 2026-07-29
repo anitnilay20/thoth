@@ -82,7 +82,7 @@ impl RenderNode {
                 t.show(ui, events);
             }
             RenderNode::DataView(d) => {
-                d.show(ui);
+                d.show(ui, events);
             }
             RenderNode::Breadcrumbs(b) => {
                 b.clone().show(ui);

@@ -754,6 +754,12 @@ impl ThothApp {
         tab_id: crate::app::tab_manager::TabId,
         event: crate::plugin::render_node::UiEvent,
     ) {
+        // Reserved system action: a producer plugin asked to open Chart Studio
+        // bound to its own tab. Handled by the host, not forwarded to the plugin.
+        if event.kind == "click" && event.widget_id == thoth_plugin_sdk::actions::OPEN_IN_CHARTS {
+            self.open_charts_for(tab_id);
+            return;
+        }
         let mut handled = false;
         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
             && let Some(pane) = tab.active_plugin_pane.as_mut()
@@ -2121,6 +2127,21 @@ impl ThothApp {
             Ok(ds) => Some((ds.name, ds.columns, ds.rows)),
             Err(_) => None,
         }
+    }
+
+    /// Open Chart Studio bound to `tab_id` as its data source — the host side of
+    /// a producer plugin's [`OPEN_IN_CHARTS`](thoth_plugin_sdk::actions::OPEN_IN_CHARTS)
+    /// action. Preselects the tab, resolves its columns, and expands the panel.
+    fn open_charts_for(&mut self, tab_id: crate::app::tab_manager::TabId) {
+        // Refresh the producer list so the tab is a valid selection this frame,
+        // then preselect it and resolve its columns for the axis pickers.
+        let producers = self.gather_producers();
+        self.window_state.sidebar.set_chart_producers(producers);
+        self.window_state.sidebar.select_chart_source(tab_id);
+        self.chart_select_source(tab_id);
+        self.window_state.sidebar_expanded = true;
+        self.window_state.sidebar_selected_section =
+            Some(components::sidebar::SidebarSection::ChartStudio);
     }
 
     /// The user picked a chart data source: resolve it, cache the snapshot, and

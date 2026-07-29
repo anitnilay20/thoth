@@ -90,14 +90,26 @@ fn results_table(result: &Value, has_more: bool, handle: Option<&str>) -> Render
 
     match (columns, rows) {
         (Some(cols), Some(rows)) if !cols.is_empty() => {
+            // Summary line: "N rows (capped) · <tag>". For the DataView path it
+            // rides in the header (its `caption`); the inline fallback shows it
+            // in a footer instead.
+            let summary = format!(
+                "{} row{}{}{}",
+                rows.len(),
+                if rows.len() == 1 { "" } else { "s" },
+                if has_more { " (capped)" } else { "" },
+                tag.map(|t| format!("  ·  {t}")).unwrap_or_default()
+            );
+
             // Prefer the host-owned DataView (data published to the bus, drawn
-            // by the host with a table/json-tree toggle). Fall back to an inline
-            // TableView if the dataset wasn't published (e.g. no handle yet).
+            // by the host with a table/JSON/raw toggle + Charts shortcut). Fall
+            // back to an inline TableView if the dataset wasn't published.
             let table_node = if let Some(handle) = handle {
                 RenderNode::DataView(
                     DataView::builder()
                         .id("seshat-results")
                         .handle(handle)
+                        .caption(summary.clone())
                         .build(),
                 )
             } else {
@@ -146,20 +158,20 @@ fn results_table(result: &Value, has_more: bool, handle: Option<&str>) -> Render
                 )
             };
 
-            let footer = format!(
-                "{} row{}{}{}",
-                rows.len(),
-                if rows.len() == 1 { "" } else { "s" },
-                if has_more { " (capped)" } else { "" },
-                tag.map(|t| format!("  ·  {t}")).unwrap_or_default()
-            );
-            let mut footer_row: Vec<RenderNode> = vec![muted(&footer)];
+            // The DataView carries its summary in the header, so the footer is
+            // only needed for the inline fallback (count) or a Load-more affordance.
+            let mut footer_row: Vec<RenderNode> = Vec::new();
+            if handle.is_none() {
+                footer_row.push(muted(&summary));
+            }
             if has_more {
-                footer_row.push(RenderNode::Spacer(
-                    thoth_plugin_sdk::components::Spacer::builder()
-                        .size(8.0)
-                        .build(),
-                ));
+                if !footer_row.is_empty() {
+                    footer_row.push(RenderNode::Spacer(
+                        thoth_plugin_sdk::components::Spacer::builder()
+                            .size(8.0)
+                            .build(),
+                    ));
+                }
                 footer_row.push(crate::ui::widgets::button(
                     "load-more",
                     "Load more",
@@ -169,6 +181,9 @@ fn results_table(result: &Value, has_more: bool, handle: Option<&str>) -> Render
                     true,
                     false,
                 ));
+            }
+            if footer_row.is_empty() {
+                return table_node;
             }
             RenderNode::Column(
                 Column::builder()

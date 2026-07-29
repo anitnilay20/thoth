@@ -27,6 +27,7 @@
 
 #![deny(missing_docs)]
 
+pub mod actions;
 pub mod components;
 pub mod dataset;
 pub(crate) mod helpers;

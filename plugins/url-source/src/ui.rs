@@ -15,10 +15,10 @@ use crate::{
 };
 use serde_json::Value;
 use thoth_plugin_sdk::components::{
-    Align, Badge, BgColor, Button, ButtonColor, Code, CodeEditor, Column, DataRow, DataRowIcon,
-    IconButton, Input, JsonTree, KeyValueList, KvEntry, List, ListItem, ListItemAction,
-    ListItemBadge, Modal, Radio, Row, Scroll, Select, SelectOption, Separator, Spacer, Spinner,
-    Split, TabAction, TableView, Tabs, Typography, TypographyVariant,
+    Align, Badge, BgColor, Button, ButtonColor, ButtonType, Code, CodeEditor, Column, DataRow,
+    DataRowIcon, IconButton, Input, JsonTree, KeyValueList, KvEntry, List, ListItem,
+    ListItemAction, ListItemBadge, Modal, Radio, Row, Scroll, Select, SelectOption, Separator,
+    Spacer, Spinner, Split, TabAction, TableView, Tabs, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -26,6 +26,7 @@ use thoth_plugin_sdk::render_node::RenderNode;
 const ICON_PLUS: &str = "\u{E3D4}"; // PLUS
 const ICON_CODE: &str = "\u{E1BC}"; // CODE (export cURL)
 const ICON_DOWNLOAD: &str = "\u{E20C}"; // DOWNLOAD_SIMPLE (import cURL)
+const ICON_CHART_LINE: &str = "\u{E154}"; // CHART_LINE (open in Charts)
 
 // ── Small helpers ──────────────────────────────────────────────────────────
 
@@ -641,6 +642,17 @@ fn build_auth_panel(st: &State) -> RenderNode {
     RenderNode::Column(Column::builder().gap(8.0).children(rows).build())
 }
 
+/// Whether the parsed response can be turned into a table for charting: a JSON
+/// object, or an array whose first element is an object (mirrors what
+/// `provide_dataset` accepts).
+fn response_is_chartable(resp: &ResponseState) -> bool {
+    match &resp.parsed_body {
+        Some(Value::Object(_)) => true,
+        Some(Value::Array(a)) => a.first().is_some_and(Value::is_object),
+        _ => false,
+    }
+}
+
 fn build_response_panel(resp: &ResponseState) -> RenderNode {
     let (color, status_label) = if resp.error.is_some() {
         ("#ef4444".to_string(), "Error".to_string())
@@ -671,6 +683,21 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
             format!("{:.1} MB", resp.size_bytes as f64 / (1024.0 * 1024.0))
         };
         status_children.push(muted(&s));
+    }
+    // A shortcut to plot a tabular response in Chart Studio. The reserved widget
+    // id is a host-interpreted action (see `actions::OPEN_IN_CHARTS`): clicking
+    // opens the studio bound to this tab, which is a producer via `provide-dataset`.
+    if resp.error.is_none() && response_is_chartable(resp) {
+        status_children.push(RenderNode::Spacer(Spacer::builder().size(8.0).build()));
+        status_children.push(RenderNode::Button(
+            Button::builder()
+                .id(thoth_plugin_sdk::actions::OPEN_IN_CHARTS)
+                .label("Charts")
+                .icon(ICON_CHART_LINE)
+                .button_type(ButtonType::Text)
+                .color(ButtonColor::Secondary)
+                .build(),
+        ));
     }
     let status_row = RenderNode::Row(
         Row::builder()
