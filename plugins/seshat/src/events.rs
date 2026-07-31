@@ -182,12 +182,20 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         }
         // Engine picked on step 0 (a row in the engine list) → seed engine +
         // default port, advance to the credentials form.
-        "engine-list" if event.kind == "click" => {
-            if let Some(&engine) = event
-                .value
-                .parse::<usize>()
-                .ok()
-                .and_then(|i| crate::state::SUPPORTED_ENGINES.get(i))
+        // Engine picked from a category list (`engine-list-<group>`); the click
+        // value is the row index within that group.
+        key if key.starts_with("engine-list-") && event.kind == "click" => {
+            if let Some(&engine) = key
+                .strip_prefix("engine-list-")
+                .and_then(|g| g.parse::<usize>().ok())
+                .and_then(|gi| crate::state::ENGINE_GROUPS.get(gi))
+                .and_then(|(_, engines)| {
+                    event
+                        .value
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|i| engines.get(i))
+                })
             {
                 apply_engine_defaults(st, engine);
                 st.dialog_form_step = true;

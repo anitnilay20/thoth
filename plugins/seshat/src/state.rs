@@ -353,8 +353,13 @@ pub(crate) static STATE: PluginState<State> = PluginState::new();
 
 /// Engines offered in the connection dialog's engine picker, in display order.
 /// The picker renders these; the click handler maps the row index back to one.
-pub(crate) const SUPPORTED_ENGINES: [Engine; 3] =
-    [Engine::Postgres, Engine::Mysql, Engine::Elasticsearch];
+/// Engine picker groups `(category label, engines)` — drives the categorised
+/// card grid in the connection dialog. The group index is embedded in each
+/// list's widget id (`engine-list-<i>`) so clicks route back to the right engine.
+pub(crate) const ENGINE_GROUPS: [(&str, &[Engine]); 2] = [
+    ("SQL Databases", &[Engine::Postgres, Engine::Mysql]),
+    ("Search", &[Engine::Elasticsearch]),
+];
 
 /// Rows rendered per tree level before a "Show more" row appears (and how many
 /// each "Show more" click reveals).

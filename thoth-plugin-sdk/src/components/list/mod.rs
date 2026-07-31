@@ -65,6 +65,16 @@ pub enum ListItemPrefix {
         /// Filesystem path to a PNG/ICO icon.
         path: String,
     },
+    /// A 48×48 embedded image: raw bytes (e.g. a PNG) a plugin ships with its
+    /// wasm, rendered via egui's image loaders (installed by the host). Unlike
+    /// [`IconFile`](Self::IconFile) this never touches host disk, so plugins can
+    /// use it to show real logos.
+    Image {
+        /// Stable cache key for the image loader (e.g. `"bytes://pg"`).
+        uri: String,
+        /// Encoded image bytes (PNG/JPEG/…).
+        bytes: Vec<u8>,
+    },
 }
 
 /// An always-visible element on the right of a row's title (unlike hover-revealed

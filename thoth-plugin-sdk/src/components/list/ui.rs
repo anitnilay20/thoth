@@ -265,6 +265,17 @@ impl List {
                 }
                 ui.add_space(8.0);
             }
+            Some(ListItemPrefix::Image { uri, bytes }) => {
+                ui.add_space(8.0);
+                // Fit within a 48×48 box preserving aspect ratio — logos aren't
+                // square, so exact-fit would distort wide marks (e.g. MySQL).
+                ui.add(
+                    egui::Image::from_bytes(uri.clone(), bytes.clone())
+                        .maintain_aspect_ratio(true)
+                        .max_size(Vec2::new(48.0, 48.0)),
+                );
+                ui.add_space(8.0);
+            }
             // Still inset so titles line up with prefixed rows.
             None => {
                 ui.add_space(8.0);

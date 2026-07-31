@@ -223,6 +223,31 @@ fn run_search(p: &Profile, sql: &str) -> Result<QueryResult, String> {
     let resp = request(p, "POST", &path, Some(body))?;
 
     let took = resp.get("took").and_then(Value::as_i64).unwrap_or(0);
+
+    // Prefer server-side aggregations when present — a `size: 0` agg query
+    // returns no hits, so the hits grid would otherwise be empty. Flatten the
+    // buckets/metrics into a table instead.
+    if let Some(aggs) = resp.get("aggregations").and_then(Value::as_object) {
+        if !aggs.is_empty() {
+            if let Some((names, rows)) = flatten_aggregations(aggs) {
+                let columns = names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| Column {
+                        name: name.clone(),
+                        type_name: infer_agg_type(&rows, i).to_string(),
+                    })
+                    .collect();
+                let n = rows.len();
+                return Ok(QueryResult {
+                    columns,
+                    rows,
+                    tag: Some(format!("{n} group{} · took {took} ms", plural(n))),
+                });
+            }
+        }
+    }
+
     let total = resp
         .get("hits")
         .and_then(|h| h.get("total"))
@@ -284,6 +309,204 @@ fn run_search(p: &Profile, sql: &str) -> Result<QueryResult, String> {
         rows,
         tag: Some(format!("{total} hits · took {took} ms")),
     })
+}
+
+/// One in-progress output row, keyed by column name (order tracked separately).
+type AggRow = std::collections::HashMap<String, Value>;
+
+/// Bucket scalar fields that are never sub-aggregations.
+const RESERVED_BUCKET_KEYS: [&str; 7] = [
+    "key",
+    "key_as_string",
+    "doc_count",
+    "from",
+    "to",
+    "from_as_string",
+    "to_as_string",
+];
+
+/// Flatten an Elasticsearch `aggregations` object into `(column order, rows)`.
+///
+/// Handles the common shapes: bucket aggs (`terms`, `histogram`,
+/// `date_histogram`, `range`, `filters` — anything with a `buckets` array or
+/// object), optionally nested, each contributing its key + `doc_count`, plus
+/// metric sub-aggs (single-value `avg`/`sum`/`min`/`max`/`cardinality`/
+/// `value_count`, and multi-value `stats`/`extended_stats`). Single-bucket aggs
+/// (`filter`/`global`) annotate rows with a count and recurse. Returns `None`
+/// when there's nothing tabular to render.
+fn flatten_aggregations(
+    aggs: &serde_json::Map<String, Value>,
+) -> Option<(Vec<String>, Vec<Vec<Value>>)> {
+    let mut columns: Vec<String> = Vec::new();
+    let mut rows: Vec<AggRow> = vec![AggRow::new()];
+    walk_aggs(aggs, &mut columns, &mut rows);
+    if columns.is_empty() {
+        return None;
+    }
+    let out = rows
+        .into_iter()
+        .map(|m| {
+            columns
+                .iter()
+                .map(|c| m.get(c).cloned().unwrap_or(Value::Null))
+                .collect()
+        })
+        .collect();
+    Some((columns, out))
+}
+
+/// Walk one level of aggregations: metrics add columns to the current rows;
+/// bucket aggs multiply rows (one per bucket) and recurse.
+fn walk_aggs(
+    aggs: &serde_json::Map<String, Value>,
+    columns: &mut Vec<String>,
+    rows: &mut Vec<AggRow>,
+) {
+    // 1) Metric aggs first — add columns without changing the row count.
+    for (name, val) in aggs {
+        let Some(obj) = val.as_object() else { continue };
+        if obj.contains_key("buckets") || obj.contains_key("doc_count") {
+            continue; // bucket / single-bucket → phase 2
+        }
+        add_metric(name, obj, columns, rows);
+    }
+    // 2) Bucket + single-bucket aggs — expand or annotate rows.
+    for (name, val) in aggs {
+        let Some(obj) = val.as_object() else { continue };
+        if let Some(buckets) = obj.get("buckets") {
+            let list = normalize_buckets(buckets);
+            let key_col = name.clone();
+            let count_col = format!("{name}.doc_count");
+            ensure_col(columns, &key_col);
+            ensure_col(columns, &count_col);
+            let mut expanded: Vec<AggRow> = Vec::new();
+            for base in rows.iter() {
+                for (key, bucket) in &list {
+                    let mut r = base.clone();
+                    r.insert(key_col.clone(), key.clone());
+                    r.insert(
+                        count_col.clone(),
+                        bucket.get("doc_count").cloned().unwrap_or(Value::Null),
+                    );
+                    let sub = sub_aggs(bucket);
+                    let mut sub_rows = vec![r];
+                    if !sub.is_empty() {
+                        walk_aggs(&sub, columns, &mut sub_rows);
+                    }
+                    expanded.extend(sub_rows);
+                }
+            }
+            *rows = expanded;
+        } else if obj.contains_key("doc_count") {
+            // Single-bucket agg (filter/global): annotate every row + recurse.
+            let count_col = format!("{name}.doc_count");
+            ensure_col(columns, &count_col);
+            let c = obj.get("doc_count").cloned().unwrap_or(Value::Null);
+            for r in rows.iter_mut() {
+                r.insert(count_col.clone(), c.clone());
+            }
+            let sub = sub_aggs(obj);
+            if !sub.is_empty() {
+                walk_aggs(&sub, columns, rows);
+            }
+        }
+    }
+}
+
+/// Add a metric aggregation's value(s) as column(s) on every current row.
+fn add_metric(
+    name: &str,
+    obj: &serde_json::Map<String, Value>,
+    columns: &mut Vec<String>,
+    rows: &mut [AggRow],
+) {
+    if let Some(v) = obj.get("value") {
+        // Single-value metric (avg/sum/min/max/cardinality/value_count).
+        ensure_col(columns, name);
+        for r in rows.iter_mut() {
+            r.insert(name.to_string(), v.clone());
+        }
+        return;
+    }
+    // Multi-value metric (stats/extended_stats): flatten numeric leaves as
+    // `name.<stat>` in encounter order.
+    for (k, v) in obj {
+        if v.is_number() {
+            let col = format!("{name}.{k}");
+            ensure_col(columns, &col);
+            for r in rows.iter_mut() {
+                r.insert(col.clone(), v.clone());
+            }
+        }
+    }
+}
+
+/// Normalise a `buckets` value (array for terms/histogram/range, object for
+/// filters / keyed ranges) into `(key, bucket-object)` pairs.
+fn normalize_buckets(buckets: &Value) -> Vec<(Value, serde_json::Map<String, Value>)> {
+    match buckets {
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|b| {
+                b.as_object().map(|o| {
+                    let key = o
+                        .get("key_as_string")
+                        .cloned()
+                        .or_else(|| o.get("key").cloned())
+                        .unwrap_or(Value::Null);
+                    (key, o.clone())
+                })
+            })
+            .collect(),
+        Value::Object(map) => map
+            .iter()
+            .filter_map(|(name, b)| {
+                b.as_object()
+                    .map(|o| (Value::String(name.clone()), o.clone()))
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Object-valued fields of a bucket that are sub-aggregations (not scalars like
+/// `key`/`doc_count`).
+fn sub_aggs(obj: &serde_json::Map<String, Value>) -> serde_json::Map<String, Value> {
+    obj.iter()
+        .filter(|(k, v)| v.is_object() && !RESERVED_BUCKET_KEYS.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
+
+/// Append `name` to `columns` if not already present.
+fn ensure_col(columns: &mut Vec<String>, name: &str) {
+    if !columns.iter().any(|c| c == name) {
+        columns.push(name.to_string());
+    }
+}
+
+/// Guess a type for an aggregation column from its values so numeric columns
+/// right-align in the grid.
+fn infer_agg_type(rows: &[Vec<Value>], col: usize) -> &'static str {
+    let mut saw_number = false;
+    for r in rows {
+        match r.get(col) {
+            None | Some(Value::Null) => {}
+            Some(Value::Number(n)) => {
+                saw_number = true;
+                if n.as_i64().is_none() && n.as_u64().is_none() {
+                    return "double";
+                }
+            }
+            Some(Value::Bool(_)) => return "boolean",
+            _ => return "keyword",
+        }
+    }
+    if saw_number {
+        "long"
+    } else {
+        "keyword"
+    }
 }
 
 // ── HTTP plumbing ───────────────────────────────────────────────────────────
@@ -727,6 +950,66 @@ fn human_size(bytes: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flatten_terms_with_metric_subagg() {
+        // terms(by_dept) → avg(avg_salary), mirroring a real `size:0` response.
+        let aggs = serde_json::json!({
+            "by_dept": {
+                "buckets": [
+                    { "key": "Engineering", "doc_count": 3, "avg_salary": { "value": 138333.0 } },
+                    { "key": "Sales", "doc_count": 2, "avg_salary": { "value": 92000.0 } }
+                ]
+            }
+        });
+        let (cols, rows) = flatten_aggregations(aggs.as_object().unwrap()).unwrap();
+        assert_eq!(cols, ["by_dept", "by_dept.doc_count", "avg_salary"]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0][0], serde_json::json!("Engineering"));
+        assert_eq!(rows[0][1], serde_json::json!(3));
+        assert_eq!(rows[0][2], serde_json::json!(138333.0));
+    }
+
+    #[test]
+    fn flatten_stats_metric() {
+        let aggs = serde_json::json!({
+            "price_stats": { "count": 3, "min": 1.0, "max": 9.0, "avg": 5.0, "sum": 15.0 }
+        });
+        let (cols, rows) = flatten_aggregations(aggs.as_object().unwrap()).unwrap();
+        // Numeric leaves flattened as `price_stats.<stat>`.
+        assert!(cols.contains(&"price_stats.avg".to_string()));
+        assert!(cols.contains(&"price_stats.count".to_string()));
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn flatten_nested_buckets() {
+        // terms(by_dept) → terms(by_active): rows multiply across levels.
+        let aggs = serde_json::json!({
+            "by_dept": { "buckets": [
+                { "key": "Eng", "doc_count": 2, "by_active": { "buckets": [
+                    { "key_as_string": "true", "key": 1, "doc_count": 2 }
+                ]}}
+            ]}
+        });
+        let (cols, rows) = flatten_aggregations(aggs.as_object().unwrap()).unwrap();
+        assert_eq!(
+            cols,
+            [
+                "by_dept",
+                "by_dept.doc_count",
+                "by_active",
+                "by_active.doc_count"
+            ]
+        );
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0][2], serde_json::json!("true"));
+    }
+
+    #[test]
+    fn flatten_none_when_empty() {
+        assert!(flatten_aggregations(serde_json::json!({}).as_object().unwrap()).is_none());
+    }
 
     #[test]
     fn base64_matches_known_vectors() {

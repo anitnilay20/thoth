@@ -84,8 +84,16 @@ impl DataView {
             return;
         };
 
+        // Fall back to the (unique) handle when no explicit id is set, so two
+        // id-less DataViews don't share egui state (view toggle, scroll pos).
+        let node_id = if self.id.is_empty() {
+            self.handle.as_str()
+        } else {
+            self.id.as_str()
+        };
+
         // Per-node table/json/raw toggle, remembered across frames.
-        let mem_id = ui.make_persistent_id((self.id.as_str(), "data_view_mode"));
+        let mem_id = ui.make_persistent_id((node_id, "data_view_mode"));
         let mut mode = ViewMode::from_u8(ui.data(|d| d.get_temp(mem_id).unwrap_or(0u8)));
 
         // Header row: [Table|JSON|Raw] segmented tabs · count · <spacer> ·
@@ -99,7 +107,7 @@ impl DataView {
                 ViewMode::Raw => "raw",
             };
             if let Some(v) = ButtonGroups::builder()
-                .id(format!("{}_views", self.id))
+                .id(format!("{node_id}_views"))
                 .items(vec![
                     ButtonGroupItem::builder()
                         .value("table")
@@ -123,10 +131,16 @@ impl DataView {
                 };
             }
             ui.add_space(8.0);
-            let count = self
-                .caption
-                .clone()
-                .unwrap_or_else(|| format!("{} rows", page.total));
+            // The resolver caps a read at LIMIT, so the fallback count reflects
+            // the rows actually drawn rather than over-reporting a large dataset.
+            let count = self.caption.clone().unwrap_or_else(|| {
+                let shown = page.rows.len() as u64;
+                if page.total > shown {
+                    format!("{shown} of {} rows", page.total)
+                } else {
+                    format!("{} rows", page.total)
+                }
+            });
             ui.add(
                 Typography::builder()
                     .text(count)
@@ -169,11 +183,11 @@ impl DataView {
         ui.data_mut(|d| d.insert_temp(mem_id, mode.as_u8()));
 
         egui::ScrollArea::both()
-            .id_salt((self.id.as_str(), "data_view_scroll"))
+            .id_salt((node_id, "data_view_scroll"))
             .show(ui, |ui| match mode {
                 ViewMode::Json => {
                     JsonTree::builder()
-                        .id(format!("{}_tree", self.id))
+                        .id(format!("{node_id}_tree"))
                         .value(records_value(&page))
                         .build()
                         .show(ui);
@@ -216,7 +230,9 @@ impl DataView {
     }
 }
 
-/// Reconstruct the page's rows as a JSON array of objects (column name → cell).
+/// Reconstruct the page's rows as a JSON array of objects (column name → cell),
+/// typing each value from its column's hint so numbers/booleans render as JSON
+/// scalars rather than quoted strings in the JSON/Raw views.
 #[cfg(feature = "egui")]
 fn records_value(page: &crate::dataset::DatasetPage) -> serde_json::Value {
     let records: Vec<serde_json::Value> = page
@@ -227,13 +243,44 @@ fn records_value(page: &crate::dataset::DatasetPage) -> serde_json::Value {
             for (c, col) in page.columns.iter().enumerate() {
                 obj.insert(
                     col.name.clone(),
-                    serde_json::Value::String(row.get(c).cloned().unwrap_or_default()),
+                    typed_cell(row.get(c).map(String::as_str).unwrap_or(""), &col.type_hint),
                 );
             }
             serde_json::Value::Object(obj)
         })
         .collect();
     serde_json::Value::Array(records)
+}
+
+/// Reconstruct a single cell as a typed JSON value from its column's SQL type
+/// hint. Rows reach the host as strings (published that way), so numeric/boolean
+/// columns are parsed back; anything that doesn't parse stays a string, and an
+/// empty cell stays an empty string.
+#[cfg(feature = "egui")]
+fn typed_cell(cell: &str, type_hint: &str) -> serde_json::Value {
+    use crate::components::ColumnType;
+    use serde_json::Value;
+    if cell.is_empty() {
+        return Value::String(String::new());
+    }
+    match ColumnType::from_sql(type_hint) {
+        ColumnType::Integer => cell
+            .parse::<i64>()
+            .map(Value::from)
+            .unwrap_or_else(|_| Value::String(cell.to_string())),
+        ColumnType::Float => cell
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map(Value::Number)
+            .unwrap_or_else(|| Value::String(cell.to_string())),
+        ColumnType::Boolean => match cell.to_ascii_lowercase().as_str() {
+            "true" | "t" | "1" => Value::Bool(true),
+            "false" | "f" | "0" => Value::Bool(false),
+            _ => Value::String(cell.to_string()),
+        },
+        _ => Value::String(cell.to_string()),
+    }
 }
 
 /// Serialize the page's rows to a JSON string (pretty when `pretty`).
