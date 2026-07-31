@@ -201,6 +201,11 @@ impl TableView {
         // whole column newline-separated, header first.
         if let Some(action) = copy_action.get() {
             let text = match action {
+                CopyAction::Cell(r, c) => rows
+                    .get(r)
+                    .and_then(|row| row.get(c))
+                    .map(node_text)
+                    .unwrap_or_default(),
                 CopyAction::Row(r) => rows
                     .get(r)
                     .map(|row| row.iter().map(node_text).collect::<Vec<_>>().join("\t"))
@@ -390,19 +395,33 @@ fn node_text(node: &crate::render_node::RenderNode) -> String {
 /// resolved to clipboard text after the grid is drawn.
 #[derive(Clone, Copy)]
 enum CopyAction {
+    Cell(usize, usize),
     Row(usize),
     Column(usize),
 }
 
-/// Right-click "Copy row / Copy column" menu for a cell. Records the request in
-/// `action` (resolved to text post-render); doesn't touch the clipboard itself.
-/// `col` is `None` for the row-number gutter, which offers "Copy row" only.
+/// Right-click "Copy cell / Copy row / Copy column" menu for a cell. Records the
+/// request in `action` (resolved to text post-render); doesn't touch the
+/// clipboard itself. `col` is `None` for the row-number gutter, which offers
+/// "Copy row" only.
 fn copy_menu(
     ui: &mut egui::Ui,
     action: &std::cell::Cell<Option<CopyAction>>,
     row: usize,
     col: Option<usize>,
 ) {
+    // Context-menu text is 2pt smaller than the default.
+    for style in [egui::TextStyle::Button, egui::TextStyle::Body] {
+        if let Some(font) = ui.style_mut().text_styles.get_mut(&style) {
+            font.size = (font.size - 2.0).max(1.0);
+        }
+    }
+    if let Some(col) = col
+        && ui.button("Copy cell").clicked()
+    {
+        action.set(Some(CopyAction::Cell(row, col)));
+        ui.close();
+    }
     if ui.button("Copy row").clicked() {
         action.set(Some(CopyAction::Row(row)));
         ui.close();

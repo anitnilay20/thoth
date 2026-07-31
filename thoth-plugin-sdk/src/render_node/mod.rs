@@ -42,7 +42,7 @@ pub struct UiEvent {
 
 use crate::components::{
     Badge, Breadcrumbs, Button, ButtonGroups, Card, Checkbox, Code, CodeEditor, Collapsible,
-    Colored, Column, DataRow, Footer, Group, Icon, IconButton, Input, JsonTree, KeyValue,
+    Colored, Column, DataRow, DataView, Footer, Group, Icon, IconButton, Input, JsonTree, KeyValue,
     KeyValueList, Link, List, Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row,
     Scroll, Select, Separator, SidebarHeader, Slider, Spacer, Spinner, Split, TableView, Tabs,
     ToggleSwitch, Typography, VSplit,
@@ -106,6 +106,8 @@ pub enum RenderNode {
     Table(TableView),
     /// A [`JsonTree`] viewer.
     JsonTree(JsonTree),
+    /// A host-rendered, data-bound view of a published dataset ([`DataView`]).
+    DataView(DataView),
     /// A [`SidebarHeader`].
     SidebarHeader(SidebarHeader),
     /// A colored pill [`Badge`].

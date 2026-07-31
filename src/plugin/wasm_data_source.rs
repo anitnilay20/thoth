@@ -756,6 +756,59 @@ impl thoth::plugin::signals::Host for DataSourcePluginState {
     }
 }
 
+// ── dataset-bus WIT import — plugin publishes datasets into the host registry ─
+
+impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
+    fn publish(
+        &mut self,
+        name: String,
+        columns: Vec<thoth::plugin::data_producer::DatasetColumn>,
+        rows: Vec<Vec<String>>,
+    ) -> String {
+        crate::plugin::datasets::publish(
+            &self.plugin_id,
+            &self.instance_id,
+            name,
+            "dataset".to_string(),
+            Vec::new(),
+            to_registry_columns(columns),
+            rows,
+        )
+    }
+
+    fn update(
+        &mut self,
+        handle: String,
+        columns: Vec<thoth::plugin::data_producer::DatasetColumn>,
+        rows: Vec<Vec<String>>,
+    ) {
+        // Scoped to this instance so a plugin can only mutate its own datasets.
+        crate::plugin::datasets::update(
+            &self.instance_id,
+            &handle,
+            to_registry_columns(columns),
+            rows,
+        );
+    }
+
+    fn release(&mut self, handle: String) {
+        crate::plugin::datasets::release(&self.instance_id, &handle);
+    }
+}
+
+/// Map WIT dataset columns to the host registry's column type.
+fn to_registry_columns(
+    columns: Vec<thoth::plugin::data_producer::DatasetColumn>,
+) -> Vec<crate::plugin::datasets::DatasetColumn> {
+    columns
+        .into_iter()
+        .map(|c| crate::plugin::datasets::DatasetColumn {
+            name: c.name,
+            type_hint: c.type_hint,
+        })
+        .collect()
+}
+
 // ── websocket WIT import — host owns the connection, streams frames back ──────
 
 impl thoth::plugin::websocket::Host for DataSourcePluginState {
@@ -1166,6 +1219,15 @@ impl WasmDataSourceLoader {
 
         // 9. Register the websocket import (host-owned WS connections).
         thoth::plugin::websocket::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
+            |e| ThothError::PluginLoadError {
+                path: wasm_path.to_path_buf(),
+                reason: e.to_string(),
+            },
+        )?;
+
+        // 10. Register the dataset-bus import (plugin PUBLISHES datasets to the
+        //     host registry, then embeds the handle in a `data-view` node).
+        thoth::plugin::dataset_bus::add_to_linker::<_, HasSelf<_>>(&mut linker, |s| s).map_err(
             |e| ThothError::PluginLoadError {
                 path: wasm_path.to_path_buf(),
                 reason: e.to_string(),

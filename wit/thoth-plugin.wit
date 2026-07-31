@@ -812,6 +812,38 @@ interface data-producer {
 }
 
 
+// ---------------------------------------------------------------------------
+// dataset-bus — host-provided import (plugin PUSHES a dataset to the host)
+//
+// A plugin publishes tabular data into the host's single-owned registry and
+// gets back an opaque `handle`. It then embeds that handle in a `data-view`
+// render node; the host draws the data itself (table / json-tree), so the
+// plugin delegates *display* without shipping rows into its own UI or
+// re-implementing a table. Datasets are stamped with the calling instance and
+// dropped when its tab closes.
+// ---------------------------------------------------------------------------
+
+interface dataset-bus {
+    use data-producer.{dataset-column};
+
+    /// Publish a dataset; returns a handle to embed in a `data-view` node.
+    /// A fresh publish REPLACES this instance's previous dataset (the old rows
+    /// are dropped immediately) — to refresh in place without dropping, use
+    /// `update` with the same handle.
+    /// Returns an empty string if publishing fails (the registry lock could not
+    /// be acquired); callers must treat that sentinel as "not published" rather
+    /// than embedding it as a `data-view` handle.
+    publish: func(name: string, columns: list<dataset-column>, rows: list<list<string>>) -> string;
+
+    /// Replace the columns + rows behind an existing handle (on new data), so
+    /// the handle a `data-view` node references stays stable across updates.
+    update: func(handle: string, columns: list<dataset-column>, rows: list<list<string>>);
+
+    /// Drop a published dataset early (otherwise it's dropped when the tab closes).
+    release: func(handle: string);
+}
+
+
 /// Every plugin must satisfy this base world.
 world base-plugin {
     export plugin-meta;
@@ -865,6 +897,7 @@ world data-source-plugin {
     import db-runtime;
     import signals;
     import websocket;
+    import dataset-bus;
     export data-source;
     export ui-component;
     export tab-host;

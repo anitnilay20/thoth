@@ -175,6 +175,11 @@ impl Sidebar {
         self.chart_studio.set_columns(columns);
     }
 
+    /// Preselect a Chart Studio data source (used by the "open in Charts" action).
+    pub fn select_chart_source(&mut self, tab_id: TabId) {
+        self.chart_studio.select_source(tab_id);
+    }
+
     /// Update the Chart Studio's "Open Charts" list.
     pub fn set_chart_open(&mut self, open: Vec<(TabId, String)>) {
         self.chart_studio.set_open_charts(open);

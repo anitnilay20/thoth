@@ -14,6 +14,7 @@ mod checkbox;
 mod code;
 mod code_editor;
 mod data_row;
+mod data_view;
 #[cfg(feature = "egui")]
 pub(crate) mod helpers;
 mod icon;
@@ -54,6 +55,7 @@ pub use code_editor::{CodeEditor, CodeEditorOutput, CustomSyntax, RunRequest};
 #[cfg(feature = "egui")]
 pub use data_row::DataRowOutput;
 pub use data_row::{DataRow, DataRowIcon, RowHighlights};
+pub use data_view::DataView;
 pub use icon::Icon;
 pub use icon_button::IconButton;
 pub use input::Input;

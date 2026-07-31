@@ -12,7 +12,8 @@ use thoth_plugin_sdk::PluginMeta;
 
 use bindings::exports::thoth::plugin::{
     data_producer::{
-        Dataset as ProducerDataset, Guest as DataProducerGuest, PluginError as ProducerError,
+        Dataset as ProducerDataset, DatasetColumn as ProducerColumn, Guest as DataProducerGuest,
+        PluginError as ProducerError,
     },
     data_source::{
         ConfigEntry, FieldSchema, Guest as DataSourceGuest, PaneOutput, PluginError, SourceSchema,
@@ -914,15 +915,89 @@ impl SettingsGuest for UrlSourcePlugin {
     }
 }
 
-// ── data-producer: url-source doesn't yet expose its response as a dataset ───
-// (structured-response → dataset is a follow-up); required export, so return a
-// clear error for now.
+// ── data-producer: expose the last JSON response as a tabular dataset ────────
+// so it can be charted (the "Charts" shortcut) or consumed by other plugins.
 impl DataProducerGuest for UrlSourcePlugin {
     fn provide_dataset() -> Result<ProducerDataset, ProducerError> {
-        Err(ProducerError {
-            code: 1,
-            message: "url-source does not provide datasets yet".to_string(),
+        STATE.with(|st| {
+            let Some(resp) = st.response.as_ref() else {
+                return Err(producer_err("no response yet — send a request first"));
+            };
+            if let Some(err) = &resp.error {
+                return Err(producer_err(err.clone()));
+            }
+            let Some(parsed) = resp.parsed_body.clone() else {
+                return Err(producer_err("response body is not JSON"));
+            };
+
+            // A single object becomes a one-row table; an array of objects a
+            // multi-row one. Columns are the union of object keys in first-seen
+            // order, typed from the first value seen for each.
+            let items = normalise_array(parsed)
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let mut colnames: Vec<String> = Vec::new();
+            let mut coltypes: Vec<String> = Vec::new();
+            for item in &items {
+                if let Some(obj) = item.as_object() {
+                    for (k, v) in obj {
+                        if !colnames.iter().any(|c| c == k) {
+                            colnames.push(k.clone());
+                            coltypes.push(type_hint(v));
+                        }
+                    }
+                }
+            }
+            if colnames.is_empty() {
+                return Err(producer_err("response is not a table of objects"));
+            }
+
+            let columns = colnames
+                .iter()
+                .zip(&coltypes)
+                .map(|(name, type_hint)| ProducerColumn {
+                    name: name.clone(),
+                    type_hint: type_hint.clone(),
+                })
+                .collect();
+            let rows = items
+                .iter()
+                .map(|item| {
+                    colnames
+                        .iter()
+                        .map(|name| item.get(name).map(cell_to_string).unwrap_or_default())
+                        .collect()
+                })
+                .collect();
+
+            Ok(ProducerDataset {
+                name: "response".to_string(),
+                kind: "http-response".to_string(),
+                columns,
+                rows,
+            })
         })
+    }
+}
+
+/// Build a `data-producer` error with the default code.
+fn producer_err(message: impl Into<String>) -> ProducerError {
+    ProducerError {
+        code: 1,
+        message: message.into(),
+    }
+}
+
+/// Render a JSON cell as a table string: scalars verbatim, `null` as empty,
+/// nested objects/arrays as compact JSON.
+fn cell_to_string(v: &Value) -> String {
+    match v {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        other => serde_json::to_string(other).unwrap_or_default(),
     }
 }
 

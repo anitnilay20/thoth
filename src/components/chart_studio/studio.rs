@@ -73,6 +73,13 @@ impl ChartStudio {
         self.producers = producers;
     }
 
+    /// Preselect a data source (e.g. when opened via a plugin's "open in
+    /// Charts" action). Also leaves any prior edit mode.
+    pub fn select_source(&mut self, tab_id: TabId) {
+        self.selected = Some(tab_id);
+        self.editing = None;
+    }
+
     /// Feed the resolved column schema for the selected source. Resets the axis
     /// selection to sensible defaults (X = first column, Y = first numeric).
     pub fn set_columns(&mut self, columns: Vec<ColumnInfo>) {

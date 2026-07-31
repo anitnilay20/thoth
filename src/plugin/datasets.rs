@@ -1,11 +1,13 @@
-//! Host-side registry for the plugin **datasets** channel — the pull half of
-//! the plugin data ecosystem (#118).
+//! Host-side registry for the plugin **datasets** channel — the host's single
+//! owned copy of tabular data (part of the plugin data ecosystem, #118).
 //!
-//! A producer plugin publishes a tabular `Dataset` (typed columns + string
-//! cells for v1) through the `datasets` WIT import; the host stores it here and
-//! the Datasets sidebar panel browses/previews it. Consumer plugins (#114) read
-//! it paged. The registry LRU-evicts old datasets and drops a producer's
-//! datasets when its instance closes (reconciled each frame, like signals).
+//! A producer publishes a dataset (typed columns + string cells for v1) via the
+//! `dataset-bus` WIT import and gets back a handle; it embeds that handle in a
+//! `data-view` render node, and the host draws the data itself (#114) — reading
+//! rows here by handle so they never re-enter the plugin. The registry
+//! LRU-evicts old datasets, replaces an instance's dataset on re-`publish`, and
+//! drops a producer's datasets when its instance closes (reconciled each frame,
+//! like signals).
 //!
 //! The row payload is intentionally a `Vec<Vec<String>>` (row-major strings) so
 //! v1 stays simple; the seam is designed to swap to Apache Arrow IPC later
@@ -81,6 +83,23 @@ impl Registry {
         }
         self.order.retain(|o| o != id);
     }
+
+    /// Evict the least-recently-accessed datasets while over either the count or
+    /// the byte budget. Keeps at least one dataset (guard on `len > 1`) so a
+    /// single oversized dataset can't loop forever.
+    fn enforce_budget(&mut self) {
+        while self.order.len() > 1 && (self.order.len() > MAX_DATASETS || self.bytes > MAX_BYTES) {
+            let Some(victim) = self
+                .order
+                .iter()
+                .min_by_key(|id| self.map.get(*id).map(|s| s.last_access))
+                .cloned()
+            else {
+                break;
+            };
+            self.drop_dataset(&victim);
+        }
+    }
 }
 
 /// Estimated heap footprint of a dataset's rows + metadata strings.
@@ -125,6 +144,19 @@ pub fn publish(
     let Ok(mut reg) = REGISTRY.lock() else {
         return String::new();
     };
+    // A fresh publish from an instance replaces that instance's previous
+    // dataset — dropping the old rows immediately rather than waiting for LRU
+    // or tab close. A producer that wants to keep the same dataset live should
+    // call `update` (same handle) instead of re-publishing.
+    let stale: Vec<String> = reg
+        .map
+        .values()
+        .filter(|s| s.meta.source_instance == source_instance)
+        .map(|s| s.meta.id.clone())
+        .collect();
+    for id in stale {
+        reg.drop_dataset(&id);
+    }
     reg.seq += 1;
     let id = format!("ds-{}", reg.seq);
     let meta = DatasetMeta {
@@ -150,22 +182,9 @@ pub fn publish(
     );
     reg.order.push(id.clone());
 
-    // LRU eviction while over either the count or the byte budget. Keep at
-    // least the just-published dataset (guard on len > 1) so a single
-    // oversized dataset doesn't loop forever.
-    while reg.order.len() > 1 && (reg.order.len() > MAX_DATASETS || reg.bytes > MAX_BYTES) {
-        // Least-recently-accessed still-present id (never the new one — it's
-        // the most recently accessed).
-        let Some(victim) = reg
-            .order
-            .iter()
-            .min_by_key(|id| reg.map.get(*id).map(|s| s.last_access))
-            .cloned()
-        else {
-            break;
-        };
-        reg.drop_dataset(&victim);
-    }
+    // Evict down to the count/byte budget (never the just-published dataset —
+    // it's the most recently accessed).
+    reg.enforce_budget();
     id
 }
 
@@ -200,9 +219,45 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
     })
 }
 
-/// Remove a dataset (idempotent).
-pub fn release(id: &str) {
+/// Replace the columns + rows behind an existing handle in place (keeping its
+/// id, source, and byte-budget accounting current). No-op unless the handle is
+/// known and owned by `instance` — a producer can only mutate its own datasets.
+pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<Vec<String>>) {
     if let Ok(mut reg) = REGISTRY.lock() {
+        let Some(stored) = reg.map.get(id) else {
+            return;
+        };
+        if stored.meta.source_instance != instance {
+            return;
+        }
+        let meta = DatasetMeta {
+            row_count: rows.len() as u64,
+            columns,
+            ..stored.meta.clone()
+        };
+        let size = dataset_bytes(&meta, &rows);
+        let old_size = stored.size;
+        if let Some(stored) = reg.map.get_mut(id) {
+            stored.meta = meta;
+            stored.rows = rows;
+            stored.size = size;
+            stored.last_access = Instant::now();
+        }
+        reg.bytes = reg.bytes.saturating_add(size).saturating_sub(old_size);
+        // A larger dataset may push us over budget — evict to fit.
+        reg.enforce_budget();
+    }
+}
+
+/// Remove a dataset (idempotent). No-op unless the handle is owned by
+/// `instance`, so a producer can only release its own datasets.
+pub fn release(instance: &str, id: &str) {
+    if let Ok(mut reg) = REGISTRY.lock()
+        && reg
+            .map
+            .get(id)
+            .is_some_and(|s| s.meta.source_instance == instance)
+    {
         reg.drop_dataset(id);
     }
 }
@@ -245,6 +300,62 @@ mod tests {
             name: name.to_string(),
             type_hint: "text".to_string(),
         }
+    }
+
+    #[test]
+    fn publish_replaces_same_instance() {
+        let _g = reset();
+        let first = publish(
+            "p",
+            "p#1",
+            "a".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![],
+        );
+        let second = publish(
+            "p",
+            "p#1",
+            "b".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![],
+        );
+        // The fresh publish from p#1 dropped its previous dataset.
+        let metas = list();
+        assert_eq!(metas.len(), 1);
+        assert_eq!(metas[0].name, "b");
+        assert!(read(&first, 0, 10).is_none());
+        assert!(read(&second, 0, 10).is_some());
+    }
+
+    #[test]
+    fn update_replaces_rows_in_place() {
+        let _g = reset();
+        let id = publish(
+            "p",
+            "p#1",
+            "a".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["1".into()]],
+        );
+        update(
+            "p#1",
+            &id,
+            vec![col("x")],
+            vec![vec!["1".into()], vec!["2".into()], vec!["3".into()]],
+        );
+        let page = read(&id, 0, 10).unwrap();
+        assert_eq!(page.total, 3); // same handle, new rows
+        assert_eq!(list().len(), 1);
+
+        // A different instance can't mutate this dataset.
+        update("other#1", &id, vec![col("x")], vec![]);
+        assert_eq!(read(&id, 0, 10).unwrap().total, 3);
     }
 
     #[test]
@@ -319,11 +430,14 @@ mod tests {
         let _g = reset();
         let id = publish_small("p#1", "a");
         assert_eq!(list().len(), 1);
-        release(&id);
+        // A different instance can't release it.
+        release("other#1", &id);
+        assert_eq!(list().len(), 1);
+        release("p#1", &id);
         assert!(list().is_empty());
         assert!(read(&id, 0, 1).is_none());
         // Idempotent.
-        release(&id);
+        release("p#1", &id);
     }
 
     #[test]

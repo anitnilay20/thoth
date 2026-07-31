@@ -218,6 +218,10 @@ pub(crate) struct State {
     /// introspection can run concurrently with (and alongside) a query.
     pub pending: Vec<(String, Kind)>,
     pub result: Option<Result<Value, String>>,
+    /// Registry handle for the current result published to the data bus; the
+    /// results pane renders it as a host-owned `DataView`. `None` until a
+    /// resultset is published.
+    pub dataset_handle: Option<String>,
     /// The SQL of the most recently executed query (a single statement, a
     /// selection, or the whole script) — what the results grid and Explain
     /// reflect, so Explain analyses exactly what was run, not the whole editor.
@@ -300,6 +304,7 @@ impl State {
             query_started: None,
             pending: Vec::new(),
             result: None,
+            dataset_handle: None,
             last_run_sql: None,
             row_limit: ROW_PAGE,
             run_limited: false,
@@ -348,8 +353,13 @@ pub(crate) static STATE: PluginState<State> = PluginState::new();
 
 /// Engines offered in the connection dialog's engine picker, in display order.
 /// The picker renders these; the click handler maps the row index back to one.
-pub(crate) const SUPPORTED_ENGINES: [Engine; 3] =
-    [Engine::Postgres, Engine::Mysql, Engine::Elasticsearch];
+/// Engine picker groups `(category label, engines)` — drives the categorised
+/// card grid in the connection dialog. The group index is embedded in each
+/// list's widget id (`engine-list-<i>`) so clicks route back to the right engine.
+pub(crate) const ENGINE_GROUPS: [(&str, &[Engine]); 2] = [
+    ("SQL Databases", &[Engine::Postgres, Engine::Mysql]),
+    ("Search", &[Engine::Elasticsearch]),
+];
 
 /// Rows rendered per tree level before a "Show more" row appears (and how many
 /// each "Show more" click reveals).

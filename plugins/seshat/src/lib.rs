@@ -4,6 +4,7 @@ mod constants;
 mod db;
 mod es;
 mod events;
+mod icons;
 mod mysql;
 mod pg;
 mod shim;

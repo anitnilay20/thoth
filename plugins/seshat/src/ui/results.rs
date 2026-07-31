@@ -1,8 +1,8 @@
 use serde_json::Value;
 use thoth_plugin_sdk::{
     components::{
-        Colored, Column, ColumnType, Progress, Row, Separator, Size, Spinner, Split, TableView,
-        Tabs, Typography, TypographyVariant,
+        Colored, Column, ColumnType, DataView, Progress, Row, Separator, Size, Spinner, Split,
+        TableView, Tabs, Typography, TypographyVariant,
     },
     render_node::RenderNode,
 };
@@ -57,7 +57,7 @@ fn results(st: &State) -> RenderNode {
         );
     }
     match &st.result {
-        Some(Ok(result)) => results_table(result, st.has_more),
+        Some(Ok(result)) => results_table(result, st.has_more, st.dataset_handle.as_deref()),
         Some(Err(msg)) => RenderNode::Row(
             Row::builder()
                 .padding(12.0)
@@ -83,64 +83,95 @@ fn results(st: &State) -> RenderNode {
 /// Render a `QueryResult` ({columns, rows, tag}) as a typed table, or — for a
 /// statement with no result set — its command tag. `has_more` shows a "Load
 /// more" affordance when the run hit the row cap.
-fn results_table(result: &Value, has_more: bool) -> RenderNode {
+fn results_table(result: &Value, has_more: bool, handle: Option<&str>) -> RenderNode {
     let columns = result.get("columns").and_then(|c| c.as_array());
     let rows = result.get("rows").and_then(|r| r.as_array());
     let tag = result.get("tag").and_then(|t| t.as_str());
 
     match (columns, rows) {
         (Some(cols), Some(rows)) if !cols.is_empty() => {
-            let col_types: Vec<ColumnType> = cols
-                .iter()
-                .map(|c| ColumnType::from_sql(c.get("type").and_then(|t| t.as_str()).unwrap_or("")))
-                .collect();
-            let headers: Vec<String> = cols
-                .iter()
-                .map(|c| {
-                    let name = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
-                    let ty = c.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                    if ty.is_empty() {
-                        name.to_string()
-                    } else {
-                        format!("{name}  ·  {ty}")
-                    }
-                })
-                .collect();
-            // Style each cell by its column's SQL type (datetime, numeric, uuid,
-            // …); numeric/temporal columns are right-aligned by the table.
-            let table_rows: Vec<Vec<RenderNode>> = rows
-                .iter()
-                .map(|row| {
-                    row.as_array()
-                        .map(|cs| {
-                            cs.iter()
-                                .enumerate()
-                                .map(|(i, v)| {
-                                    RenderNode::typed_cell(
-                                        v,
-                                        col_types.get(i).copied().unwrap_or_default(),
-                                    )
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default()
-                })
-                .collect();
-
-            let footer = format!(
+            // Summary line: "N rows (capped) · <tag>". For the DataView path it
+            // rides in the header (its `caption`); the inline fallback shows it
+            // in a footer instead.
+            let summary = format!(
                 "{} row{}{}{}",
                 rows.len(),
                 if rows.len() == 1 { "" } else { "s" },
                 if has_more { " (capped)" } else { "" },
                 tag.map(|t| format!("  ·  {t}")).unwrap_or_default()
             );
-            let mut footer_row: Vec<RenderNode> = vec![muted(&footer)];
-            if has_more {
-                footer_row.push(RenderNode::Spacer(
-                    thoth_plugin_sdk::components::Spacer::builder()
-                        .size(8.0)
+
+            // Prefer the host-owned DataView (data published to the bus, drawn
+            // by the host with a table/JSON/raw toggle + Charts shortcut). Fall
+            // back to an inline TableView if the dataset wasn't published.
+            let table_node = if let Some(handle) = handle {
+                RenderNode::DataView(
+                    DataView::builder()
+                        .id("seshat-results")
+                        .handle(handle)
+                        .caption(summary.clone())
                         .build(),
-                ));
+                )
+            } else {
+                let col_types: Vec<ColumnType> = cols
+                    .iter()
+                    .map(|c| {
+                        ColumnType::from_sql(c.get("type").and_then(|t| t.as_str()).unwrap_or(""))
+                    })
+                    .collect();
+                let headers: Vec<String> = cols
+                    .iter()
+                    .map(|c| {
+                        let name = c.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                        let ty = c.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                        if ty.is_empty() {
+                            name.to_string()
+                        } else {
+                            format!("{name}  ·  {ty}")
+                        }
+                    })
+                    .collect();
+                let table_rows: Vec<Vec<RenderNode>> = rows
+                    .iter()
+                    .map(|row| {
+                        row.as_array()
+                            .map(|cs| {
+                                cs.iter()
+                                    .enumerate()
+                                    .map(|(i, v)| {
+                                        RenderNode::typed_cell(
+                                            v,
+                                            col_types.get(i).copied().unwrap_or_default(),
+                                        )
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                RenderNode::Table(
+                    TableView::builder()
+                        .headers(headers)
+                        .rows(table_rows)
+                        .column_types(col_types)
+                        .build(),
+                )
+            };
+
+            // The DataView carries its summary in the header, so the footer is
+            // only needed for the inline fallback (count) or a Load-more affordance.
+            let mut footer_row: Vec<RenderNode> = Vec::new();
+            if handle.is_none() {
+                footer_row.push(muted(&summary));
+            }
+            if has_more {
+                if !footer_row.is_empty() {
+                    footer_row.push(RenderNode::Spacer(
+                        thoth_plugin_sdk::components::Spacer::builder()
+                            .size(8.0)
+                            .build(),
+                    ));
+                }
                 footer_row.push(crate::ui::widgets::button(
                     "load-more",
                     "Load more",
@@ -151,17 +182,14 @@ fn results_table(result: &Value, has_more: bool) -> RenderNode {
                     false,
                 ));
             }
+            if footer_row.is_empty() {
+                return table_node;
+            }
             RenderNode::Column(
                 Column::builder()
                     .gap(4.0)
                     .children(vec![
-                        RenderNode::Table(
-                            TableView::builder()
-                                .headers(headers)
-                                .rows(table_rows)
-                                .column_types(col_types)
-                                .build(),
-                        ),
+                        table_node,
                         RenderNode::Row(
                             Row::builder()
                                 .padding(6.0)

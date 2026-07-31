@@ -2,12 +2,12 @@
 //! enter credentials (matching the design handoff's `NewConnectionDialog`).
 
 use thoth_plugin_sdk::components::{
-    Align, Checkbox, Colored, Column, Input, List, ListItem, ListItemBadge, Modal, Row, Select,
-    SelectOption, Separator, Size, Spacer, Split, Typography,
+    Align, Checkbox, Colored, Column, Input, List, ListItem, ListItemPrefix, Modal, Row, Select,
+    SelectOption, Separator, Size, Spacer, Split, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
-use crate::state::{engine_badge, engine_label, State, SUPPORTED_ENGINES};
+use crate::state::{engine_label, State, ENGINE_GROUPS};
 use crate::ui::widgets::{button, text_input};
 use crate::ICON_PLUG;
 
@@ -49,41 +49,48 @@ pub(crate) fn dialog(st: &State, prefix: &str) -> RenderNode {
     ))
 }
 
-/// Step 0 — a framed list of engine cards (colour-coded badge + label + kind).
+/// Step 0 — engine cards grouped by category (SQL / Search), each a real logo
+/// tile + label + kind. One framed list per group; the group index is baked
+/// into the list id so a click routes back to the right engine.
 fn engine_step(prefix: &str) -> RenderNode {
-    let items: Vec<ListItem> = SUPPORTED_ENGINES
-        .iter()
-        .map(|&e| {
-            let (short, color) = engine_badge(e);
-            let kind = if e == crate::db::Engine::Elasticsearch {
-                "Search"
-            } else {
-                "SQL"
-            };
-            ListItem::builder()
-                .title(engine_label(e))
-                .description(kind)
-                .badge(ListItemBadge::builder().text(short).color(color).build())
-                .build()
-        })
-        .collect();
-
-    RenderNode::Column(
-        Column::builder()
-            .gap(12.0)
-            .children(vec![
-                RenderNode::List(
-                    List::builder()
-                        .id(format!("{prefix}engine-list"))
-                        .items(items)
-                        .shrink_to_fit(true)
-                        .framed(true)
-                        .build(),
-                ),
-                footer(prefix, false, "Connect"),
-            ])
-            .build(),
-    )
+    let mut children: Vec<RenderNode> = Vec::new();
+    for (gi, (label, engines)) in ENGINE_GROUPS.iter().enumerate() {
+        children.push(RenderNode::Text(
+            Typography::builder()
+                .text(label.to_uppercase())
+                .variant(TypographyVariant::GroupLabel)
+                .build(),
+        ));
+        let items: Vec<ListItem> = engines
+            .iter()
+            .map(|&e| {
+                let (uri, bytes) = crate::icons::engine_logo(e);
+                let kind = if e == crate::db::Engine::Elasticsearch {
+                    "Search · Query DSL"
+                } else {
+                    "Relational · SQL"
+                };
+                ListItem::builder()
+                    .title(engine_label(e))
+                    .description(kind)
+                    .prefix(ListItemPrefix::Image {
+                        uri: uri.to_string(),
+                        bytes: bytes.to_vec(),
+                    })
+                    .build()
+            })
+            .collect();
+        children.push(RenderNode::List(
+            List::builder()
+                .id(format!("{prefix}engine-list-{gi}"))
+                .items(items)
+                .shrink_to_fit(true)
+                .framed(true)
+                .build(),
+        ));
+    }
+    children.push(footer(prefix, false, "Connect"));
+    RenderNode::Column(Column::builder().gap(12.0).children(children).build())
 }
 
 /// Step 1 — the credentials form matching the design's field layout.

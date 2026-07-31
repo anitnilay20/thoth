@@ -142,7 +142,7 @@ futures-util = "0.3"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 wit-bindgen = "0.54.0"
 egui-notify = "0.22.0"
-egui_extras = "0.34.1"
+egui_extras = { version = "0.34.1", features = ["image"] }
 tempfile = "3.15"
 egui_code_editor = "0.2.24"
 egui_commonmark = "0.23"

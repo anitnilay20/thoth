@@ -4,6 +4,7 @@
 use serde_json::Value;
 
 use crate::bindings::exports::thoth::plugin::ui_component::UiEvent;
+use crate::bindings::thoth::plugin::dataset_bus::{self, DatasetColumn};
 use crate::bindings::thoth::plugin::signals::{self, Status as SignalStatus};
 use crate::bindings::thoth::plugin::{file_dialog, secure_storage, ui_tabs};
 use crate::db::{self, ColumnInfo, TableInfo};
@@ -16,6 +17,50 @@ use crate::state::{
 /// Parse a widget value that may be a JSON-encoded string or a bare string.
 fn parse_str(s: &str) -> String {
     serde_json::from_str::<String>(s).unwrap_or_else(|_| s.to_string())
+}
+
+/// Build the data-bus publish payload `(name, columns, rows)` from a resultset
+/// value (`{columns, rows}`). Rows are normalized to the column count. `None`
+/// if the value isn't a resultset.
+fn build_dataset(
+    value: &Value,
+    last_sql: Option<&str>,
+) -> Option<(String, Vec<DatasetColumn>, Vec<Vec<String>>)> {
+    let cols = value.get("columns")?.as_array()?;
+    let rows = value.get("rows")?.as_array()?;
+    let columns: Vec<DatasetColumn> = cols
+        .iter()
+        .map(|c| DatasetColumn {
+            name: c
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .to_string(),
+            type_hint: c
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string(),
+        })
+        .collect();
+    let width = columns.len();
+    let drows: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            let mut cells: Vec<String> = row
+                .as_array()
+                .map(|cs| cs.iter().map(crate::cell_to_string).collect())
+                .unwrap_or_default();
+            cells.resize(width, String::new());
+            cells
+        })
+        .collect();
+    let name = last_sql
+        .and_then(|s| s.trim().lines().next())
+        .map(|l| l.chars().take(48).collect::<String>())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "query result".to_string());
+    Some((name, columns, drows))
 }
 
 // ── status-bar signals (#111) ───────────────────────────────────────────────
@@ -137,12 +182,20 @@ pub(crate) fn apply_event(st: &mut State, event: &UiEvent) {
         }
         // Engine picked on step 0 (a row in the engine list) → seed engine +
         // default port, advance to the credentials form.
-        "engine-list" if event.kind == "click" => {
-            if let Some(&engine) = event
-                .value
-                .parse::<usize>()
-                .ok()
-                .and_then(|i| crate::state::SUPPORTED_ENGINES.get(i))
+        // Engine picked from a category list (`engine-list-<group>`); the click
+        // value is the row index within that group.
+        key if key.starts_with("engine-list-") && event.kind == "click" => {
+            if let Some(&engine) = key
+                .strip_prefix("engine-list-")
+                .and_then(|g| g.parse::<usize>().ok())
+                .and_then(|gi| crate::state::ENGINE_GROUPS.get(gi))
+                .and_then(|(_, engines)| {
+                    event
+                        .value
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|i| engines.get(i))
+                })
             {
                 apply_engine_defaults(st, engine);
                 st.dialog_form_step = true;
@@ -392,6 +445,12 @@ fn execute_current(st: &mut State) {
     };
     st.loading = true;
     st.result = None;
+    // Drop the previous result's dataset from the host registry now, so a query
+    // that errors or returns no rows still frees it (a successful run instead
+    // replaces it via a fresh publish below).
+    if let Some(handle) = st.dataset_handle.take() {
+        dataset_bus::release(&handle);
+    }
     st.query_started = Some(std::time::Instant::now());
     // Push a "running" signal to the host status bar; the result handler
     // overwrites it with the row count + latency (Ready) or an Error.
@@ -1203,6 +1262,18 @@ fn handle_query_result(st: &mut State, event: &UiEvent) {
                 }
                 Some(Err(_)) => signals::emit_signal("rows", "", SignalStatus::Error, 0),
                 None => {}
+            }
+            // Publish a resultset to the data bus so the results pane renders it
+            // as a host-owned DataView (delegating the table to the host). Build
+            // the payload under the immutable borrow, then store the handle.
+            let published = match &st.result {
+                Some(Ok(value)) if value.get("rows").and_then(|r| r.as_array()).is_some() => {
+                    build_dataset(value, st.last_run_sql.as_deref())
+                }
+                _ => None,
+            };
+            if let Some((name, columns, rows)) = published {
+                st.dataset_handle = Some(dataset_bus::publish(&name, &columns, &rows));
             }
         }
         Kind::QueryExplain => {
