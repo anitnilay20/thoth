@@ -791,6 +791,15 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
         );
     }
 
+    fn append(&mut self, handle: String, rows: Vec<Vec<String>>) {
+        crate::plugin::datasets::append(&self.instance_id, &handle, rows);
+        // The app is reactive; a background stream must nudge egui or the newly
+        // appended rows won't show until the next user interaction.
+        if let Some(ctx) = crate::EGUI_CTX.get() {
+            ctx.request_repaint();
+        }
+    }
+
     fn release(&mut self, handle: String) {
         crate::plugin::datasets::release(&self.instance_id, &handle);
     }

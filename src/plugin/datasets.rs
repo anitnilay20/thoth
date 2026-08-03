@@ -26,6 +26,9 @@ const MAX_BYTES: usize = 128 * 1024 * 1024;
 /// Hard cap on rows returned by a single `read`, so a huge dataset never
 /// crosses the boundary at once.
 pub const MAX_READ_LIMIT: u32 = 1000;
+/// Rows retained by a streaming dataset (`append`). Past this the oldest rows
+/// are dropped (ring buffer) so an unbounded stream can't grow without limit.
+const MAX_STREAM_ROWS: usize = 50_000;
 
 #[derive(Clone, Debug)]
 pub struct DatasetColumn {
@@ -102,17 +105,19 @@ impl Registry {
     }
 }
 
+/// Estimated heap footprint of a single row (used so `append` can track bytes
+/// incrementally instead of re-summing every retained row each call).
+fn row_bytes(row: &[String]) -> usize {
+    std::mem::size_of::<Vec<String>>()
+        + row
+            .iter()
+            .map(|c| std::mem::size_of::<String>() + c.len())
+            .sum::<usize>()
+}
+
 /// Estimated heap footprint of a dataset's rows + metadata strings.
 fn dataset_bytes(meta: &DatasetMeta, rows: &[Vec<String>]) -> usize {
-    let cells: usize = rows
-        .iter()
-        .map(|r| {
-            std::mem::size_of::<Vec<String>>()
-                + r.iter()
-                    .map(|c| std::mem::size_of::<String>() + c.len())
-                    .sum::<usize>()
-        })
-        .sum();
+    let cells: usize = rows.iter().map(|r| row_bytes(r)).sum();
     let cols: usize = meta
         .columns
         .iter()
@@ -249,6 +254,46 @@ pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<V
     }
 }
 
+/// Append rows to an existing handle, keeping its columns — for streaming
+/// producers that push batches over time. Retains only the most recent
+/// [`MAX_STREAM_ROWS`] (a ring buffer, so an unbounded stream stays bounded),
+/// keeps the byte total and budget current. No-op unless the handle is known
+/// and owned by `instance`.
+pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
+    if rows.is_empty() {
+        return;
+    }
+    if let Ok(mut reg) = REGISTRY.lock() {
+        let Some(stored) = reg.map.get_mut(id) else {
+            return;
+        };
+        if stored.meta.source_instance != instance {
+            return;
+        }
+        // Track bytes incrementally (add appended, subtract evicted) rather than
+        // re-summing every retained row — an append-heavy stream would otherwise
+        // be O(rows) per call.
+        let added: usize = rows.iter().map(|r| row_bytes(r)).sum();
+        stored.rows.extend(rows);
+        // Ring-buffer: drop the oldest rows past the cap.
+        let overflow = stored.rows.len().saturating_sub(MAX_STREAM_ROWS);
+        let evicted: usize = if overflow > 0 {
+            let e = stored.rows[..overflow].iter().map(|r| row_bytes(r)).sum();
+            stored.rows.drain(..overflow);
+            e
+        } else {
+            0
+        };
+        stored.meta.row_count = stored.rows.len() as u64;
+        let old_size = stored.size;
+        stored.size = old_size.saturating_add(added).saturating_sub(evicted);
+        let new_size = stored.size;
+        stored.last_access = Instant::now();
+        reg.bytes = reg.bytes.saturating_add(new_size).saturating_sub(old_size);
+        reg.enforce_budget();
+    }
+}
+
 /// Remove a dataset (idempotent). No-op unless the handle is owned by
 /// `instance`, so a producer can only release its own datasets.
 pub fn release(instance: &str, id: &str) {
@@ -356,6 +401,37 @@ mod tests {
         // A different instance can't mutate this dataset.
         update("other#1", &id, vec![col("x")], vec![]);
         assert_eq!(read(&id, 0, 10).unwrap().total, 3);
+    }
+
+    #[test]
+    fn append_adds_rows_scoped_to_instance() {
+        let _g = reset();
+        let id = publish(
+            "p",
+            "p#1",
+            "a".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["1".into()]],
+        );
+        append("p#1", &id, vec![vec!["2".into()], vec!["3".into()]]);
+        assert_eq!(read(&id, 0, 10).unwrap().total, 3);
+        // A different instance can't append.
+        append("other#1", &id, vec![vec!["9".into()]]);
+        assert_eq!(read(&id, 0, 10).unwrap().total, 3);
+    }
+
+    #[test]
+    fn append_ring_buffers_past_cap() {
+        let _g = reset();
+        let id = publish_small("p#1", "a"); // seeds one row "1"
+        let batch: Vec<Vec<String>> = (0..MAX_STREAM_ROWS).map(|i| vec![i.to_string()]).collect();
+        append("p#1", &id, batch);
+        let page = read(&id, 0, MAX_READ_LIMIT).unwrap();
+        // Capped to MAX_STREAM_ROWS; the seed row was the oldest and got dropped.
+        assert_eq!(page.total, MAX_STREAM_ROWS as u64);
+        assert_eq!(page.rows[0][0], "0");
     }
 
     #[test]
