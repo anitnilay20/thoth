@@ -2333,24 +2333,7 @@ impl ThothApp {
     fn perform_export(&self, handle: &str, exporter_id: &str, name: &str) {
         use crate::notification::{Notification, NotificationManager};
 
-        // Read the whole dataset (paged) into a columns + rows records blob.
-        let mut columns: Vec<String> = Vec::new();
-        let mut rows: Vec<Vec<String>> = Vec::new();
-        let mut offset: u64 = 0;
-        while let Some(page) =
-            crate::plugin::datasets::read(handle, offset, crate::plugin::datasets::MAX_READ_LIMIT)
-        {
-            if columns.is_empty() {
-                columns = page.columns.iter().map(|c| c.name.clone()).collect();
-            }
-            let got = page.rows.len() as u64;
-            rows.extend(page.rows);
-            offset += got;
-            if got == 0 || offset >= page.total {
-                break;
-            }
-        }
-        let records = serde_json::json!({ "columns": columns, "rows": rows }).to_string();
+        let records = dataset_records_json(handle);
 
         // Resolve the exporter plugin + engine, then run it.
         let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
@@ -2586,6 +2569,130 @@ pub fn list_exporters_for_view() -> Vec<thoth_plugin_sdk::dataset::ExporterInfo>
                 .unwrap_or_default(),
         })
         .collect()
+}
+
+/// Enumerate installed renderer plugins for the DataView's view dropdown.
+pub fn list_renderers_for_view() -> Vec<thoth_plugin_sdk::dataset::RendererInfo> {
+    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+        return Vec::new();
+    };
+    pm.get_all_plugin_by_capability(crate::plugin::Capability::Renderer)
+        .into_iter()
+        .map(|p| thoth_plugin_sdk::dataset::RendererInfo {
+            id: p.id.clone(),
+            label: p.name.clone(),
+        })
+        .collect()
+}
+
+/// Serialize a dataset (paged reads) into the `{columns, rows}` records-json the
+/// exporter/renderer plugins consume.
+fn dataset_records_json(handle: &str) -> String {
+    let mut columns: Vec<String> = Vec::new();
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut offset: u64 = 0;
+    while let Some(page) =
+        crate::plugin::datasets::read(handle, offset, crate::plugin::datasets::MAX_READ_LIMIT)
+    {
+        if columns.is_empty() {
+            columns = page.columns.iter().map(|c| c.name.clone()).collect();
+        }
+        let got = page.rows.len() as u64;
+        rows.extend(page.rows);
+        offset += got;
+        if got == 0 || offset >= page.total {
+            break;
+        }
+    }
+    serde_json::json!({ "columns": columns, "rows": rows }).to_string()
+}
+
+/// `(plugin id, handle) -> (row count, node-json)`.
+type RenderCacheMap = std::collections::HashMap<(String, String), (u64, String)>;
+
+/// Cache of rendered node-json per (plugin, handle), keyed by row count so a
+/// renderer plugin isn't re-run every frame — only when its data changes.
+static RENDER_CACHE: std::sync::LazyLock<std::sync::Mutex<RenderCacheMap>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(RenderCacheMap::new()));
+
+/// Render a dataset through a renderer plugin (host-side): consent-gate, read
+/// the rows, run the plugin (cached), and return the `RenderNode` tree to draw.
+pub fn render_dataset_with_plugin(
+    plugin_id: &str,
+    handle: &str,
+) -> thoth_plugin_sdk::dataset::PluginRenderResult {
+    use thoth_plugin_sdk::dataset::PluginRenderResult;
+
+    let Some(meta) = crate::plugin::datasets::meta(handle) else {
+        return PluginRenderResult::Unavailable;
+    };
+    let source = meta.source_plugin.clone();
+
+    // Consent-gate handing another producer's data to the renderer plugin.
+    if !crate::plugin::dataset_grants::is_granted(plugin_id, &source) {
+        if crate::plugin::dataset_grants::mark_pending(plugin_id, &source) {
+            let (ga, sa) = (plugin_id.to_string(), source.clone());
+            let (gd, sd) = (plugin_id.to_string(), source.clone());
+            crate::consent::manager::ConsentManager::push_dataset_consent(
+                plugin_id,
+                &source,
+                &meta.name,
+                std::sync::Arc::new(move |_| {
+                    crate::plugin::dataset_grants::grant(&ga, &sa);
+                    if let Some(ctx) = crate::EGUI_CTX.get() {
+                        ctx.request_repaint();
+                    }
+                }),
+                std::sync::Arc::new(move |_| {
+                    crate::plugin::dataset_grants::clear_pending(&gd, &sd);
+                }),
+            );
+        }
+        return PluginRenderResult::ConsentPending;
+    }
+
+    let key = (plugin_id.to_string(), handle.to_string());
+
+    // Serve the cached node tree unless the row count changed.
+    if let Ok(cache) = RENDER_CACHE.lock()
+        && let Some((rows, node_json)) = cache.get(&key)
+        && *rows == meta.row_count
+    {
+        return parse_render_node(node_json);
+    }
+
+    let records = dataset_records_json(handle);
+    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+        return PluginRenderResult::Unavailable;
+    };
+    let Some(plugin) = pm.get_plugin_by_id(plugin_id) else {
+        return PluginRenderResult::Unavailable;
+    };
+    let Some(location) = plugin.location.as_deref() else {
+        return PluginRenderResult::Unavailable;
+    };
+    let node_json = match crate::plugin::wasm_renderer::run_render(
+        pm.engine(),
+        std::path::Path::new(location),
+        &records,
+    ) {
+        Ok(j) => j,
+        Err(_) => return PluginRenderResult::Unavailable,
+    };
+
+    if let Ok(mut cache) = RENDER_CACHE.lock() {
+        cache.insert(key, (meta.row_count, node_json.clone()));
+    }
+    parse_render_node(&node_json)
+}
+
+/// Deserialize a renderer plugin's node-json into a drawable `RenderNode`.
+fn parse_render_node(node_json: &str) -> thoth_plugin_sdk::dataset::PluginRenderResult {
+    use thoth_plugin_sdk::dataset::PluginRenderResult;
+    match serde_json::from_str::<thoth_plugin_sdk::render_node::RenderNode>(node_json) {
+        Ok(node) => PluginRenderResult::Rendered(Box::new(node)),
+        Err(_) => PluginRenderResult::Unavailable,
+    }
 }
 
 pub fn resolve_dataset_for_view(

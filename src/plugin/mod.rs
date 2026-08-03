@@ -18,6 +18,7 @@ pub mod wasm_exporter;
 pub mod wasm_file_viewer_loader;
 pub mod wasm_loader;
 pub mod wasm_plugin_settings;
+pub mod wasm_renderer;
 pub mod wasm_ui_component;
 pub mod websocket;
 
@@ -83,6 +84,9 @@ pub enum Capability {
     Theme,
     /// Opts the plugin in as a dataset producer for the data bus (#113).
     DataProducer,
+    /// Opts the plugin in as a dataset renderer (#135): it presents a host-owned
+    /// dataset as an extra view format in a DataView.
+    Renderer,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +148,7 @@ impl Display for Capability {
                 Capability::NewUIComponent => "New UI Component",
                 Capability::Theme => "Theme",
                 Capability::DataProducer => "Data Producer",
+                Capability::Renderer => "Renderer",
             }
         )
     }

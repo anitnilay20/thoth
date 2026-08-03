@@ -100,7 +100,7 @@ impl ConsentManager {
                 id,
                 title: "Dataset Access Consent".to_string(),
                 message: format!(
-                    "'{consumer}' wants to receive the dataset '{dataset}' (produced by '{source}') to export it."
+                    "'{consumer}' wants to receive the dataset '{dataset}' (produced by '{source}')."
                 ),
                 permissions: vec![PermissionEntry {
                     icon: egui_phosphor::regular::DATABASE,
