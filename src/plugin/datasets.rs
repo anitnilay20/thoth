@@ -105,17 +105,19 @@ impl Registry {
     }
 }
 
+/// Estimated heap footprint of a single row (used so `append` can track bytes
+/// incrementally instead of re-summing every retained row each call).
+fn row_bytes(row: &[String]) -> usize {
+    std::mem::size_of::<Vec<String>>()
+        + row
+            .iter()
+            .map(|c| std::mem::size_of::<String>() + c.len())
+            .sum::<usize>()
+}
+
 /// Estimated heap footprint of a dataset's rows + metadata strings.
 fn dataset_bytes(meta: &DatasetMeta, rows: &[Vec<String>]) -> usize {
-    let cells: usize = rows
-        .iter()
-        .map(|r| {
-            std::mem::size_of::<Vec<String>>()
-                + r.iter()
-                    .map(|c| std::mem::size_of::<String>() + c.len())
-                    .sum::<usize>()
-        })
-        .sum();
+    let cells: usize = rows.iter().map(|r| row_bytes(r)).sum();
     let cols: usize = meta
         .columns
         .iter()
@@ -268,16 +270,24 @@ pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
         if stored.meta.source_instance != instance {
             return;
         }
+        // Track bytes incrementally (add appended, subtract evicted) rather than
+        // re-summing every retained row — an append-heavy stream would otherwise
+        // be O(rows) per call.
+        let added: usize = rows.iter().map(|r| row_bytes(r)).sum();
         stored.rows.extend(rows);
         // Ring-buffer: drop the oldest rows past the cap.
         let overflow = stored.rows.len().saturating_sub(MAX_STREAM_ROWS);
-        if overflow > 0 {
-            stored.rows.drain(0..overflow);
-        }
+        let evicted: usize = if overflow > 0 {
+            let e = stored.rows[..overflow].iter().map(|r| row_bytes(r)).sum();
+            stored.rows.drain(..overflow);
+            e
+        } else {
+            0
+        };
         stored.meta.row_count = stored.rows.len() as u64;
-        let new_size = dataset_bytes(&stored.meta, &stored.rows);
         let old_size = stored.size;
-        stored.size = new_size;
+        stored.size = old_size.saturating_add(added).saturating_sub(evicted);
+        let new_size = stored.size;
         stored.last_access = Instant::now();
         reg.bytes = reg.bytes.saturating_add(new_size).saturating_sub(old_size);
         reg.enforce_budget();

@@ -2506,9 +2506,10 @@ pub mod thoth {
             #[allow(unused_unsafe, clippy::all)]
             /// Append rows to an existing handle, keeping its columns — for streaming
             /// producers (e.g. a Kafka/Redis tail) that push batches over time. The host
-            /// keeps only the most recent rows (older ones are dropped past a cap) so an
-            /// unbounded stream stays bounded, and refreshes any bound `data-view`.
-            /// No-op unless the handle is known and owned by the calling instance.
+            /// retains at most the 50,000 most recent rows, dropping older rows beyond
+            /// that limit, so an unbounded stream stays bounded, and refreshes any bound
+            /// `data-view`. No-op unless the handle is known and owned by the calling
+            /// instance.
             pub fn append(handle: &str, rows: &[_rt::Vec<_rt::String>]) -> () {
                 unsafe {
                     let mut cleanup_list = _rt::Vec::new();
