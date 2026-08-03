@@ -69,7 +69,7 @@ impl DataView {
     pub fn show(&self, ui: &mut egui::Ui, events: &mut Vec<crate::render_node::UiEvent>) {
         use crate::components::{
             Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonType, Code, ColumnType,
-            JsonTree, TableView, Typography, TypographyVariant,
+            JsonTree, Select, SelectOption, Size, TableView, Typography, TypographyVariant,
         };
         use crate::dataset::resolve_dataset;
         use crate::render_node::{RenderNode, UiEvent};
@@ -148,7 +148,8 @@ impl DataView {
                     .build(),
             );
 
-            // Actions hang off the right edge (Charts rightmost, then Copy).
+            // Actions hang off the right edge, so add rightmost-first to read
+            // Copy · Export · Charts left-to-right on screen.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add(
@@ -168,6 +169,44 @@ impl DataView {
                         value: String::new(),
                     });
                 }
+
+                // Export dropdown — lists installed exporter plugins; picking one
+                // emits an EXPORT_DATASET action the host runs against this handle.
+                // Value stays empty so the trigger always reads "Export" (it's an
+                // action menu, not a persisted selection).
+                let exporters = crate::dataset::exporters();
+                if !exporters.is_empty() {
+                    let options = exporters
+                        .iter()
+                        .map(|e| {
+                            SelectOption::builder()
+                                .value(e.id.clone())
+                                .label(format!("{} (.{})", e.label, e.extension))
+                                .build()
+                        })
+                        .collect();
+                    let selected = Select::builder()
+                        .id(format!("{node_id}_export"))
+                        .value("")
+                        .prefix_label("Export")
+                        .options(options)
+                        .size(Size::Small)
+                        .width(92.0)
+                        .build()
+                        .show(ui)
+                        .inner
+                        .selected;
+                    if let Some(exporter) = selected {
+                        events.push(UiEvent {
+                            id: crate::actions::EXPORT_DATASET.to_string(),
+                            kind: "click".to_string(),
+                            value:
+                                serde_json::json!({ "handle": self.handle, "exporter": exporter })
+                                    .to_string(),
+                        });
+                    }
+                }
+
                 // `copy` is handled in-widget (no plugin round-trip).
                 ui.add(
                     Button::builder()

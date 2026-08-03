@@ -193,6 +193,12 @@ pub fn publish(
     id
 }
 
+/// Metadata (no rows) for a single dataset by id; `None` if unknown.
+pub fn meta(id: &str) -> Option<DatasetMeta> {
+    let reg = REGISTRY.lock().ok()?;
+    reg.map.get(id).map(|s| s.meta.clone())
+}
+
 /// Metadata for all published datasets, in publish order.
 pub fn list() -> Vec<DatasetMeta> {
     let Ok(reg) = REGISTRY.lock() else {

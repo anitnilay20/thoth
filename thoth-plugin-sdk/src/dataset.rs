@@ -43,3 +43,30 @@ pub fn set_dataset_resolver(resolver: Resolver) {
 pub fn resolve_dataset(handle: &str, limit: u32) -> Option<DatasetPage> {
     RESOLVER.get().and_then(|r| r(handle, limit))
 }
+
+/// An installed exporter plugin the [`DataView`](crate::components::DataView)
+/// offers in its "Export" dropdown.
+#[derive(Clone, Debug)]
+pub struct ExporterInfo {
+    /// Plugin id (routed back to the host to run the export).
+    pub id: String,
+    /// Display label, e.g. "CSV Export".
+    pub label: String,
+    /// Output extension without the dot, e.g. "csv".
+    pub extension: String,
+}
+
+/// `() -> installed exporters`. Installed by the host.
+type ExportersProvider = fn() -> Vec<ExporterInfo>;
+
+static EXPORTERS: OnceLock<ExportersProvider> = OnceLock::new();
+
+/// Install the host's exporter enumerator. Call once at startup.
+pub fn set_exporters_provider(provider: ExportersProvider) {
+    let _ = EXPORTERS.set(provider);
+}
+
+/// The exporter plugins currently installed (empty if none / no provider).
+pub fn exporters() -> Vec<ExporterInfo> {
+    EXPORTERS.get().map(|p| p()).unwrap_or_default()
+}

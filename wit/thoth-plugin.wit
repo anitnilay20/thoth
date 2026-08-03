@@ -521,7 +521,10 @@ interface exporter {
     available-options: func() -> list<export-option>;
 
     /// Perform the export.
-    /// `records-json` is a JSON array string of all records to export.
+    /// `records-json` is the host-owned dataset as a JSON object
+    /// `{ "columns": ["c1", ...], "rows": [["v1", ...], ...] }` — column order is
+    /// preserved and every cell is a string (v1 dataset shape). The host reads
+    /// its single owned copy and passes it here; the plugin never touches the bus.
     /// `options` is a flat key/value list of the user's chosen option values.
     /// Returns raw file bytes the host writes to disk.
     run: func(

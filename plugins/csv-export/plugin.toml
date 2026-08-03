@@ -1,0 +1,9 @@
+id           = "com.thoth.csv-export"
+name         = "CSV Export"
+version      = "0.1.0"
+description  = "Export a dataset to a CSV file"
+author       = "Thoth contributors"
+capabilities = ["exporter"]
+
+[exporter]
+output_extension = "csv"

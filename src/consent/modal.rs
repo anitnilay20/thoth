@@ -67,6 +67,10 @@ impl ContextComponent for ConsentModal {
                     render_footer(
                         ui,
                         &mut self.remember,
+                        // "Remember" only persists for domain-scoped (network)
+                        // consents; hide it for one-off consents like dataset
+                        // export, where it would be a no-op.
+                        request.domain.is_some(),
                         &mut accepted,
                         &mut cancelled,
                         &colors,
@@ -183,6 +187,7 @@ fn render_body(ui: &mut egui::Ui, request: &ConsentRequest, colors: &ThemeColors
 fn render_footer(
     ui: &mut egui::Ui,
     remember: &mut bool,
+    show_remember: bool,
     accepted: &mut bool,
     cancelled: &mut bool,
     colors: &ThemeColors,
@@ -197,47 +202,49 @@ fn render_footer(
         .fill(colors.bg_panel)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                // Custom checkbox — distinct from ToggleSwitch shape
-                let cb_size = egui::vec2(14.0, 14.0);
-                let (cb_rect, cb_resp) = ui.allocate_exact_size(cb_size, egui::Sense::click());
-                if cb_resp.clicked() {
-                    *remember = !*remember;
-                }
-                cb_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-                ui.painter().rect(
-                    cb_rect,
-                    CornerRadius::same(3),
-                    if *remember {
-                        colors.accent
-                    } else {
-                        Color32::TRANSPARENT
-                    },
-                    Stroke::new(
-                        1.0,
+                if show_remember {
+                    // Custom checkbox — distinct from ToggleSwitch shape
+                    let cb_size = egui::vec2(14.0, 14.0);
+                    let (cb_rect, cb_resp) = ui.allocate_exact_size(cb_size, egui::Sense::click());
+                    if cb_resp.clicked() {
+                        *remember = !*remember;
+                    }
+                    cb_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                    ui.painter().rect(
+                        cb_rect,
+                        CornerRadius::same(3),
                         if *remember {
                             colors.accent
                         } else {
-                            colors.surface_active
+                            Color32::TRANSPARENT
                         },
-                    ),
-                    egui::StrokeKind::Outside,
-                );
-                if *remember {
-                    ui.painter().text(
-                        cb_rect.center(),
-                        Align2::CENTER_CENTER,
-                        egui_phosphor::regular::CHECK,
-                        phosphor_font_id(10.0),
-                        colors.bg,
+                        Stroke::new(
+                            1.0,
+                            if *remember {
+                                colors.accent
+                            } else {
+                                colors.surface_active
+                            },
+                        ),
+                        egui::StrokeKind::Outside,
+                    );
+                    if *remember {
+                        ui.painter().text(
+                            cb_rect.center(),
+                            Align2::CENTER_CENTER,
+                            egui_phosphor::regular::CHECK,
+                            phosphor_font_id(10.0),
+                            colors.bg,
+                        );
+                    }
+                    ui.add_space(6.0);
+                    ui.add(
+                        Typography::builder()
+                            .text("Remember this choice")
+                            .variant(TypographyVariant::Subtitle)
+                            .build(),
                     );
                 }
-                ui.add_space(6.0);
-                ui.add(
-                    Typography::builder()
-                        .text("Remember this choice")
-                        .variant(TypographyVariant::Subtitle)
-                        .build(),
-                );
 
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;

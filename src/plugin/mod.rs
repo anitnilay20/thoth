@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::helpers::default_rate_limit;
 use serde::{Deserialize, Serialize};
 
+pub mod dataset_grants;
 pub mod datasets;
 pub mod manager;
 pub mod marketplace;
@@ -13,6 +14,7 @@ pub mod render_node;
 pub mod signals;
 pub mod theme_plugin;
 pub mod wasm_data_source;
+pub mod wasm_exporter;
 pub mod wasm_file_viewer_loader;
 pub mod wasm_loader;
 pub mod wasm_plugin_settings;

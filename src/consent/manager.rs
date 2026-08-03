@@ -85,6 +85,37 @@ impl ConsentManager {
         });
     }
 
+    /// Enqueue a cross-plugin dataset-read consent request (#116): `consumer`
+    /// wants to read `dataset` produced by `source`.
+    pub fn push_dataset_consent(
+        consumer: &str,
+        source: &str,
+        dataset: &str,
+        on_allow: ConsentCallback,
+        on_deny: ConsentCallback,
+    ) {
+        let id = format!("consent-{}", CONSENT_ID.fetch_add(1, Ordering::Relaxed));
+        Self::push(PendingConsent {
+            request: ConsentRequest {
+                id,
+                title: "Dataset Access Consent".to_string(),
+                message: format!(
+                    "'{consumer}' wants to receive the dataset '{dataset}' (produced by '{source}') to export it."
+                ),
+                permissions: vec![PermissionEntry {
+                    icon: egui_phosphor::regular::DATABASE,
+                    label: "Receive another plugin's dataset".to_string(),
+                    scope: format!("from {source}"),
+                    sensitive: true,
+                }],
+                domain: None,
+                plugin_id: Some(consumer.to_string()),
+            },
+            on_allow,
+            on_deny,
+        });
+    }
+
     /// Enqueue any consent request.
     pub fn push(consent: PendingConsent) {
         if let Some(mutex) = crate::CONSENT_MANAGER.get()

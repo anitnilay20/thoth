@@ -348,6 +348,7 @@ impl App for ThothApp {
         settings::Settings::store(&ctx, &self.settings);
 
         self.poll_plugin_panes(&ctx);
+        self.drain_pending_exports();
 
         if self.settings.ui.show_toolbar {
             self.render_toolbar(ui);
@@ -758,6 +759,12 @@ impl ThothApp {
         // bound to its own tab. Handled by the host, not forwarded to the plugin.
         if event.kind == "click" && event.widget_id == thoth_plugin_sdk::actions::OPEN_IN_CHARTS {
             self.open_charts_for(tab_id);
+            return;
+        }
+        // Reserved system action: a DataView's Export dropdown picked an exporter
+        // plugin for its dataset. Value = {"handle","exporter"}. Host-handled.
+        if event.kind == "click" && event.widget_id == thoth_plugin_sdk::actions::EXPORT_DATASET {
+            self.export_dataset(&event.value);
             return;
         }
         let mut handled = false;
@@ -2259,6 +2266,144 @@ impl ThothApp {
         );
     }
 
+    /// Run a DataView "Export" pick: read the host-owned dataset, gate consent to
+    /// hand it to the chosen exporter plugin, format it via that plugin, and save
+    /// the returned bytes. `value` is `{"handle","exporter"}` from the dropdown.
+    ///
+    /// If consent is still needed, a prompt is raised and the export is queued to
+    /// run automatically once the user approves (no second pick required).
+    fn export_dataset(&mut self, value: &str) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(value) else {
+            return;
+        };
+        let (Some(handle), Some(exporter_id)) = (
+            v.get("handle").and_then(|x| x.as_str()),
+            v.get("exporter").and_then(|x| x.as_str()),
+        ) else {
+            return;
+        };
+
+        let Some(meta) = crate::plugin::datasets::meta(handle) else {
+            Self::notify_dataset_unavailable();
+            return;
+        };
+        let source = meta.source_plugin.clone();
+
+        // Consent-gate handing another producer's data to the exporter plugin.
+        // On approval the export runs automatically (queued for the app to drain).
+        if !crate::plugin::dataset_grants::is_granted(exporter_id, &source) {
+            if crate::plugin::dataset_grants::mark_pending(exporter_id, &source) {
+                let (ea, sa) = (exporter_id.to_string(), source.clone());
+                let (ed, sd) = (exporter_id.to_string(), source.clone());
+                let (qh, qe) = (handle.to_string(), exporter_id.to_string());
+                crate::consent::manager::ConsentManager::push_dataset_consent(
+                    exporter_id,
+                    &source,
+                    &meta.name,
+                    std::sync::Arc::new(move |_| {
+                        crate::plugin::dataset_grants::grant(&ea, &sa);
+                        queue_export(&qh, &qe);
+                        if let Some(ctx) = crate::EGUI_CTX.get() {
+                            ctx.request_repaint();
+                        }
+                    }),
+                    std::sync::Arc::new(move |_| {
+                        crate::plugin::dataset_grants::clear_pending(&ed, &sd);
+                    }),
+                );
+            }
+            return;
+        }
+
+        self.perform_export(handle, exporter_id, &meta.name);
+    }
+
+    /// Drain export requests approved via a consent prompt and run them.
+    fn drain_pending_exports(&mut self) {
+        for (handle, exporter_id) in drain_queued_exports() {
+            let name = crate::plugin::datasets::meta(&handle)
+                .map(|m| m.name)
+                .unwrap_or_default();
+            self.perform_export(&handle, &exporter_id, &name);
+        }
+    }
+
+    /// Read the dataset, run it through the exporter plugin, and save the bytes.
+    /// Assumes consent has already been granted.
+    fn perform_export(&self, handle: &str, exporter_id: &str, name: &str) {
+        use crate::notification::{Notification, NotificationManager};
+
+        // Read the whole dataset (paged) into a columns + rows records blob.
+        let mut columns: Vec<String> = Vec::new();
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut offset: u64 = 0;
+        while let Some(page) =
+            crate::plugin::datasets::read(handle, offset, crate::plugin::datasets::MAX_READ_LIMIT)
+        {
+            if columns.is_empty() {
+                columns = page.columns.iter().map(|c| c.name.clone()).collect();
+            }
+            let got = page.rows.len() as u64;
+            rows.extend(page.rows);
+            offset += got;
+            if got == 0 || offset >= page.total {
+                break;
+            }
+        }
+        let records = serde_json::json!({ "columns": columns, "rows": rows }).to_string();
+
+        // Resolve the exporter plugin + engine, then run it.
+        let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+            return;
+        };
+        let Some(plugin) = pm.get_plugin_by_id(exporter_id) else {
+            return;
+        };
+        let Some(location) = plugin.location.as_deref() else {
+            return;
+        };
+        let ext = plugin
+            .exporter
+            .as_ref()
+            .map(|e| e.output_extension.clone())
+            .unwrap_or_else(|| "txt".to_string());
+
+        let bytes = match crate::plugin::wasm_exporter::run_export(
+            pm.engine(),
+            std::path::Path::new(location),
+            &records,
+            &[],
+        ) {
+            Ok(b) => b,
+            Err(e) => {
+                NotificationManager::notify_error(Notification::new(
+                    "Export failed",
+                    &e.to_string(),
+                ));
+                return;
+            }
+        };
+
+        // Save via a native dialog.
+        let default_name = format!("{}.{}", sanitize_filename(name), ext);
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter(&ext, &[ext.as_str()])
+            .save_file()
+        {
+            match std::fs::write(&path, &bytes) {
+                Ok(()) => NotificationManager::notify(
+                    Notification::new("Exported", &format!("Saved to {}", path.display()))
+                        .with_toast(true),
+                ),
+                Err(e) => NotificationManager::notify_error(Notification::new(
+                    "Export failed",
+                    &e.to_string(),
+                )),
+            };
+        }
+    }
+
     /// Activate an existing tab by id.
     fn focus_tab(&mut self, tab_id: crate::app::tab_manager::TabId) {
         self.window_state.tab_manager.focus_tab(tab_id);
@@ -2384,6 +2529,65 @@ type ResolvedDataset = (String, Vec<(String, String)>, Vec<Vec<String>>);
 /// Resolver installed into the SDK so `DataView` render nodes read dataset rows
 /// from the host's single-owned registry by handle. The rows are served from
 /// the host's copy; they never re-enter the plugin.
+/// Exports approved via a consent prompt, queued (handle, exporter id) for the
+/// app to run on the next frame — the consent callback can't reach app state.
+static PENDING_EXPORTS: std::sync::LazyLock<std::sync::Mutex<Vec<(String, String)>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+
+/// Queue an approved export to run on the next frame.
+fn queue_export(handle: &str, exporter_id: &str) {
+    if let Ok(mut q) = PENDING_EXPORTS.lock() {
+        q.push((handle.to_string(), exporter_id.to_string()));
+    }
+}
+
+/// Take all queued exports (drained each frame by the app).
+fn drain_queued_exports() -> Vec<(String, String)> {
+    PENDING_EXPORTS
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default()
+}
+
+/// A filesystem-friendly name from a dataset name (for the export default file).
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim_matches('_');
+    if trimmed.is_empty() {
+        "dataset".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Enumerate installed exporter plugins for the DataView's Export dropdown.
+pub fn list_exporters_for_view() -> Vec<thoth_plugin_sdk::dataset::ExporterInfo> {
+    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+        return Vec::new();
+    };
+    pm.get_all_plugin_by_capability(crate::plugin::Capability::Exporter)
+        .into_iter()
+        .map(|p| thoth_plugin_sdk::dataset::ExporterInfo {
+            id: p.id.clone(),
+            label: p.name.clone(),
+            extension: p
+                .exporter
+                .as_ref()
+                .map(|e| e.output_extension.clone())
+                .unwrap_or_default(),
+        })
+        .collect()
+}
+
 pub fn resolve_dataset_for_view(
     handle: &str,
     limit: u32,

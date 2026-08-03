@@ -14,3 +14,9 @@
 /// and implement `data-producer.provide-dataset`) for the resulting chart to
 /// have data to draw.
 pub const OPEN_IN_CHARTS: &str = "thoth:open-in-charts";
+
+/// Export a host-owned dataset through an exporter plugin. Emitted by a
+/// [`DataView`](crate::components::DataView)'s Export dropdown; the event value
+/// is `{"handle": "<dataset handle>", "exporter": "<plugin id>"}`. The host
+/// reads the rows, runs the chosen exporter, and saves the file.
+pub const EXPORT_DATASET: &str = "thoth:export-dataset";

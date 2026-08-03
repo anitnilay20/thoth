@@ -9,4 +9,4 @@ mod update_handler;
 pub use file_picker::pick_file;
 pub use shortcut_handler::ShortcutAction;
 pub use tab_manager::{TabEvent, TabId, TabManager, TabState, ThothTabViewer};
-pub use thoth_app::{ThothApp, resolve_dataset_for_view};
+pub use thoth_app::{ThothApp, list_exporters_for_view, resolve_dataset_for_view};

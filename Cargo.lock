@@ -1534,6 +1534,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "csv-export"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thoth-plugin-sdk",
+ "wit-bindgen-rt",
+]
+
+[[package]]
 name = "csv-loader"
 version = "0.1.0"
 dependencies = [
