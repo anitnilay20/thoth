@@ -225,9 +225,14 @@ impl DataView {
                 }
                 // A renderer plugin: the host reads the rows, gates consent, runs
                 // the plugin, and hands back a RenderNode tree we draw here.
+                // Renderer output is **display-only** — the producing plugin is
+                // stateless (push model) and can't handle events, so any
+                // interactions are discarded rather than routed to the producer.
                 plugin if plugin.starts_with("plugin:") => {
                     match render_with_plugin(&plugin["plugin:".len()..], &self.handle) {
-                        PluginRenderResult::Rendered(mut node) => node.show(ui, events),
+                        PluginRenderResult::Rendered(mut node) => {
+                            node.show(ui, &mut Vec::new())
+                        }
                         PluginRenderResult::ConsentPending => {
                             ui.add(
                                 Typography::builder()

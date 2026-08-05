@@ -19,6 +19,10 @@ wasmtime::component::bindgen!({
     world: "data-renderer-plugin",
 });
 
+/// Fuel budget for one render — bounded like the exporter so a runaway renderer
+/// traps instead of hanging the UI (this runs on the paint path).
+const RENDER_FUEL: u64 = 50_000_000_000;
+
 struct RendererState {
     wasi: WasiCtx,
     table: ResourceTable,
@@ -50,7 +54,7 @@ pub fn run_render(engine: &Engine, wasm_path: &Path, records_json: &str) -> Resu
         },
     );
     store
-        .set_fuel(u64::MAX / 2)
+        .set_fuel(RENDER_FUEL)
         .map_err(|e| load_err(e.to_string()))?;
 
     let component = Component::from_file(engine, wasm_path).map_err(|e| load_err(e.to_string()))?;
