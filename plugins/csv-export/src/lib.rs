@@ -47,6 +47,18 @@ fn esc(s: &str) -> String {
     }
 }
 
+/// Serialize `{columns, rows}` into CSV text (header + escaped rows).
+fn build_csv(columns: &[String], rows: &[Vec<String>]) -> String {
+    let mut out = String::new();
+    out.push_str(&columns.iter().map(|c| esc(c)).collect::<Vec<_>>().join(","));
+    out.push('\n');
+    for row in rows {
+        out.push_str(&row.iter().map(|c| esc(c)).collect::<Vec<_>>().join(","));
+        out.push('\n');
+    }
+    out
+}
+
 impl ExporterGuest for CsvExportPlugin {
     fn name() -> String {
         "CSV".to_string()
@@ -66,21 +78,7 @@ impl ExporterGuest for CsvExportPlugin {
             message: format!("invalid records-json: {e}"),
         })?;
 
-        let mut out = String::new();
-        out.push_str(
-            &recs
-                .columns
-                .iter()
-                .map(|c| esc(c))
-                .collect::<Vec<_>>()
-                .join(","),
-        );
-        out.push('\n');
-        for row in &recs.rows {
-            out.push_str(&row.iter().map(|c| esc(c)).collect::<Vec<_>>().join(","));
-            out.push('\n');
-        }
-        Ok(out.into_bytes())
+        Ok(build_csv(&recs.columns, &recs.rows).into_bytes())
     }
 }
 
@@ -105,3 +103,26 @@ impl SettingsGuest for CsvExportPlugin {
 }
 
 bindings::export!(CsvExportPlugin with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::{build_csv, esc};
+
+    #[test]
+    fn esc_quotes_only_when_needed() {
+        assert_eq!(esc("plain"), "plain");
+        assert_eq!(esc("a,b"), "\"a,b\"");
+        assert_eq!(esc("with \"quotes\""), "\"with \"\"quotes\"\"\"");
+        assert_eq!(esc("line\nbreak"), "\"line\nbreak\"");
+    }
+
+    #[test]
+    fn build_csv_writes_header_and_escaped_rows() {
+        let cols = vec!["id".to_string(), "note".to_string()];
+        let rows = vec![
+            vec!["1".to_string(), "x,y".to_string()],
+            vec!["2".to_string(), "plain".to_string()],
+        ];
+        assert_eq!(build_csv(&cols, &rows), "id,note\n1,\"x,y\"\n2,plain\n");
+    }
+}

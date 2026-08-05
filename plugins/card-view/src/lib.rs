@@ -22,6 +22,8 @@ use bindings::exports::thoth::plugin::{
 
 /// Cards per grid row.
 const COLUMNS: usize = 2;
+/// Max cards rendered (matches the host DataView row cap); extra rows are noted.
+const MAX_CARDS: usize = 1000;
 
 #[derive(PluginMeta)]
 #[plugin(
@@ -90,14 +92,16 @@ impl RendererGuest for CardViewPlugin {
             });
         }
 
-        let cards: Vec<RenderNode> = recs
-            .rows
+        // Cap the number of cards drawn; note any overflow.
+        let total = recs.rows.len();
+        let shown = total.min(MAX_CARDS);
+        let cards: Vec<RenderNode> = recs.rows[..shown]
             .iter()
             .map(|row| card_node(&recs.columns, row))
             .collect();
 
         // Lay the cards out COLUMNS-per-row via equal-width splits.
-        let grid: Vec<RenderNode> = cards
+        let mut grid: Vec<RenderNode> = cards
             .chunks(COLUMNS)
             .map(|chunk| {
                 if chunk.len() == 1 {
@@ -113,6 +117,10 @@ impl RendererGuest for CardViewPlugin {
                 }
             })
             .collect();
+
+        if total > shown {
+            grid.push(muted(format!("… {} more row(s) not shown.", total - shown)));
+        }
 
         let root = RenderNode::Column(Column::builder().gap(8.0).children(grid).build());
         serde_json::to_string(&root).map_err(|e| PluginError {
@@ -138,3 +146,38 @@ impl SettingsGuest for CardViewPlugin {
 }
 
 bindings::export!(CardViewPlugin with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::{CardViewPlugin, RendererGuest};
+
+    #[test]
+    fn renders_a_card_per_row() {
+        let recs = serde_json::json!({
+            "columns": ["name", "dept"],
+            "rows": [["Alice", "Eng"], ["Bob", "Sales"]],
+        })
+        .to_string();
+        let out = CardViewPlugin::render(recs).unwrap();
+        assert!(out.contains("Alice"));
+        assert!(out.contains("dept: Eng"));
+        assert!(out.contains("Bob"));
+    }
+
+    #[test]
+    fn caps_cards_and_notes_overflow() {
+        let rows: Vec<Vec<String>> = (0..(super::MAX_CARDS + 5))
+            .map(|i| vec![i.to_string()])
+            .collect();
+        let recs = serde_json::json!({ "columns": ["id"], "rows": rows }).to_string();
+        let out = CardViewPlugin::render(recs).unwrap();
+        assert!(out.contains("more row(s) not shown"));
+    }
+
+    #[test]
+    fn empty_dataset_is_handled() {
+        let recs = serde_json::json!({ "columns": ["id"], "rows": [] }).to_string();
+        let out = CardViewPlugin::render(recs).unwrap();
+        assert!(out.contains("No records"));
+    }
+}

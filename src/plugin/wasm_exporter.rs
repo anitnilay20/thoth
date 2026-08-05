@@ -19,6 +19,10 @@ wasmtime::component::bindgen!({
     world: "exporter-plugin",
 });
 
+/// Fuel budget for one export. Generous enough for a full (bounded) dataset yet
+/// finite, so a runaway exporter traps rather than hanging the UI.
+const EXPORT_FUEL: u64 = 50_000_000_000;
+
 struct ExporterState {
     wasi: WasiCtx,
     table: ResourceTable,
@@ -55,10 +59,11 @@ pub fn run_export(
             table: ResourceTable::new(),
         },
     );
-    // Formatting can touch every row; give it a generous fuel budget (these run
-    // locally and the dataset size is bounded only by the registry cap).
+    // Formatting touches every row but the dataset is bounded (≤ MAX_STREAM_ROWS
+    // rows, ≤ MAX_BYTES total), so a large-but-finite budget lets real exports
+    // finish while a runaway plugin still traps instead of hanging the app.
     store
-        .set_fuel(u64::MAX / 2)
+        .set_fuel(EXPORT_FUEL)
         .map_err(|e| load_err(e.to_string()))?;
 
     let component = Component::from_file(engine, wasm_path).map_err(|e| load_err(e.to_string()))?;

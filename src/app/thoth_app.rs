@@ -1506,6 +1506,12 @@ impl ThothApp {
         crate::plugin::signals::retain_instances(&open_instances);
         // Datasets are cleared when their producing instance closes too.
         crate::plugin::datasets::retain_instances(&open_instances);
+        // Release cached plugin renders whose dataset is gone (producer closed).
+        let live_handles: std::collections::HashSet<String> = crate::plugin::datasets::list()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        prune_render_cache(&live_handles);
 
         let (
             file_path_opt,
@@ -2289,9 +2295,11 @@ impl ThothApp {
         };
         let source = meta.source_plugin.clone();
 
-        // Consent-gate handing another producer's data to the exporter plugin.
-        // On approval the export runs automatically (queued for the app to drain).
-        if !crate::plugin::dataset_grants::is_granted(exporter_id, &source) {
+        // Consent-gate handing *another* producer's data to the exporter plugin
+        // (exporting your own plugin's dataset needs no prompt). On approval the
+        // export runs automatically (queued for the app to drain).
+        if exporter_id != source && !crate::plugin::dataset_grants::is_granted(exporter_id, &source)
+        {
             if crate::plugin::dataset_grants::mark_pending(exporter_id, &source) {
                 let (ea, sa) = (exporter_id.to_string(), source.clone());
                 let (ed, sd) = (exporter_id.to_string(), source.clone());
@@ -2321,10 +2329,12 @@ impl ThothApp {
     /// Drain export requests approved via a consent prompt and run them.
     fn drain_pending_exports(&mut self) {
         for (handle, exporter_id) in drain_queued_exports() {
-            let name = crate::plugin::datasets::meta(&handle)
-                .map(|m| m.name)
-                .unwrap_or_default();
-            self.perform_export(&handle, &exporter_id, &name);
+            // The dataset may have been dropped between approval and now.
+            let Some(meta) = crate::plugin::datasets::meta(&handle) else {
+                Self::notify_dataset_unavailable();
+                continue;
+            };
+            self.perform_export(&handle, &exporter_id, &meta.name);
         }
     }
 
@@ -2337,12 +2347,24 @@ impl ThothApp {
 
         // Resolve the exporter plugin + engine, then run it.
         let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+            NotificationManager::notify_error(Notification::new(
+                "Export failed",
+                "The plugin manager is not available.",
+            ));
             return;
         };
         let Some(plugin) = pm.get_plugin_by_id(exporter_id) else {
+            NotificationManager::notify_error(Notification::new(
+                "Export failed",
+                &format!("Exporter plugin '{exporter_id}' is not installed."),
+            ));
             return;
         };
         let Some(location) = plugin.location.as_deref() else {
+            NotificationManager::notify_error(Notification::new(
+                "Export failed",
+                &format!("Exporter plugin '{exporter_id}' has no wasm location."),
+            ));
             return;
         };
         let ext = plugin
@@ -2566,7 +2588,7 @@ pub fn list_exporters_for_view() -> Vec<thoth_plugin_sdk::dataset::ExporterInfo>
                 .exporter
                 .as_ref()
                 .map(|e| e.output_extension.clone())
-                .unwrap_or_default(),
+                .unwrap_or_else(|| "txt".to_string()),
         })
         .collect()
 }
@@ -2607,20 +2629,37 @@ fn dataset_records_json(handle: &str) -> String {
     serde_json::json!({ "columns": columns, "rows": rows }).to_string()
 }
 
-/// `(plugin id, handle) -> (row count, node-json)`.
-type RenderCacheMap = std::collections::HashMap<(String, String), (u64, String)>;
+/// A cached render outcome for a (plugin, handle) at a given dataset revision.
+enum RenderCacheEntry {
+    Ok(Box<thoth_plugin_sdk::render_node::RenderNode>),
+    Failed,
+}
 
-/// Cache of rendered node-json per (plugin, handle), keyed by row count so a
-/// renderer plugin isn't re-run every frame — only when its data changes.
+/// `(plugin id, handle) -> (dataset revision, outcome)`.
+type RenderCacheMap = std::collections::HashMap<(String, String), (u64, RenderCacheEntry)>;
+
+/// Cache of render outcomes per (plugin, handle), validated by the dataset
+/// revision so a renderer isn't re-run every frame — only when its data
+/// actually changes. Stores the parsed tree (no re-parse on hits) and also
+/// caches failures (so a broken renderer doesn't re-run WASM every frame).
 static RENDER_CACHE: std::sync::LazyLock<std::sync::Mutex<RenderCacheMap>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(RenderCacheMap::new()));
 
+/// Drop cached renders for datasets no longer in the registry (producer closed).
+fn prune_render_cache(live_handles: &std::collections::HashSet<String>) {
+    if let Ok(mut cache) = RENDER_CACHE.lock() {
+        cache.retain(|(_, handle), _| live_handles.contains(handle));
+    }
+}
+
 /// Render a dataset through a renderer plugin (host-side): consent-gate, read
-/// the rows, run the plugin (cached), and return the `RenderNode` tree to draw.
+/// the rows, run the plugin (cached by revision), and return the `RenderNode`
+/// tree to draw.
 pub fn render_dataset_with_plugin(
     plugin_id: &str,
     handle: &str,
 ) -> thoth_plugin_sdk::dataset::PluginRenderResult {
+    use crate::notification::{Notification, NotificationManager};
     use thoth_plugin_sdk::dataset::PluginRenderResult;
 
     let Some(meta) = crate::plugin::datasets::meta(handle) else {
@@ -2628,8 +2667,9 @@ pub fn render_dataset_with_plugin(
     };
     let source = meta.source_plugin.clone();
 
-    // Consent-gate handing another producer's data to the renderer plugin.
-    if !crate::plugin::dataset_grants::is_granted(plugin_id, &source) {
+    // Consent-gate handing *another* producer's data to the renderer plugin;
+    // a plugin rendering its own dataset needs no prompt.
+    if plugin_id != source && !crate::plugin::dataset_grants::is_granted(plugin_id, &source) {
         if crate::plugin::dataset_grants::mark_pending(plugin_id, &source) {
             let (ga, sa) = (plugin_id.to_string(), source.clone());
             let (gd, sd) = (plugin_id.to_string(), source.clone());
@@ -2653,14 +2693,19 @@ pub fn render_dataset_with_plugin(
 
     let key = (plugin_id.to_string(), handle.to_string());
 
-    // Serve the cached node tree unless the row count changed.
+    // Serve the cached outcome unless the dataset revision changed.
     if let Ok(cache) = RENDER_CACHE.lock()
-        && let Some((rows, node_json)) = cache.get(&key)
-        && *rows == meta.row_count
+        && let Some((rev, entry)) = cache.get(&key)
+        && *rev == meta.revision
     {
-        return parse_render_node(node_json);
+        return match entry {
+            RenderCacheEntry::Ok(node) => PluginRenderResult::Rendered(node.clone()),
+            RenderCacheEntry::Failed => PluginRenderResult::Unavailable,
+        };
     }
 
+    // Miss / stale: run the plugin. Structural failures (no manager / plugin /
+    // path) aren't cached, so they retry once those resolve.
     let records = dataset_records_json(handle);
     let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
         return PluginRenderResult::Unavailable;
@@ -2671,28 +2716,40 @@ pub fn render_dataset_with_plugin(
     let Some(location) = plugin.location.as_deref() else {
         return PluginRenderResult::Unavailable;
     };
-    let node_json = match crate::plugin::wasm_renderer::run_render(
+
+    // Execution/parse failures are cached (keyed by revision) and reported once,
+    // so a broken renderer doesn't re-run WASM or re-notify every frame.
+    let outcome = match crate::plugin::wasm_renderer::run_render(
         pm.engine(),
         std::path::Path::new(location),
         &records,
     ) {
-        Ok(j) => j,
-        Err(_) => return PluginRenderResult::Unavailable,
+        Ok(node_json) => {
+            match serde_json::from_str::<thoth_plugin_sdk::render_node::RenderNode>(&node_json) {
+                Ok(node) => RenderCacheEntry::Ok(Box::new(node)),
+                Err(e) => {
+                    NotificationManager::notify_error(Notification::new(
+                        "Render failed",
+                        &format!("{plugin_id} returned invalid output: {e}"),
+                    ));
+                    RenderCacheEntry::Failed
+                }
+            }
+        }
+        Err(e) => {
+            NotificationManager::notify_error(Notification::new("Render failed", &e.to_string()));
+            RenderCacheEntry::Failed
+        }
     };
 
+    let result = match &outcome {
+        RenderCacheEntry::Ok(node) => PluginRenderResult::Rendered(node.clone()),
+        RenderCacheEntry::Failed => PluginRenderResult::Unavailable,
+    };
     if let Ok(mut cache) = RENDER_CACHE.lock() {
-        cache.insert(key, (meta.row_count, node_json.clone()));
+        cache.insert(key, (meta.revision, outcome));
     }
-    parse_render_node(&node_json)
-}
-
-/// Deserialize a renderer plugin's node-json into a drawable `RenderNode`.
-fn parse_render_node(node_json: &str) -> thoth_plugin_sdk::dataset::PluginRenderResult {
-    use thoth_plugin_sdk::dataset::PluginRenderResult;
-    match serde_json::from_str::<thoth_plugin_sdk::render_node::RenderNode>(node_json) {
-        Ok(node) => PluginRenderResult::Rendered(Box::new(node)),
-        Err(_) => PluginRenderResult::Unavailable,
-    }
+    result
 }
 
 pub fn resolve_dataset_for_view(

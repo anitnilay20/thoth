@@ -41,6 +41,14 @@
 //   in a single sequential pass. A minimal body may loop your existing get(),
 //   though a native bulk read is preferred for large files.
 //
+// [BREAKING] exporter.run's `records-json` is now a `{ "columns": [...],
+//   "rows": [[...], ...] }` JSON object instead of a JSON array of record
+//   objects. Column order is preserved and every cell is a string. The new
+//   data-renderer.render takes the same shape.
+//   Migration: exporter plugins should parse the `columns` and `rows` fields
+//   (a row is a positional list aligned to `columns`) rather than an array of
+//   `{column: value}` objects.
+//
 // ---------------------------------------------------------------------------
 
 package thoth:plugin@0.1.0;
