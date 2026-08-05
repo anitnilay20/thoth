@@ -41,6 +41,14 @@
 //   in a single sequential pass. A minimal body may loop your existing get(),
 //   though a native bulk read is preferred for large files.
 //
+// [BREAKING] exporter.run's `records-json` is now a `{ "columns": [...],
+//   "rows": [[...], ...] }` JSON object instead of a JSON array of record
+//   objects. Column order is preserved and every cell is a string. The new
+//   data-renderer.render takes the same shape.
+//   Migration: exporter plugins should parse the `columns` and `rows` fields
+//   (a row is a positional list aligned to `columns`) rather than an array of
+//   `{column: value}` objects.
+//
 // ---------------------------------------------------------------------------
 
 package thoth:plugin@0.1.0;
@@ -65,6 +73,10 @@ interface types {
         // data-producer.provide-dataset and opts in to being offered as a
         // source in the consumer's picker.
         data-producer,
+        // A dataset renderer for the data bus (#135): the plugin exports
+        // data-renderer.render and appears as an extra view format in a
+        // DataView (alongside table / json / raw).
+        renderer,
     }
 
     /// Maps from src/wit/mod.rs `Plugin` struct.
@@ -521,13 +533,36 @@ interface exporter {
     available-options: func() -> list<export-option>;
 
     /// Perform the export.
-    /// `records-json` is a JSON array string of all records to export.
+    /// `records-json` is the host-owned dataset as a JSON object
+    /// `{ "columns": ["c1", ...], "rows": [["v1", ...], ...] }` — column order is
+    /// preserved and every cell is a string (v1 dataset shape). The host reads
+    /// its single owned copy and passes it here; the plugin never touches the bus.
     /// `options` is a flat key/value list of the user's chosen option values.
     /// Returns raw file bytes the host writes to disk.
     run: func(
         records-json: string,
         options: list<tuple<string, string>>,
     ) -> result<list<u8>, plugin-error>;
+}
+
+// ---------------------------------------------------------------------------
+// data-renderer — a plugin that presents a host-owned dataset in a novel way
+// (#135). It appears as an extra view format in a DataView (alongside the
+// built-in table / json / raw). The host reads its single owned copy, passes
+// the rows here, and draws the RenderNode tree the plugin returns — the plugin
+// only *describes* UI, exactly like the built-in components.
+// ---------------------------------------------------------------------------
+interface data-renderer {
+    use types.{plugin-error};
+
+    /// Short label for the view (shown in the DataView's view dropdown), e.g. "Cards".
+    name: func() -> string;
+
+    /// Render the dataset. `records-json` is the same shape the exporter gets —
+    /// `{ "columns": [...], "rows": [[...], ...] }` (order preserved, string
+    /// cells). Returns a serialized `RenderNode` tree (node-json) the host draws
+    /// inside the DataView.
+    render: func(records-json: string) -> result<string, plugin-error>;
 }
 
 // ---------------------------------------------------------------------------
@@ -916,4 +951,12 @@ world data-source-plugin {
 world exporter-plugin {
     include base-plugin;
     export exporter;
+}
+
+/// A plugin that presents a host-owned dataset in a new way, shown as an extra
+/// view format in a DataView. The host passes the rows and draws the returned
+/// RenderNode tree; the plugin never renders directly.
+world data-renderer-plugin {
+    include base-plugin;
+    export data-renderer;
 }

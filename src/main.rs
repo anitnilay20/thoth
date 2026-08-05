@@ -168,6 +168,12 @@ fn main() -> Result<()> {
             // Let `DataView` render nodes read dataset rows from the host's
             // single-owned registry by handle (the data never enters plugins).
             thoth_plugin_sdk::dataset::set_dataset_resolver(app::resolve_dataset_for_view);
+            // Populate the DataView "Export" dropdown with installed exporters.
+            thoth_plugin_sdk::dataset::set_exporters_provider(app::list_exporters_for_view);
+            // Populate the DataView view dropdown with installed renderer plugins,
+            // and let it render a dataset through the chosen one.
+            thoth_plugin_sdk::dataset::set_renderers_provider(app::list_renderers_for_view);
+            thoth_plugin_sdk::dataset::set_plugin_renderer(app::render_dataset_with_plugin);
 
             let mut app = app::ThothApp::new(settings, file_to_open);
             app.setup_native_menu(cc);

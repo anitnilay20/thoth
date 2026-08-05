@@ -48,6 +48,10 @@ pub struct DatasetMeta {
     pub tags: Vec<String>,
     pub row_count: u64,
     pub columns: Vec<DatasetColumn>,
+    /// Monotonic revision, bumped on every mutation (publish/update/append) so
+    /// consumers (e.g. the render cache) can detect changes even when the row
+    /// count is unchanged (an in-place `update`).
+    pub revision: u64,
 }
 
 /// A contiguous page of rows.
@@ -76,6 +80,16 @@ struct Registry {
     /// Running sum of every `Stored::size`, kept in step via [`Registry::drop_dataset`].
     bytes: usize,
     seq: u64,
+    /// Monotonic revision counter stamped onto a dataset on every mutation.
+    rev: u64,
+}
+
+impl Registry {
+    /// Next monotonic revision (stamped on publish/update/append).
+    fn next_rev(&mut self) -> u64 {
+        self.rev += 1;
+        self.rev
+    }
 }
 
 impl Registry {
@@ -163,6 +177,7 @@ pub fn publish(
         reg.drop_dataset(&id);
     }
     reg.seq += 1;
+    let revision = reg.next_rev();
     let id = format!("ds-{}", reg.seq);
     let meta = DatasetMeta {
         id: id.clone(),
@@ -173,6 +188,7 @@ pub fn publish(
         tags,
         row_count: rows.len() as u64,
         columns,
+        revision,
     };
     let size = dataset_bytes(&meta, &rows);
     reg.bytes += size;
@@ -191,6 +207,12 @@ pub fn publish(
     // it's the most recently accessed).
     reg.enforce_budget();
     id
+}
+
+/// Metadata (no rows) for a single dataset by id; `None` if unknown.
+pub fn meta(id: &str) -> Option<DatasetMeta> {
+    let reg = REGISTRY.lock().ok()?;
+    reg.map.get(id).map(|s| s.meta.clone())
 }
 
 /// Metadata for all published datasets, in publish order.
@@ -235,9 +257,14 @@ pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<V
         if stored.meta.source_instance != instance {
             return;
         }
+        let revision = reg.next_rev();
+        let Some(stored) = reg.map.get(id) else {
+            return;
+        };
         let meta = DatasetMeta {
             row_count: rows.len() as u64,
             columns,
+            revision,
             ..stored.meta.clone()
         };
         let size = dataset_bytes(&meta, &rows);
@@ -264,12 +291,14 @@ pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
         return;
     }
     if let Ok(mut reg) = REGISTRY.lock() {
+        match reg.map.get(id) {
+            Some(s) if s.meta.source_instance == instance => {}
+            _ => return,
+        }
+        let revision = reg.next_rev();
         let Some(stored) = reg.map.get_mut(id) else {
             return;
         };
-        if stored.meta.source_instance != instance {
-            return;
-        }
         // Track bytes incrementally (add appended, subtract evicted) rather than
         // re-summing every retained row — an append-heavy stream would otherwise
         // be O(rows) per call.
@@ -285,6 +314,7 @@ pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
             0
         };
         stored.meta.row_count = stored.rows.len() as u64;
+        stored.meta.revision = revision;
         let old_size = stored.size;
         stored.size = old_size.saturating_add(added).saturating_sub(evicted);
         let new_size = stored.size;
@@ -420,6 +450,31 @@ mod tests {
         // A different instance can't append.
         append("other#1", &id, vec![vec!["9".into()]]);
         assert_eq!(read(&id, 0, 10).unwrap().total, 3);
+    }
+
+    #[test]
+    fn revision_bumps_on_every_mutation() {
+        let _g = reset();
+        let id = publish(
+            "p",
+            "p#1",
+            "a".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["1".into()]],
+        );
+        let r0 = meta(&id).unwrap().revision;
+        // In-place update with the SAME row count must still bump the revision.
+        update("p#1", &id, vec![col("x")], vec![vec!["2".into()]]);
+        let r1 = meta(&id).unwrap().revision;
+        assert!(
+            r1 > r0,
+            "update should bump revision even at equal row count"
+        );
+        append("p#1", &id, vec![vec!["3".into()]]);
+        let r2 = meta(&id).unwrap().revision;
+        assert!(r2 > r1, "append should bump revision");
     }
 
     #[test]

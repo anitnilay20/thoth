@@ -1,0 +1,6 @@
+id           = "com.thoth.card-view"
+name         = "Cards"
+version      = "0.1.0"
+description  = "Present a dataset as a grid of cards"
+author       = "Thoth contributors"
+capabilities = ["renderer"]

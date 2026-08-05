@@ -26,34 +26,6 @@ pub struct DataView {
     pub caption: Option<String>,
 }
 
-/// Which representation the host is currently drawing for a [`DataView`].
-#[cfg(feature = "egui")]
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ViewMode {
-    Table,
-    Json,
-    Raw,
-}
-
-#[cfg(feature = "egui")]
-impl ViewMode {
-    fn from_u8(v: u8) -> Self {
-        match v {
-            1 => Self::Json,
-            2 => Self::Raw,
-            _ => Self::Table,
-        }
-    }
-
-    fn as_u8(self) -> u8 {
-        match self {
-            Self::Table => 0,
-            Self::Json => 1,
-            Self::Raw => 2,
-        }
-    }
-}
-
 #[cfg(feature = "egui")]
 impl DataView {
     /// Max rows the host draws (the registry also caps a single read).
@@ -68,10 +40,10 @@ impl DataView {
     /// tab. All other controls (view toggle, Copy) are handled in-widget.
     pub fn show(&self, ui: &mut egui::Ui, events: &mut Vec<crate::render_node::UiEvent>) {
         use crate::components::{
-            Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonType, Code, ColumnType,
-            JsonTree, TableView, Typography, TypographyVariant,
+            Button, ButtonColor, ButtonType, Code, ColumnType, JsonTree, Select, SelectOption,
+            Size, TableView, Typography, TypographyVariant,
         };
-        use crate::dataset::resolve_dataset;
+        use crate::dataset::{PluginRenderResult, render_with_plugin, renderers, resolve_dataset};
         use crate::render_node::{RenderNode, UiEvent};
 
         let Some(page) = resolve_dataset(&self.handle, Self::LIMIT) else {
@@ -92,43 +64,55 @@ impl DataView {
             self.id.as_str()
         };
 
-        // Per-node table/json/raw toggle, remembered across frames.
-        let mem_id = ui.make_persistent_id((node_id, "data_view_mode"));
-        let mut mode = ViewMode::from_u8(ui.data(|d| d.get_temp(mem_id).unwrap_or(0u8)));
+        // View options: built-in table/json/raw + one per installed renderer
+        // plugin (value "plugin:<id>"), shown in a dropdown like Export.
+        let renderer_plugins = renderers();
+        let mut view_options: Vec<SelectOption> = ["table", "json", "raw"]
+            .iter()
+            .map(|v| {
+                SelectOption::builder()
+                    .value(*v)
+                    .label(match *v {
+                        "json" => "JSON",
+                        "raw" => "Raw",
+                        _ => "Table",
+                    })
+                    .build()
+            })
+            .collect();
+        for r in &renderer_plugins {
+            view_options.push(
+                SelectOption::builder()
+                    .value(format!("plugin:{}", r.id))
+                    .label(r.label.clone())
+                    .build(),
+            );
+        }
 
-        // Header row: [Table|JSON|Raw] segmented tabs · count · <spacer> ·
-        // Copy · Charts — matching the DataViewer design. A fixed row height
-        // keeps the tabs, count, and buttons vertically centred.
+        // Current view, remembered across frames; falls back to Table if a
+        // previously-selected renderer plugin is no longer installed.
+        let mem_id = ui.make_persistent_id((node_id, "data_view_view"));
+        let mut view: String = ui
+            .data(|d| d.get_temp::<String>(mem_id))
+            .filter(|v| view_options.iter().any(|o| &o.value == v))
+            .unwrap_or_else(|| "table".to_string());
+
+        // Header row: [View ▾] · count · <spacer> · Copy · Export · Charts.
+        // A fixed row height keeps the dropdown, count, and buttons centred.
         ui.horizontal(|ui| {
             ui.set_min_height(28.0);
-            let active = match mode {
-                ViewMode::Table => "table",
-                ViewMode::Json => "json",
-                ViewMode::Raw => "raw",
-            };
-            if let Some(v) = ButtonGroups::builder()
+            if let Some(v) = Select::builder()
                 .id(format!("{node_id}_views"))
-                .items(vec![
-                    ButtonGroupItem::builder()
-                        .value("table")
-                        .label("Table")
-                        .build(),
-                    ButtonGroupItem::builder()
-                        .value("json")
-                        .label("JSON")
-                        .build(),
-                    ButtonGroupItem::builder().value("raw").label("Raw").build(),
-                ])
-                .active(active)
+                .value(view.clone())
+                .options(view_options)
+                .size(Size::Small)
+                .width(120.0)
                 .build()
                 .show(ui)
                 .inner
+                .selected
             {
-                mode = match v.as_str() {
-                    "json" => ViewMode::Json,
-                    "raw" => ViewMode::Raw,
-                    _ => ViewMode::Table,
-                };
+                view = v;
             }
             ui.add_space(8.0);
             // The resolver caps a read at LIMIT, so the fallback count reflects
@@ -148,7 +132,8 @@ impl DataView {
                     .build(),
             );
 
-            // Actions hang off the right edge (Charts rightmost, then Copy).
+            // Actions hang off the right edge, so add rightmost-first to read
+            // Copy · Export · Charts left-to-right on screen.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add(
@@ -168,6 +153,44 @@ impl DataView {
                         value: String::new(),
                     });
                 }
+
+                // Export dropdown — lists installed exporter plugins; picking one
+                // emits an EXPORT_DATASET action the host runs against this handle.
+                // Value stays empty so the trigger always reads "Export" (it's an
+                // action menu, not a persisted selection).
+                let exporters = crate::dataset::exporters();
+                if !exporters.is_empty() {
+                    let options = exporters
+                        .iter()
+                        .map(|e| {
+                            SelectOption::builder()
+                                .value(e.id.clone())
+                                .label(format!("{} (.{})", e.label, e.extension))
+                                .build()
+                        })
+                        .collect();
+                    let selected = Select::builder()
+                        .id(format!("{node_id}_export"))
+                        .value("")
+                        .prefix_label("Export")
+                        .options(options)
+                        .size(Size::Small)
+                        .width(92.0)
+                        .build()
+                        .show(ui)
+                        .inner
+                        .selected;
+                    if let Some(exporter) = selected {
+                        events.push(UiEvent {
+                            id: crate::actions::EXPORT_DATASET.to_string(),
+                            kind: "click".to_string(),
+                            value:
+                                serde_json::json!({ "handle": self.handle, "exporter": exporter })
+                                    .to_string(),
+                        });
+                    }
+                }
+
                 // `copy` is handled in-widget (no plugin round-trip).
                 ui.add(
                     Button::builder()
@@ -180,19 +203,19 @@ impl DataView {
                 );
             });
         });
-        ui.data_mut(|d| d.insert_temp(mem_id, mode.as_u8()));
+        ui.data_mut(|d| d.insert_temp(mem_id, view.clone()));
 
         egui::ScrollArea::both()
             .id_salt((node_id, "data_view_scroll"))
-            .show(ui, |ui| match mode {
-                ViewMode::Json => {
+            .show(ui, |ui| match view.as_str() {
+                "json" => {
                     JsonTree::builder()
                         .id(format!("{node_id}_tree"))
                         .value(records_value(&page))
                         .build()
                         .show(ui);
                 }
-                ViewMode::Raw => {
+                "raw" => {
                     ui.add(
                         Code::builder()
                             .value(records_json(&page, true))
@@ -200,7 +223,35 @@ impl DataView {
                             .build(),
                     );
                 }
-                ViewMode::Table => {
+                // A renderer plugin: the host reads the rows, gates consent, runs
+                // the plugin, and hands back a RenderNode tree we draw here.
+                // Renderer output is **display-only** — the producing plugin is
+                // stateless (push model) and can't handle events, so any
+                // interactions are discarded rather than routed to the producer.
+                plugin if plugin.starts_with("plugin:") => {
+                    match render_with_plugin(&plugin["plugin:".len()..], &self.handle) {
+                        PluginRenderResult::Rendered(mut node) => {
+                            node.show(ui, &mut Vec::new())
+                        }
+                        PluginRenderResult::ConsentPending => {
+                            ui.add(
+                                Typography::builder()
+                                    .text("Approve access to render this dataset with the selected plugin.")
+                                    .variant(TypographyVariant::BodyMuted)
+                                    .build(),
+                            );
+                        }
+                        PluginRenderResult::Unavailable => {
+                            ui.add(
+                                Typography::builder()
+                                    .text("This view is unavailable.")
+                                    .variant(TypographyVariant::BodyMuted)
+                                    .build(),
+                            );
+                        }
+                    }
+                }
+                _ => {
                     let headers: Vec<String> =
                         page.columns.iter().map(|c| c.name.clone()).collect();
                     let column_types: Vec<ColumnType> = page

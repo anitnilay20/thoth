@@ -348,6 +348,7 @@ impl App for ThothApp {
         settings::Settings::store(&ctx, &self.settings);
 
         self.poll_plugin_panes(&ctx);
+        self.drain_pending_exports();
 
         if self.settings.ui.show_toolbar {
             self.render_toolbar(ui);
@@ -758,6 +759,12 @@ impl ThothApp {
         // bound to its own tab. Handled by the host, not forwarded to the plugin.
         if event.kind == "click" && event.widget_id == thoth_plugin_sdk::actions::OPEN_IN_CHARTS {
             self.open_charts_for(tab_id);
+            return;
+        }
+        // Reserved system action: a DataView's Export dropdown picked an exporter
+        // plugin for its dataset. Value = {"handle","exporter"}. Host-handled.
+        if event.kind == "click" && event.widget_id == thoth_plugin_sdk::actions::EXPORT_DATASET {
+            self.export_dataset(&event.value);
             return;
         }
         let mut handled = false;
@@ -1499,6 +1506,12 @@ impl ThothApp {
         crate::plugin::signals::retain_instances(&open_instances);
         // Datasets are cleared when their producing instance closes too.
         crate::plugin::datasets::retain_instances(&open_instances);
+        // Release cached plugin renders whose dataset is gone (producer closed).
+        let live_handles: std::collections::HashSet<String> = crate::plugin::datasets::list()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        prune_render_cache(&live_handles);
 
         let (
             file_path_opt,
@@ -2259,6 +2272,143 @@ impl ThothApp {
         );
     }
 
+    /// Run a DataView "Export" pick: read the host-owned dataset, gate consent to
+    /// hand it to the chosen exporter plugin, format it via that plugin, and save
+    /// the returned bytes. `value` is `{"handle","exporter"}` from the dropdown.
+    ///
+    /// If consent is still needed, a prompt is raised and the export is queued to
+    /// run automatically once the user approves (no second pick required).
+    fn export_dataset(&mut self, value: &str) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(value) else {
+            return;
+        };
+        let (Some(handle), Some(exporter_id)) = (
+            v.get("handle").and_then(|x| x.as_str()),
+            v.get("exporter").and_then(|x| x.as_str()),
+        ) else {
+            return;
+        };
+
+        let Some(meta) = crate::plugin::datasets::meta(handle) else {
+            Self::notify_dataset_unavailable();
+            return;
+        };
+        let source = meta.source_plugin.clone();
+
+        // Consent-gate handing *another* producer's data to the exporter plugin
+        // (exporting your own plugin's dataset needs no prompt). On approval the
+        // export runs automatically (queued for the app to drain).
+        if exporter_id != source && !crate::plugin::dataset_grants::is_granted(exporter_id, &source)
+        {
+            if crate::plugin::dataset_grants::mark_pending(exporter_id, &source) {
+                let (ea, sa) = (exporter_id.to_string(), source.clone());
+                let (ed, sd) = (exporter_id.to_string(), source.clone());
+                let (qh, qe) = (handle.to_string(), exporter_id.to_string());
+                crate::consent::manager::ConsentManager::push_dataset_consent(
+                    exporter_id,
+                    &source,
+                    &meta.name,
+                    std::sync::Arc::new(move |_| {
+                        crate::plugin::dataset_grants::grant(&ea, &sa);
+                        queue_export(&qh, &qe);
+                        if let Some(ctx) = crate::EGUI_CTX.get() {
+                            ctx.request_repaint();
+                        }
+                    }),
+                    std::sync::Arc::new(move |_| {
+                        crate::plugin::dataset_grants::clear_pending(&ed, &sd);
+                    }),
+                );
+            }
+            return;
+        }
+
+        self.perform_export(handle, exporter_id, &meta.name);
+    }
+
+    /// Drain export requests approved via a consent prompt and run them.
+    fn drain_pending_exports(&mut self) {
+        for (handle, exporter_id) in drain_queued_exports() {
+            // The dataset may have been dropped between approval and now.
+            let Some(meta) = crate::plugin::datasets::meta(&handle) else {
+                Self::notify_dataset_unavailable();
+                continue;
+            };
+            self.perform_export(&handle, &exporter_id, &meta.name);
+        }
+    }
+
+    /// Read the dataset, run it through the exporter plugin, and save the bytes.
+    /// Assumes consent has already been granted.
+    fn perform_export(&self, handle: &str, exporter_id: &str, name: &str) {
+        use crate::notification::{Notification, NotificationManager};
+
+        let records = dataset_records_json(handle);
+
+        // Resolve the exporter plugin + engine, then run it.
+        let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+            NotificationManager::notify_error(Notification::new(
+                "Export failed",
+                "The plugin manager is not available.",
+            ));
+            return;
+        };
+        let Some(plugin) = pm.get_plugin_by_id(exporter_id) else {
+            NotificationManager::notify_error(Notification::new(
+                "Export failed",
+                &format!("Exporter plugin '{exporter_id}' is not installed."),
+            ));
+            return;
+        };
+        let Some(location) = plugin.location.as_deref() else {
+            NotificationManager::notify_error(Notification::new(
+                "Export failed",
+                &format!("Exporter plugin '{exporter_id}' has no wasm location."),
+            ));
+            return;
+        };
+        let ext = plugin
+            .exporter
+            .as_ref()
+            .map(|e| e.output_extension.clone())
+            .unwrap_or_else(|| "txt".to_string());
+
+        let bytes = match crate::plugin::wasm_exporter::run_export(
+            pm.engine(),
+            std::path::Path::new(location),
+            &records,
+            &[],
+        ) {
+            Ok(b) => b,
+            Err(e) => {
+                NotificationManager::notify_error(Notification::new(
+                    "Export failed",
+                    &e.to_string(),
+                ));
+                return;
+            }
+        };
+
+        // Save via a native dialog.
+        let default_name = format!("{}.{}", sanitize_filename(name), ext);
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter(&ext, &[ext.as_str()])
+            .save_file()
+        {
+            match std::fs::write(&path, &bytes) {
+                Ok(()) => NotificationManager::notify(
+                    Notification::new("Exported", &format!("Saved to {}", path.display()))
+                        .with_toast(true),
+                ),
+                Err(e) => NotificationManager::notify_error(Notification::new(
+                    "Export failed",
+                    &e.to_string(),
+                )),
+            };
+        }
+    }
+
     /// Activate an existing tab by id.
     fn focus_tab(&mut self, tab_id: crate::app::tab_manager::TabId) {
         self.window_state.tab_manager.focus_tab(tab_id);
@@ -2384,6 +2534,224 @@ type ResolvedDataset = (String, Vec<(String, String)>, Vec<Vec<String>>);
 /// Resolver installed into the SDK so `DataView` render nodes read dataset rows
 /// from the host's single-owned registry by handle. The rows are served from
 /// the host's copy; they never re-enter the plugin.
+/// Exports approved via a consent prompt, queued (handle, exporter id) for the
+/// app to run on the next frame — the consent callback can't reach app state.
+static PENDING_EXPORTS: std::sync::LazyLock<std::sync::Mutex<Vec<(String, String)>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
+
+/// Queue an approved export to run on the next frame.
+fn queue_export(handle: &str, exporter_id: &str) {
+    if let Ok(mut q) = PENDING_EXPORTS.lock() {
+        q.push((handle.to_string(), exporter_id.to_string()));
+    }
+}
+
+/// Take all queued exports (drained each frame by the app).
+fn drain_queued_exports() -> Vec<(String, String)> {
+    PENDING_EXPORTS
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default()
+}
+
+/// A filesystem-friendly name from a dataset name (for the export default file).
+fn sanitize_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim_matches('_');
+    if trimmed.is_empty() {
+        "dataset".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Enumerate installed exporter plugins for the DataView's Export dropdown.
+pub fn list_exporters_for_view() -> Vec<thoth_plugin_sdk::dataset::ExporterInfo> {
+    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+        return Vec::new();
+    };
+    pm.get_all_plugin_by_capability(crate::plugin::Capability::Exporter)
+        .into_iter()
+        .map(|p| thoth_plugin_sdk::dataset::ExporterInfo {
+            id: p.id.clone(),
+            label: p.name.clone(),
+            extension: p
+                .exporter
+                .as_ref()
+                .map(|e| e.output_extension.clone())
+                .unwrap_or_else(|| "txt".to_string()),
+        })
+        .collect()
+}
+
+/// Enumerate installed renderer plugins for the DataView's view dropdown.
+pub fn list_renderers_for_view() -> Vec<thoth_plugin_sdk::dataset::RendererInfo> {
+    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+        return Vec::new();
+    };
+    pm.get_all_plugin_by_capability(crate::plugin::Capability::Renderer)
+        .into_iter()
+        .map(|p| thoth_plugin_sdk::dataset::RendererInfo {
+            id: p.id.clone(),
+            label: p.name.clone(),
+        })
+        .collect()
+}
+
+/// Serialize a dataset (paged reads) into the `{columns, rows}` records-json the
+/// exporter/renderer plugins consume.
+fn dataset_records_json(handle: &str) -> String {
+    let mut columns: Vec<String> = Vec::new();
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut offset: u64 = 0;
+    while let Some(page) =
+        crate::plugin::datasets::read(handle, offset, crate::plugin::datasets::MAX_READ_LIMIT)
+    {
+        if columns.is_empty() {
+            columns = page.columns.iter().map(|c| c.name.clone()).collect();
+        }
+        let got = page.rows.len() as u64;
+        rows.extend(page.rows);
+        offset += got;
+        if got == 0 || offset >= page.total {
+            break;
+        }
+    }
+    serde_json::json!({ "columns": columns, "rows": rows }).to_string()
+}
+
+/// A cached render outcome for a (plugin, handle) at a given dataset revision.
+enum RenderCacheEntry {
+    Ok(Box<thoth_plugin_sdk::render_node::RenderNode>),
+    Failed,
+}
+
+/// `(plugin id, handle) -> (dataset revision, outcome)`.
+type RenderCacheMap = std::collections::HashMap<(String, String), (u64, RenderCacheEntry)>;
+
+/// Cache of render outcomes per (plugin, handle), validated by the dataset
+/// revision so a renderer isn't re-run every frame — only when its data
+/// actually changes. Stores the parsed tree (no re-parse on hits) and also
+/// caches failures (so a broken renderer doesn't re-run WASM every frame).
+static RENDER_CACHE: std::sync::LazyLock<std::sync::Mutex<RenderCacheMap>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(RenderCacheMap::new()));
+
+/// Drop cached renders for datasets no longer in the registry (producer closed).
+fn prune_render_cache(live_handles: &std::collections::HashSet<String>) {
+    if let Ok(mut cache) = RENDER_CACHE.lock() {
+        cache.retain(|(_, handle), _| live_handles.contains(handle));
+    }
+}
+
+/// Render a dataset through a renderer plugin (host-side): consent-gate, read
+/// the rows, run the plugin (cached by revision), and return the `RenderNode`
+/// tree to draw.
+pub fn render_dataset_with_plugin(
+    plugin_id: &str,
+    handle: &str,
+) -> thoth_plugin_sdk::dataset::PluginRenderResult {
+    use crate::notification::{Notification, NotificationManager};
+    use thoth_plugin_sdk::dataset::PluginRenderResult;
+
+    let Some(meta) = crate::plugin::datasets::meta(handle) else {
+        return PluginRenderResult::Unavailable;
+    };
+    let source = meta.source_plugin.clone();
+
+    // Consent-gate handing *another* producer's data to the renderer plugin;
+    // a plugin rendering its own dataset needs no prompt.
+    if plugin_id != source && !crate::plugin::dataset_grants::is_granted(plugin_id, &source) {
+        if crate::plugin::dataset_grants::mark_pending(plugin_id, &source) {
+            let (ga, sa) = (plugin_id.to_string(), source.clone());
+            let (gd, sd) = (plugin_id.to_string(), source.clone());
+            crate::consent::manager::ConsentManager::push_dataset_consent(
+                plugin_id,
+                &source,
+                &meta.name,
+                std::sync::Arc::new(move |_| {
+                    crate::plugin::dataset_grants::grant(&ga, &sa);
+                    if let Some(ctx) = crate::EGUI_CTX.get() {
+                        ctx.request_repaint();
+                    }
+                }),
+                std::sync::Arc::new(move |_| {
+                    crate::plugin::dataset_grants::clear_pending(&gd, &sd);
+                }),
+            );
+        }
+        return PluginRenderResult::ConsentPending;
+    }
+
+    let key = (plugin_id.to_string(), handle.to_string());
+
+    // Serve the cached outcome unless the dataset revision changed.
+    if let Ok(cache) = RENDER_CACHE.lock()
+        && let Some((rev, entry)) = cache.get(&key)
+        && *rev == meta.revision
+    {
+        return match entry {
+            RenderCacheEntry::Ok(node) => PluginRenderResult::Rendered(node.clone()),
+            RenderCacheEntry::Failed => PluginRenderResult::Unavailable,
+        };
+    }
+
+    // Miss / stale: run the plugin. Structural failures (no manager / plugin /
+    // path) aren't cached, so they retry once those resolve.
+    let records = dataset_records_json(handle);
+    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+        return PluginRenderResult::Unavailable;
+    };
+    let Some(plugin) = pm.get_plugin_by_id(plugin_id) else {
+        return PluginRenderResult::Unavailable;
+    };
+    let Some(location) = plugin.location.as_deref() else {
+        return PluginRenderResult::Unavailable;
+    };
+
+    // Execution/parse failures are cached (keyed by revision) and reported once,
+    // so a broken renderer doesn't re-run WASM or re-notify every frame.
+    let outcome = match crate::plugin::wasm_renderer::run_render(
+        pm.engine(),
+        std::path::Path::new(location),
+        &records,
+    ) {
+        Ok(node_json) => {
+            match serde_json::from_str::<thoth_plugin_sdk::render_node::RenderNode>(&node_json) {
+                Ok(node) => RenderCacheEntry::Ok(Box::new(node)),
+                Err(e) => {
+                    NotificationManager::notify_error(Notification::new(
+                        "Render failed",
+                        &format!("{plugin_id} returned invalid output: {e}"),
+                    ));
+                    RenderCacheEntry::Failed
+                }
+            }
+        }
+        Err(e) => {
+            NotificationManager::notify_error(Notification::new("Render failed", &e.to_string()));
+            RenderCacheEntry::Failed
+        }
+    };
+
+    let result = match &outcome {
+        RenderCacheEntry::Ok(node) => PluginRenderResult::Rendered(node.clone()),
+        RenderCacheEntry::Failed => PluginRenderResult::Unavailable,
+    };
+    if let Ok(mut cache) = RENDER_CACHE.lock() {
+        cache.insert(key, (meta.revision, outcome));
+    }
+    result
+}
+
 pub fn resolve_dataset_for_view(
     handle: &str,
     limit: u32,
