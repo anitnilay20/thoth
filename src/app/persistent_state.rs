@@ -80,20 +80,38 @@ fn default_sidebar_width() -> f32 {
 }
 
 impl Default for PersistentState {
+    /// A blank state — **no disk access**.
+    ///
+    /// `Default` used to call [`load`](PersistentState::load), which made
+    /// constructing one implicitly read the user's real saved session. That is
+    /// surprising for a `Default`, and it leaked the developer's own open tabs and
+    /// recent files into tests. Call [`load_or_default`](PersistentState::load_or_default)
+    /// when you actually want the persisted state.
     fn default() -> Self {
-        // Try to load from disk, fallback to empty state on error
-        Self::load().unwrap_or(Self {
+        Self::blank()
+    }
+}
+
+impl PersistentState {
+    /// An empty in-memory state, touching no files. Use this in tests so they
+    /// don't inherit whatever session the developer happens to have open.
+    pub fn blank() -> Self {
+        Self {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
             bookmarks: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: 0,
-        })
+        }
     }
-}
 
-impl PersistentState {
+    /// The persisted state from disk, or a [`blank`](PersistentState::blank) one if
+    /// it can't be read. This is what the running app wants at startup.
+    pub fn load_or_default() -> Self {
+        Self::load().unwrap_or_else(|_| Self::blank())
+    }
+
     /// Get the path to the app state storage
     /// Returns: ~/.config/thoth/persistent_state.json on Linux/macOS
     ///          %APPDATA%/thoth/persistent_state.json on Windows

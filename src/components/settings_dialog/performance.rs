@@ -1,8 +1,11 @@
-use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
+use crate::components::settings_dialog::helpers::{
+    group_rows, section_header, setting_row, slider_control,
+};
 use crate::components::traits::StatelessComponent;
 use crate::settings::PerformanceSettings;
 use crate::theme::ThemeColors;
 use eframe::egui;
+use thoth_plugin_sdk::components::NumberInput;
 
 pub struct PerformanceTab;
 
@@ -44,7 +47,7 @@ impl StatelessComponent for PerformanceTab {
                     colors,
                 );
 
-                group_rows(ui, "CACHE", "perf-cache", colors, |ui| {
+                group_rows(ui, "CACHE", |ui| {
                     setting_row(
                         ui,
                         "Cache size",
@@ -53,22 +56,19 @@ impl StatelessComponent for PerformanceTab {
                         None,
                         colors,
                         |ui| {
-                            let mut val = s.cache_size as i32;
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut val, 1..=10000)
-                                        .step_by(50.0)
-                                        .suffix(" nodes"),
-                                )
-                                .changed()
+                            if let Some(val) =
+                                slider_control(ui, s.cache_size as f64, 1.0, 10000.0, "nodes")
                             {
-                                events.push(PerformanceTabEvent::CacheSizeChanged(val as usize));
+                                // Keep the old 50-node granularity.
+                                let snapped = ((val / 50.0).round() * 50.0).max(1.0);
+                                events
+                                    .push(PerformanceTabEvent::CacheSizeChanged(snapped as usize));
                             }
                         },
                     );
                 });
 
-                group_rows(ui, "FILES & HISTORY", "perf-files", colors, |ui| {
+                group_rows(ui, "FILES & HISTORY", |ui| {
                     setting_row(
                         ui,
                         "Recent files",
@@ -77,13 +77,17 @@ impl StatelessComponent for PerformanceTab {
                         None,
                         colors,
                         |ui| {
-                            let mut val = s.max_recent_files as i32;
-                            if ui
-                                .add(egui::DragValue::new(&mut val).range(1..=100))
-                                .changed()
-                            {
-                                events
-                                    .push(PerformanceTabEvent::MaxRecentFilesChanged(val as usize));
+                            let mut num = NumberInput::builder()
+                                .id("perf_max_recent_files")
+                                .value(s.max_recent_files as f64)
+                                .min(1.0)
+                                .max(100.0)
+                                .unit("files")
+                                .build();
+                            if num.show(ui).changed() {
+                                events.push(PerformanceTabEvent::MaxRecentFilesChanged(
+                                    num.value as usize,
+                                ));
                             }
                         },
                     );
@@ -96,24 +100,21 @@ impl StatelessComponent for PerformanceTab {
                         None,
                         colors,
                         |ui| {
-                            let mut val = s.navigation_history_size as i32;
-                            if ui
-                                .add(
-                                    egui::DragValue::new(&mut val)
-                                        .range(1..=1000)
-                                        .suffix(" steps"),
-                                )
-                                .changed()
-                            {
+                            let mut num = NumberInput::builder()
+                                .id("perf_navigation_history_size")
+                                .value(s.navigation_history_size as f64)
+                                .min(1.0)
+                                .max(1000.0)
+                                .unit("steps")
+                                .build();
+                            if num.show(ui).changed() {
                                 events.push(PerformanceTabEvent::NavigationHistorySizeChanged(
-                                    val as usize,
+                                    num.value as usize,
                                 ));
                             }
                         },
                     );
                 });
-
-                ui.add_space(24.0);
             });
 
         PerformanceTabOutput { events }

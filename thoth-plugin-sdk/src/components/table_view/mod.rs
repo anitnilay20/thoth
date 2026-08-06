@@ -1,10 +1,14 @@
 #[cfg(feature = "egui")]
-mod ui;
+pub(crate) mod ui;
 
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 use crate::render_node::RenderNode;
+
+fn default_true() -> bool {
+    true
+}
 
 /// A horizontally-scrollable, virtually-scrolled data grid with a sticky `#`
 /// row-number gutter, compact headers, zebra rows, and grid lines.
@@ -27,7 +31,7 @@ use crate::render_node::RenderNode;
 ///     .rows(vec![vec![cell("1"), cell("thoth")]])
 ///     .build();
 /// ```
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
+#[derive(Clone, Debug, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 #[non_exhaustive]
 pub struct TableView {
@@ -49,6 +53,22 @@ pub struct TableView {
     #[builder(default)]
     #[serde(default)]
     pub column_types: Vec<ColumnType>,
+    /// Draw the outer container (canvas fill + hairline edge + rounded corners,
+    /// rows clipped to them). Defaults to `true`; set `false` when the grid sits
+    /// inside a container that already owns those corners — [`DataView`] draws
+    /// the grid flush and border-less inside its own frame.
+    ///
+    /// [`DataView`]: crate::components::DataView
+    #[builder(default = true)]
+    #[serde(default = "default_true")]
+    pub framed: bool,
+}
+
+impl Default for TableView {
+    /// An empty, framed grid — mirrors the builder's defaults.
+    fn default() -> Self {
+        Self::builder().build()
+    }
 }
 
 /// The supported column formats a [`TableView`] styles cells by. Map a raw SQL

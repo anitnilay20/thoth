@@ -3,6 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::components::Size;
 
+fn default_true() -> bool {
+    true
+}
+
 /// A small colored pill label (e.g. an HTTP method or status tag).
 ///
 /// ```
@@ -34,16 +38,117 @@ pub struct Badge {
     #[builder(default = Size::Small)]
     #[serde(default = "default_badge_size")]
     pub size: Size,
+    /// Optional leading Phosphor glyph, drawn at the label's size with the
+    /// label's colour — design `.dt-badge{gap:5px}` with its `<i class="ph …">`.
+    /// `None` (the default) draws the label alone.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// Draw the chip fully round ([`RADIUS_PILL`]) instead of the variant's own
+    /// radius — design `.pill`/`.dt-badge{border-radius:999px}`. Defaults to
+    /// `false`, which keeps the filled/outlined 3px and soft 8px corners.
+    ///
+    /// [`RADIUS_PILL`]: crate::theme::RADIUS_PILL
+    #[builder(default)]
+    #[serde(default)]
+    pub pill: bool,
+    /// Render the label in the monospace family. Defaults to `true` — design
+    /// `.badge{font-family:var(--mono)}`. Set `false` for the proportional chips
+    /// (`.pill`, `.dt-badge`), which carry prose rather than a code token.
+    #[builder(default = true)]
+    #[serde(default = "default_true")]
+    pub mono: bool,
+    /// Thicken the label's strokes, standing in for design `.pill`'s
+    /// `font-weight:700`. Defaults to `false`: the base chip's 600 is drawn as
+    /// plain weight, as it always has been.
+    #[builder(default)]
+    #[serde(default)]
+    pub bold: bool,
+    /// Font size override in points; derived from [`size`](Badge::size) when
+    /// unset. Padding still comes from the size preset.
+    #[serde(default, rename = "font-size")]
+    pub font_size: Option<f32>,
 }
 
 fn default_badge_size() -> Size {
     Size::Small
 }
 
+/// Filled and outlined chips — design `.badge.filled`/`.badge.outlined`
+/// (`border-radius:3px`). Below the radius ladder's smallest rung, so the
+/// handoff pins them as raw values.
+#[cfg(feature = "egui")]
+const RADIUS_BADGE: f32 = 3.0;
+/// Soft chips — design `.badge.soft{border-radius:8px}`, the squircle pill.
+#[cfg(feature = "egui")]
+const RADIUS_BADGE_SOFT: f32 = 8.0;
+/// Soft fill tint — design `.badge.soft{background:currentColor@18%}`.
+#[cfg(feature = "egui")]
+const SOFT_TINT_ALPHA: u8 = 46; // 18% of 255
+/// Gap between a leading glyph and the label — design `.dt-badge{gap:5px}`.
+#[cfg(feature = "egui")]
+const ICON_GAP: f32 = 5.0;
+
+#[cfg(feature = "egui")]
+impl Badge {
+    /// The label (and any leading glyph) in `color`, laid out as the chip's
+    /// content. A glyph-less badge is a bare label, exactly as before.
+    fn content(&self, ui: &mut egui::Ui, font: f32, color: egui::Color32) {
+        match self.icon.as_deref().filter(|g| !g.is_empty()) {
+            Some(glyph) => {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = ICON_GAP;
+                    ui.label(
+                        egui::RichText::new(glyph)
+                            .font(crate::theme::phosphor_font_id(font))
+                            .color(color),
+                    );
+                    self.label(ui, font, color);
+                });
+            }
+            None => self.label(ui, font, color),
+        }
+    }
+
+    /// One run of label text. `bold` thickens it with a second 0.5px-offset
+    /// pass, the same faux-weight trick [`Typography`] uses — egui has no bold
+    /// face to switch to.
+    ///
+    /// [`Typography`]: crate::components::Typography
+    fn label(&self, ui: &mut egui::Ui, font: f32, color: egui::Color32) {
+        let font_id = if self.mono {
+            egui::FontId::monospace(font)
+        } else {
+            egui::FontId::proportional(font)
+        };
+        if self.bold {
+            let galley = ui
+                .painter()
+                .layout_no_wrap(self.label.clone(), font_id, color);
+            let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+            if ui.is_rect_visible(rect) {
+                ui.painter()
+                    .galley(rect.min + egui::vec2(0.5, 0.0), galley.clone(), color);
+                ui.painter().galley(rect.min, galley, color);
+            }
+        } else {
+            // `.strong()` is kept for the mono chips that have always carried it,
+            // so their rendering is untouched.
+            ui.label(
+                egui::RichText::new(&self.label)
+                    .font(font_id)
+                    .strong()
+                    .color(color),
+            );
+        }
+    }
+}
+
 #[cfg(feature = "egui")]
 impl egui::Widget for Badge {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
-        use crate::theme::{ThemeColors, get_contrast_text_color, resolve_color};
+        use crate::theme::{
+            RADIUS_PILL, ThemeColors, get_contrast_text_color, resolve_color, with_alpha,
+        };
         let colors = ThemeColors::from_ctx(ui.ctx());
         let color = self
             .color
@@ -54,56 +159,98 @@ impl egui::Widget for Badge {
         // Slim by default; padding + font scale with the size. Vertical padding
         // is 0 at the small size so the pill hugs the text (matches the handoff's
         // 1px-tall enum chip).
-        let (font, pad_x, pad_y): (f32, i8, i8) = match self.size {
+        let (size_font, pad_x, pad_y): (f32, i8, i8) = match self.size {
             Size::Small => (9.0, 6, 0),
             Size::Medium => (10.0, 7, 1),
             Size::Large => (12.0, 9, 2),
         };
+        let font = self.font_size.unwrap_or(size_font);
         let margin = egui::Margin::symmetric(pad_x, pad_y);
 
         if self.soft {
             // A faint tint of the colour behind coloured text (the chip look) —
-            // ~0.18 alpha, matching the handoff.
-            let bg = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 46);
+            // design `.badge.soft`.
+            let radius = if self.pill {
+                RADIUS_PILL
+            } else {
+                RADIUS_BADGE_SOFT
+            };
             egui::Frame::new()
-                .fill(bg)
-                .corner_radius(8.0)
+                .fill(with_alpha(color, SOFT_TINT_ALPHA))
+                .corner_radius(radius)
                 .inner_margin(margin)
-                .show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(&self.label)
-                            .monospace()
-                            .size(font)
-                            .color(color),
-                    );
-                })
+                .show(ui, |ui| self.content(ui, font, color))
                 .response
         } else if self.outlined {
             // Transparent fill, coloured border + coloured monospace text — the
-            // schema/structure constraint-tag style.
+            // schema/structure constraint-tag style (design `.badge.outlined`).
+            let radius = if self.pill { RADIUS_PILL } else { RADIUS_BADGE };
             egui::Frame::new()
                 .stroke(egui::Stroke::new(1.0, color))
-                .corner_radius(3.0)
+                .corner_radius(radius)
                 .inner_margin(margin)
-                .show(ui, |ui| {
-                    ui.label(
-                        egui::RichText::new(&self.label)
-                            .monospace()
-                            .size(font)
-                            .color(color),
-                    );
-                })
+                .show(ui, |ui| self.content(ui, font, color))
                 .response
         } else {
+            // Design `.badge.filled`: solid fill, auto-contrast text.
             let fg = get_contrast_text_color(color);
+            let radius = if self.pill { RADIUS_PILL } else { RADIUS_BADGE };
             egui::Frame::new()
                 .fill(color)
-                .corner_radius(3.0)
+                .corner_radius(radius)
                 .inner_margin(margin)
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new(&self.label).size(font).color(fg));
-                })
+                .show(ui, |ui| self.content(ui, font, fg))
                 .response
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Badge;
+    use crate::components::Size;
+    use serde_json::json;
+
+    #[test]
+    fn new_props_default_to_the_original_rendering() {
+        let b = Badge::builder().label("GET").build();
+        assert!(b.icon.is_none(), "no leading glyph by default");
+        assert!(!b.pill, "the 3px/8px corners are still the default");
+        assert!(b.mono, "design pins the badge to the mono family");
+        assert!(!b.bold, "the base chip keeps its plain weight");
+        assert!(b.font_size.is_none(), "font size derives from `size`");
+        assert_eq!(b.size, Size::Small);
+    }
+
+    #[test]
+    fn builder_sets_the_new_props() {
+        let b = Badge::builder()
+            .label("SENSITIVE")
+            .pill(true)
+            .mono(false)
+            .bold(true)
+            .font_size(9.5)
+            .icon("\u{e182}")
+            .build();
+        assert!(b.pill && !b.mono && b.bold);
+        assert_eq!(b.font_size, Some(9.5));
+        assert_eq!(b.icon.as_deref(), Some("\u{e182}"));
+    }
+
+    #[test]
+    fn deserialises_without_the_new_props() {
+        // A plugin built against the older schema must still round-trip.
+        let b: Badge = serde_json::from_value(json!({ "label": "POST" })).unwrap();
+        assert_eq!(b.label, "POST");
+        assert!(b.mono, "the mono default has to survive a missing field");
+        assert!(!b.pill);
+        assert!(b.icon.is_none());
+    }
+
+    #[test]
+    fn font_size_serialises_kebab_case() {
+        let b = Badge::builder().label("x").font_size(9.5).build();
+        let v = serde_json::to_value(&b).unwrap();
+        assert_eq!(v["font-size"], 9.5);
     }
 }

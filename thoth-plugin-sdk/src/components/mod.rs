@@ -57,7 +57,7 @@ pub use data_row::DataRowOutput;
 pub use data_row::{DataRow, DataRowIcon, RowHighlights};
 pub use data_view::DataView;
 pub use icon::Icon;
-pub use icon_button::IconButton;
+pub use icon_button::{IconButton, IconButtonSelectedStyle};
 pub use input::Input;
 pub use json_tree::JsonTree;
 pub use key_value_list::{KeyValueList, KvEntry};
@@ -68,7 +68,10 @@ pub use layout::{
 pub use link::Link;
 #[cfg(feature = "egui")]
 pub use list::ListEvent;
-pub use list::{List, ListItem, ListItemAction, ListItemBadge, ListItemPostfix, ListItemPrefix};
+pub use list::{
+    List, ListItem, ListItemAction, ListItemBadge, ListItemPostfix, ListItemPrefix, ListStyle,
+    ListTextStyle,
+};
 pub use markdown::Markdown;
 pub use modal::Modal;
 pub use multi_select::MultiSelect;

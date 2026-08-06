@@ -136,6 +136,7 @@ fn multiple_drains_only_return_new_items() {
 // ---------------------------------------------------------------------------
 
 use thoth::app::ThothApp;
+use thoth::app::persistent_state::PersistentState;
 use thoth::settings::Settings;
 
 /// Helper: create a temporary JSON file and return its path.
@@ -155,7 +156,8 @@ fn thoth_app_picks_up_os_dispatched_file() {
     // Launch app with no file (simulates Finder-launched empty window).
     // Session restore may reopen previously-open tabs, so we don't assert a blank
     // initial state — that is legitimate behaviour.
-    let mut app = ThothApp::new(Settings::default(), None);
+    let mut app =
+        ThothApp::with_persistent_state(Settings::default(), None, PersistentState::blank());
 
     // Simulate macOS dispatching a file via Apple Event
     let path = make_temp_json_file("os_dispatch.json");
@@ -179,7 +181,11 @@ fn argv_path_still_loads_on_construction() {
     let _guard = test_guard();
     // This guards against regressions: the existing CLI flow must keep working.
     let path = make_temp_json_file("argv_test.json");
-    let mut app = ThothApp::new(Settings::default(), Some(path.clone()));
+    let mut app = ThothApp::with_persistent_state(
+        Settings::default(),
+        Some(path.clone()),
+        PersistentState::blank(),
+    );
     assert_eq!(
         app.window_state
             .tab_manager
@@ -199,7 +205,11 @@ fn second_os_dispatch_replaces_current_file() {
     let p2 = make_temp_json_file("second_file.json");
 
     // App launched with first file via argv
-    let mut app = ThothApp::new(Settings::default(), Some(p1.clone()));
+    let mut app = ThothApp::with_persistent_state(
+        Settings::default(),
+        Some(p1.clone()),
+        PersistentState::blank(),
+    );
     assert!(
         app.window_state
             .tab_manager
@@ -227,7 +237,8 @@ fn os_dispatch_clears_previous_error() {
     let _guard = test_guard();
     reset();
 
-    let mut app = ThothApp::new(Settings::default(), None);
+    let mut app =
+        ThothApp::with_persistent_state(Settings::default(), None, PersistentState::blank());
     // Simulate an error state on the active tab
     if let Some(tab) = app.window_state.tab_manager.active_tab_mut() {
         tab.error = Some(thoth::error::ThothError::Unknown {

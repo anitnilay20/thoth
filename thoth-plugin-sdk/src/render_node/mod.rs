@@ -221,12 +221,25 @@ impl RenderNode {
         use crate::components::{Badge, ColumnType, TypographyVariant};
         use serde_json::Value;
 
-        // Every result cell is monospace, matching the design handoff's grid.
+        // Monospace for the cells whose glyphs need to line up column-wise —
+        // numbers, timestamps, UUIDs, raw JSON.
         let mono = |text: String, color: &str| {
             RenderNode::Text(
                 Typography::builder()
                     .text(text)
                     .variant(TypographyVariant::Mono)
+                    .color(color)
+                    .build(),
+            )
+        };
+        // Prose cells stay proportional: the design's table has numeric cells in
+        // mono (`.tv td.r`) but string cells in the body face (`.tv td.str`).
+        // Monospacing everything made ordinary text columns read like code.
+        let prose = |text: String, color: &str| {
+            RenderNode::Text(
+                Typography::builder()
+                    .text(text)
+                    .variant(TypographyVariant::Body)
                     .color(color)
                     .build(),
             )
@@ -262,7 +275,9 @@ impl RenderNode {
                 }
                 _ => mono(text, "info"),
             },
-            // Numbers → number colour, temporal → string colour, else default fg.
+            // Text and booleans are prose; numbers, temporal values and UUIDs are
+            // mono so digits align down the column.
+            ColumnType::Text | ColumnType::Boolean => prose(text, ty.text_color()),
             _ => mono(text, ty.text_color()),
         }
     }

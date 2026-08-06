@@ -1,10 +1,17 @@
 use crate::components::traits::StatefulComponent;
 use crate::search::{QueryMode, Search as SearchState, SearchMessage, decode_history_entry};
+use crate::theme::GUTTER_GAP;
 use eframe::egui;
 use thoth_plugin_sdk::components::{
-    IconButton, Input, List, ListEvent, ListItem, ListItemPrefix, Separator, SidebarHeader,
+    Checkbox, Input, List, ListEvent, ListItem, ListItemPrefix, Separator, SidebarHeader,
     SidebarHeaderAction, Typography,
 };
+
+/// Height cap on the recent-searches list, so it can't crowd out the results.
+const HISTORY_MAX_H: f32 = 300.0;
+/// Height cap on the results list. A cap is what keeps the list's own scroll
+/// area (and therefore its row virtualisation) alive inside the sidebar's.
+const RESULTS_MAX_H: f32 = 300.0;
 
 /// Detect query mode based on whether the query starts with '$'
 fn detect_query_mode(query: &str) -> QueryMode {
@@ -94,17 +101,25 @@ impl StatefulComponent for Search {
             }
             _ => {}
         }
-        ui.add_space(8.0);
+        ui.add_space(GUTTER_GAP);
 
-        let mut search_input = Input::builder()
-            .id("search_query")
-            .value(self.search_query.clone())
-            .placeholder("Search… ($ prefix for JSONPath, e.g. $.user.name = \"alice\")")
-            .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
-            .build();
-        let search_out = search_input.show(ui);
+        // The query field and the match-case box sit in the panel's content
+        // gutter, aligned with the row cards below (design `.cscroll` padding).
+        let (search_out, edited_query) = egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(GUTTER_GAP as i8, 0))
+            .show(ui, |ui| {
+                let mut search_input = Input::builder()
+                    .id("search_query")
+                    .value(self.search_query.clone())
+                    .placeholder("Search… ($ prefix for JSONPath, e.g. $.user.name = \"alice\")")
+                    .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
+                    .build();
+                let out = search_input.show(ui);
+                (out, search_input.value)
+            })
+            .inner;
         if search_out.inner {
-            self.search_query = search_input.value.clone();
+            self.search_query = edited_query;
         }
         let response = search_out.response;
 
@@ -133,10 +148,22 @@ impl StatefulComponent for Search {
             }
         }
 
-        ui.add_space(8.0);
+        ui.add_space(GUTTER_GAP);
 
-        // Match case checkbox with accessibility info
-        let checkbox_response = ui.checkbox(&mut self.match_case, "Match case");
+        // Match case — the SDK checkbox (design `.cb`), not egui's default.
+        let checkbox_response = egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(GUTTER_GAP as i8, 0))
+            .show(ui, |ui| {
+                let mut checkbox = Checkbox::builder()
+                    .id("search_match_case")
+                    .label("Match case")
+                    .checked(self.match_case)
+                    .build();
+                let response = checkbox.show(ui);
+                self.match_case = checkbox.checked;
+                response
+            })
+            .inner;
         checkbox_response.widget_info(|| {
             egui::WidgetInfo::selected(
                 egui::WidgetType::Checkbox,
@@ -146,7 +173,7 @@ impl StatefulComponent for Search {
             )
         });
 
-        ui.add_space(8.0);
+        ui.add_space(GUTTER_GAP);
 
         // Display search history if no active search and history exists
         if props.search_state.query.is_empty()
@@ -159,27 +186,25 @@ impl StatefulComponent for Search {
                 .collect();
 
             if !queries.is_empty() {
-                ui.add(Separator::with_margins(0.0, 8.0));
+                ui.add(Separator::with_margins(0.0, GUTTER_GAP));
 
-                ui.horizontal(|ui| {
-                    Typography::panel_header(ui, "RECENT SEARCHES");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let clicked = ui
-                            .add(
-                                IconButton::builder()
-                                    .icon(egui_phosphor::regular::X)
-                                    .frame(false)
-                                    .tooltip("Clear search history")
-                                    .size_px(16.0)
-                                    .build(),
-                            )
-                            .clicked();
-                        if clicked {
-                            events.push(SearchEvent::ClearHistory);
-                        }
-                    });
-                });
-                ui.add_space(4.0);
+                // A titled section with a trailing action *is* SidebarHeader
+                // (design `.sh` / `.shacts`) — no need to hand-roll one.
+                let cleared = SidebarHeader::builder()
+                    .title("RECENT SEARCHES")
+                    .actions(vec![
+                        SidebarHeaderAction::builder()
+                            .icon(egui_phosphor::regular::X)
+                            .tooltip("Clear search history")
+                            .build(),
+                    ])
+                    .build()
+                    .show(ui)
+                    .inner;
+                if cleared == Some(0) {
+                    events.push(SearchEvent::ClearHistory);
+                }
+                ui.add_space(GUTTER_GAP / 2.0);
 
                 let items: Vec<ListItem> = queries
                     .iter()
@@ -196,7 +221,10 @@ impl StatefulComponent for Search {
 
                 if let Some(ListEvent::ItemClicked(idx)) = List::builder()
                     .items(items)
-                    .max_height(300.0)
+                    // Size to the rows, but cap the box so a long history can't
+                    // push the results out of the panel.
+                    .shrink_to_fit(true)
+                    .max_height(HISTORY_MAX_H)
                     .build()
                     .show(ui)
                     && let Some(q) = queries.get(idx)
@@ -225,7 +253,7 @@ impl StatefulComponent for Search {
                 });
             } else if result_count > 0 {
                 Typography::caption(ui, &format!("{} result(s)", result_count));
-                ui.add_space(4.0);
+                ui.add_space(GUTTER_GAP / 2.0);
 
                 let hits = props.search_state.results.hits();
                 let titles: Vec<String> = hits
@@ -260,22 +288,21 @@ impl StatefulComponent for Search {
                     })
                     .collect();
 
-                egui::ScrollArea::vertical()
-                    .id_salt("search_results_scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        if let Some(ListEvent::ItemClicked(idx)) = List::builder()
-                            .items(items)
-                            .max_height(300.0)
-                            .build()
-                            .show(ui)
-                            && let Some(hit) = props.search_state.results.hits().get(idx)
-                        {
-                            events.push(SearchEvent::NavigateToResult {
-                                record_index: hit.record_index,
-                            });
-                        }
+                // `List` scrolls and virtualises its own rows — the results pane
+                // must not nest another scroll area around it. The cap keeps that
+                // virtualisation alive inside the sidebar's own scroll area.
+                if let Some(ListEvent::ItemClicked(idx)) = List::builder()
+                    .items(items)
+                    .shrink_to_fit(true)
+                    .max_height(RESULTS_MAX_H)
+                    .build()
+                    .show(ui)
+                    && let Some(hit) = props.search_state.results.hits().get(idx)
+                {
+                    events.push(SearchEvent::NavigateToResult {
+                        record_index: hit.record_index,
                     });
+                }
             } else {
                 Typography::body_muted(ui, "No results found");
             }

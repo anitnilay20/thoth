@@ -1,15 +1,104 @@
+// Marketplace detail — design `screens.html` §3 “Marketplace”, right pane: the
+// `.dt-head` identity block with its `.dt-actions`, over a `.dt-body` two-column
+// grid of README and `.meta-side` metadata.
+
 use std::sync::{Arc, Mutex};
 
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
-use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonSize, Typography};
+use thoth_plugin_sdk::components::{
+    Badge, Button, ButtonColor, ButtonSize, ButtonType, Icon, Progress, Separator, Size, Spinner,
+    Typography, TypographyVariant,
+};
 
 use crate::components::common::helpers::load_icon_texture;
 use crate::plugin::marketplace::MarketPlacePlugin;
-use crate::theme::{ThemeColors, icon_rich_text, phosphor_font_id};
+use crate::theme::{
+    FONT_CAPTION, FONT_CONTROL, RADIUS_CHIP, RADIUS_WINDOW, ThemeColors, color_to_hex, edge_stroke,
+    phosphor_font_id, with_alpha,
+};
 
 use super::state::{DetailAction, InstallState, ReadmeCacheEntry, category_glyph, category_label};
+
+// ── Head — design `.dt-head` ─────────────────────────────────────────────────
+
+/// `.dt-head{padding:20px 26px 16px}`.
+const HEAD_PAD_X: i8 = 26;
+const HEAD_PAD_TOP: i8 = 20;
+const HEAD_PAD_BOTTOM: i8 = 16;
+/// `.dt-head{gap:16px}`.
+const HEAD_GAP: f32 = 16.0;
+/// `.dt-icon{width:64px;height:64px}`.
+const ICON_BOX: f32 = 64.0;
+/// `.dt-icon{font-size:34px}`.
+const ICON_GLYPH: f32 = 34.0;
+/// `.dt-icon{background:color-mix(accent 16%,transparent)}`.
+const ICON_TINT_ALPHA: u8 = 41; // 16% of 255
+/// `.dt-nm{font-size:22px;font-weight:700}`.
+const NAME_FONT: f32 = 22.0;
+/// `.dt-t{gap:10px}`.
+const TITLE_GAP: f32 = 10.0;
+/// `.dt-v{font-family:var(--mono);font-size:13px}`.
+const VERSION_FONT: f32 = 13.0;
+/// `.dt-desc{margin-top:7px}`.
+const DESC_TOP: f32 = 7.0;
+/// `.dt-meta-inline{margin-top:9px}`.
+const META_TOP: f32 = 9.0;
+/// `.dt-meta-inline{gap:16px}` between the author and category groups.
+const META_GAP: f32 = 16.0;
+/// `.dt-meta-inline i{margin-right:5px}`.
+const META_ICON_GAP: f32 = 5.0;
+/// `.dt-actions{gap:8px}`.
+const ACTIONS_GAP: f32 = 8.0;
+
+// ── Body — design `.dt-body` ─────────────────────────────────────────────────
+
+/// `.dt-body{padding:20px 26px}`.
+const BODY_PAD_X: i8 = 26;
+const BODY_PAD_Y: i8 = 20;
+/// `.dt-body{grid-template-columns:1fr 220px}`.
+const SIDEBAR_W: f32 = 220.0;
+/// `.dt-body{gap:28px}`.
+const BODY_GAP: f32 = 28.0;
+/// The README column never grows past a comfortable measure.
+const README_MAX_W: f32 = 760.0;
+
+// ── Metadata side — design `.meta-side` ──────────────────────────────────────
+
+/// `.meta-side .mf{margin-bottom:13px}`.
+const META_FIELD_GAP: f32 = 13.0;
+/// `.meta-side .ml{font-size:10px;font-weight:700;text-transform:uppercase}`.
+const META_LABEL_FONT: f32 = 10.0;
+/// `.meta-side .ml{margin-bottom:3px}`.
+const META_LABEL_GAP: f32 = 3.0;
+/// `.meta-side .mv.mono{font-size:11.5px}` — the caption rung of the type scale.
+const META_MONO_FONT: f32 = FONT_CAPTION;
+/// `.meta-side .sha{padding:6px 8px}`.
+const SHA_PAD_X: i8 = 8;
+const SHA_PAD_Y: i8 = 6;
+/// How much of the digest the field shows before eliding it.
+const SHA_CHARS: usize = 32;
+
+// ── Banners (no sheet counterpart — Thoth-only install feedback) ─────────────
+
+/// Tint behind a banner — the sheet's 8% status wash.
+const BANNER_TINT_ALPHA: u8 = 20; // 8% of 255
+/// …and the hairline under it, at the `--edge` 34%.
+const BANNER_RULE_ALPHA: u8 = 87; // 34% of 255
+/// Banner padding, aligned with `.dt-head`'s side gutter.
+const BANNER_PAD_Y: i8 = 10;
+/// Gap between a banner's icon and its text.
+const BANNER_GAP: f32 = 10.0;
+
+// ── Empty state (no sheet counterpart) ───────────────────────────────────────
+
+/// Placeholder glyph size.
+const EMPTY_GLYPH: f32 = 48.0;
+/// Space above the placeholder glyph.
+const EMPTY_TOP: f32 = 80.0;
+/// Space under it, and under the heading.
+const EMPTY_GAP: f32 = 16.0;
 
 // ── Entry points ──────────────────────────────────────────────────────────────
 
@@ -25,10 +114,8 @@ pub(super) fn render(
         // Header: fixed above scroll, contains icon + content + actions top-right
         render_header(ui, plugin, install_state, colors, &mut action);
 
-        // 1px border-bottom beneath header
-        let (line_rect, _) =
-            ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
-        ui.painter().rect_filled(line_rect, 0.0, colors.surface);
+        // `.dt-head{box-shadow:inset 0 -1px 0 var(--surface)}`
+        ui.add(Separator::rule(color_to_hex(colors.surface)));
 
         // Banners (between header and scroll content)
         if let InstallState::Failed(msg) = install_state {
@@ -38,32 +125,31 @@ pub(super) fn render(
             render_banner_installing(ui, plugin, *progress, colors);
         }
 
-        // Two-column scroll area
+        // `.dt-body{display:grid;grid-template-columns:1fr 220px;gap:28px}`
         egui::ScrollArea::both()
             .id_salt("mp_detail_scroll")
             .show(ui, |ui| {
                 let avail = ui.available_width();
-                let sidebar_w = 220.0_f32;
-                let gap = 28.0_f32;
-                let h_pad = 28.0_f32;
-                let readme_w = (avail - sidebar_w - gap - h_pad * 2.0).clamp(100.0, 760.0);
+                let readme_w = (avail - SIDEBAR_W - BODY_GAP - f32::from(BODY_PAD_X) * 2.0)
+                    .clamp(100.0, README_MAX_W);
 
                 egui::Frame::NONE
                     .inner_margin(egui::Margin {
-                        left: 28,
-                        right: 28,
-                        top: 20,
-                        bottom: 20,
+                        left: BODY_PAD_X,
+                        right: BODY_PAD_X,
+                        top: BODY_PAD_Y,
+                        bottom: BODY_PAD_Y,
                     })
                     .show(ui, |ui| {
                         ui.horizontal_top(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
                             ui.vertical(|ui| {
                                 ui.set_width(readme_w);
                                 render_readme(ui, plugin, colors);
                             });
-                            ui.add_space(gap);
+                            ui.add_space(BODY_GAP);
                             ui.vertical(|ui| {
-                                ui.set_width(sidebar_w);
+                                ui.set_width(SIDEBAR_W);
                                 render_sidebar_meta(ui, plugin, colors);
                             });
                         });
@@ -75,34 +161,35 @@ pub(super) fn render(
 }
 
 pub(super) fn render_empty(ui: &mut egui::Ui, colors: &ThemeColors) {
-    egui::Frame::NONE
-        .fill(colors.bg)
-        .show(ui, |ui| {
-            ui.set_min_size(ui.available_size());
-            ui.centered_and_justified(|ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(80.0);
-                    ui.label(
-                        egui::RichText::new(egui_phosphor::regular::PUZZLE_PIECE)
-                            .font(phosphor_font_id(48.0))
-                            .color(colors.surface_active),
-                    );
-                    ui.add_space(16.0);
-                    Typography::heading(ui, "Plugin Store");
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new(
+    egui::Frame::NONE.fill(colors.bg).show(ui, |ui| {
+        ui.set_min_size(ui.available_size());
+        ui.centered_and_justified(|ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(EMPTY_TOP);
+                ui.add(
+                    Icon::builder()
+                        .glyph(egui_phosphor::regular::PUZZLE_PIECE)
+                        .size(EMPTY_GLYPH)
+                        .color(color_to_hex(colors.surface_active))
+                        .build(),
+                );
+                ui.add_space(EMPTY_GAP);
+                Typography::heading(ui, "Plugin Store");
+                ui.add_space(ACTIONS_GAP);
+                ui.add(
+                    Typography::builder()
+                        .text(
                             "Select a plugin from the list to see its details and install options.\nPlugins extend Thoth with themes, formatters, validators, and integrations.",
                         )
-                        .size(13.0)
-                        .color(colors.fg_muted),
-                    );
-                });
+                        .variant(TypographyVariant::Subtitle)
+                        .build(),
+                );
             });
         });
+    });
 }
 
-// ── Header ────────────────────────────────────────────────────────────────────
+// ── Head ──────────────────────────────────────────────────────────────────────
 
 fn render_header(
     ui: &mut egui::Ui,
@@ -113,355 +200,302 @@ fn render_header(
 ) {
     egui::Frame::NONE
         .inner_margin(egui::Margin {
-            left: 28,
-            right: 28,
-            top: 20,
-            bottom: 16,
+            left: HEAD_PAD_X,
+            right: HEAD_PAD_X,
+            top: HEAD_PAD_TOP,
+            bottom: HEAD_PAD_BOTTOM,
         })
         .show(ui, |ui| {
-            ui.horizontal_top(|ui| {
-                // 64×64 icon — real image if downloaded, otherwise glyph tile
-                let (ir, _) = ui.allocate_exact_size(egui::vec2(64.0, 64.0), egui::Sense::hover());
-                if ui.is_rect_visible(ir) {
-                    let icon_path = plugin.get_icon_file(ui.ctx().clone()).ok();
-                    let texture = icon_path
-                        .as_deref()
-                        .and_then(|p| load_icon_texture(ui.ctx(), p, "mp_detail_icon"));
+            // `.dt-actions{margin-left:auto}` — the buttons are laid out first so
+            // they keep their natural width and the identity block takes the rest,
+            // exactly as the CSS grid does. `Align::TOP` (not `Center`) so the row
+            // stays as tall as its content instead of centring in the pane.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                // Every gap in the row is explicit.
+                ui.spacing_mut().item_spacing.x = 0.0;
 
-                    if let Some(tex) = texture {
-                        ui.put(
-                            ir,
-                            egui::Image::new(&tex)
-                                .fit_to_exact_size(ir.size())
-                                .corner_radius(egui::CornerRadius::same(8)),
-                        );
-                    } else {
-                        // Fallback: accent-tinted rounded tile with category glyph
-                        ui.painter().rect_filled(
-                            ir,
-                            6.0,
-                            egui::Color32::from_rgba_unmultiplied(
-                                colors.accent.r(),
-                                colors.accent.g(),
-                                colors.accent.b(),
-                                0x33,
-                            ),
-                        );
-                        ui.painter().rect_stroke(
-                            ir,
-                            6.0,
-                            egui::Stroke::new(
-                                1.0,
-                                egui::Color32::from_rgba_unmultiplied(
-                                    colors.accent.r(),
-                                    colors.accent.g(),
-                                    colors.accent.b(),
-                                    0x55,
-                                ),
-                            ),
-                            egui::StrokeKind::Middle,
-                        );
-                        let cap_glyph = plugin
-                            .categories
-                            .first()
-                            .map(|c| category_glyph(c))
-                            .unwrap_or(egui_phosphor::regular::PUZZLE_PIECE);
-                        ui.painter().text(
-                            ir.center(),
-                            egui::Align2::CENTER_CENTER,
-                            cap_glyph,
-                            phosphor_font_id(36.0),
-                            colors.accent,
-                        );
+                // Right-to-left, so the design order is added back-to-front.
+                for (i, (button, act)) in
+                    action_buttons(install_state).into_iter().rev().enumerate()
+                {
+                    if i > 0 {
+                        ui.add_space(ACTIONS_GAP);
+                    }
+                    if ui.add(button).clicked() {
+                        *action = Some(act);
                     }
                 }
+                ui.add_space(HEAD_GAP);
 
-                ui.add_space(16.0);
-
-                // Reserve enough for the widest action combo (Disable + Uninstall ≈ 155px).
-                let actions_w = 160.0_f32;
-                let content_w = (ui.available_width() - actions_w).max(80.0);
-
-                // Content column (explicit width so available_width() is correct inside)
+                // `.dt-icon` + `.dt-main` fill what is left of the row. The
+                // height is only a hint — the block is allocated at whatever its
+                // content measures, so a long description still fits.
+                let rest = ui.available_width();
                 ui.allocate_ui_with_layout(
-                    egui::vec2(content_w, 200.0),
-                    egui::Layout::top_down(egui::Align::Min),
+                    egui::vec2(rest, ICON_BOX),
+                    egui::Layout::left_to_right(egui::Align::TOP),
                     |ui| {
-                        // Row 1: name · version · state badge
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing.x = 10.0;
-                            ui.add(
-                                Typography::builder()
-                                    .text(&plugin.name)
-                                    .bold(true)
-                                    .size(22.0)
-                                    .build(),
-                            );
-                            ui.label(
-                                egui::RichText::new(format!("v{}", plugin.version))
-                                    .size(13.0)
-                                    .monospace()
-                                    .color(colors.fg_muted),
-                            );
-                            state_badge(ui, install_state, colors);
-                        });
-
-                        ui.add_space(4.0);
-
-                        // Description
-                        ui.label(
-                            egui::RichText::new(&plugin.description)
-                                .size(13.0)
-                                .color(colors.fg_muted),
-                        );
-
-                        ui.add_space(10.0);
-
-                        // Metadata row: author  ·  categories
-                        // Each item is an icon+text group; 16px between groups.
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = egui::vec2(16.0, 4.0);
-
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 4.0;
-                                ui.label(
-                                    icon_rich_text(egui_phosphor::regular::USER, 11.0)
-                                        .color(colors.fg_muted),
-                                );
-                                ui.label(
-                                    egui::RichText::new(&plugin.author)
-                                        .size(11.0)
-                                        .color(colors.fg_muted),
-                                );
-                            });
-
-                            if !plugin.categories.is_empty() {
-                                let cats = plugin
-                                    .categories
-                                    .iter()
-                                    .map(|c| category_label(c))
-                                    .collect::<Vec<_>>()
-                                    .join(", ");
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 4.0;
-                                    ui.label(
-                                        icon_rich_text(egui_phosphor::regular::FOLDER, 11.0)
-                                            .color(colors.fg_muted),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(cats).size(11.0).color(colors.fg_muted),
-                                    );
-                                });
-                            }
-                        });
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        render_icon(ui, plugin, colors);
+                        ui.add_space(HEAD_GAP);
+                        ui.vertical(|ui| render_identity(ui, plugin, install_state, colors));
                     },
                 );
-
-                // Actions — right_to_left fills the remaining space and anchors
-                // the buttons to the right edge (no vertical wrapper, which would
-                // expand to full width and push buttons back to the left).
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    render_action_buttons(ui, install_state, colors, action);
-                });
             });
         });
 }
 
-fn state_badge(ui: &mut egui::Ui, install_state: &InstallState, colors: &ThemeColors) {
-    let (text, icon, color): (&str, &str, egui::Color32) = match install_state {
-        InstallState::Installed => (
-            "Installed",
-            egui_phosphor::regular::CHECK_CIRCLE,
-            colors.success,
-        ),
-        InstallState::Disabled => (
-            "Disabled",
-            egui_phosphor::regular::PAUSE_CIRCLE,
-            colors.fg_muted,
-        ),
-        InstallState::Installing(_) => (
-            "Installing",
-            egui_phosphor::regular::ARROW_CLOCKWISE,
-            colors.info,
-        ),
-        InstallState::Failed(_) => ("Failed", egui_phosphor::regular::WARNING, colors.error),
-        InstallState::NotInstalled => return,
-        InstallState::Update => (
-            "Update",
-            egui_phosphor::regular::UPLOAD,
-            colors.accent_secondary,
-        ),
-    };
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 3.0;
-        ui.label(icon_rich_text(icon, 11.0).color(color));
-        ui.label(egui::RichText::new(text).size(11.0).color(color));
+/// `.dt-icon`: the plugin's own 64px icon, or an accent-tinted tile with its
+/// category glyph.
+fn render_icon(ui: &mut egui::Ui, plugin: &MarketPlacePlugin, colors: &ThemeColors) {
+    let (ir, _) = ui.allocate_exact_size(egui::Vec2::splat(ICON_BOX), egui::Sense::hover());
+    if !ui.is_rect_visible(ir) {
+        return;
+    }
+
+    let texture = plugin
+        .get_icon_file(ui.ctx().clone())
+        .ok()
+        .and_then(|p| load_icon_texture(ui.ctx(), &p, "mp_detail_icon"));
+
+    if let Some(tex) = texture {
+        ui.put(
+            ir,
+            egui::Image::new(&tex)
+                .fit_to_exact_size(ir.size())
+                .corner_radius(egui::CornerRadius::from(RADIUS_WINDOW)),
+        );
+        return;
+    }
+
+    ui.painter().rect_filled(
+        ir,
+        egui::CornerRadius::from(RADIUS_WINDOW),
+        with_alpha(colors.accent, ICON_TINT_ALPHA),
+    );
+    let cap_glyph = plugin
+        .categories
+        .first()
+        .map(|c| category_glyph(c))
+        .unwrap_or(egui_phosphor::regular::PUZZLE_PIECE);
+    ui.painter().text(
+        ir.center(),
+        egui::Align2::CENTER_CENTER,
+        cap_glyph,
+        phosphor_font_id(ICON_GLYPH),
+        colors.accent,
+    );
+}
+
+/// `.dt-main`: name · version · state badge, the description, then the inline
+/// author / categories metadata.
+fn render_identity(
+    ui: &mut egui::Ui,
+    plugin: &MarketPlacePlugin,
+    install_state: &InstallState,
+    colors: &ThemeColors,
+) {
+    // `.dt-t{display:flex;align-items:center;gap:10px;flex-wrap:wrap}`
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = TITLE_GAP;
+        ui.add(
+            Typography::builder()
+                .text(&plugin.name)
+                .variant(TypographyVariant::Heading)
+                .size(NAME_FONT)
+                .bold(true)
+                .build(),
+        );
+        ui.add(
+            Typography::builder()
+                .text(format!("v{}", plugin.version))
+                .variant(TypographyVariant::Mono)
+                .color(color_to_hex(colors.fg_muted))
+                .size(VERSION_FONT)
+                .build(),
+        );
+        state_badge(ui, install_state, colors);
+    });
+
+    // `.dt-desc{font-size:13px;color:var(--fg-muted);margin-top:7px}`
+    ui.add_space(DESC_TOP);
+    ui.add(
+        Typography::builder()
+            .text(&plugin.description)
+            .variant(TypographyVariant::Subtitle)
+            .build(),
+    );
+
+    // `.dt-meta-inline`: author and categories, each an icon + caption group.
+    ui.add_space(META_TOP);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(META_GAP, META_ICON_GAP);
+        meta_inline(ui, egui_phosphor::regular::USER, &plugin.author, colors);
+        if !plugin.categories.is_empty() {
+            let cats = plugin
+                .categories
+                .iter()
+                .map(|c| category_label(c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            meta_inline(ui, egui_phosphor::regular::FOLDER, &cats, colors);
+        }
     });
 }
 
-// ── Action buttons (inside header, top-right) ─────────────────────────────────
+/// One `.dt-meta-inline` group: a caption-sized glyph, 5px, then the value.
+fn meta_inline(ui: &mut egui::Ui, glyph: &str, text: &str, colors: &ThemeColors) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add(
+            Icon::builder()
+                .glyph(glyph)
+                .size(FONT_CAPTION)
+                .color(color_to_hex(colors.fg_muted))
+                .build(),
+        );
+        ui.add_space(META_ICON_GAP);
+        Typography::caption(ui, text);
+    });
+}
 
-fn render_action_buttons(
-    ui: &mut egui::Ui,
-    install_state: &InstallState,
-    colors: &ThemeColors,
-    action: &mut Option<DetailAction>,
-) {
-    let _ = colors;
+/// `.dt-badge`: a fully-round soft status pill — an 18% wash of the status colour
+/// behind a leading glyph and an 11px proportional label
+/// (`<i class="ph ph-check-circle"></i>Installed`).
+fn state_badge(ui: &mut egui::Ui, install_state: &InstallState, colors: &ThemeColors) {
+    let (text, color, glyph): (&str, egui::Color32, &str) = match install_state {
+        InstallState::Installed => (
+            "Installed",
+            colors.success,
+            egui_phosphor::regular::CHECK_CIRCLE,
+        ),
+        InstallState::Disabled => (
+            "Disabled",
+            colors.fg_muted,
+            egui_phosphor::regular::PAUSE_CIRCLE,
+        ),
+        InstallState::Installing(_) => (
+            "Installing",
+            colors.info,
+            egui_phosphor::regular::ARROW_CIRCLE_DOWN,
+        ),
+        InstallState::Failed(_) => (
+            "Failed",
+            colors.error,
+            egui_phosphor::regular::WARNING_CIRCLE,
+        ),
+        InstallState::NotInstalled => return,
+        InstallState::Update => (
+            "Update",
+            colors.accent_secondary,
+            egui_phosphor::regular::ARROW_CIRCLE_UP,
+        ),
+    };
+    ui.add(
+        Badge::builder()
+            .label(text)
+            .icon(glyph)
+            .color(color_to_hex(color))
+            .soft(true)
+            .pill(true)
+            // The label is prose in the body family, not a code token.
+            .mono(false)
+            .size(Size::Large)
+            .font_size(FONT_CAPTION)
+            .build(),
+    );
+}
+
+// ── Action buttons (inside the head, top-right) ───────────────────────────────
+
+/// The `.dt-actions` buttons for a state, in design (left-to-right) order.
+///
+/// The semantic hues are deliberate: `Uninstall` is destructive and irreversible
+/// so it carries the error hue, but `Soft` keeps it a red-labelled wash rather
+/// than a solid red slab shouting over the button beside it; `Disable` is
+/// cautionary but reversible, so it takes the warning hue as a soft tint; and
+/// `Enable` is the call to action for a disabled plugin, so it stays solid
+/// accent.
+fn action_buttons(install_state: &InstallState) -> Vec<(Button, DetailAction)> {
+    let uninstall = || {
+        (
+            Button::builder()
+                .label("Uninstall")
+                .color(ButtonColor::Danger)
+                .button_type(ButtonType::Soft)
+                .icon(egui_phosphor::regular::TRASH)
+                .button_size(ButtonSize::Medium)
+                .build(),
+            DetailAction::Uninstall,
+        )
+    };
+    let disable = || {
+        (
+            Button::builder()
+                .label("Disable")
+                .color(ButtonColor::Warning)
+                .button_type(ButtonType::Soft)
+                .icon(egui_phosphor::regular::PAUSE)
+                .button_size(ButtonSize::Medium)
+                .build(),
+            DetailAction::Disable,
+        )
+    };
+    let update = || {
+        (
+            Button::builder()
+                .label("Update")
+                .color(ButtonColor::Primary)
+                .icon(egui_phosphor::regular::UPLOAD)
+                .button_size(ButtonSize::Medium)
+                .build(),
+            DetailAction::Install,
+        )
+    };
+
     match install_state {
-        InstallState::NotInstalled => {
-            if ui
-                .add(
-                    Button::builder()
-                        .label("Install")
-                        .color(ButtonColor::Primary)
-                        .icon(egui_phosphor::regular::DOWNLOAD_SIMPLE)
-                        .button_size(ButtonSize::Small)
-                        .build(),
-                )
-                .clicked()
-            {
-                *action = Some(DetailAction::Install);
-            }
-        }
-
-        InstallState::Installed => {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                if ui
-                    .add(
-                        Button::builder()
-                            .label("Disable")
-                            .color(ButtonColor::Default)
-                            .button_size(ButtonSize::Small)
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    *action = Some(DetailAction::Disable);
-                }
-                if ui
-                    .add(
-                        Button::builder()
-                            .label("Uninstall")
-                            .color(ButtonColor::Default)
-                            .icon(egui_phosphor::regular::TRASH)
-                            .button_size(ButtonSize::Small)
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    *action = Some(DetailAction::Uninstall);
-                }
-            });
-        }
-
-        InstallState::Disabled => {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                if ui
-                    .add(
-                        Button::builder()
-                            .label("Enable")
-                            .color(ButtonColor::Primary)
-                            .icon(egui_phosphor::regular::PLAY)
-                            .button_size(ButtonSize::Small)
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    *action = Some(DetailAction::Enable);
-                }
-                if ui
-                    .add(
-                        Button::builder()
-                            .label("Uninstall")
-                            .color(ButtonColor::Default)
-                            .icon(egui_phosphor::regular::TRASH)
-                            .button_size(ButtonSize::Small)
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    *action = Some(DetailAction::Uninstall);
-                }
-            });
-        }
-
-        InstallState::Installing(_) => {
-            if ui
-                .add(
-                    Button::builder()
-                        .label("Cancel")
-                        .color(ButtonColor::Default)
-                        .icon(egui_phosphor::regular::X)
-                        .button_size(ButtonSize::Small)
-                        .build(),
-                )
-                .clicked()
-            {
-                *action = Some(DetailAction::Retry); // reuse as cancel signal
-            }
-        }
-
-        InstallState::Failed(_) => {
-            if ui
-                .add(
-                    Button::builder()
-                        .label("Retry install")
-                        .color(ButtonColor::Danger)
-                        .icon(egui_phosphor::regular::ARROW_CLOCKWISE)
-                        .button_size(ButtonSize::Small)
-                        .build(),
-                )
-                .clicked()
-            {
-                *action = Some(DetailAction::Retry);
-            }
-        }
-        InstallState::Update => {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                if ui
-                    .add(
-                        Button::builder()
-                            .label("Update")
-                            .color(ButtonColor::Secondary)
-                            .icon(egui_phosphor::regular::UPLOAD)
-                            .button_size(ButtonSize::Small)
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    *action = Some(DetailAction::Install);
-                }
-                if ui
-                    .add(
-                        Button::builder()
-                            .label("Disable")
-                            .color(ButtonColor::Default)
-                            .button_size(ButtonSize::Small)
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    *action = Some(DetailAction::Disable);
-                }
-                if ui
-                    .add(
-                        Button::builder()
-                            .label("Uninstall")
-                            .color(ButtonColor::Default)
-                            .icon(egui_phosphor::regular::TRASH)
-                            .button_size(ButtonSize::Small)
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    *action = Some(DetailAction::Uninstall);
-                }
-            });
-        }
+        InstallState::NotInstalled => vec![(
+            Button::builder()
+                .label("Install")
+                .color(ButtonColor::Primary)
+                .icon(egui_phosphor::regular::DOWNLOAD_SIMPLE)
+                .button_size(ButtonSize::Medium)
+                .build(),
+            DetailAction::Install,
+        )],
+        InstallState::Installed => vec![disable(), uninstall()],
+        InstallState::Disabled => vec![
+            (
+                Button::builder()
+                    .label("Enable")
+                    .color(ButtonColor::Primary)
+                    .icon(egui_phosphor::regular::PLAY)
+                    .button_size(ButtonSize::Medium)
+                    .build(),
+                DetailAction::Enable,
+            ),
+            uninstall(),
+        ],
+        // `Retry` doubles as the cancel signal for an in-flight install.
+        InstallState::Installing(_) => vec![(
+            Button::builder()
+                .label("Cancel")
+                .color(ButtonColor::Default)
+                .icon(egui_phosphor::regular::X)
+                .button_size(ButtonSize::Medium)
+                .build(),
+            DetailAction::Retry,
+        )],
+        InstallState::Failed(_) => vec![(
+            Button::builder()
+                .label("Retry install")
+                .color(ButtonColor::Danger)
+                .icon(egui_phosphor::regular::ARROW_CLOCKWISE)
+                .button_size(ButtonSize::Medium)
+                .build(),
+            DetailAction::Retry,
+        )],
+        InstallState::Update => vec![update(), disable(), uninstall()],
     }
 }
 
@@ -474,31 +508,34 @@ fn render_banner_error(
     action: &mut Option<DetailAction>,
 ) {
     let err = colors.error;
-    let bg = egui::Color32::from_rgba_unmultiplied(err.r(), err.g(), err.b(), 0x15);
-    let border = egui::Color32::from_rgba_unmultiplied(err.r(), err.g(), err.b(), 0x55);
 
     egui::Frame::NONE
-        .fill(bg)
+        .fill(with_alpha(err, BANNER_TINT_ALPHA))
         .inner_margin(egui::Margin {
-            left: 28,
-            right: 28,
-            top: 10,
-            bottom: 10,
+            left: HEAD_PAD_X,
+            right: HEAD_PAD_X,
+            top: BANNER_PAD_Y,
+            bottom: BANNER_PAD_Y,
         })
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
-                ui.label(icon_rich_text(egui_phosphor::regular::WARNING, 16.0).color(err));
+                ui.spacing_mut().item_spacing.x = BANNER_GAP;
+                ui.add(
+                    Icon::builder()
+                        .glyph(egui_phosphor::regular::WARNING)
+                        .size(HEAD_GAP)
+                        .color(color_to_hex(err))
+                        .build(),
+                );
                 ui.vertical(|ui| {
                     ui.add(
                         Typography::builder()
                             .text("Install failed")
                             .bold(true)
-                            .color(thoth_plugin_sdk::theme::color_to_hex(err))
+                            .color(color_to_hex(err))
                             .build(),
                     );
-                    ui.add_space(2.0);
-                    ui.label(egui::RichText::new(msg).size(12.0).color(colors.fg_muted));
+                    Typography::body_muted(ui, msg);
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
@@ -517,10 +554,7 @@ fn render_banner_error(
                 });
             });
         });
-    // Bottom border
-    let (line, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
-    ui.painter().rect_filled(line, 0.0, border);
+    banner_rule(ui, with_alpha(err, BANNER_RULE_ALPHA));
 }
 
 fn render_banner_installing(
@@ -530,45 +564,36 @@ fn render_banner_installing(
     colors: &ThemeColors,
 ) {
     let inf = colors.info;
-    let bg = egui::Color32::from_rgba_unmultiplied(inf.r(), inf.g(), inf.b(), 0x10);
-    let border = egui::Color32::from_rgba_unmultiplied(inf.r(), inf.g(), inf.b(), 0x55);
 
     egui::Frame::NONE
-        .fill(bg)
+        .fill(with_alpha(inf, BANNER_TINT_ALPHA))
         .inner_margin(egui::Margin {
-            left: 28,
-            right: 28,
-            top: 10,
-            bottom: 10,
+            left: HEAD_PAD_X,
+            right: HEAD_PAD_X,
+            top: BANNER_PAD_Y,
+            bottom: BANNER_PAD_Y,
         })
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
-                ui.label(icon_rich_text(egui_phosphor::regular::ARROW_CLOCKWISE, 14.0).color(inf));
+                ui.spacing_mut().item_spacing.x = BANNER_GAP;
+                ui.add(Spinner::builder().size(FONT_CONTROL).build());
                 Typography::bold(ui, &format!("Installing {}…", plugin.name));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!("{}%", progress))
-                            .size(11.0)
-                            .monospace()
-                            .color(colors.fg_muted),
-                    );
-                });
             });
-            ui.add_space(6.0);
-            let bar_w = ui.available_width();
-            let (track, _) = ui.allocate_exact_size(egui::vec2(bar_w, 4.0), egui::Sense::hover());
-            ui.painter().rect_filled(track, 2.0, colors.surface);
-            let fill = egui::Rect::from_min_size(
-                track.min,
-                egui::vec2(track.width() * (progress as f32 / 100.0), 4.0),
+            ui.add_space(META_ICON_GAP);
+            ui.add(
+                Progress::builder()
+                    .value(f64::from(progress) / 100.0)
+                    .color(color_to_hex(inf))
+                    .readout(format!("{progress}%"))
+                    .build(),
             );
-            ui.painter().rect_filled(fill, 2.0, inf);
         });
-    // Bottom border
-    let (line, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
-    ui.painter().rect_filled(line, 0.0, border);
+    banner_rule(ui, with_alpha(inf, BANNER_RULE_ALPHA));
+}
+
+/// The hairline closing a banner off from the content under it.
+fn banner_rule(ui: &mut egui::Ui, color: egui::Color32) {
+    ui.add(Separator::rule(color_to_hex(color)));
 }
 
 // ── README (left column) ──────────────────────────────────────────────────────
@@ -583,6 +608,9 @@ fn render_readme(ui: &mut egui::Ui, plugin: &MarketPlacePlugin, colors: &ThemeCo
 
     match (&entry.content, &entry.error, entry.pending.is_some()) {
         (Some(text), _, _) => {
+            // The SDK's `Markdown` builds a fresh `CommonMarkCache` per call,
+            // which would re-parse a long README every frame — so the viewer is
+            // driven directly off a cache kept in egui memory.
             let cache_id = egui::Id::new("mp_readme_md_cache");
             let cache_arc = ui.ctx().data_mut(|d| {
                 d.get_temp::<Arc<Mutex<CommonMarkCache>>>(cache_id)
@@ -598,101 +626,106 @@ fn render_readme(ui: &mut egui::Ui, plugin: &MarketPlacePlugin, colors: &ThemeCo
             ui.ctx().data_mut(|d| d.insert_temp(cache_id, cache_arc));
         }
         (_, Some(err), _) => {
-            ui.label(
-                egui::RichText::new(format!("Failed to load README: {err}"))
-                    .size(12.0)
-                    .color(colors.fg_muted),
-            );
+            Typography::body_muted(ui, &format!("Failed to load README: {err}"));
         }
         _ => {
             ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label(
-                    egui::RichText::new("Loading README…")
-                        .size(12.0)
-                        .color(colors.fg_muted),
-                );
+                ui.spacing_mut().item_spacing.x = BANNER_GAP;
+                ui.add(Spinner::builder().build());
+                Typography::body_muted(ui, "Loading README…");
             });
         }
     }
 }
 
-// ── Sidebar metadata (right column, 220 px) ───────────────────────────────────
+// ── Metadata side (right column, 220 px) ──────────────────────────────────────
 
 fn render_sidebar_meta(ui: &mut egui::Ui, plugin: &MarketPlacePlugin, colors: &ThemeColors) {
-    // Identifier
-    meta_label(ui, "Identifier");
-    ui.label(
-        egui::RichText::new(&plugin.id)
-            .size(12.0)
-            .monospace()
-            .color(colors.fg),
-    );
-    ui.add_space(14.0);
+    // `.mv.mono` — identifier and version.
+    meta_field(ui, "Identifier", |ui| {
+        ui.add(
+            Typography::builder()
+                .text(&plugin.id)
+                .variant(TypographyVariant::Mono)
+                .size(META_MONO_FONT)
+                .build(),
+        );
+    });
+    meta_field(ui, "Version", |ui| {
+        ui.add(
+            Typography::builder()
+                .text(&plugin.version)
+                .variant(TypographyVariant::Mono)
+                .size(META_MONO_FONT)
+                .build(),
+        );
+    });
 
-    // Version
-    meta_label(ui, "Version");
-    ui.label(
-        egui::RichText::new(&plugin.version)
-            .size(12.0)
-            .monospace()
-            .color(colors.fg),
-    );
-    ui.add_space(14.0);
+    // `.mv{font-size:12.5px;color:var(--fg)}`
+    meta_field(ui, "Author", |ui| {
+        ui.add(
+            Typography::builder()
+                .text(&plugin.author)
+                .size(FONT_CONTROL)
+                .build(),
+        );
+    });
 
-    // Author
-    meta_label(ui, "Author");
-    ui.label(
-        egui::RichText::new(&plugin.author)
-            .size(12.0)
-            .color(colors.fg),
-    );
-    ui.add_space(14.0);
-
-    // Repository
+    // `.mv.link{color:var(--accent2)}`
     if !plugin.repo_url.is_empty() {
-        meta_label(ui, "Repository");
-        if ui
-            .link(
-                egui::RichText::new(plugin.repo_url.trim_start_matches("https://"))
-                    .size(12.0)
-                    .color(colors.accent),
-            )
-            .clicked()
-        {
-            ui.ctx()
-                .open_url(egui::OpenUrl::new_tab(plugin.repo_url.clone()));
-        };
-        ui.add_space(14.0);
+        meta_field(ui, "Repository", |ui| {
+            if ui
+                .link(
+                    egui::RichText::new(plugin.repo_url.trim_start_matches("https://"))
+                        .size(FONT_CONTROL)
+                        .color(colors.accent_secondary),
+                )
+                .clicked()
+            {
+                ui.ctx()
+                    .open_url(egui::OpenUrl::new_tab(plugin.repo_url.clone()));
+            }
+        });
     }
 
-    // SHA-256 (truncated, shown in code block style)
+    // `.sha`: mono caption on `--bg-sunken` behind the shared hairline edge.
     if !plugin.sha256.is_empty() {
-        meta_label(ui, "SHA-256");
-        let sha_short = if plugin.sha256.len() > 32 {
-            format!("{}…", &plugin.sha256[..32])
+        let sha_short = if plugin.sha256.len() > SHA_CHARS {
+            format!("{}…", &plugin.sha256[..SHA_CHARS])
         } else {
             plugin.sha256.clone()
         };
-        egui::Frame::NONE
-            .fill(colors.bg_sunken)
-            .corner_radius(4)
-            .stroke(egui::Stroke::new(1.0, colors.surface))
-            .inner_margin(egui::Margin::same(8))
-            .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new(&sha_short)
-                        .size(10.0)
-                        .monospace()
-                        .color(colors.fg_muted),
-                );
-            });
+        meta_field(ui, "SHA-256", |ui| {
+            egui::Frame::NONE
+                .fill(colors.bg_sunken)
+                .corner_radius(RADIUS_CHIP)
+                .stroke(edge_stroke(colors))
+                .inner_margin(egui::Margin::symmetric(SHA_PAD_X, SHA_PAD_Y))
+                .show(ui, |ui| {
+                    ui.add(
+                        Typography::builder()
+                            .text(&sha_short)
+                            .variant(TypographyVariant::Mono)
+                            .color(color_to_hex(colors.fg_muted))
+                            .size(FONT_CAPTION)
+                            .build(),
+                    );
+                });
+        });
     }
 }
 
-/// Renders the uppercase bold label used above each sidebar metadata value.
-/// 10 px · bold · uppercase · `sidebar_header` color (overlay2 equivalent).
-fn meta_label(ui: &mut egui::Ui, text: &str) {
-    Typography::panel_header(ui, &text.to_uppercase());
-    ui.add_space(4.0);
+/// One `.mf`: the 10px uppercase `.ml` label, 3px, the value, then 13px of air.
+fn meta_field(ui: &mut egui::Ui, label: &str, value: impl FnOnce(&mut egui::Ui)) {
+    ui.add(
+        Typography::builder()
+            .text(label.to_uppercase())
+            .variant(TypographyVariant::GroupLabel)
+            .size(META_LABEL_FONT)
+            .bold(true)
+            .build(),
+    );
+    ui.add_space(META_LABEL_GAP);
+    value(ui);
+    ui.add_space(META_FIELD_GAP);
 }

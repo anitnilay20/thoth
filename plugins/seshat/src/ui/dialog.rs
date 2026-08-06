@@ -2,14 +2,20 @@
 //! enter credentials (matching the design handoff's `NewConnectionDialog`).
 
 use thoth_plugin_sdk::components::{
-    Align, Checkbox, Colored, Column, Input, List, ListItem, ListItemPrefix, Modal, Row, Select,
-    SelectOption, Separator, Size, Spacer, Split, Typography, TypographyVariant,
+    Align, Checkbox, Column, Icon, Input, List, ListItem, ListItemPrefix, Modal, Row, Select,
+    SelectOption, Separator, Spacer, Split, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
 use crate::state::{engine_label, State, ENGINE_GROUPS};
 use crate::ui::widgets::{button, text_input};
 use crate::ICON_PLUG;
+
+/// Glyphs used only by the dialog: the Back affordance and the test-connection
+/// verdict (design's `.m-foot` caret and the `.m-body` status line).
+const ICON_CARET_LEFT: &str = "\u{E138}";
+const ICON_CHECK_CIRCLE: &str = "\u{E184}";
+const ICON_X_CIRCLE: &str = "\u{E4F8}";
 
 /// The new/edit-connection modal. Shared by the manager view and the sidebar.
 ///
@@ -107,14 +113,25 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
             true,
             "my-database",
         ),
-        // Host (2 parts) + Port (1 part).
+        // Host (2 parts) + Port (1 part) — design `.split2{grid:2fr 1fr;gap:10px}`.
         RenderNode::Split(
             Split::builder()
-                .gap(12.0)
+                .gap(10.0)
                 .widths(vec![2.0, 1.0])
                 .children(vec![
                     text_input(&id("f-host"), "Host", &st.form.host, true, "localhost"),
-                    text_input(&id("f-port"), "Port", &st.form.port, true, "5432"),
+                    // The port is numeric, so the design sets it in mono
+                    // (`.field.mono`).
+                    RenderNode::Input(
+                        Input::builder()
+                            .id(id("f-port"))
+                            .label("Port")
+                            .value(st.form.port.clone())
+                            .placeholder("5432")
+                            .mono(true)
+                            .grow(true)
+                            .build(),
+                    ),
                 ])
                 .build(),
         ),
@@ -139,7 +156,9 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
             .checked(st.form.tls)
             .build(),
     ));
-    fields.push(
+    // The design's last body row: the environment-colour selector and the last
+    // test verdict side by side (`display:flex;gap:9px`).
+    let mut colour_row: Vec<RenderNode> = vec![
         // Environment colour: a semantic token shown as the connection's accent
         // + status-dot tint, so prod vs local reads at a glance.
         RenderNode::Select(
@@ -170,23 +189,38 @@ fn form_step(st: &State, prefix: &str, connect_label: &str) -> RenderNode {
                         .label("Purple")
                         .build(),
                 ])
-                .size(Size::Small)
+                // Design `.selbox{min-width:150px}`; left at the default size so
+                // the trigger is the same 28px box as the fields above it.
+                .width(150.0)
                 .build(),
         ),
-    );
+    ];
 
     if let Some(status) = &st.test_status {
-        let (color, text) = match status {
-            Ok(msg) => ("success", msg.clone()),
-            Err(msg) => ("error", msg.clone()),
+        let (color, glyph, text) = match status {
+            Ok(msg) => ("success", ICON_CHECK_CIRCLE, msg.clone()),
+            Err(msg) => ("error", ICON_X_CIRCLE, msg.clone()),
         };
-        fields.push(RenderNode::Colored(
-            Colored::builder()
-                .color(color)
-                .child(RenderNode::Text(Typography::builder().text(text).build()))
+        // A glyph + caption in the verdict's colour, e.g. "✓ Connected in 42 ms".
+        colour_row.push(RenderNode::Row(
+            Row::builder()
+                .gap(6.0)
+                .children(vec![
+                    RenderNode::Icon(Icon::builder().glyph(glyph).color(color).build()),
+                    RenderNode::Text(
+                        Typography::builder()
+                            .text(text)
+                            .variant(TypographyVariant::Caption)
+                            .color(color)
+                            .build(),
+                    ),
+                ])
                 .build(),
         ));
     }
+    fields.push(RenderNode::Row(
+        Row::builder().gap(9.0).children(colour_row).build(),
+    ));
 
     fields.push(footer(prefix, true, connect_label));
 
@@ -204,10 +238,12 @@ fn auth_fields(st: &State, prefix: &str) -> Vec<RenderNode> {
     let id = |name: &str| format!("{prefix}{name}");
 
     // User + Password split, reused by SQL engines and ES password mode.
+    // Design `.split1{grid:1fr 1fr;gap:10px}`, with the masked value in mono
+    // (`.field.mono`).
     let user_password = || {
         RenderNode::Split(
             Split::builder()
-                .gap(12.0)
+                .gap(10.0)
                 .widths(vec![1.0, 1.0])
                 .children(vec![
                     text_input(&id("f-user"), "User", &st.form.user, true, ""),
@@ -217,6 +253,7 @@ fn auth_fields(st: &State, prefix: &str) -> Vec<RenderNode> {
                             .label("Password")
                             .value(st.form.password.clone())
                             .password(true)
+                            .mono(true)
                             .grow(true)
                             .build(),
                     ),
@@ -255,7 +292,6 @@ fn auth_fields(st: &State, prefix: &str) -> Vec<RenderNode> {
                     .label("API key")
                     .build(),
             ])
-            .size(Size::Small)
             .build(),
     );
 
@@ -269,6 +305,7 @@ fn auth_fields(st: &State, prefix: &str) -> Vec<RenderNode> {
                 .label("API key (encoded)")
                 .value(st.form.password.clone())
                 .password(true)
+                .mono(true)
                 .grow(true)
                 .build(),
         )),
@@ -287,7 +324,8 @@ fn footer(prefix: &str, form_step: bool, connect_label: &str) -> RenderNode {
             "Back",
             "Text",
             "Default",
-            None,
+            // Design `.m-foot` leads the Back action with a caret.
+            Some(ICON_CARET_LEFT),
             true,
             false,
         ));

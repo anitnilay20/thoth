@@ -13,6 +13,11 @@ pub enum ButtonType {
     Elevated,
     /// Borderless text-only button — for low-emphasis / inline actions.
     Text,
+    /// Tinted button: the semantic colour washes the surface at low opacity and
+    /// carries the label, instead of filling the button solid. Design `.btn.dsoft`
+    /// (a soft [`ButtonColor::Danger`]) — quieter than [`Elevated`](Self::Elevated)
+    /// but still unmistakably coloured.
+    Soft,
 }
 
 /// Preset size of a [`Button`] — an alias of the shared [`Size`](crate::components::Size)
@@ -30,12 +35,23 @@ pub enum ButtonColor {
     Default,
     /// Primary accent — the main call to action.
     Primary,
-    /// Secondary accent — complementary emphasis.
+    /// Legacy alias of [`Primary`](ButtonColor::Primary) — **prefer `Primary`**.
+    ///
+    /// The design system has one accent action colour (lavender) and one neutral
+    /// button (surface + hairline, which is [`Default`](ButtonColor::Default) here,
+    /// and what the sheets call `.btn.secondary`). That leaves this variant with no
+    /// distinct appearance: it resolves to the same lavender as `Primary`.
+    ///
+    /// Kept because `ButtonColor` is serialised in the plugin DSL, so an installed
+    /// plugin may still send `"Secondary"`; removing it would break those.
     Secondary,
     /// Destructive action (delete, discard).
     Danger,
     /// Positive / confirming action.
     Success,
+    /// Cautionary action — reversible but consequential (disable, revoke), where
+    /// [`Danger`](ButtonColor::Danger) would overstate it.
+    Warning,
 }
 
 /// A clickable button.
@@ -160,17 +176,17 @@ mod tests {
 
     #[test]
     fn button_size_small_metrics() {
-        assert_eq!(ButtonSize::Small.metrics(), (11.0, 24.0));
+        assert_eq!(ButtonSize::Small.metrics(), (11.5, 22.0));
     }
 
     #[test]
     fn button_size_medium_metrics() {
-        assert_eq!(ButtonSize::Medium.metrics(), (13.0, 28.0));
+        assert_eq!(ButtonSize::Medium.metrics(), (12.5, 26.0));
     }
 
     #[test]
     fn button_size_large_metrics() {
-        assert_eq!(ButtonSize::Large.metrics(), (15.0, 32.0));
+        assert_eq!(ButtonSize::Large.metrics(), (14.0, 30.0));
     }
 
     // ── serialisation ─────────────────────────────────────────────────────────
@@ -185,6 +201,12 @@ mod tests {
     fn button_type_text_serialises() {
         let s = serde_json::to_string(&ButtonType::Text).unwrap();
         assert_eq!(s, r#""Text""#);
+    }
+
+    #[test]
+    fn button_type_soft_serialises() {
+        let s = serde_json::to_string(&ButtonType::Soft).unwrap();
+        assert_eq!(s, r#""Soft""#);
     }
 
     #[test]

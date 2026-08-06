@@ -375,9 +375,9 @@ impl Gallery {
                     &[
                         (ButtonColor::Default, "Default"),
                         (ButtonColor::Primary, "Primary"),
-                        (ButtonColor::Secondary, "Secondary"),
                         (ButtonColor::Danger, "Danger"),
                         (ButtonColor::Success, "Success"),
+                        (ButtonColor::Warning, "Warning"),
                     ],
                 );
                 ui.end_row();
@@ -443,9 +443,9 @@ impl Gallery {
             for (c, name) in [
                 (ButtonColor::Default, "Default"),
                 (ButtonColor::Primary, "Primary"),
-                (ButtonColor::Secondary, "Secondary"),
                 (ButtonColor::Danger, "Danger"),
                 (ButtonColor::Success, "Success"),
+                (ButtonColor::Warning, "Warning"),
             ] {
                 ui.add(
                     Button::builder()

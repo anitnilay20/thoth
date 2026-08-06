@@ -1,3 +1,6 @@
+#[cfg(feature = "egui")]
+mod ui;
+
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
@@ -23,19 +26,13 @@ pub struct Checkbox {
     #[builder(default)]
     #[serde(default)]
     pub checked: bool,
+    /// Mixed state — shows a minus glyph instead of a check, and takes
+    /// precedence over [`checked`](Checkbox::checked) while set.
+    #[builder(default)]
+    #[serde(default)]
+    pub indeterminate: bool,
     /// Disable interaction.
     #[builder(default)]
     #[serde(default)]
     pub disabled: bool,
-}
-
-#[cfg(feature = "egui")]
-impl Checkbox {
-    /// Render the checkbox, toggling [`checked`](Checkbox::checked) in place.
-    pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        ui.add_enabled(
-            !self.disabled,
-            egui::Checkbox::new(&mut self.checked, &self.label),
-        )
-    }
 }

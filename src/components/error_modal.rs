@@ -1,7 +1,12 @@
+use std::cell::Cell;
+
 use crate::components::traits::StatefulComponent;
 use crate::error::{ErrorHandler, ErrorRecovery, RecoveryAction, ThothError};
 use eframe::egui;
-use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType};
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonType, Icon, Modal, Separator, Typography, TypographyVariant,
+};
+use thoth_plugin_sdk::theme::{FONT_BODY, ThemeColors, color_to_hex, with_alpha};
 
 /// Props for the error modal
 pub struct ErrorModalProps<'a> {
@@ -10,6 +15,7 @@ pub struct ErrorModalProps<'a> {
 }
 
 /// Events emitted by the error modal
+#[derive(Clone, Copy)]
 pub enum ErrorModalEvent {
     Close,
     Retry,
@@ -40,106 +46,136 @@ impl StatefulComponent for ErrorModal {
             };
         }
 
+        let colors = ThemeColors::from_ctx(ui.ctx());
+
         // Get user-friendly message and recovery suggestion
         let user_message = ErrorHandler::get_user_message(props.error);
         let recovery_suggestion = ErrorRecovery::get_recovery_suggestion(props.error);
         let action = ErrorRecovery::get_recovery_action(props.error);
+        let recoverable = ErrorHandler::is_recoverable(props.error);
+        let resettable = matches!(action, RecoveryAction::Reset);
 
         // Log the technical error
         ErrorHandler::log_error(props.error);
 
-        // Create modal window
-        egui::Window::new("Error")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ui.ctx(), |ui| {
-                ui.set_min_width(400.0);
-                ui.set_max_width(600.0);
+        // The card's head carries the title plus the message as its subtitle
+        // (design `.m-head`: `An error occurred` over a `pre-line` detail line).
+        let modal = Modal::builder()
+            .id("error_modal")
+            .title("An error occurred")
+            .subtitle(user_message)
+            .width(480.0)
+            // Design leads the head with the 30px status glyph (`.glyph`).
+            .glyph(egui_phosphor::regular::WARNING_CIRCLE)
+            .glyph_color("error")
+            .build();
 
-                // Error icon and message
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("⚠")
-                            .size(32.0)
-                            .color(egui::Color32::from_rgb(255, 100, 100)),
-                    );
-                    ui.add_space(12.0);
-                    ui.vertical(|ui| {
-                        ui.label(egui::RichText::new("An error occurred").strong().size(16.0));
-                        ui.add_space(4.0);
-                        ui.label(user_message);
-                    });
-                });
+        // The footer closure may borrow locals, so the pick is a plain `Cell`.
+        let picked: Cell<Option<ErrorModalEvent>> = Cell::new(None);
 
-                ui.add_space(12.0);
-
-                // Recovery suggestion if available
+        let closed = modal.show_with_footer(
+            ui,
+            |ui| {
+                // Recovery hint — design `.sep` + a `.m-body` row of the yellow
+                // lightbulb and the italic suggestion.
                 if let Some(suggestion) = recovery_suggestion {
-                    ui.add(egui::Separator::default());
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("💡").size(18.0));
-                        ui.label(
-                            egui::RichText::new(suggestion)
-                                .italics()
-                                .color(ui.visuals().weak_text_color()),
-                        );
-                    });
-                    ui.add_space(8.0);
-                }
-
-                ui.add(egui::Separator::default());
-                ui.add_space(8.0);
-
-                // Buttons based on recovery action
-                ui.horizontal(|ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Close button (always available)
-                        let close_btn = ui.add(
-                            Button::builder()
-                                .label("Close")
-                                .button_type(ButtonType::Elevated)
-                                .color(ButtonColor::Default)
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    // `.sep`: hairline inset 20px each side — the body padding
+                    // already insets us, so it spans the available width.
+                    ui.add(Separator::rule(color_to_hex(with_alpha(
+                        colors.surface_raised,
+                        77, // surface1@30%
+                    ))));
+                    ui.add_space(13.0); // `.m-body{padding-top:13px}`
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = 9.0;
+                        ui.add(
+                            Icon::builder()
+                                .glyph(egui_phosphor::regular::LIGHTBULB)
+                                .color("warning")
+                                .size(17.0)
                                 .build(),
                         );
-                        if close_btn.clicked() {
-                            events.push(ErrorModalEvent::Close);
-                            recovery_action = Some(RecoveryAction::ClearError);
-                        }
-
-                        // Only show Retry button if error is recoverable
-                        if ErrorHandler::is_recoverable(props.error) {
-                            let retry_btn = ui.add(
-                                Button::builder()
-                                    .label("Retry")
-                                    .button_type(ButtonType::Elevated)
-                                    .color(ButtonColor::Danger)
+                        // Labels don't wrap inside a horizontal layout, so the
+                        // copy gets its own strip across the remaining width.
+                        ui.vertical(|ui| {
+                            ui.add(
+                                Typography::builder()
+                                    .text(suggestion)
+                                    .variant(TypographyVariant::Body)
+                                    .size(FONT_BODY)
+                                    .italic(true)
+                                    .color("fg-muted")
                                     .build(),
                             );
-                            if retry_btn.clicked() {
-                                events.push(ErrorModalEvent::Retry);
-                                recovery_action = Some(RecoveryAction::Retry);
-                            }
-                        }
-
-                        // Show Reset button for specific recovery actions
-                        if matches!(action, RecoveryAction::Reset) {
-                            let reset_btn = ui.add(
-                                Button::builder()
-                                    .label("Reset")
-                                    .button_type(ButtonType::Elevated)
-                                    .color(ButtonColor::Danger)
-                                    .build(),
-                            );
-                            if reset_btn.clicked() {
-                                events.push(ErrorModalEvent::Reset);
-                                recovery_action = Some(RecoveryAction::Reset);
-                            }
-                        }
+                        });
                     });
-                });
+                }
+            },
+            // `.m-foot` lays out right-to-left: the recovery actions sit at the
+            // right edge, `Close` to their left.
+            |ui| {
+                // Only offer Retry if the error is recoverable
+                if recoverable
+                    && ui
+                        .add(
+                            Button::builder()
+                                .label("Retry")
+                                .button_type(ButtonType::Elevated)
+                                .color(ButtonColor::Danger)
+                                .build(),
+                        )
+                        .clicked()
+                {
+                    picked.set(Some(ErrorModalEvent::Retry));
+                }
+
+                // Show Reset button for specific recovery actions
+                if resettable
+                    && ui
+                        .add(
+                            Button::builder()
+                                .label("Reset")
+                                .button_type(ButtonType::Elevated)
+                                .color(ButtonColor::Danger)
+                                .build(),
+                        )
+                        .clicked()
+                {
+                    picked.set(Some(ErrorModalEvent::Reset));
+                }
+
+                // Close button (always available)
+                if ui
+                    .add(
+                        Button::builder()
+                            .label("Close")
+                            .button_type(ButtonType::Elevated)
+                            .color(ButtonColor::Default)
+                            .build(),
+                    )
+                    .clicked()
+                {
+                    picked.set(Some(ErrorModalEvent::Close));
+                }
+            },
+        );
+
+        // Escape / backdrop / ✕ dismiss the card the same way `Close` does.
+        let event = picked.get().or(if closed {
+            Some(ErrorModalEvent::Close)
+        } else {
+            None
+        });
+
+        if let Some(event) = event {
+            recovery_action = Some(match event {
+                ErrorModalEvent::Close => RecoveryAction::ClearError,
+                ErrorModalEvent::Retry => RecoveryAction::Retry,
+                ErrorModalEvent::Reset => RecoveryAction::Reset,
             });
+            events.push(event);
+        }
 
         ErrorModalOutput {
             events,

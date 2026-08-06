@@ -7,18 +7,16 @@ use crate::{
             websocket,
         },
     },
-    helper::{
-        is_body_method, parse_kv_list, parse_str, parse_url_into_state, status_color, status_text,
-    },
+    helper::{is_body_method, parse_kv_list, parse_str, parse_url_into_state, status_text},
     http::build_request,
     KvPair, ResponseState, State, WsDir, WsLogEntry,
 };
 use serde_json::Value;
 use thoth_plugin_sdk::components::{
-    Align, Badge, BgColor, Button, ButtonColor, ButtonType, Code, CodeEditor, Column, DataRow,
-    DataRowIcon, IconButton, Input, JsonTree, KeyValueList, KvEntry, List, ListItem,
+    Align, Badge, BgColor, Button, ButtonColor, ButtonSize, ButtonType, Code, CodeEditor, Column,
+    DataRow, DataRowIcon, IconButton, Input, JsonTree, KeyValueList, KvEntry, List, ListItem,
     ListItemAction, ListItemBadge, Modal, Radio, Row, Scroll, Select, SelectOption, Separator,
-    Spacer, Spinner, Split, TabAction, TableView, Tabs, Typography, TypographyVariant,
+    Size, Spacer, Spinner, Split, TabAction, TableView, Tabs, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -27,18 +25,42 @@ const ICON_PLUS: &str = "\u{E3D4}"; // PLUS
 const ICON_CODE: &str = "\u{E1BC}"; // CODE (export cURL)
 const ICON_DOWNLOAD: &str = "\u{E20C}"; // DOWNLOAD_SIMPLE (import cURL)
 const ICON_CHART_LINE: &str = "\u{E154}"; // CHART_LINE (open in Charts)
+const ICON_LIGHTNING: &str = "\u{E2DE}"; // LIGHTNING (send request)
+
+// ── Layout constants ───────────────────────────────────────────────────────
+
+/// Gap between floating panes and toolbar controls — the design's 8px panel
+/// gutter (`GUTTER_GAP`), which is also `.urlbar{gap:8px}`.
+const GUTTER_GAP: f32 = 8.0;
+/// Toolbar / status-strip inner padding — design `.urlbar{padding:10px}` and
+/// `.respstat{padding:9px 12px}`.
+const STRIP_PAD: f32 = 10.0;
 
 // ── Small helpers ──────────────────────────────────────────────────────────
 
-/// `#rrggbb` badge colour for an HTTP method.
-fn method_badge_hex(method: &str) -> &'static str {
+/// Theme-token badge colour for an HTTP method. The design tints the method
+/// chip per verb (GET blue, POST green, PUT/PATCH peach, DELETE red,
+/// HEAD/OPTIONS mauve); those hues map onto palette tokens so both themes
+/// resolve them, never a baked hex.
+fn method_badge_token(method: &str) -> &'static str {
     match method {
-        "GET" => "#89b4fa",
-        "POST" => "#a6e3a1",
-        "PUT" | "PATCH" => "#fab387",
-        "DELETE" => "#f38ba8",
-        "HEAD" | "OPTIONS" => "#cba6f7",
-        _ => "#9399b2",
+        "GET" => "info",
+        "POST" => "success",
+        "PUT" | "PATCH" => "warning",
+        "DELETE" => "error",
+        "HEAD" | "OPTIONS" => "accent",
+        _ => "muted",
+    }
+}
+
+/// Theme token for the response status chip — the design's soft `200 OK` pill
+/// on `--green`, with the other classes stepping through the semantic ramp.
+fn status_token(code: u16) -> &'static str {
+    match code {
+        200..=299 => "success",
+        300..=399 => "info",
+        400..=499 => "warning",
+        _ => "error",
     }
 }
 
@@ -86,22 +108,31 @@ fn btn(id: &str, label: &str, enabled: bool, color: ButtonColor) -> RenderNode {
 // ── Main request/response view ──────────────────────────────────────────────
 
 pub fn build_ui(st: &State) -> RenderNode {
+    // Request | response are two floating panes on a crust gutter (design
+    // `.splith{background:bg-sunken;padding:8px}` + `.pane`). `framed` supplies
+    // the whole posture — the sunken canvas, the gutter inset and the pane cards —
+    // so no wrapper row is needed. The old 1px region borders (the separator under
+    // the url bar and the split's own divider) go away with them: a floating pane
+    // carries its own hairline edge and must not double up.
+    // `resizable` supersedes `gap` for the one divider: the grabber (design
+    // `.hhandle`, 11px) *is* the gutter between the two cards, so the request and
+    // response panes drag against each other like seshat's editor↔results do.
+    // `gap` stays declared as the fallback for a non-resizable rendering.
+    let panes = RenderNode::Split(
+        Split::builder()
+            .gap(GUTTER_GAP)
+            .framed(true)
+            .fill_height(true)
+            .resizable(true)
+            .id("url-source-panes")
+            .children(vec![build_request_column(st), build_response_column(st)])
+            .build(),
+    );
+
     RenderNode::Column(
         Column::builder()
             .gap(0.0)
-            .children(vec![
-                build_url_bar(st),
-                RenderNode::Separator(Separator::plain()),
-                RenderNode::Split(
-                    Split::builder()
-                        .gap(0.0)
-                        .separator(true)
-                        .fill_height(true)
-                        .children(vec![build_request_column(st), build_response_column(st)])
-                        .build(),
-                ),
-                curl_export_modal(st),
-            ])
+            .children(vec![build_url_bar(st), panes, curl_export_modal(st)])
             .build(),
     )
 }
@@ -118,7 +149,7 @@ pub fn build_sidebar(st: &State) -> RenderNode {
                 .badge(
                     ListItemBadge::builder()
                         .text(req.method.clone())
-                        .color(method_badge_hex(&req.method))
+                        .color(method_badge_token(&req.method))
                         .build(),
                 )
                 .actions(vec![ListItemAction::builder()
@@ -292,12 +323,14 @@ fn build_response_column(st: &State) -> RenderNode {
         } else {
             "Sending request…"
         };
+        // Reads as the pane's status strip while in flight — same `bg-panel`
+        // band as `.respstat`, which it is replaced by on arrival.
         return RenderNode::Row(
             Row::builder()
                 .bg_color(BgColor::BgPanel)
                 .max_width(true)
-                .padding(10.0)
-                .gap(8.0)
+                .padding(STRIP_PAD)
+                .gap(GUTTER_GAP)
                 .children(vec![
                     RenderNode::Spinner(Spinner::builder().size(14.0).build()),
                     muted(label),
@@ -314,13 +347,13 @@ fn build_response_column(st: &State) -> RenderNode {
                 .build(),
         )
     } else {
+        // An empty pane: a quiet hint padded onto the pane's own fill, not a
+        // filled band — the floating pane already reads as a region.
         RenderNode::Row(
             Row::builder()
-                .bg_color(BgColor::BgPanel)
                 .max_width(true)
-                .height(20.0)
-                .padding(10.0)
-                .children(vec![text("Send a request to see the response here.")])
+                .padding(STRIP_PAD)
+                .children(vec![muted("Send a request to see the response here.")])
                 .build(),
         )
     }
@@ -351,18 +384,22 @@ fn build_ws_panel(st: &State) -> RenderNode {
         Column::builder()
             .gap(0.0)
             .children(vec![
+                // Connection status reads as this pane's `.respstat` band.
                 RenderNode::Row(
                     Row::builder()
                         .bg_color(BgColor::BgPanel)
                         .max_width(true)
-                        .padding(8.0)
+                        .padding(STRIP_PAD)
                         .children(vec![muted(status)])
                         .build(),
                 ),
+                // Send box: a `.urlbar`-shaped control strip (field grows, button
+                // trails), so the row's own padding — not a trailing spacer —
+                // insets it from the pane edge.
                 RenderNode::Row(
                     Row::builder()
-                        .gap(4.0)
-                        .padding(4.0)
+                        .gap(GUTTER_GAP)
+                        .padding(STRIP_PAD)
                         .max_width(true)
                         .align(Align::Fill)
                         .children(vec![
@@ -381,7 +418,6 @@ fn build_ws_panel(st: &State) -> RenderNode {
                                 st.ws_connected && !st.ws_send_text.is_empty(),
                                 ButtonColor::Primary,
                             ),
-                            RenderNode::Spacer(Spacer::builder().size(8.0).build()),
                         ])
                         .build(),
                 ),
@@ -408,8 +444,8 @@ const ICON_DOT: &str = "\u{E18A}"; // CIRCLE — system
 /// sent (↑, blue), received (↓, green), system (•, muted).
 fn ws_log_row(idx: usize, entry: &WsLogEntry) -> RenderNode {
     let (glyph, color) = match entry.dir {
-        WsDir::Sent => (ICON_ARROW_UP, Some("#89b4fa".to_string())),
-        WsDir::Recv => (ICON_ARROW_DOWN, Some("#a6e3a1".to_string())),
+        WsDir::Sent => (ICON_ARROW_UP, Some("info".to_string())),
+        WsDir::Recv => (ICON_ARROW_DOWN, Some("success".to_string())),
         WsDir::System => (ICON_DOT, None),
     };
     RenderNode::DataRow(
@@ -432,10 +468,12 @@ fn build_url_bar(st: &State) -> RenderNode {
         .map(|m| SelectOption::builder().value(*m).label(*m).build())
         .collect();
 
+    // Design `.urlbar{gap:8px;padding:10px}`: method select (min-width 96) ·
+    // URL field (flex 1) · Clear · Send.
     RenderNode::Row(
         Row::builder()
-            .gap(4.0)
-            .padding(4.0)
+            .gap(GUTTER_GAP)
+            .padding(STRIP_PAD)
             .max_width(true)
             .align(Align::Fill)
             .children(vec![
@@ -505,7 +543,17 @@ fn ws_or_send_button(st: &State) -> RenderNode {
             )
         }
     } else {
-        btn("send", "⚡ Send", !st.url.is_empty(), ButtonColor::Primary)
+        // Design `.btn.primary` with a leading `ph-lightning` — a real Phosphor
+        // glyph plus the button's 6px icon gap, not an emoji baked into the label.
+        RenderNode::Button(
+            Button::builder()
+                .id("send")
+                .label("Send")
+                .icon(ICON_LIGHTNING)
+                .color(ButtonColor::Primary)
+                .enabled(!st.url.is_empty())
+                .build(),
+        )
     }
 }
 
@@ -655,16 +703,24 @@ fn response_is_chartable(resp: &ResponseState) -> bool {
 
 fn build_response_panel(resp: &ResponseState) -> RenderNode {
     let (color, status_label) = if resp.error.is_some() {
-        ("#ef4444".to_string(), "Error".to_string())
+        ("error".to_string(), "Error".to_string())
     } else {
         (
-            status_color(resp.status).to_string(),
+            status_token(resp.status).to_string(),
             format!("{} {}", resp.status, status_text(resp.status)),
         )
     };
 
+    // Design `.respstat .badge`: a *soft* chip — a faint tint of the status hue
+    // behind coloured mono text — at `.badge{font-size:10px;padding:2px 7px}`
+    // (the medium pill), not a solid fill.
     let mut status_children: Vec<RenderNode> = vec![RenderNode::Badge(
-        Badge::builder().label(status_label).color(color).build(),
+        Badge::builder()
+            .label(status_label)
+            .color(color)
+            .soft(true)
+            .size(Size::Medium)
+            .build(),
     )];
     if let Some(ms) = resp.duration_ms {
         let t = if ms < 1000 {
@@ -688,24 +744,29 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
     // id is a host-interpreted action (see `actions::OPEN_IN_CHARTS`): clicking
     // opens the studio bound to this tab, which is a producer via `provide-dataset`.
     if resp.error.is_none() && response_is_chartable(resp) {
-        status_children.push(RenderNode::Spacer(Spacer::builder().size(8.0).build()));
+        // The design's `.respstat` ends with a `flex:1` spacer and a lavender
+        // `.btn.text.sm`, so the shortcut sits hard right of the status metrics.
+        status_children.push(RenderNode::Spacer(Spacer::builder().size(0.0).build()));
         status_children.push(RenderNode::Button(
             Button::builder()
                 .id(thoth_plugin_sdk::actions::OPEN_IN_CHARTS)
                 .label("Charts")
                 .icon(ICON_CHART_LINE)
                 .button_type(ButtonType::Text)
-                .color(ButtonColor::Secondary)
+                .color(ButtonColor::Primary)
+                .button_size(ButtonSize::Small)
                 .build(),
         ));
     }
+    // Design `.respstat{padding:9px 12px;gap:12px;background:bg-panel}` — a
+    // status strip across the top of the response pane.
     let status_row = RenderNode::Row(
         Row::builder()
             .bg_color(BgColor::BgPanel)
             .max_width(true)
-            .height(20.0)
-            .padding(10.0)
-            .gap(8.0)
+            .padding(STRIP_PAD)
+            .gap(12.0)
+            .align(Align::Fill)
             .children(status_children)
             .build(),
     );
@@ -716,11 +777,12 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
                 .gap(0.0)
                 .children(vec![
                     status_row,
+                    // The pane owns the fill now, so the error body is just
+                    // padded text on it (design `.pane-pad{padding:10px 12px}`).
                     RenderNode::Row(
                         Row::builder()
-                            .bg_color(BgColor::Bg)
                             .max_width(true)
-                            .padding(10.0)
+                            .padding(STRIP_PAD)
                             .children(vec![text(err)])
                             .build(),
                     ),
@@ -729,8 +791,13 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
         );
     }
 
+    // The tree and the header grid sit inside the floating response pane, which
+    // already owns the panel corners and hairline edge — so they draw flush
+    // (design `.tree.pane-scroll`), never a second container inside the first.
     let pretty = match &resp.parsed_body {
-        Some(val) => RenderNode::JsonTree(JsonTree::builder().value(val.clone()).build()),
+        Some(val) => {
+            RenderNode::JsonTree(JsonTree::builder().value(val.clone()).framed(false).build())
+        }
         None => RenderNode::Code(
             Code::builder()
                 .value(resp.body.clone())
@@ -765,6 +832,7 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
                     TableView::builder()
                         .headers(vec!["Header".to_string(), "Value".to_string()])
                         .rows(header_rows)
+                        .framed(false)
                         .build(),
                 ),
             ])

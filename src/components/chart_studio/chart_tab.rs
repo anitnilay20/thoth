@@ -7,9 +7,11 @@
 
 use std::f32::consts::TAU;
 
-use eframe::egui::{self, Color32, FontId, Pos2, Rect, Stroke, Vec2};
+use eframe::egui::{self, Color32, CornerRadius, FontId, Pos2, Rect, Stroke, Vec2};
 use egui_plot::{Bar, BarChart, Legend, Line, Plot, PlotPoint, PlotPoints, Points, Text};
 use serde::{Deserialize, Serialize};
+use thoth_plugin_sdk::components::Separator;
+use thoth_plugin_sdk::theme::{FONT_CAPTION, GUTTER_GAP, RADIUS_PANEL, color_to_hex, edge_stroke};
 
 use super::{
     Aggregation, ChartOptions, ChartSpec, ChartTabAction, ChartType, SortMode, series_palette,
@@ -22,6 +24,36 @@ use crate::theme::ThemeColors;
 const ROW_CAP: usize = 5000;
 /// Numeric columns shown in a heatmap.
 const HEATMAP_COL_CAP: usize = 8;
+
+// ── canvas chrome (design `.cs-canvas` / `.cs-chead` / `.cs-plot`) ────────────
+
+/// Vertical padding of the header row — design `.cs-chead{padding:12px 16px}`.
+const HEAD_PAD: f32 = 12.0;
+/// Vertical padding the dock tab frame already applies around this content.
+const TAB_PAD_Y: f32 = GUTTER_GAP;
+/// Minimum gap between the header text block and the tool buttons — design
+/// `.cs-chead{gap:12px}`.
+const HEAD_GAP: f32 = 12.0;
+/// Gap between the title and its subtitle — design `.sub{margin-top:1px}`.
+const TITLE_GAP: f32 = 1.0;
+/// Gap between the header's tool buttons — design `.cs-chead .tb{gap:6px}`.
+const TOOL_GAP: f32 = 6.0;
+/// Framed `.ib` square, matching `Size::Medium`.
+const TOOL_SIZE: f32 = 26.0;
+/// How many tool buttons the header carries (edit / refresh / copy / export).
+const TOOL_COUNT: f32 = 4.0;
+/// Inset of the chart card from the panel edge — design `.cs-plot{margin:16px}`.
+/// Only applied vertically: the tab frame already insets 16px horizontally.
+const PLOT_MARGIN: f32 = 16.0;
+/// Chart card padding — design `.cs-plot{padding:16px 18px}`.
+const PLOT_PAD_X: f32 = 18.0;
+/// …and its vertical half.
+const PLOT_PAD_Y: f32 = 16.0;
+/// Bar cap radius — design `.bar{border-radius:5px 5px 0 0}` (only the value end
+/// is rounded; the baseline end stays square).
+const BAR_RADIUS: f32 = 5.0;
+/// Legend / heat-cell chip radius — design `.legend i{border-radius:3px}`.
+const CHIP_RADIUS: f32 = 3.0;
 
 pub struct ChartTab {
     tab_title: String,
@@ -259,88 +291,125 @@ impl ChartTab {
         use thoth_plugin_sdk::components::{IconButton, Typography, TypographyVariant};
         let mut action = None;
 
-        // Header: title/subtitle on the left, tools on the right.
-        ui.add_space(6.0);
+        // Header — design `.cs-chead{padding:12px 16px}`; the tab frame already
+        // supplies 8px of that above, so top up to 12.
+        ui.add_space(HEAD_PAD - TAB_PAD_Y);
         let mut want_export = false;
         ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.add(
-                    Typography::builder()
-                        .text(self.header_title())
-                        .variant(TypographyVariant::BodyLarge)
-                        .build(),
-                );
-                ui.add(
-                    Typography::builder()
-                        .text(&self.subtitle)
-                        .variant(TypographyVariant::BodyMuted)
-                        .build(),
-                );
-            });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .add(
+            // Every gap in the row is explicit — design `.cs-chead{gap:12px}`
+            // and `.tb{gap:6px}`.
+            ui.spacing_mut().item_spacing.x = 0.0;
+            // The tools keep their width; the text block gets what's left, so a
+            // long title can never push them out of the pane.
+            let tools_w = TOOL_COUNT * TOOL_SIZE + (TOOL_COUNT - 1.0) * TOOL_GAP;
+            let text_w = (ui.available_width() - tools_w - HEAD_GAP).max(0.0);
+            let text_h = ui
+                .allocate_ui_with_layout(
+                    Vec2::new(text_w, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_max_width(text_w);
+                        // `.ttl` 14px semibold over `.sub` 11.5px muted, 1px apart.
+                        ui.spacing_mut().item_spacing.y = TITLE_GAP;
+                        ui.add(
+                            Typography::builder()
+                                .text(self.header_title())
+                                .variant(TypographyVariant::Title)
+                                .build(),
+                        );
+                        ui.add(
+                            Typography::builder()
+                                .text(&self.subtitle)
+                                .variant(TypographyVariant::Caption)
+                                .build(),
+                        );
+                    },
+                )
+                .response
+                .rect
+                .height();
+            // `.tb{margin-left:auto;gap:6px}` — four framed `.ib`s flushed right
+            // by an explicit spacer, in a row bounded to the text block's height
+            // so `Align::Center` centres them (`.cs-chead{align-items:center}`)
+            // without claiming the whole pane height.
+            ui.add_space(HEAD_GAP);
+            ui.allocate_ui_with_layout(
+                Vec2::new(tools_w, text_h),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    let tool = |glyph: &str, tip: &str| {
                         IconButton::builder()
-                            .icon(egui_phosphor::regular::DOWNLOAD_SIMPLE)
+                            .icon(glyph)
                             .frame(true)
-                            .tooltip("Export chart as PNG")
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    want_export = true;
-                }
-                if ui
-                    .add(
-                        IconButton::builder()
-                            .icon(egui_phosphor::regular::COPY)
-                            .frame(true)
-                            .tooltip("Copy chart config")
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    ui.ctx().copy_text(self.config_json());
-                }
-                if ui
-                    .add(
-                        IconButton::builder()
-                            .icon(egui_phosphor::regular::ARROWS_CLOCKWISE)
-                            .frame(true)
-                            .tooltip("Refresh data from source")
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    action = Some(ChartTabAction::Refresh);
-                }
-                if ui
-                    .add(
-                        IconButton::builder()
-                            .icon(egui_phosphor::regular::PENCIL_SIMPLE)
-                            .frame(true)
-                            .tooltip("Edit chart in Chart Studio")
-                            .build(),
-                    )
-                    .clicked()
-                {
-                    action = Some(ChartTabAction::Edit);
-                }
-            });
+                            .tooltip(tip)
+                            .build()
+                    };
+                    if ui
+                        .add(tool(
+                            egui_phosphor::regular::PENCIL_SIMPLE,
+                            "Edit chart in Chart Studio",
+                        ))
+                        .clicked()
+                    {
+                        action = Some(ChartTabAction::Edit);
+                    }
+                    ui.add_space(TOOL_GAP);
+                    if ui
+                        .add(tool(
+                            egui_phosphor::regular::ARROWS_CLOCKWISE,
+                            "Refresh data from source",
+                        ))
+                        .clicked()
+                    {
+                        action = Some(ChartTabAction::Refresh);
+                    }
+                    ui.add_space(TOOL_GAP);
+                    if ui
+                        .add(tool(egui_phosphor::regular::COPY, "Copy chart config"))
+                        .clicked()
+                    {
+                        ui.ctx().copy_text(self.config_json());
+                    }
+                    ui.add_space(TOOL_GAP);
+                    if ui
+                        .add(tool(
+                            egui_phosphor::regular::DOWNLOAD_SIMPLE,
+                            "Export chart as PNG",
+                        ))
+                        .clicked()
+                    {
+                        want_export = true;
+                    }
+                },
+            );
         });
-        ui.add_space(8.0);
+
+        // The head's bottom edge — design `.cs-chead{box-shadow:inset 0 -1px 0
+        // var(--surface)}`: a flush 1px rule in the band colour, which is what
+        // `Separator::rule` draws (the bare separator would use the brighter
+        // border colour and add its own spacing).
+        ui.add_space(HEAD_PAD);
+        ui.add(Separator::rule(color_to_hex(colors.surface)));
 
         if self.rows.is_empty() {
+            ui.add_space(PLOT_MARGIN);
             self.empty_note(ui, "This dataset has no rows to plot.");
             return action;
         }
 
-        // Chart surface
+        // Chart surface — design `.cs-plot{margin:16px;background:var(--surface);
+        // box-shadow:var(--edge);border-radius:10px;padding:16px 18px}`.
+        ui.add_space(PLOT_MARGIN);
         let frame_rect = egui::Frame::new()
             .fill(colors.surface)
-            .stroke(Stroke::new(1.0, colors.surface_raised))
-            .corner_radius(8.0)
-            .inner_margin(14.0)
+            .stroke(edge_stroke(colors))
+            .corner_radius(RADIUS_PANEL)
+            .inner_margin(egui::Margin {
+                left: PLOT_PAD_X as i8,
+                right: PLOT_PAD_X as i8,
+                top: PLOT_PAD_Y as i8,
+                bottom: PLOT_PAD_Y as i8,
+            })
             .show(ui, |ui| {
                 let size = ui.available_size();
                 match self.chart_type {
@@ -417,7 +486,13 @@ impl ChartTab {
                     plot = plot.auto_bounds(egui::Vec2b::TRUE);
                 }
                 if self.options.legend {
-                    plot = plot.legend(Legend::default());
+                    // Design `.legend` is a bare row of 11px muted entries — no
+                    // boxed background behind them.
+                    plot = plot.legend(
+                        Legend::default()
+                            .background_alpha(0.0)
+                            .text_style(egui::TextStyle::Small),
+                    );
                 }
                 // Axis titles from the chosen columns (swapped for H-Bar).
                 let x_name = self.columns.get(self.x_col).cloned().unwrap_or_default();
@@ -479,8 +554,7 @@ impl ChartTab {
                     .transform
                     .position_from_point(&PlotPoint::new(b.hi[0], b.lo[1]));
                 let rect = Rect::from_two_pos(tl, br);
-                let radius = (rect.width().min(rect.height()) * 0.3).min(4.0);
-                painter.rect_filled(rect, radius, b.color);
+                painter.rect_filled(rect, bar_corners(rect, horizontal, b.value), b.color);
             }
             if labels {
                 for b in &bars {
@@ -826,12 +900,14 @@ impl ChartTab {
                     Pos2::new(rect.right() - legend_w + 4.0, y + 2.0),
                     Vec2::splat(10.0),
                 );
-                painter.rect_filled(sw, 2.0, *color);
+                // Design `.legend i{width:10px;height:10px;border-radius:3px}`
+                // + `.legend span{font-size:11px;color:overlay1;gap:6px}`.
+                painter.rect_filled(sw, CHIP_RADIUS, *color);
                 painter.text(
                     Pos2::new(sw.right() + 6.0, y + 7.0),
                     egui::Align2::LEFT_CENTER,
                     label,
-                    FontId::proportional(11.0),
+                    FontId::proportional(FONT_CAPTION),
                     colors.fg_muted,
                 );
                 y += 18.0;
@@ -1103,11 +1179,11 @@ impl ChartTab {
                 let x = grid.left() + cw * ci as f32;
                 let cell =
                     Rect::from_min_size(Pos2::new(x + 1.0, y + 1.0), Vec2::new(cw - 2.0, rh - 2.0));
-                painter.rect_filled(cell, 2.0, heat_color(t, colors));
+                painter.rect_filled(cell, CHIP_RADIUS, heat_color(t, colors));
                 if hover_r == Some(r) {
                     painter.rect_stroke(
                         cell,
-                        2.0,
+                        CHIP_RADIUS,
                         Stroke::new(1.5, colors.fg),
                         egui::StrokeKind::Inside,
                     );
@@ -1144,6 +1220,42 @@ impl ChartTab {
 }
 
 // ── free helpers ──────────────────────────────────────────────────────────────
+
+/// Corner radii for a bar: only the *value* end is rounded — design
+/// `.bar{border-radius:5px 5px 0 0}` — and never more than half the bar's short
+/// side, so thin bars don't turn into lozenges.
+fn bar_corners(rect: Rect, horizontal: bool, value: f64) -> CornerRadius {
+    let r = BAR_RADIUS
+        .min(rect.width().min(rect.height()) / 2.0)
+        .max(0.0) as u8;
+    match (horizontal, value >= 0.0) {
+        // Grows right / up: round the far / top edge.
+        (true, true) => CornerRadius {
+            ne: r,
+            se: r,
+            nw: 0,
+            sw: 0,
+        },
+        (true, false) => CornerRadius {
+            nw: r,
+            sw: r,
+            ne: 0,
+            se: 0,
+        },
+        (false, true) => CornerRadius {
+            nw: r,
+            ne: r,
+            sw: 0,
+            se: 0,
+        },
+        (false, false) => CornerRadius {
+            sw: r,
+            se: r,
+            nw: 0,
+            ne: 0,
+        },
+    }
+}
 
 /// Label for a categorical axis tick — only integer marks map to a row.
 fn tick_label(labels: &[String], value: f64) -> String {

@@ -145,6 +145,11 @@ fn intern(s: &str) -> &'static str {
     leaked
 }
 
+/// Left padding of the code area, inside any run-marker gutter — design
+/// `.code pre{padding:6px 10px 8px 2px}`.
+#[cfg(feature = "egui")]
+const CODE_PADDING_LEFT: i8 = 2;
+
 #[cfg(feature = "egui")]
 impl CodeEditor {
     /// A hash of the syntax word lists that seed the autocomplete trie, so the
@@ -218,17 +223,21 @@ impl CodeEditor {
         } else {
             self.id.clone()
         };
+        // Syntax colours are handed to `egui_code_editor` through its `ColorTheme`
+        // (hex strings), so the design's `.code` mapping lives in the shared
+        // palette helper rather than being patched over the crate here.
         let theme = colors.code_editor_theme();
 
         // A single themed border around the whole editor; the inner `TextEdit`'s
         // own frame/focus stroke is suppressed so it doesn't draw a second border
         // around the code area on hover/selection.
         let stroke = if self.bordered {
-            egui::Stroke::new(1.0, colors.surface_raised)
+            crate::theme::edge_stroke(&colors)
         } else {
             egui::Stroke::NONE
         };
-        // Reserve a left gutter for ▶ run-markers when present.
+        // Reserve a left gutter for ▶ run-markers when present — design
+        // `.code .gutter{flex:0 0 18px}`, absent entirely when there are none.
         let gutter: i8 = if self.run_markers.is_empty() { 0 } else { 18 };
         // Stable id base for marker hit-testing (computed before `id_source` is
         // moved into the editor below). Derived from the `ui` (not a global
@@ -239,13 +248,16 @@ impl CodeEditor {
         let frame_resp = egui::Frame::new()
             .fill(colors.bg)
             .stroke(stroke)
-            .corner_radius(4)
-            // Top padding so the first line sits a little below the border.
+            // Design `.code{border-radius:4px}`, bumped to the control rung of the
+            // radius ladder per the handoff.
+            .corner_radius(crate::theme::RADIUS_CONTROL)
+            // Design `.code pre{padding:6px 10px 8px 2px}`, with the run-marker
+            // gutter (when present) added to the left.
             .inner_margin(egui::Margin {
-                left: gutter,
-                right: 0,
+                left: gutter + CODE_PADDING_LEFT,
+                right: 10,
                 top: 6,
-                bottom: 0,
+                bottom: 8,
             })
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -283,8 +295,11 @@ impl CodeEditor {
 
                     let mut editor = Editor::default()
                         .id_source(id_source)
-                        .with_fontsize(self.font_size.unwrap_or(13.0))
+                        .with_fontsize(self.font_size.unwrap_or(crate::theme::FONT_BODY))
                         .with_theme(theme)
+                        // Design `.code`: a bare frame with no line-number gutter
+                        // (the crate shows them by default).
+                        .with_numlines(false)
                         .with_syntax(syntax);
                     if let Some(rows) = self.rows {
                         editor = editor.with_rows(rows);

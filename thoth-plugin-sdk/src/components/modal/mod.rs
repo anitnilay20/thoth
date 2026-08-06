@@ -6,6 +6,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::render_node::RenderNode;
 
+/// `serde` default for [`Modal::dismissible`], which defaults to `true`.
+fn default_true() -> bool {
+    true
+}
+
 /// A centered modal overlay dialog with a dimmed backdrop.
 ///
 /// Visibility is plugin-controlled via [`open`](Modal::open): the host only
@@ -29,6 +34,16 @@ pub struct Modal {
     pub id: String,
     /// Title shown in the modal header.
     pub title: String,
+    /// Optional tiny label *above* the title — design `.grouplabel`, the
+    /// header's eyebrow ("PERMISSION REQUESTED"). Text is used verbatim, so pass
+    /// it already upper-cased if that is the intent.
+    #[serde(default)]
+    pub eyebrow: Option<String>,
+    /// Colour for [`eyebrow`](Modal::eyebrow) as a theme token or hex (e.g.
+    /// `"warning"` for design `.grouplabel.warn`). Defaults to the group-label
+    /// muted foreground.
+    #[serde(default, rename = "eyebrow-color")]
+    pub eyebrow_color: Option<String>,
     /// Optional secondary line under the title (e.g. a step hint).
     #[serde(default)]
     pub subtitle: Option<String>,
@@ -50,8 +65,37 @@ pub struct Modal {
     /// Height as a fraction of the viewport (0.0–1.0). When unset, auto-sizes.
     #[serde(default, rename = "height-pct")]
     pub height_pct: Option<f32>,
+    /// Optional leading glyph in the header, before the title — design
+    /// `.m-head`'s status glyph / avatar slot. A Phosphor glyph string.
+    #[serde(default)]
+    pub glyph: Option<String>,
+    /// Colour for [`glyph`](Modal::glyph) as a theme token name (e.g. `"error"`,
+    /// `"warning"`, `"info"`, `"accent"`). Defaults to `accent`.
+    #[serde(default, rename = "glyph-color")]
+    pub glyph_color: Option<String>,
+    /// Render the glyph as a filled 44px tile with a hairline edge (design
+    /// `.avatar`) rather than a bare glyph (design `.glyph`). Defaults to `false`.
+    #[builder(default)]
+    #[serde(default)]
+    pub glyph_tile: bool,
+    /// Whether the header shows a close (✕) affordance and Escape / backdrop
+    /// clicks dismiss the modal. Defaults to `true`; set `false` for a dialog the
+    /// user must answer (the design's update-consent card has no `.x`).
+    #[builder(default = true)]
+    #[serde(default = "crate::components::modal::default_true")]
+    pub dismissible: bool,
     /// Body content, rendered top-to-bottom inside the modal.
     #[builder(default)]
     #[serde(default)]
     pub children: Vec<RenderNode>,
+    /// Action bar pinned to the bottom of the card — design `.m-foot`: a
+    /// full-bleed panel strip with a hairline along its top edge, laid out
+    /// right-to-left so the first node ends up rightmost.
+    ///
+    /// This is the DSL equivalent of [`Modal::show_with_footer`], so a plugin gets
+    /// the same footer chrome the host does instead of approximating it with a
+    /// separator and a row inside the body.
+    #[builder(default)]
+    #[serde(default)]
+    pub footer: Vec<RenderNode>,
 }

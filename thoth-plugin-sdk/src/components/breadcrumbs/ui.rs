@@ -1,10 +1,65 @@
 use egui::{CursorIcon, RichText};
 
-use crate::theme::ThemeColors;
+use crate::theme::{RADIUS_CHECK, ThemeColors, with_alpha};
 
 use super::Breadcrumbs;
 
+/// Row height — design `.crumbs{height:26px}`.
+const ROW_HEIGHT: f32 = 26.0;
+/// Gap between segments and separators — design `.crumbs{gap:5px}`.
+const GAP: f32 = 5.0;
+/// Horizontal padding of the trail — design `.crumbs{padding:0 8px}`.
+const PADDING_X: i8 = 8;
+/// Segment text size — design `.crumbs{font-size:12px}`.
+const FONT_SIZE: f32 = 12.0;
+/// Separator glyph size — design `.crumbs .sepc{font-size:10px}`.
+const SEPARATOR_SIZE: f32 = 10.0;
+/// Padding inside a segment's hit area — design `.crumbs a{padding:1px 5px}`.
+const SEGMENT_PADDING: egui::Vec2 = egui::vec2(5.0, 1.0);
+/// Hover wash behind a clickable segment — design `text 8%`.
+const HOVER_ALPHA: u8 = 20;
+
 impl Breadcrumbs {
+    /// Paint one segment: `label` inside a small chip-shaped hit area. Clickable
+    /// segments fill on hover (design `.crumbs a:hover`); the `current` one — the
+    /// last — is bold and inert (design `.crumbs .cur`).
+    fn segment(
+        ui: &mut egui::Ui,
+        label: &str,
+        current: bool,
+        colors: &ThemeColors,
+    ) -> egui::Response {
+        let galley = ui.painter().layout_no_wrap(
+            label.to_owned(),
+            egui::FontId::proportional(FONT_SIZE),
+            colors.fg,
+        );
+        let size = galley.size() + SEGMENT_PADDING * 2.0;
+        let sense = if current {
+            egui::Sense::hover()
+        } else {
+            egui::Sense::click()
+        };
+        let (rect, response) = ui.allocate_exact_size(size, sense);
+
+        if ui.is_rect_visible(rect) {
+            if !current && response.hovered() {
+                ui.painter()
+                    .rect_filled(rect, RADIUS_CHECK, with_alpha(colors.fg, HOVER_ALPHA));
+            }
+            let pos = rect.center() - galley.rect.center().to_vec2();
+            if current {
+                // Faux bold (design `.cur{font-weight:700}`): a second pass shifted
+                // half a pixel right thickens the vertical strokes.
+                ui.painter()
+                    .galley(pos + egui::vec2(0.5, 0.0), galley.clone(), colors.fg);
+            }
+            ui.painter().galley(pos, galley, colors.fg);
+        }
+
+        response
+    }
+
     /// Render the breadcrumb trail and report navigation.
     ///
     /// The returned [`egui::InnerResponse::inner`] is `Some(path)` when the user
@@ -18,67 +73,71 @@ impl Breadcrumbs {
         let delim = self.separator.as_deref().unwrap_or(".");
         let mut selected: Option<String> = None;
 
-        let inner = ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            match self.path.as_deref() {
-                None => {
-                    ui.label(
-                        RichText::new("No selection")
-                            .size(12.0)
-                            .color(colors.fg_muted),
-                    );
-                }
-                Some("") => {
-                    ui.label(RichText::new("Root").size(12.0).color(colors.fg));
-                }
-                Some(p) => {
-                    let segments = Self::parse_path(p, delim);
-
-                    // Root is always clickable.
-                    if ui
-                        .link(RichText::new("Root").size(12.0).color(colors.fg))
-                        .on_hover_cursor(CursorIcon::PointingHand)
-                        .clicked()
-                    {
-                        selected = Some(String::new());
-                    }
-
-                    let last = segments.len().saturating_sub(1);
-                    for (i, segment) in segments.iter().enumerate() {
-                        ui.label(
-                            RichText::new(egui_phosphor::regular::CARET_RIGHT)
-                                .size(10.0)
-                                .color(colors.fg_muted),
-                        );
-                        if i == last {
+        let inner = egui::Frame::new()
+            .inner_margin(egui::Margin {
+                left: PADDING_X,
+                right: PADDING_X,
+                top: 0,
+                bottom: 0,
+            })
+            .show(ui, |ui| {
+                ui.set_min_height(ROW_HEIGHT);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = GAP;
+                    match self.path.as_deref() {
+                        None => {
                             ui.label(
-                                RichText::new(&segment.display)
-                                    .size(12.0)
-                                    .color(colors.fg)
-                                    .strong(),
+                                RichText::new("No selection")
+                                    .size(FONT_SIZE)
+                                    .color(colors.fg_muted),
                             );
-                        } else {
-                            // Navigation emits the RAW path so it round-trips
-                            // with `Breadcrumbs::path`, not the bracketed display.
-                            let path = segments[..=i]
-                                .iter()
-                                .map(|s| s.raw.as_str())
-                                .collect::<Vec<_>>()
-                                .join(delim);
-                            let resp = ui
-                                .link(RichText::new(&segment.display).size(12.0).color(colors.fg))
-                                .on_hover_cursor(CursorIcon::PointingHand);
-                            let resp =
-                                crate::theme::hover_text(resp, format!("Navigate to {path}"));
-                            if resp.clicked() {
-                                selected = Some(path);
+                        }
+                        Some("") => {
+                            Self::segment(ui, "Root", true, &colors);
+                        }
+                        Some(p) => {
+                            let segments = Self::parse_path(p, delim);
+
+                            // Root is always clickable.
+                            if Self::segment(ui, "Root", false, &colors)
+                                .on_hover_cursor(CursorIcon::PointingHand)
+                                .clicked()
+                            {
+                                selected = Some(String::new());
+                            }
+
+                            let last = segments.len().saturating_sub(1);
+                            for (i, segment) in segments.iter().enumerate() {
+                                ui.label(
+                                    RichText::new(egui_phosphor::regular::CARET_RIGHT)
+                                        .size(SEPARATOR_SIZE)
+                                        .color(colors.fg_muted),
+                                );
+                                if i == last {
+                                    Self::segment(ui, &segment.display, true, &colors);
+                                } else {
+                                    // Navigation emits the RAW path so it round-trips
+                                    // with `Breadcrumbs::path`, not the bracketed display.
+                                    let path = segments[..=i]
+                                        .iter()
+                                        .map(|s| s.raw.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(delim);
+                                    let resp = Self::segment(ui, &segment.display, false, &colors)
+                                        .on_hover_cursor(CursorIcon::PointingHand);
+                                    let resp = crate::theme::hover_text(
+                                        resp,
+                                        format!("Navigate to {path}"),
+                                    );
+                                    if resp.clicked() {
+                                        selected = Some(path);
+                                    }
+                                }
                             }
                         }
                     }
-                    ui.add_space(8.0);
-                }
-            }
-        });
+                });
+            });
 
         egui::InnerResponse::new(selected, inner.response)
     }

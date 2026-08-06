@@ -41,6 +41,12 @@ pub enum CentralPanelEvent {
     OpenFilePicker,
     /// User clicked a recent file on the Welcome screen.
     OpenRecentFile(PathBuf),
+    /// User clicked "New window" on the Welcome screen.
+    NewWindow,
+    /// User clicked "Browse plugins…" on the Welcome screen.
+    BrowsePlugins,
+    /// User clicked "Clear" over the Welcome screen's Recent list.
+    ClearRecentFiles,
 }
 
 pub struct CentralPanelOutput {
@@ -154,13 +160,21 @@ impl CentralPanel {
             }
         }
 
-        // Plugin panes manage their own padding, so drop the central-panel inner
-        // margin for them — but keep the panel *fill* (the dock tab viewer's
-        // clear_background is false, so this frame provides the background).
-        let panel_frame = if props.plugin_ui.is_some() {
-            egui::Frame::central_panel(ui.style()).inner_margin(0)
+        // No fill: the enclosing floating dock panel already paints the content
+        // background as a *rounded* rect. Filling here would span the full leaf
+        // rect with square corners and clip the panel's rounded bottom corners.
+        // Plugin panes manage their own padding, so they get no inner margin —
+        // and so does the Welcome screen, whose `.wrap` carries the design's own
+        // 40/44 padding and would otherwise be inset by a further 8px.
+        let welcome_screen = props.plugin_ui.is_none()
+            && self.loaded_path.is_none()
+            && props.error.is_none()
+            && self.last_open_err.is_none()
+            && !self.searching;
+        let panel_frame = if props.plugin_ui.is_some() || welcome_screen {
+            egui::Frame::NONE
         } else {
-            egui::Frame::central_panel(ui.style())
+            egui::Frame::NONE.inner_margin(8) // matches Frame::central_panel
         };
         egui::CentralPanel::default()
             .frame(panel_frame)
@@ -211,6 +225,13 @@ impl CentralPanel {
                             }
                             WelcomeEvent::OpenRecentFile(path) => {
                                 events.push(CentralPanelEvent::OpenRecentFile(path))
+                            }
+                            WelcomeEvent::NewWindow => events.push(CentralPanelEvent::NewWindow),
+                            WelcomeEvent::BrowsePlugins => {
+                                events.push(CentralPanelEvent::BrowsePlugins)
+                            }
+                            WelcomeEvent::ClearRecentFiles => {
+                                events.push(CentralPanelEvent::ClearRecentFiles)
                             }
                         }
                     }

@@ -3,9 +3,16 @@ use std::collections::HashSet;
 use serde_json::Value;
 
 use crate::components::DataRow;
-use crate::theme::{ROW_HEIGHT, TextToken, color_to_hex};
+use crate::theme::{
+    RADIUS_PANEL, ROW_HEIGHT, TextToken, ThemeColors, color_to_hex, edge_stroke, with_alpha,
+};
 
 use super::JsonTree;
+
+/// Inner padding of the design's `.tree{padding:4px}` container.
+const TREE_PAD: i8 = 4;
+/// Zebra wash — design `.tree.zebra .dr:nth-child(even){background:text 3%}`.
+const ZEBRA_ALPHA: u8 = 8;
 
 /// A render-ready row, mapped directly onto [`DataRow`] fields.
 struct TreeRow {
@@ -19,6 +26,9 @@ struct TreeRow {
     value_token: Option<TextToken>,
     /// `Some(expanded)` for expandable container rows; `None` for leaves/closers.
     caret: Option<bool>,
+    /// The row's value is a collapsed-container summary (`{…} (4 keys)`), drawn
+    /// muted — design `.dr .sum`.
+    summary: bool,
 }
 
 #[derive(Clone, Default)]
@@ -50,34 +60,43 @@ impl JsonTree {
         let row_count = rows.len();
         let mut toggle_path: Option<String> = None;
 
-        // Zebra striping: faint fill on every other displayed row.
-        let stripe = color_to_hex(ui.visuals().faint_bg_color);
+        // Zebra striping: a text wash on every other displayed row. Handed to
+        // the row as its background so it composites *under* the row's own
+        // hover/selection washes.
+        let colors = ThemeColors::from_ctx(ui.ctx());
+        let stripe = color_to_hex(with_alpha(colors.fg, ZEBRA_ALPHA));
 
-        egui::ScrollArea::both()
-            .auto_shrink([false, false])
-            .show_rows(ui, ROW_HEIGHT, row_count, |ui, range| {
-                for idx in range {
-                    let row = &rows[idx];
-                    let background = (idx % 2 == 1).then(|| stripe.clone());
-                    let out = DataRow::builder()
-                        .display_text(row.text.clone())
-                        .row_id(row.path.clone())
-                        .key_token(row.key_token)
-                        .maybe_value_token(row.value_token)
-                        .maybe_caret(row.caret)
-                        .maybe_background(background)
-                        .syntax_highlighting(true)
-                        .indent(row.indent)
-                        .build()
-                        .show(ui);
+        container(ui, self.framed, &colors, |ui| {
+            // Design `.tree` stacks its rows flush, so the zebra stripes read as
+            // a continuous ladder; `show_rows` picks the pitch up from here.
+            ui.spacing_mut().item_spacing.y = 0.0;
+            egui::ScrollArea::both()
+                .auto_shrink([false, false])
+                .show_rows(ui, ROW_HEIGHT, row_count, |ui, range| {
+                    for idx in range {
+                        let row = &rows[idx];
+                        let background = (idx % 2 == 1).then(|| stripe.clone());
+                        let out = DataRow::builder()
+                            .display_text(row.text.clone())
+                            .row_id(row.path.clone())
+                            .key_token(row.key_token)
+                            .maybe_value_token(row.value_token)
+                            .maybe_caret(row.caret)
+                            .maybe_background(background)
+                            .syntax_highlighting(true)
+                            .summary_value(row.summary)
+                            .indent(row.indent)
+                            .build()
+                            .show(ui);
 
-                    // A caret click toggles this container; clicking the row
-                    // body also toggles, so expandable rows feel responsive.
-                    if row.caret.is_some() && (out.caret_clicked || out.clicked) {
-                        toggle_path = Some(row.path.clone());
+                        // A caret click toggles this container; clicking the row
+                        // body also toggles, so expandable rows feel responsive.
+                        if row.caret.is_some() && (out.caret_clicked || out.clicked) {
+                            toggle_path = Some(row.path.clone());
+                        }
                     }
-                }
-            });
+                });
+        });
 
         if let Some(path) = toggle_path
             && !expanded.0.remove(&path)
@@ -113,6 +132,7 @@ fn flatten_value(
                 key_token: TextToken::Bracket,
                 value_token: None,
                 caret: Some(is_expanded),
+                summary: !is_expanded,
             });
             if is_expanded {
                 for (key, val) in map {
@@ -141,6 +161,7 @@ fn flatten_value(
                 key_token: TextToken::Bracket,
                 value_token: None,
                 caret: Some(is_expanded),
+                summary: !is_expanded,
             });
             if is_expanded {
                 for (i, val) in arr.iter().enumerate() {
@@ -165,6 +186,7 @@ fn flatten_value(
                 key_token: token,
                 value_token: None,
                 caret: None,
+                summary: false,
             });
         }
     }
@@ -193,6 +215,7 @@ fn flatten_keyed(
                 key_token: TextToken::Key,
                 value_token: Some(TextToken::Bracket),
                 caret: Some(is_expanded),
+                summary: !is_expanded,
             });
             if is_expanded {
                 for (k, v) in map {
@@ -215,6 +238,7 @@ fn flatten_keyed(
                 key_token: TextToken::Key,
                 value_token: Some(TextToken::Bracket),
                 caret: Some(is_expanded),
+                summary: !is_expanded,
             });
             if is_expanded {
                 for (i, v) in arr.iter().enumerate() {
@@ -239,6 +263,7 @@ fn flatten_keyed(
                 key_token: TextToken::Key,
                 value_token: Some(token),
                 caret: None,
+                summary: false,
             });
         }
     }
@@ -253,7 +278,33 @@ fn closing(path: &str, indent: usize, bracket: &str) -> TreeRow {
         key_token: TextToken::Bracket,
         value_token: None,
         caret: None,
+        summary: false,
     }
+}
+
+/// Draw the tree inside the design's `.tree` container: a `bg` fill, a hairline
+/// [`edge_stroke`], [`RADIUS_PANEL`] corners and 4px of inner padding. `framed`
+/// is false when the tree is nested in a container that already owns those
+/// corners. Rows round their own washes to [`RADIUS_CHIP`] inside the padding,
+/// so nothing overruns the container's corners.
+///
+/// [`RADIUS_CHIP`]: crate::theme::RADIUS_CHIP
+fn container<R>(
+    ui: &mut egui::Ui,
+    framed: bool,
+    colors: &ThemeColors,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    if !framed {
+        return content(ui);
+    }
+    egui::Frame::NONE
+        .fill(colors.bg)
+        .stroke(edge_stroke(colors))
+        .corner_radius(RADIUS_PANEL)
+        .inner_margin(TREE_PAD)
+        .show(ui, content)
+        .inner
 }
 
 fn collect_all_paths(value: &Value, path: &str, out: &mut HashSet<String>) {

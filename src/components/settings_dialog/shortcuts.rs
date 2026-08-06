@@ -3,7 +3,15 @@ use eframe::egui;
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::components::traits::StatelessComponent;
 use crate::shortcuts::{KeyboardShortcuts, Shortcut};
-use crate::theme::ThemeColors;
+use crate::theme::{ThemeColors, edge_stroke};
+use thoth_plugin_sdk::theme::RADIUS_CONTROL;
+
+/// Shortcut badge height — design `.pfield{height:26px}`.
+const BADGE_H: f32 = 26.0;
+/// …and its label size — design `.pfield{font-size:12px}`.
+const BADGE_FONT: f32 = 12.0;
+/// Horizontal padding inside a badge — design `.pfield{padding:0 10px}`.
+const BADGE_PAD_H: f32 = 10.0;
 
 pub struct ShortcutsTab;
 
@@ -29,7 +37,7 @@ impl StatelessComponent for ShortcutsTab {
 
         // Pre-compute the widest badge so every badge gets the same width.
         let badge_width = {
-            let font_id = egui::FontId::proportional(12.0);
+            let font_id = egui::FontId::proportional(BADGE_FONT);
             let all: &[&Shortcut] = &[
                 &sc.open_file,
                 &sc.new_window,
@@ -72,8 +80,8 @@ impl StatelessComponent for ShortcutsTab {
                         .x
                 })
                 .fold(0.0_f32, f32::max);
-            // text width + 2×horizontal pad (8px each side)
-            (max_text_w + 16.0).ceil()
+            // text width + the design's 10px padding on each side
+            (max_text_w + BADGE_PAD_H * 2.0).ceil()
         };
 
         egui::ScrollArea::vertical()
@@ -88,13 +96,13 @@ impl StatelessComponent for ShortcutsTab {
                 );
 
                 // ── File ────────────────────────────────────────────────────
-                group_rows(ui, "FILE", "sc-file", colors, |ui| {
+                group_rows(ui, "FILE", |ui| {
                     shortcut_row(ui, "Open file", &sc.open_file, badge_width, colors);
                     shortcut_row(ui, "New window", &sc.new_window, badge_width, colors);
                 });
 
                 // ── Tabs ─────────────────────────────────────────────────────
-                group_rows(ui, "TABS", "sc-tabs", colors, |ui| {
+                group_rows(ui, "TABS", |ui| {
                     shortcut_row(ui, "New tab", &sc.new_tab, badge_width, colors);
                     shortcut_row(ui, "Close tab", &sc.close_tab, badge_width, colors);
                     shortcut_row(ui, "Next tab", &sc.next_tab, badge_width, colors);
@@ -113,7 +121,7 @@ impl StatelessComponent for ShortcutsTab {
                 });
 
                 // ── Navigation ───────────────────────────────────────────────
-                group_rows(ui, "NAVIGATION", "sc-nav", colors, |ui| {
+                group_rows(ui, "NAVIGATION", |ui| {
                     shortcut_row(ui, "Focus search", &sc.focus_search, badge_width, colors);
                     shortcut_row(ui, "Next match", &sc.next_match, badge_width, colors);
                     shortcut_row(ui, "Previous match", &sc.prev_match, badge_width, colors);
@@ -123,7 +131,7 @@ impl StatelessComponent for ShortcutsTab {
                 });
 
                 // ── Tree ─────────────────────────────────────────────────────
-                group_rows(ui, "TREE", "sc-tree", colors, |ui| {
+                group_rows(ui, "TREE", |ui| {
                     shortcut_row(ui, "Expand node", &sc.expand_node, badge_width, colors);
                     shortcut_row(ui, "Collapse node", &sc.collapse_node, badge_width, colors);
                     shortcut_row(ui, "Expand all", &sc.expand_all, badge_width, colors);
@@ -131,7 +139,7 @@ impl StatelessComponent for ShortcutsTab {
                 });
 
                 // ── Clipboard ────────────────────────────────────────────────
-                group_rows(ui, "CLIPBOARD", "sc-clip", colors, |ui| {
+                group_rows(ui, "CLIPBOARD", |ui| {
                     shortcut_row(ui, "Copy key", &sc.copy_key, badge_width, colors);
                     shortcut_row(ui, "Copy value", &sc.copy_value, badge_width, colors);
                     shortcut_row(ui, "Copy object", &sc.copy_object, badge_width, colors);
@@ -139,7 +147,7 @@ impl StatelessComponent for ShortcutsTab {
                 });
 
                 // ── Bookmarks ────────────────────────────────────────────────
-                group_rows(ui, "BOOKMARKS", "sc-marks", colors, |ui| {
+                group_rows(ui, "BOOKMARKS", |ui| {
                     shortcut_row(
                         ui,
                         "Toggle bookmark",
@@ -157,19 +165,19 @@ impl StatelessComponent for ShortcutsTab {
                 });
 
                 // ── Movement ────────────────────────────────────────────────
-                group_rows(ui, "MOVEMENT", "sc-move", colors, |ui| {
+                group_rows(ui, "MOVEMENT", |ui| {
                     shortcut_row(ui, "Move up", &sc.move_up, badge_width, colors);
                     shortcut_row(ui, "Move down", &sc.move_down, badge_width, colors);
                 });
 
                 // ── UI ───────────────────────────────────────────────────────
-                group_rows(ui, "UI", "sc-ui", colors, |ui| {
+                group_rows(ui, "UI", |ui| {
                     shortcut_row(ui, "Open settings", &sc.settings, badge_width, colors);
                     shortcut_row(ui, "Toggle theme", &sc.toggle_theme, badge_width, colors);
                 });
 
                 // ── Developer ────────────────────────────────────────────────
-                group_rows(ui, "DEVELOPER", "sc-dev", colors, |ui| {
+                group_rows(ui, "DEVELOPER", |ui| {
                     shortcut_row(
                         ui,
                         "Toggle profiler",
@@ -178,8 +186,6 @@ impl StatelessComponent for ShortcutsTab {
                         colors,
                     );
                 });
-
-                ui.add_space(24.0);
             });
 
         ShortcutsTabOutput { events: Vec::new() }
@@ -212,46 +218,45 @@ fn static_shortcut_row(
     });
 }
 
-/// A pill-shaped keyboard shortcut badge with a uniform fixed width.
+/// A keyboard shortcut badge with a uniform fixed width, styled as the design's
+/// read-only value field — `.pfield`: surface fill, hairline edge, mono label.
 fn kbd_badge(ui: &mut egui::Ui, text: &str, width: f32, colors: &ThemeColors) {
-    let pad_v = 4.0;
-    let height = ui.text_style_height(&egui::TextStyle::Body) + pad_v * 2.0;
-
     if text.is_empty() {
         // Still allocate the same width so columns stay aligned.
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(width, BADGE_H), egui::Sense::hover());
         ui.painter().text(
             rect.center(),
             egui::Align2::CENTER_CENTER,
             "—",
-            egui::FontId::proportional(12.0),
-            colors.fg_muted,
+            egui::FontId::proportional(BADGE_FONT),
+            colors.fg_faint(),
         );
         return;
     }
 
-    let font_id = egui::FontId::proportional(12.0);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(text.to_string(), font_id, colors.fg);
-
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-
-    ui.painter().rect(
-        rect,
-        egui::CornerRadius::same(4),
-        colors.bg_sunken,
-        egui::Stroke::new(1.0, colors.surface_active),
-        egui::StrokeKind::Outside,
+    let galley = ui.painter().layout_no_wrap(
+        text.to_string(),
+        egui::FontId::proportional(BADGE_FONT),
+        colors.fg_subtle(),
     );
 
-    // Centre the text inside the fixed-width pill.
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, BADGE_H), egui::Sense::hover());
+    let radius = egui::CornerRadius::from(RADIUS_CONTROL);
+    ui.painter().rect(
+        rect,
+        radius,
+        colors.surface,
+        edge_stroke(colors),
+        egui::StrokeKind::Inside,
+    );
+
+    // Centre the text inside the fixed-width field.
     ui.painter().galley(
         egui::pos2(
             rect.center().x - galley.size().x / 2.0,
             rect.center().y - galley.size().y / 2.0,
         ),
         galley,
-        colors.fg,
+        colors.fg_subtle(),
     );
 }

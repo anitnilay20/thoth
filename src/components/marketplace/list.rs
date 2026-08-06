@@ -1,14 +1,53 @@
+// Marketplace list — design `screens.html` §3 “Marketplace”, left pane: the
+// `.shrow` header, the `.mk-tools` search + sort row, the `.mk-cats` category
+// strip, and the `.mk-plugs` plugin rows.
+
 use eframe::egui;
 
 use thoth_plugin_sdk::components::{
     Button, ButtonColor, ButtonSize, IconButton, Input, List, ListEvent, ListItem, ListItemPostfix,
-    ListItemPrefix, Progress, Select, SelectOption, Separator, SidebarHeader, Size,
+    ListItemPrefix, ListStyle, ListTextStyle, Progress, Select, SelectOption, Separator,
+    SidebarHeader, Size, Spinner, Typography, TypographyVariant,
 };
-use thoth_plugin_sdk::theme::color_to_hex;
+use thoth_plugin_sdk::theme::{FONT_CONTROL, color_to_hex};
 
 use crate::theme::ThemeColors;
 
 use super::state::{InstallState, MarketplaceUiState, SortOrder, category_glyph, category_label};
+
+// ── Tools block — design `.mk-tools` ─────────────────────────────────────────
+
+/// `.mk-tools{padding:4px 10px 8px}`.
+const TOOLS_PAD_X: i8 = 10;
+const TOOLS_PAD_TOP: i8 = 4;
+const TOOLS_PAD_BOTTOM: i8 = 8;
+/// `.mk-tools{gap:7px}` between the search field and the sort row.
+const TOOLS_GAP: f32 = 7.0;
+/// The sort row's own `style="display:flex;gap:6px"`.
+const SORT_GAP: f32 = 6.0;
+/// `.selbox{height:26px}` — `Size::Small`'s 24px trigger is the nearest rung on
+/// the shared control scale that still sits under the 28px field above it.
+const SORT_H: f32 = 24.0;
+/// `.ib{width:26px}` — the framed refresh button, i.e. `Size::Medium`.
+const REFRESH_W: f32 = 26.0;
+
+// ── Category strip — design `.mk-cats` ───────────────────────────────────────
+
+/// `.mk-cats{padding:0 8px 6px}`.
+const CATS_PAD_X: i8 = 8;
+const CATS_PAD_BOTTOM: i8 = 6;
+
+// ── Plugin rows — design `.mk-plugs` ─────────────────────────────────────────
+
+/// `.mk-plugs{padding:6px}`.
+const PLUGS_PAD: i8 = 6;
+/// How much of a plugin's description a row shows before it is elided.
+const DESC_MAX_CHARS: usize = 200;
+
+// ── Load / error states ──────────────────────────────────────────────────────
+
+/// Padding around the loading and failure lines.
+const STATUS_PAD: i8 = 16;
 
 pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: &ThemeColors) {
     // ── Header: title + count ──────────────────────────────────────────────
@@ -22,13 +61,13 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
             .build(),
     );
 
-    // ── Search bar + sort row ──────────────────────────────────────────────
+    // ── Search bar + sort row — design `.mk-tools` ─────────────────────────
     egui::Frame::NONE
         .inner_margin(egui::Margin {
-            left: 10,
-            right: 10,
-            top: 10,
-            bottom: 0,
+            left: TOOLS_PAD_X,
+            right: TOOLS_PAD_X,
+            top: TOOLS_PAD_TOP,
+            bottom: TOOLS_PAD_BOTTOM,
         })
         .show(ui, |ui| {
             // Row 1: search input
@@ -42,13 +81,11 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                 state.search_query = search_input.value.clone();
             }
 
-            ui.add_space(8.0);
+            ui.add_space(TOOLS_GAP);
 
             // Row 2: sort select (fills available width) + gap + refresh icon
             ui.horizontal(|ui| {
-                let icon_btn_w = 26.0;
-                let gap = 6.0;
-                let select_w = (ui.available_width() - icon_btn_w - gap).max(60.0);
+                let select_w = (ui.available_width() - REFRESH_W - SORT_GAP).max(60.0);
 
                 let sort_val = match state.sort {
                     SortOrder::NameAZ => "name_az",
@@ -73,7 +110,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                     .size(Size::Small)
                     .build();
                 let new_val = ui
-                    .allocate_ui(egui::vec2(select_w, 22.0), |ui| {
+                    .allocate_ui(egui::vec2(select_w, SORT_H), |ui| {
                         sort_select.show(ui).inner.selected
                     })
                     .inner;
@@ -84,20 +121,21 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                     };
                 }
 
-                ui.add_space(gap);
+                ui.add_space(SORT_GAP);
 
+                // `.ib.framed` — surface fill plus the shared hairline edge.
                 let resp = ui.add(
                     IconButton::builder()
                         .icon(egui_phosphor::regular::ARROWS_CLOCKWISE)
                         .tooltip("Refresh Registry")
+                        .frame(true)
+                        .size(Size::Medium)
                         .build(),
                 );
                 if resp.clicked() {
                     state.load_if_needed(ui.ctx(), true);
                 }
             });
-
-            ui.add_space(8.0);
         });
 
     // ── Category strip ─────────────────────────────────────────────────────
@@ -166,54 +204,71 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
         .iter()
         .map(|cat| {
             let is_active = state.selected_category == cat.id;
-            let icon_color = if is_active {
+            // `.cat{color:var(--fg-muted)}` / `.cat.on{color:var(--accent)}` —
+            // a selected category tints its glyph *and* its label.
+            let label_color = if is_active {
                 colors.accent
             } else {
                 colors.fg_muted
             };
-            let badge = (cat.count > 0).then(|| ListItemPostfix::Badge {
+            // `.cat .c{margin-left:auto;font-family:var(--mono);font-size:10px}`
+            // — a bare mono count, with no chip chrome around it.
+            let count = (cat.count > 0).then(|| ListItemPostfix::Text {
                 text: cat.count.to_string(),
-                bg: Some(color_to_hex(colors.bg_sunken)),
-                fg: Some(color_to_hex(colors.fg_muted)),
+                color: None,
+                mono: true,
             });
             ListItem::builder()
                 .title(cat.label.clone())
+                .title_color(color_to_hex(label_color))
                 .prefix(ListItemPrefix::Icon {
                     glyph: cat.glyph.to_string(),
-                    color: Some(color_to_hex(icon_color)),
+                    color: Some(color_to_hex(label_color)),
                 })
                 .selected(is_active)
-                .maybe_postfix(badge)
+                .maybe_postfix(count)
                 .build()
         })
         .collect();
 
-    if let Some(ListEvent::ItemClicked(idx)) = List::builder()
-        .items(cat_items)
-        .shrink_to_fit(true)
-        .show_separators(false)
-        .compact(true)
-        .build()
-        .show(ui)
+    // `.cat` rows are 30px tall with a 12px label — the flush row shape (8px
+    // padding around a 12px title) rather than the 22px compact strip. They are
+    // parted by nothing but their own hover fill, hence no separators.
+    let cat_event = egui::Frame::NONE
+        .inner_margin(egui::Margin {
+            left: CATS_PAD_X,
+            right: CATS_PAD_X,
+            top: 0,
+            bottom: CATS_PAD_BOTTOM,
+        })
+        .show(ui, |ui| {
+            List::builder()
+                .items(cat_items)
+                .style(ListStyle::Flush)
+                .shrink_to_fit(true)
+                .show_separators(false)
+                .build()
+                .show(ui)
+        })
+        .inner;
+    if let Some(ListEvent::ItemClicked(idx)) = cat_event
         && let Some(cat) = cat_defs.get(idx)
     {
         state.selected_category = cat.id.clone();
     }
 
+    // `.mk-plugs{border-top:1px solid …}`
     ui.add(Separator::plain());
 
     // ── Plugin list ────────────────────────────────────────────────────────
     if state.loading {
         egui::Frame::NONE
-            .inner_margin(egui::Margin::same(16))
+            .inner_margin(egui::Margin::same(STATUS_PAD))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(
-                        egui::RichText::new("Loading plugin registry…")
-                            .color(colors.fg_muted)
-                            .size(12.0),
-                    );
+                    ui.spacing_mut().item_spacing.x = TOOLS_GAP;
+                    ui.add(Spinner::builder().build());
+                    Typography::body_muted(ui, "Loading plugin registry…");
                 });
             });
         return;
@@ -221,12 +276,14 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
 
     if let Some(err) = state.load_error.clone() {
         egui::Frame::NONE
-            .inner_margin(egui::Margin::same(16))
+            .inner_margin(egui::Margin::same(STATUS_PAD))
             .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new(format!("Failed to load marketplace: {err}"))
-                        .color(colors.error)
-                        .size(12.0),
+                ui.add(
+                    Typography::builder()
+                        .text(format!("Failed to load marketplace: {err}"))
+                        .variant(TypographyVariant::BodyMuted)
+                        .color(color_to_hex(colors.error))
+                        .build(),
                 );
             });
         return;
@@ -235,8 +292,8 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
     struct RowData {
         id: String,
         name: String,
-        desc: String,
-        tag_labels: Vec<&'static str>,
+        desc: Option<String>,
+        by_line: String,
         install_state: InstallState,
         is_selected: bool,
         icon_file: Option<std::path::PathBuf>,
@@ -264,21 +321,17 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                     || p.author.to_lowercase().contains(&query))
         })
         .map(|p| {
-            let tag_labels: Vec<&'static str> =
-                p.categories.iter().map(|c| category_label(c)).collect();
-
-            let meta = format!("by {} · v{}", p.author, p.version);
-            let desc = if p.description.is_empty() {
-                meta
-            } else {
-                let truncated: String = p.description.chars().take(200).collect();
-                let suffix = if p.description.chars().count() > 200 {
+            // `.pl` stacks three lines: `.nm` name, `.ds` description, `.by`
+            // author · version — the row's title, description and meta tiers.
+            let desc = (!p.description.is_empty()).then(|| {
+                let truncated: String = p.description.chars().take(DESC_MAX_CHARS).collect();
+                let suffix = if p.description.chars().count() > DESC_MAX_CHARS {
                     "…"
                 } else {
                     ""
                 };
-                format!("{truncated}{suffix}\n{meta}")
-            };
+                format!("{truncated}{suffix}")
+            });
 
             RowData {
                 is_selected: state.selected_id.as_deref() == Some(p.id.as_str()),
@@ -286,7 +339,7 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                 id: p.id.clone(),
                 name: p.name.clone(),
                 desc,
-                tag_labels,
+                by_line: format!("by {} · v{}", p.author, p.version),
                 icon_file: p.get_icon_file(ui.ctx().clone()).ok(),
             }
         })
@@ -332,19 +385,15 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                 InstallState::Update => Some(ListItemPostfix::Button(
                     Button::builder()
                         .label("Update")
-                        .color(ButtonColor::Secondary)
+                        .color(ButtonColor::Primary)
                         .button_size(ButtonSize::Small)
                         .icon(egui_phosphor::regular::UPLOAD)
                         .build(),
                 )),
             };
 
-            let icon_color = if row.is_selected {
-                colors.accent
-            } else {
-                colors.fg_muted
-            };
-
+            // `.pl .tile{background:color-mix(accent 15%,transparent);color:accent}`
+            // — the tile is always tinted; selection reads from the row wash.
             let prefix = if let Some(icon_path) = &row.icon_file {
                 ListItemPrefix::IconFile {
                     path: icon_path.to_string_lossy().into_owned(),
@@ -352,31 +401,49 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
             } else {
                 ListItemPrefix::IconTile {
                     glyph: egui_phosphor::regular::PUZZLE_PIECE.to_string(),
-                    color: color_to_hex(icon_color),
+                    color: color_to_hex(colors.accent),
                 }
             };
 
             ListItem::builder()
                 .title(row.name.clone())
-                .description(row.desc.clone())
+                .maybe_description(row.desc.clone())
+                .meta(row.by_line.clone())
                 .prefix(prefix)
                 .selected(row.is_selected)
-                .tags(
-                    row.tag_labels
-                        .iter()
-                        .map(|t| t.to_string())
-                        .collect::<Vec<_>>(),
-                )
                 .maybe_postfix(postfix)
                 .build()
         })
         .collect();
 
-    let list_event = List::builder()
-        .items(items)
-        .empty_label("No plugins found")
-        .build()
-        .show(ui);
+    // `.pl` rows: transparent, 8px padding, a `--text 5%` hover wash and an
+    // `--accent 12%` selected wash, with nothing but air between them — the
+    // flush row shape. Card rows would put each plugin on its own filled panel,
+    // which the sheet reserves for sidebar-style lists.
+    let list_event = egui::Frame::NONE
+        .inner_margin(egui::Margin::same(PLUGS_PAD))
+        .show(ui, |ui| {
+            List::builder()
+                .items(items)
+                .style(ListStyle::Flush)
+                .show_separators(false)
+                .empty_label("No plugins found")
+                // `.pl .nm{font-size:12.5px;font-weight:600}` over
+                // `.pl .ds{font-size:11px}` over a monospace
+                // `.pl .by{font-size:10.5px;color:var(--overlay0)}` — the
+                // description and author tiers already match the flush row's
+                // defaults, so only the size/weight and the mono family differ.
+                .text_style(
+                    ListTextStyle::builder()
+                        .title_size(FONT_CONTROL)
+                        .title_bold(true)
+                        .meta_mono(true)
+                        .build(),
+                )
+                .build()
+                .show(ui)
+        })
+        .inner;
 
     match list_event {
         Some(ListEvent::ItemClicked(idx)) => {

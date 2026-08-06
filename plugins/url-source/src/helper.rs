@@ -85,15 +85,6 @@ pub fn status_text(code: u16) -> &'static str {
     }
 }
 
-pub fn status_color(code: u16) -> &'static str {
-    match code {
-        200..=299 => "#10b981",
-        300..=399 => "#f59e0b",
-        400..=499 => "#f97316",
-        _ => "#ef4444",
-    }
-}
-
 pub fn normalise_array(v: Value) -> Value {
     match v {
         Value::Array(_) => v,

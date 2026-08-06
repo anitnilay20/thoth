@@ -68,7 +68,9 @@ pub struct Tabs {
     #[serde(default)]
     pub children: Vec<RenderNode>,
     /// Gap (px) between the tab strip and the panel content below it. Defaults
-    /// to 10; set to 0 for a panel that sits flush under the tabs.
+    /// to 0 — the design's strip rounds only its top corners and the panel only
+    /// its bottom ones, so the two read as one shape; set a gap to float the
+    /// panel away from the strip.
     #[serde(default, rename = "content-gap")]
     pub content_gap: Option<f32>,
 }

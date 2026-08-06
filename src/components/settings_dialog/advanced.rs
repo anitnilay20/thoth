@@ -1,4 +1,4 @@
-use eframe::egui::{self, RichText};
+use eframe::egui;
 
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::components::traits::StatelessComponent;
@@ -6,7 +6,9 @@ use crate::settings::DeveloperSettings;
 use crate::theme::ThemeColors;
 #[cfg(feature = "profiling")]
 use thoth_plugin_sdk::components::ToggleSwitch;
-use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType};
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonType, Typography, TypographyVariant,
+};
 
 pub struct AdvancedTab;
 
@@ -47,7 +49,7 @@ impl StatelessComponent for AdvancedTab {
                 );
 
                 // ── Profiler ─────────────────────────────────────────────────────
-                group_rows(ui, "PROFILER", "dev-profiler", colors, |ui| {
+                group_rows(ui, "PROFILER", |ui| {
                     #[cfg(feature = "profiling")]
                     setting_row(
                         ui,
@@ -76,13 +78,13 @@ impl StatelessComponent for AdvancedTab {
                         None,
                         colors,
                         |ui| {
-                            ui.label(RichText::new("Disabled").size(12.0).color(colors.fg_muted));
+                            Typography::body_muted(ui, "Disabled");
                         },
                     );
                 });
 
                 // ── Config file ──────────────────────────────────────────────────
-                group_rows(ui, "CONFIGURATION FILE", "dev-config", colors, |ui| {
+                group_rows(ui, "CONFIGURATION FILE", |ui| {
                     let path_str = crate::settings::Settings::settings_file_path()
                         .map(|p| p.to_string_lossy().to_string())
                         .unwrap_or_else(|_| "—".to_string());
@@ -101,7 +103,6 @@ impl StatelessComponent for AdvancedTab {
                                         .label("Open")
                                         .button_type(ButtonType::Elevated)
                                         .color(ButtonColor::Default)
-                                        .size(12.0)
                                         .build(),
                                 )
                                 .clicked()
@@ -114,7 +115,7 @@ impl StatelessComponent for AdvancedTab {
                 });
 
                 // ── System integration ───────────────────────────────────────────
-                group_rows(ui, "SYSTEM INTEGRATION", "dev-path", colors, |ui| {
+                group_rows(ui, "SYSTEM INTEGRATION", |ui| {
                     let (status_text, status_color) = if props.is_in_path {
                         (
                             format!("{} Available in PATH", egui_phosphor::regular::CHECK_CIRCLE),
@@ -142,7 +143,6 @@ impl StatelessComponent for AdvancedTab {
                                             .label("Remove from PATH")
                                             .button_type(ButtonType::Elevated)
                                             .color(ButtonColor::Danger)
-                                            .size(12.0)
                                             .build(),
                                     )
                                     .clicked()
@@ -156,7 +156,6 @@ impl StatelessComponent for AdvancedTab {
                                             .label("Add to PATH")
                                             .button_type(ButtonType::Elevated)
                                             .color(ButtonColor::Success)
-                                            .size(12.0)
                                             .build(),
                                     )
                                     .clicked()
@@ -165,12 +164,16 @@ impl StatelessComponent for AdvancedTab {
                                 }
                             }
                             ui.add_space(8.0);
-                            ui.label(RichText::new(&status_text).size(12.0).color(status_color));
+                            ui.add(
+                                Typography::builder()
+                                    .text(&status_text)
+                                    .variant(TypographyVariant::Body)
+                                    .color(thoth_plugin_sdk::theme::color_to_hex(status_color))
+                                    .build(),
+                            );
                         },
                     );
                 });
-
-                ui.add_space(24.0);
             });
 
         AdvancedTabOutput { events }
