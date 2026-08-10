@@ -57,6 +57,12 @@ fn parse_file_argument(args: &[String]) -> Result<Option<PathBuf>> {
     Ok(Some(canonical_path))
 }
 
+/// File-association launches still use the desktop app. Every other argument
+/// selects the command-line interface.
+fn is_file_invocation(args: &[String]) -> bool {
+    args.len() == 2 && PathBuf::from(&args[1]).is_file()
+}
+
 fn main() -> Result<()> {
     // Initialize dhat heap profiler (only when profiling feature is enabled)
     // When the app exits, dhat writes 'dhat-heap.json' which can be viewed at:
@@ -85,6 +91,20 @@ fn main() -> Result<()> {
         let mcp_args: Vec<String> = args[2..].to_vec();
         return thoth::mcp::run_mcp_command(&mcp_args)
             .map_err(|e| format!("MCP error: {e}").into());
+    }
+
+    // Any non-file arguments select the display-free CLI. Keep this before
+    // notification, consent, icon, and eframe initialization.
+    if args.len() > 1 && !is_file_invocation(&args) {
+        let output = thoth::cli::run_with(args, || {
+            settings::Settings::load().unwrap_or_else(|e| {
+                eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);
+                settings::Settings::default()
+            })
+        });
+        print!("{}", output.stdout);
+        eprint!("{}", output.stderr);
+        std::process::exit(output.exit_code);
     }
 
     let file_to_open = parse_file_argument(&args)?;
@@ -191,6 +211,23 @@ mod tests {
         let args = vec!["thoth".to_string()];
         let result = parse_file_argument(&args).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn existing_file_is_a_gui_invocation() {
+        let test_file = tempfile::NamedTempFile::new().unwrap();
+        let args = vec![
+            "thoth".to_string(),
+            test_file.path().to_string_lossy().into_owned(),
+        ];
+
+        assert!(is_file_invocation(&args));
+    }
+
+    #[test]
+    fn command_arguments_are_not_file_invocations() {
+        let args = vec!["thoth".to_string(), "plugins".to_string()];
+        assert!(!is_file_invocation(&args));
     }
 
     #[test]

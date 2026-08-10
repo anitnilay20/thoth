@@ -6,6 +6,7 @@
 use std::sync::{OnceLock, atomic::AtomicBool};
 
 pub mod app;
+pub mod cli;
 pub mod components;
 pub mod consent;
 pub mod constants;
