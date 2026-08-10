@@ -68,6 +68,15 @@ fn build_ui(state: &State) -> RenderNode {
 - **`plugin`** — adds the `ToNodeJson` wire trait and the `PluginMeta` derive.
 - **`egui`** — the host-only renderer; **do not** enable it in plugins.
 
+## Core and UI separation
+
+Thoth plugins cross the process boundary through WIT exports rather than Rust
+trait objects. The host maps those exports onto two runtime facets:
+`PluginCore` for lifecycle, state, transport, and data operations, and
+`PluginUi` for render and widget-event callbacks. The host stores the core
+facet and requests the optional UI facet only in GUI code, so a headless plugin
+does not need a graphics context or the SDK's `egui` feature.
+
 See [`docs/PLUGIN_SYSTEM.md`](https://github.com/anitnilay20/thoth/blob/main/docs/PLUGIN_SYSTEM.md)
 for the full guide.
 

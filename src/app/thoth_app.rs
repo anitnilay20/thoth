@@ -5,7 +5,7 @@ use crate::{
     NOTIFICATION_MANAGER, PLUGIN_MANAGER,
     app::{file_picker, pick_file, tab_manager::TabEvent},
     components::{self, traits::ContextComponent},
-    plugin::plugin_ui_host::PluginUiHost,
+    plugin::plugin_ui_host::PluginCore,
     settings, state,
     theme::ThemeColorsExt,
 };
@@ -150,7 +150,7 @@ fn build_ws_event(
 /// spawned from it explicitly via the `ui-tabs` `open-tab` import.
 struct SidebarPluginRuntime {
     plugin_id: String,
-    loader: Box<dyn PluginUiHost>,
+    loader: Box<dyn PluginCore>,
     output: Option<crate::plugin::render_node::UiOutput>,
 }
 
@@ -807,7 +807,7 @@ impl ThothApp {
     /// dock label can be rendered cheaply without locking the WASM store each frame.
     fn make_plugin_pane(
         plugin_id: String,
-        loader: Box<dyn PluginUiHost>,
+        loader: Box<dyn PluginCore>,
         ui_output: crate::plugin::render_node::UiOutput,
     ) -> crate::state::ActivePluginPane {
         let cached_tab_title = loader.tab_title();
@@ -845,13 +845,19 @@ impl ThothApp {
         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
             && let Some(pane) = tab.active_plugin_pane.as_mut()
         {
-            match pane.loader.handle_event(event) {
+            let Some(ui) = pane.loader.as_ui() else {
+                tab.error = Some(crate::error::ThothError::Unknown {
+                    message: format!("Plugin '{}' has no UI facet", pane.plugin_id),
+                });
+                return;
+            };
+            match ui.handle_event(event) {
                 Ok(new_output) => {
                     pane.ui_output = new_output;
                     // Title/icon may change in response to the event.
                     pane.cached_tab_title = pane.loader.tab_title();
                     pane.cached_tab_icon = pane.loader.tab_icon();
-                    if let Ok(sidebar) = pane.loader.render_sidebar() {
+                    if let Ok(sidebar) = ui.render_sidebar() {
                         tab.plugin_sidebar_output = sidebar;
                     }
                     handled = true;
@@ -880,7 +886,7 @@ impl ThothApp {
         manager: &crate::plugin::manager::PluginManager,
         plugin_id: &str,
         settings: &settings::Settings,
-    ) -> Option<Box<dyn PluginUiHost>> {
+    ) -> Option<Box<dyn PluginCore>> {
         use crate::plugin::Capability;
         let plugin = manager.registry.get_by_id(plugin_id)?;
         if plugin.capabilities.contains(&Capability::DataSource) {
@@ -898,12 +904,12 @@ impl ThothApp {
             manager
                 .open_data_source(plugin_id, policy)
                 .ok()
-                .map(|l| Box::new(l) as Box<dyn PluginUiHost>)
+                .map(|l| Box::new(l) as Box<dyn PluginCore>)
         } else if plugin.capabilities.contains(&Capability::NewUIComponent) {
             manager
                 .open_ui_component(plugin_id)
                 .ok()
-                .map(|l| Box::new(l) as Box<dyn PluginUiHost>)
+                .map(|l| Box::new(l) as Box<dyn PluginCore>)
         } else {
             None
         }
@@ -924,10 +930,13 @@ impl ThothApp {
         if let Some(state) = initial_state {
             let _ = loader.init_with_state(state);
         }
-        let Ok(ui_output) = loader.render_ui() else {
+        let Some(ui) = loader.as_ui() else {
             return;
         };
-        let sidebar_output = loader.render_sidebar().ok().flatten();
+        let Ok(ui_output) = ui.render_ui() else {
+            return;
+        };
+        let sidebar_output = ui.render_sidebar().ok().flatten();
         let nav_capacity = self.settings.performance.navigation_history_size;
         let tab_id = if self
             .window_state
@@ -966,10 +975,13 @@ impl ThothApp {
         if let Some(state) = req.initial_state.as_deref() {
             let _ = loader.init_with_state(state);
         }
-        let Ok(ui_output) = loader.render_ui() else {
+        let Some(ui) = loader.as_ui() else {
             return;
         };
-        let sidebar_output = loader.render_sidebar().ok().flatten();
+        let Ok(ui_output) = ui.render_ui() else {
+            return;
+        };
+        let sidebar_output = ui.render_sidebar().ok().flatten();
         let nav_capacity = self.settings.performance.navigation_history_size;
         let tab_id = self.window_state.tab_manager.open_new_tab(nav_capacity);
         if let Some(t) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
@@ -1004,7 +1016,9 @@ impl ThothApp {
         let Some(loader) = Self::build_plugin_loader(manager, plugin_id, &self.settings) else {
             return;
         };
-        let output = loader.render_sidebar().ok().flatten();
+        let output = loader
+            .as_ui()
+            .and_then(|ui| ui.render_sidebar().ok().flatten());
         self.sidebar_plugin = Some(SidebarPluginRuntime {
             plugin_id: plugin_id.to_string(),
             loader,
@@ -1017,9 +1031,12 @@ impl ThothApp {
     /// in `poll_plugin_panes`.)
     fn dispatch_sidebar_event(&mut self, event: crate::plugin::render_node::UiEvent) {
         if let Some(rt) = self.sidebar_plugin.as_mut() {
-            match rt.loader.handle_event(event) {
+            let Some(ui) = rt.loader.as_ui() else {
+                return;
+            };
+            match ui.handle_event(event) {
                 Ok(_) => {
-                    rt.output = rt.loader.render_sidebar().ok().flatten();
+                    rt.output = ui.render_sidebar().ok().flatten();
                 }
                 Err(e) => {
                     eprintln!("Plugin sidebar event error: {e}");
@@ -1438,10 +1455,13 @@ impl ThothApp {
         if let Some(s) = state {
             let _ = loader.init_with_state(s);
         }
-        let Ok(ui_output) = loader.render_ui() else {
+        let Some(ui) = loader.as_ui() else {
             return;
         };
-        let sidebar_output = loader.render_sidebar().ok().flatten();
+        let Ok(ui_output) = ui.render_ui() else {
+            return;
+        };
+        let sidebar_output = ui.render_sidebar().ok().flatten();
         let tab_id = if tab_manager.active_tab_mut().is_some_and(|t| t.is_empty()) {
             tab_manager.active_tab_id().unwrap()
         } else {

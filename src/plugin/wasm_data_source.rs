@@ -53,9 +53,9 @@ pub struct ConsentRequest {
 // ── async HTTP result sent through the mpsc channel ──────────────────────────
 
 // These plain Send-safe types live in `plugin_ui_host` so they can be shared with
-// the `PluginUiHost` trait without depending on this loader's bindgen internals.
+// the `PluginCore` trait without depending on this loader's bindgen internals.
 pub use crate::plugin::plugin_ui_host::{HttpCallResult, HttpResponseRaw};
-use crate::plugin::plugin_ui_host::{PluginHttpRequest, PluginUiHost, TabOpenRequest};
+use crate::plugin::plugin_ui_host::{PluginCore, PluginHttpRequest, PluginUi, TabOpenRequest};
 
 // ── atomic counter so callers can know when requests are in flight ────────────
 
@@ -1080,7 +1080,7 @@ pub struct WasmDataSourceLoader {
     /// Receives WebSocket lifecycle + message events from connection tasks.
     ws_event_rx: std::sync::mpsc::Receiver<(String, WsEvent)>,
     plugin_id: String,
-    /// Unique per instance; exposed via `PluginUiHost::instance_id` so the host
+    /// Unique per instance; exposed via `PluginCore::instance_id` so the host
     /// can scope this pane's signals and reconcile them on close.
     instance_id: String,
     /// Last rendered sidebar/main-UI trees. When a query worker owns the Store
@@ -1712,7 +1712,7 @@ impl WasmDataSourceLoader {
     }
 }
 
-// ── PluginUiHost — lets an ActivePluginPane hold this loader as a trait object ──
+// ── PluginCore / PluginUi — split headless runtime from rendering ─────────────
 
 fn http_req_to_plugin(r: thoth::plugin::http_client::HttpRequest) -> PluginHttpRequest {
     PluginHttpRequest {
@@ -1732,25 +1732,17 @@ fn plugin_req_to_http(r: PluginHttpRequest) -> thoth::plugin::http_client::HttpR
     }
 }
 
-impl PluginUiHost for WasmDataSourceLoader {
+impl PluginCore for WasmDataSourceLoader {
     fn plugin_id(&self) -> &str {
         WasmDataSourceLoader::plugin_id(self)
     }
 
+    fn as_ui(&self) -> Option<&dyn PluginUi> {
+        Some(self)
+    }
+
     fn instance_id(&self) -> &str {
         &self.instance_id
-    }
-
-    fn render_ui(&self) -> Result<UiOutput> {
-        WasmDataSourceLoader::render_ui(self)
-    }
-
-    fn handle_event(&self, event: UiEvent) -> Result<UiOutput> {
-        WasmDataSourceLoader::handle_event(self, event)
-    }
-
-    fn render_sidebar(&self) -> Result<Option<UiOutput>> {
-        WasmDataSourceLoader::render_sidebar(self)
     }
 
     fn busy(&self) -> bool {
@@ -1839,6 +1831,20 @@ impl PluginUiHost for WasmDataSourceLoader {
 
     fn provide_dataset(&self) -> Result<crate::plugin::plugin_ui_host::ProvidedDataset> {
         WasmDataSourceLoader::provide_dataset(self)
+    }
+}
+
+impl PluginUi for WasmDataSourceLoader {
+    fn render_ui(&self) -> Result<UiOutput> {
+        WasmDataSourceLoader::render_ui(self)
+    }
+
+    fn handle_event(&self, event: UiEvent) -> Result<UiOutput> {
+        WasmDataSourceLoader::handle_event(self, event)
+    }
+
+    fn render_sidebar(&self) -> Result<Option<UiOutput>> {
+        WasmDataSourceLoader::render_sidebar(self)
     }
 }
 
