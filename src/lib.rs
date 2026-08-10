@@ -11,6 +11,7 @@ pub mod app;
 pub mod components;
 pub mod consent;
 pub mod constants;
+pub mod core;
 pub mod error;
 pub mod file;
 pub mod helpers;
