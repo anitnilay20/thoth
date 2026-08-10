@@ -1,16 +1,17 @@
 use std::{collections::HashMap, fs::File, io::BufReader};
 
-use crate::{PLUGIN_MANAGER, plugin::Plugin, theme::Theme};
+use crate::{plugin::Plugin, theme::Theme};
 
 // TODO: Optimise theme plugin mod
-pub fn all_theme_plugins<'a>() -> Vec<&'a Plugin> {
-    if let Some(pm) = PLUGIN_MANAGER.get()
-        && let Some(pm) = pm
-    {
-        return pm.get_all_plugin_by_capability(super::Capability::Theme);
-    }
-
-    vec![]
+pub fn all_theme_plugins() -> Vec<Plugin> {
+    super::runtime::active_manager()
+        .map(|pm| {
+            pm.get_all_plugin_by_capability(super::Capability::Theme)
+                .into_iter()
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub fn get_plugin_theme_catalog() -> Vec<(String, bool, String)> {

@@ -7,7 +7,6 @@ use wasmtime::component::ResourceTable;
 use wasmtime::{Cache, CacheConfig, Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 
-use crate::PLUGIN_MANAGER;
 use crate::app::persistent_state::PersistentState;
 use crate::error::Result;
 use crate::notification::{Notification, NotificationManager, NotificationStatus};
@@ -307,7 +306,7 @@ impl PluginManager {
     }
 
     pub fn get_installed_plugin() -> HashMap<String, Plugin> {
-        if let Some(Some(pm)) = PLUGIN_MANAGER.get() {
+        if let Some(pm) = crate::plugin::runtime::active_manager() {
             return pm.registry.get_installed_plugins();
         }
 

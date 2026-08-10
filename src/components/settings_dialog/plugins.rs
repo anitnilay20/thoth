@@ -1,6 +1,5 @@
 use eframe::egui;
 
-use crate::PLUGIN_MANAGER;
 use crate::components::common::traits::StatelessComponent;
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
 use crate::error::ErrorHandler;
@@ -56,7 +55,7 @@ impl StatelessComponent for PluginsTab {
                 .unwrap_or_else(|| Theme::default().colors())
         });
 
-        let Some(Some(pm)) = PLUGIN_MANAGER.get() else {
+        let Some(pm) = crate::plugin::runtime::active_manager() else {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
@@ -75,7 +74,7 @@ impl StatelessComponent for PluginsTab {
                         None => PluginNetworkPolicy::default(),
                     };
 
-                Self::render_settings(ui, plugin, pm, colors, &plugin_network_setting)
+                Self::render_settings(ui, plugin, &pm, colors, &plugin_network_setting)
             } else {
                 vec![]
             }

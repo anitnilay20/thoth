@@ -232,7 +232,7 @@ fn infer_file_type(path: &Path) -> Option<FileKind> {
         _ => {
             // Ask the plugin registry whether any plugin handles this extension
             // so we don't fall back to a stale file-type from the previous file.
-            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get()
+            if let Some(pm) = crate::plugin::runtime::active_manager()
                 && pm.find_loader_for_extension(&ext).is_some()
             {
                 return Some(

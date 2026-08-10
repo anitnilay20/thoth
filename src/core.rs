@@ -9,6 +9,7 @@ use std::{collections::VecDeque, path::PathBuf};
 
 use crate::{
     app::{persistent_state::PersistentState, tab_manager::TabId},
+    plugin::{datasets::DatasetStore, runtime::PluginRuntime},
     settings::Settings,
     state::ApplicationUpdateState,
 };
@@ -32,6 +33,10 @@ pub struct ThothCore {
     pub settings: Settings,
     pub persistent_state: PersistentState,
     pub update_state: ApplicationUpdateState,
+    /// Asynchronously initialized plugin manager owned by the application core.
+    pub plugins: PluginRuntime,
+    /// Host-owned dataset registry shared with plugin WIT and SDK callbacks.
+    pub datasets: DatasetStore,
     pub(crate) settings_changed: bool,
     pub(crate) session_dirty: bool,
     pub(crate) pending_plugin_restores: Vec<(String, Option<String>)>,
@@ -56,6 +61,8 @@ impl ThothCore {
             settings,
             persistent_state,
             update_state: ApplicationUpdateState::default(),
+            plugins: PluginRuntime::new(),
+            datasets: DatasetStore::new(),
             settings_changed: false,
             session_dirty: false,
             pending_plugin_restores: Vec::new(),

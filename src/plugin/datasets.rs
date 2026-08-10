@@ -14,7 +14,7 @@
 //! without changing the public shape.
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
 use std::time::Instant;
 
 /// Most datasets kept before LRU eviction of the least-recently-accessed.
@@ -145,7 +145,47 @@ fn dataset_bytes(meta: &DatasetMeta, rows: &[Vec<String>]) -> usize {
     cells + cols + tags + meta.name.len() + meta.source_plugin.len() + meta.source_instance.len()
 }
 
-static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Registry::default()));
+type SharedRegistry = Arc<Mutex<Registry>>;
+
+/// Core-owned dataset store.
+pub struct DatasetStore {
+    registry: SharedRegistry,
+}
+
+impl DatasetStore {
+    /// Create an empty dataset store.
+    pub fn new() -> Self {
+        Self {
+            registry: Arc::new(Mutex::new(Registry::default())),
+        }
+    }
+
+    /// Install this store as the weak bridge used by WIT and SDK callbacks.
+    pub fn install_as_active(&self) {
+        if let Ok(mut active) = ACTIVE_REGISTRY.write() {
+            *active = Arc::downgrade(&self.registry);
+        }
+    }
+}
+
+impl Default for DatasetStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+static ACTIVE_REGISTRY: LazyLock<RwLock<Weak<Mutex<Registry>>>> =
+    LazyLock::new(|| RwLock::new(Weak::new()));
+static FALLBACK_REGISTRY: LazyLock<SharedRegistry> =
+    LazyLock::new(|| Arc::new(Mutex::new(Registry::default())));
+
+fn registry() -> SharedRegistry {
+    ACTIVE_REGISTRY
+        .read()
+        .ok()
+        .and_then(|active| active.upgrade())
+        .unwrap_or_else(|| Arc::clone(&FALLBACK_REGISTRY))
+}
 
 /// Store a dataset published by `source_plugin` (instance `source_instance`),
 /// returning its assigned id. Evicts the least-recently-accessed dataset when
@@ -160,7 +200,8 @@ pub fn publish(
     columns: Vec<DatasetColumn>,
     rows: Vec<Vec<String>>,
 ) -> String {
-    let Ok(mut reg) = REGISTRY.lock() else {
+    let registry = registry();
+    let Ok(mut reg) = registry.lock() else {
         return String::new();
     };
     // A fresh publish from an instance replaces that instance's previous
@@ -211,13 +252,15 @@ pub fn publish(
 
 /// Metadata (no rows) for a single dataset by id; `None` if unknown.
 pub fn meta(id: &str) -> Option<DatasetMeta> {
-    let reg = REGISTRY.lock().ok()?;
+    let registry = registry();
+    let reg = registry.lock().ok()?;
     reg.map.get(id).map(|s| s.meta.clone())
 }
 
 /// Metadata for all published datasets, in publish order.
 pub fn list() -> Vec<DatasetMeta> {
-    let Ok(reg) = REGISTRY.lock() else {
+    let registry = registry();
+    let Ok(reg) = registry.lock() else {
         return Vec::new();
     };
     reg.order
@@ -229,7 +272,8 @@ pub fn list() -> Vec<DatasetMeta> {
 /// Read rows `[offset, offset + limit)` of dataset `id`; `limit` is capped by
 /// [`MAX_READ_LIMIT`]. Returns `None` if the id is unknown.
 pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
-    let Ok(mut reg) = REGISTRY.lock() else {
+    let registry = registry();
+    let Ok(mut reg) = registry.lock() else {
         return None;
     };
     let stored = reg.map.get_mut(id)?;
@@ -250,7 +294,8 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
 /// id, source, and byte-budget accounting current). No-op unless the handle is
 /// known and owned by `instance` — a producer can only mutate its own datasets.
 pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<Vec<String>>) {
-    if let Ok(mut reg) = REGISTRY.lock() {
+    let registry = registry();
+    if let Ok(mut reg) = registry.lock() {
         let Some(stored) = reg.map.get(id) else {
             return;
         };
@@ -290,7 +335,8 @@ pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
     if rows.is_empty() {
         return;
     }
-    if let Ok(mut reg) = REGISTRY.lock() {
+    let registry = registry();
+    if let Ok(mut reg) = registry.lock() {
         match reg.map.get(id) {
             Some(s) if s.meta.source_instance == instance => {}
             _ => return,
@@ -327,7 +373,8 @@ pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
 /// Remove a dataset (idempotent). No-op unless the handle is owned by
 /// `instance`, so a producer can only release its own datasets.
 pub fn release(instance: &str, id: &str) {
-    if let Ok(mut reg) = REGISTRY.lock()
+    let registry = registry();
+    if let Ok(mut reg) = registry.lock()
         && reg
             .map
             .get(id)
@@ -340,7 +387,8 @@ pub fn release(instance: &str, id: &str) {
 /// Drop datasets whose producing instance is no longer open. Called each frame
 /// with the set of live plugin-instance ids (same set signals uses).
 pub fn retain_instances(open: &std::collections::HashSet<String>) {
-    if let Ok(mut reg) = REGISTRY.lock() {
+    let registry = registry();
+    if let Ok(mut reg) = registry.lock() {
         let dropped: Vec<String> = reg
             .map
             .values()
@@ -361,7 +409,8 @@ mod tests {
 
     fn reset() -> std::sync::MutexGuard<'static, ()> {
         let guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        if let Ok(mut reg) = REGISTRY.lock() {
+        let registry = registry();
+        if let Ok(mut reg) = registry.lock() {
             reg.map.clear();
             reg.order.clear();
             reg.bytes = 0;

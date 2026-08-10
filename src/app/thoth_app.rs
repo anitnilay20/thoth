@@ -2,7 +2,7 @@ use eframe::{App, Frame, egui};
 use std::path::PathBuf;
 
 use crate::{
-    NOTIFICATION_MANAGER, PLUGIN_MANAGER,
+    NOTIFICATION_MANAGER,
     app::{file_picker, pick_file, tab_manager::TabEvent},
     components::{self, traits::ContextComponent},
     core::{CoreAction, CoreEvent, ThothCore},
@@ -169,7 +169,7 @@ impl ThothApp {
             } else {
                 // Restore the previous session (file tabs whose paths still exist, plugin tabs
                 // that can be re-instantiated). Plugin tabs that can't be opened yet (because
-                // PLUGIN_MANAGER is still initializing on a background thread) are returned
+                // the core plugin runtime is still initializing) are returned
                 // here and retried via poll_pending_plugin_restores() each frame.
                 let (deferred, active_index) = Self::restore_tab_session(
                     &mut window_state.tab_manager,
@@ -234,7 +234,7 @@ impl ThothApp {
             self.window_state.sidebar_expanded = self.core.persistent_state.get_sidebar_expanded();
         }
 
-        if let Some(Some(pm)) = PLUGIN_MANAGER.get() {
+        if let Some(pm) = self.core.plugins.manager() {
             pm.update_plugin_settings(self.core.settings.plugins.plugin_settings.clone());
         }
 
@@ -339,7 +339,7 @@ impl App for ThothApp {
             nm.show_notifications(ctx);
         }
 
-        // Restore plugin tabs that were deferred at startup (PLUGIN_MANAGER not ready yet).
+        // Restore plugin tabs that were deferred while the core runtime initialized.
         self.poll_pending_plugin_restores();
 
         // Handle OS-dispatched file opens (e.g. macOS Apple Events / Finder)
@@ -894,10 +894,10 @@ impl ThothApp {
     }
 
     fn open_ui_component_tab(&mut self, plugin_id: &str, initial_state: Option<&str>) {
-        let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) else {
+        let Some(manager) = self.core.plugins.manager() else {
             return;
         };
-        let Some(loader) = Self::build_plugin_loader(manager, plugin_id, &self.core.settings)
+        let Some(loader) = Self::build_plugin_loader(&manager, plugin_id, &self.core.settings)
         else {
             if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                 tab.error = Some(crate::error::ThothError::Unknown {
@@ -944,10 +944,10 @@ impl ThothApp {
         &mut self,
         req: crate::plugin::plugin_ui_host::TabOpenRequest,
     ) {
-        let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) else {
+        let Some(manager) = self.core.plugins.manager() else {
             return;
         };
-        let Some(loader) = Self::build_plugin_loader(manager, &req.plugin_id, &self.core.settings)
+        let Some(loader) = Self::build_plugin_loader(&manager, &req.plugin_id, &self.core.settings)
         else {
             return;
         };
@@ -989,10 +989,10 @@ impl ThothApp {
         {
             return;
         }
-        let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) else {
+        let Some(manager) = self.core.plugins.manager() else {
             return;
         };
-        let Some(loader) = Self::build_plugin_loader(manager, plugin_id, &self.core.settings)
+        let Some(loader) = Self::build_plugin_loader(&manager, plugin_id, &self.core.settings)
         else {
             return;
         };
@@ -1361,7 +1361,8 @@ impl ThothApp {
     /// Re-open tabs saved from the previous session.
     /// Returns `(deferred_plugin_ids, active_tab_index)`.
     /// - `deferred_plugin_ids`: plugin IDs that couldn't be opened yet because
-    ///   PLUGIN_MANAGER was still initializing; retried via `poll_pending_plugin_restores()`.
+    ///   the core plugin runtime was still initializing; retried via
+    ///   `poll_pending_plugin_restores()`.
     /// - `active_tab_index`: the dock-order index to switch to after all tabs are open.
     fn restore_tab_session(
         tab_manager: &mut crate::app::TabManager,
@@ -1398,25 +1399,9 @@ impl ThothApp {
                     }
                 }
                 PersistedTabKind::Plugin { plugin_id, state } => {
-                    // PLUGIN_MANAGER is set by a background thread; it may not be ready yet.
-                    match PLUGIN_MANAGER.get() {
-                        Some(manager_opt) => {
-                            if let Some(manager) = manager_opt.as_ref() {
-                                Self::open_plugin_tab(
-                                    tab_manager,
-                                    manager,
-                                    plugin_id,
-                                    state.as_deref(),
-                                    settings,
-                                );
-                            }
-                            // manager_opt == None means plugins are disabled — skip silently.
-                        }
-                        None => {
-                            // Manager not initialized yet — defer to poll loop.
-                            deferred_plugins.push((plugin_id.clone(), state.clone()));
-                        }
-                    }
+                    // Plugin initialization begins after the app core is installed,
+                    // so plugin tabs are restored by the non-blocking poll loop.
+                    deferred_plugins.push((plugin_id.clone(), state.clone()));
                 }
             }
         }
@@ -1465,23 +1450,25 @@ impl ThothApp {
         }
     }
 
-    /// Called each frame from `update()`. Once PLUGIN_MANAGER is ready, drains
+    /// Called each frame from `update()`. Once the core plugin runtime is ready, drains
     /// `pending_plugin_restores` and opens each plugin tab, then applies the
     /// saved active-tab index.
     fn poll_pending_plugin_restores(&mut self) {
         if self.core.pending_plugin_restores.is_empty() {
             return;
         }
-        // Wait until the background init thread has called PLUGIN_MANAGER.set().
-        let Some(manager_opt) = PLUGIN_MANAGER.get() else {
-            return;
+        use crate::plugin::runtime::PluginRuntimeState;
+        let manager = match self.core.plugins.state() {
+            PluginRuntimeState::Loading => return,
+            PluginRuntimeState::Disabled => None,
+            PluginRuntimeState::Ready(manager) => Some(manager),
         };
         let plugin_ids = std::mem::take(&mut self.core.pending_plugin_restores);
-        if let Some(manager) = manager_opt.as_ref() {
+        if let Some(manager) = manager {
             for (plugin_id, state) in &plugin_ids {
                 Self::open_plugin_tab(
                     &mut self.window_state.tab_manager,
-                    manager,
+                    &manager,
                     plugin_id,
                     state.as_deref(),
                     &self.core.settings,
@@ -1489,7 +1476,6 @@ impl ThothApp {
             }
             self.core.session_dirty = true;
         }
-        // If manager is None (plugins disabled), plugin_ids is simply dropped.
 
         // All deferred tabs are now open — apply the saved active-tab index.
         if let Some(idx) = self.core.session_restore_active_index.take() {
@@ -1871,15 +1857,14 @@ impl ThothApp {
 
         let focus_search = section_changed_to_search || sidebar_reopened_with_search;
 
-        let ds_plugins: Vec<&crate::plugin::Plugin> = PLUGIN_MANAGER
-            .get()
-            .and_then(|m| m.as_ref())
+        let plugin_manager = self.core.plugins.manager();
+        let ds_plugins: Vec<&crate::plugin::Plugin> = plugin_manager
+            .as_deref()
             .map(|m| m.get_data_source_plugins())
             .unwrap_or_default();
 
-        let ui_plugins: Vec<&crate::plugin::Plugin> = PLUGIN_MANAGER
-            .get()
-            .and_then(|m| m.as_ref())
+        let ui_plugins: Vec<&crate::plugin::Plugin> = plugin_manager
+            .as_deref()
             .map(|m| m.get_ui_component_plugins())
             .unwrap_or_default();
 
@@ -1901,9 +1886,8 @@ impl ThothApp {
 
         let plugin_sidebar_strings: Option<(String, String, Option<String>)> =
             sidebar_plugin_id.as_ref().and_then(|plugin_id| {
-                PLUGIN_MANAGER
-                    .get()
-                    .and_then(|m| m.as_ref())
+                plugin_manager
+                    .as_deref()
                     .and_then(|m| m.registry.get_by_id(plugin_id))
                     .map(|p| (p.id.clone(), p.name.clone(), p.icon.clone()))
             });
@@ -2216,10 +2200,12 @@ impl ThothApp {
     /// Whether the plugin with `plugin_id` declares the `data-producer`
     /// capability in its manifest.
     fn plugin_declares_producer(&self, plugin_id: &str) -> bool {
-        matches!(PLUGIN_MANAGER.get(), Some(Some(pm))
-            if pm
-                .get_plugin_by_id(plugin_id)
-                .is_some_and(|p| p.capabilities.contains(&crate::plugin::Capability::DataProducer)))
+        self.core.plugins.manager().is_some_and(|pm| {
+            pm.get_plugin_by_id(plugin_id).is_some_and(|p| {
+                p.capabilities
+                    .contains(&crate::plugin::Capability::DataProducer)
+            })
+        })
     }
 
     /// Resolve a producer tab's data directly (no registry): file tabs read
@@ -2451,7 +2437,7 @@ impl ThothApp {
         let records = dataset_records_json(handle);
 
         // Resolve the exporter plugin + engine, then run it.
-        let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+        let Some(pm) = self.core.plugins.manager() else {
             NotificationManager::notify_error(Notification::new(
                 "Export failed",
                 "The plugin manager is not available.",
@@ -2684,7 +2670,7 @@ fn sanitize_filename(name: &str) -> String {
 
 /// Enumerate installed exporter plugins for the DataView's Export dropdown.
 pub fn list_exporters_for_view() -> Vec<thoth_plugin_sdk::dataset::ExporterInfo> {
-    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+    let Some(pm) = crate::plugin::runtime::active_manager() else {
         return Vec::new();
     };
     pm.get_all_plugin_by_capability(crate::plugin::Capability::Exporter)
@@ -2703,7 +2689,7 @@ pub fn list_exporters_for_view() -> Vec<thoth_plugin_sdk::dataset::ExporterInfo>
 
 /// Enumerate installed renderer plugins for the DataView's view dropdown.
 pub fn list_renderers_for_view() -> Vec<thoth_plugin_sdk::dataset::RendererInfo> {
-    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+    let Some(pm) = crate::plugin::runtime::active_manager() else {
         return Vec::new();
     };
     pm.get_all_plugin_by_capability(crate::plugin::Capability::Renderer)
@@ -2815,7 +2801,7 @@ pub fn render_dataset_with_plugin(
     // Miss / stale: run the plugin. Structural failures (no manager / plugin /
     // path) aren't cached, so they retry once those resolve.
     let records = dataset_records_json(handle);
-    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+    let Some(pm) = crate::plugin::runtime::active_manager() else {
         return PluginRenderResult::Unavailable;
     };
     let Some(plugin) = pm.get_plugin_by_id(plugin_id) else {

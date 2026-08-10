@@ -11,9 +11,8 @@ use eframe::{
 };
 use std::path::PathBuf;
 use thoth::{
-    CONSENT_MANAGER, NOTIFICATION_MANAGER, PLUGIN_MANAGER, app, consent::manager::ConsentManager,
-    error::Result, helpers::load_icon, notification::NotificationManager,
-    plugin::manager::PluginManager, settings,
+    CONSENT_MANAGER, NOTIFICATION_MANAGER, app, consent::manager::ConsentManager, error::Result,
+    helpers::load_icon, notification::NotificationManager, settings,
 };
 
 /// Parse command-line arguments to extract file path
@@ -103,23 +102,6 @@ fn main() -> Result<()> {
         .set(std::sync::Mutex::new(ConsentManager::new()))
         .ok();
 
-    let plugin_settings = settings.plugins.plugin_settings.clone();
-
-    // Load Plugins
-    if settings.plugins.enabled {
-        std::thread::spawn(move || {
-            PLUGIN_MANAGER
-                .set(
-                    PluginManager::init(&plugin_settings)
-                        .map_err(|err| {
-                            eprintln!("Warning Unable to load plugins: {}", err);
-                        })
-                        .ok(),
-                )
-                .unwrap();
-        });
-    }
-
     let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
 
     // Configure window from settings
@@ -176,6 +158,12 @@ fn main() -> Result<()> {
             thoth_plugin_sdk::dataset::set_plugin_renderer(app::render_dataset_with_plugin);
 
             let mut app = app::ThothApp::new(settings, file_to_open);
+            app.core.plugins.install_as_active();
+            app.core.datasets.install_as_active();
+            app.core.plugins.start(
+                app.core.settings.plugins.enabled,
+                app.core.settings.plugins.plugin_settings.clone(),
+            );
             app.setup_native_menu(cc);
             Ok(Box::new(app))
         }),

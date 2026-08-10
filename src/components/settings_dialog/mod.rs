@@ -478,7 +478,7 @@ impl SettingsDialog {
                             }
                         }
                         PluginsTabEvent::UninstallPlugin(id) => {
-                            if let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() {
+                            if let Some(pm) = crate::plugin::runtime::active_manager() {
                                 let wasm_path =
                                     pm.registry.get_by_id(&id).and_then(|p| p.location.clone());
                                 if let Some(location) = wasm_path {
