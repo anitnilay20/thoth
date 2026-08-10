@@ -97,6 +97,21 @@ impl TabOpenRequest {
 pub trait PluginCore: Send {
     fn plugin_id(&self) -> &str;
 
+    /// Initialize this live instance for core/headless use.
+    ///
+    /// WASM UI loaders already run their WIT lifecycle during construction, so
+    /// their default implementation is a no-op. Headless adapters can override
+    /// this to perform explicit initialization.
+    fn init(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Handle a display-independent event. Returning `None` means the event is
+    /// not supported by this plugin instance.
+    fn on_event(&self, _event: &PluginCoreEvent) -> Result<Option<serde_json::Value>> {
+        Ok(None)
+    }
+
     /// Return the optional UI facet implemented by this plugin instance.
     /// Headless-only plugins keep the default `None` implementation.
     fn as_ui(&self) -> Option<&dyn PluginUi> {
@@ -196,6 +211,18 @@ pub trait PluginCore: Send {
             message: "plugin is not a data producer".to_string(),
         })
     }
+}
+
+/// A display-independent event routed to a [`PluginCore`] instance.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PluginCoreEvent {
+    /// Invoke a named command with structured arguments.
+    Command {
+        /// Plugin-defined command name.
+        name: String,
+        /// JSON arguments supplied by the CLI layer.
+        args: serde_json::Value,
+    },
 }
 
 /// Rendering facet for plugins that expose an interactive UI.

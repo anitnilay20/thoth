@@ -12,6 +12,7 @@ pub mod constants;
 pub mod core;
 pub mod error;
 pub mod file;
+pub mod headless;
 pub mod helpers;
 pub mod mcp;
 pub mod notification;

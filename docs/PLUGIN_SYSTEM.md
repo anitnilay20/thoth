@@ -88,6 +88,19 @@ plugin can implement `PluginCore` and leave the default UI facet as `None`.
 This is a host-side separation; the language-neutral plugin boundary remains
 the WIT capability/world split described below.
 
+### Headless runtime
+
+`HeadlessRuntime` constructs `ThothCore`, starts plugin discovery, installs the
+core-owned dataset/plugin callback bridges, and executes `CliCommand` values
+without creating an egui context or native window. Its result separates a JSON
+stdout value, a stderr diagnostic, and the intended process exit code.
+
+Display-independent plugin adapters override `PluginCore::init` and
+`PluginCore::on_event`. Initialization runs once per live adapter; subsequent
+commands reuse that initialized instance. The CLI parser and plugin-declared
+subcommand surface are layered on top of this runtime by the later CLI/SDK
+work.
+
 ---
 
 ## Technology Choice: WebAssembly
