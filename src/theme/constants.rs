@@ -5,16 +5,24 @@ pub const SPACING_SMALL: f32 = GRID_UNIT; // 4px
 pub const SPACING_MEDIUM: f32 = 2.0 * GRID_UNIT; // 8px
 pub const SPACING_LARGE: f32 = 4.0 * GRID_UNIT; // 16px
 pub const TREE_INDENT: f32 = SPACING_LARGE;
-pub const ROW_HEIGHT: f32 = 22.0;
+// ROW_HEIGHT is the SDK's (same 22px) — re-exported from `super`, so tree/data
+// rows in host chrome and in SDK widgets can't drift apart.
 
-pub const ROW_PADDING_H: f32 = 24.0; // outer left/right margin for section header and group title
-pub const ROW_INNER_H: f32 = 16.0; // horizontal padding INSIDE card rows (matches design 16px)
-pub const ROW_PADDING_V: f32 = 14.0; // vertical padding inside card rows (matches design 14px)
+pub const ROW_PADDING_H: f32 = 24.0;
+pub const ROW_INNER_H: f32 = 16.0;
+pub const ROW_PADDING_V: f32 = 14.0;
 pub const GROUP_SPACING: f32 = 20.0;
-pub const CARD_OUTER_H: f32 = 24.0; // card indented from panel edges
+pub const CARD_OUTER_H: f32 = 24.0;
 pub const CARD_RADIUS: f32 = 8.0;
 pub const CONTROL_WIDTH: f32 = 220.0;
 pub const DIRTY_DOT_RADIUS: f32 = 3.0;
+
+// ── Squircle redesign — radius ladder + floating-panel chrome ────────────────
+// Owned by the SDK so host chrome and plugin/SDK widgets round identically;
+// re-exported here so `crate::theme::RADIUS_PANEL` keeps resolving.
+pub use thoth_plugin_sdk::theme::{
+    GUTTER_GAP, RADIUS_CHIP, RADIUS_CONTROL, RADIUS_PANEL, RADIUS_WINDOW,
+};
 
 impl Theme {
     pub fn mocha() -> Self {

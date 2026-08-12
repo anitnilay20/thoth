@@ -1,5 +1,5 @@
 #[cfg(feature = "egui")]
-mod ui;
+pub(crate) mod ui;
 
 use bon::Builder;
 use serde::{Deserialize, Serialize};
@@ -66,6 +66,14 @@ pub struct Select {
     /// Optional static prefix shown before the selected label, e.g. `"Sort: "`.
     #[serde(default)]
     pub prefix_label: Option<String>,
+    /// Optional leading glyph in the trigger, before the label — design
+    /// `.viewsel`/`.selbox`, which lead with a table, database or plug icon.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// Colour for [`icon`](Select::icon) as a theme token name (e.g. `"accent"`).
+    /// Defaults to the muted foreground, like the trailing caret.
+    #[serde(default, rename = "icon-color")]
+    pub icon_color: Option<String>,
     /// Trigger size. Defaults to [`Size::Medium`].
     #[builder(default)]
     #[serde(default)]

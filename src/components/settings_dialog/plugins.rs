@@ -13,7 +13,7 @@ use crate::plugin::{Capability, Plugin};
 use crate::settings::{PluginNetworkPolicy, PluginSettings};
 use crate::theme::{Theme, ThemeColors};
 use thoth_plugin_sdk::components::{
-    Card, CardAction, CardEvent, CardIcon, IconButton, Input, Separator, ToggleSwitch,
+    Card, CardAction, CardEvent, CardIcon, IconButton, Input, Separator, ToggleSwitch, Typography,
 };
 
 pub struct PluginsTab;
@@ -60,14 +60,7 @@ impl StatelessComponent for PluginsTab {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
-                    ui.add_space(24.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(24.0);
-                        ui.label(
-                            egui::RichText::new("Plugin manager not available.")
-                                .color(colors.fg_muted),
-                        );
-                    });
+                    Typography::body_muted(ui, "Plugin manager not available.");
                 });
             return output;
         };
@@ -222,7 +215,7 @@ impl PluginsTab {
                 );
 
                 // ── Master toggle ────────────────────────────────���────────────
-                group_rows(ui, "SYSTEM", "plugins-system", colors, |ui| {
+                group_rows(ui, "SYSTEM", |ui| {
                     setting_row(
                         ui,
                         "Enable plugins",
@@ -242,28 +235,12 @@ impl PluginsTab {
                     );
                 });
 
-                // ── Installed section label ─────────────────────────────────���─
-                ui.add_space(20.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(24.0);
-                    ui.label(
-                        egui::RichText::new("INSTALLED")
-                            .size(11.0)
-                            .strong()
-                            .color(colors.fg_muted),
-                    );
+                // ── Installed section label — design `.grouplabel` ────────────
+                group_rows(ui, "INSTALLED", |ui| {
+                    if all_plugins.is_empty() {
+                        Typography::body_muted(ui, "No plugins installed.");
+                    }
                 });
-                ui.add_space(6.0);
-
-                if all_plugins.is_empty() {
-                    ui.horizontal(|ui| {
-                        ui.add_space(24.0);
-                        ui.label(
-                            egui::RichText::new("No plugins installed.")
-                                .color(colors.fg_muted),
-                        );
-                    });
-                }
 
                 // Dim cards when plugins are disabled
                 let opacity = if props.plugin_settings.enabled { 1.0 } else { 0.4 };
@@ -271,7 +248,6 @@ impl PluginsTab {
 
                 // ── Plugin cards ──────────────────────────────────────────────
                 egui::Frame::new()
-                    .outer_margin(egui::Margin::symmetric(24, 0))
                     .show(ui, |ui| {
                         for plugin in all_plugins {
                             let is_enabled = !props

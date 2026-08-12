@@ -14,9 +14,29 @@ use crate::{
 // Pure colour/font helpers are owned by the plugin SDK so host-native and
 // SDK-provided widgets share one implementation. Re-exported so existing
 // `crate::theme::{get_contrast_text_color, phosphor_font_id}` paths keep working.
-pub use thoth_plugin_sdk::theme::{get_contrast_text_color, phosphor_font_id};
+pub use thoth_plugin_sdk::theme::{
+    FAMILY_MEDIUM, FAMILY_SEMIBOLD, color_to_hex, get_contrast_text_color, hover_text,
+    medium_font_id, phosphor_font_id, resolve_color, semibold_font_id, with_alpha,
+};
 
-// ── Design-system constants ───────────────────────────────────────────────────
+// Floating-panel chrome (`--edge`, `--shadow-panel`, `--shadow-menu`,
+// `--shadow-dialog`) also lives in the SDK, so a plugin's panels and the host's
+// pick up identical elevation. Re-exported for `crate::theme::edge_stroke` etc.
+pub use thoth_plugin_sdk::theme::{
+    dialog_shadow, edge_stroke, focus_stroke, glow_shadow, panel_shadow, popover_shadow,
+    slider_thumb_shadow, thumb_shadow,
+};
+
+// Type/metric tokens, so host chrome sizes controls from the same scale the SDK
+// widgets do rather than re-deriving the numbers.
+pub use thoth_plugin_sdk::theme::{
+    FIELD_HEIGHT, FONT_BODY, FONT_CAPTION, FONT_CONTROL, ICON_CONTROL, RADIUS_CHECK, RADIUS_PILL,
+    RADIUS_POPOVER, ROW_HEIGHT,
+};
+
+/// Document-tab height — design `.etabs .tab{height:30px}`. Also drives the pill
+/// radius, which is exactly half of it.
+const TAB_H: f32 = 30.0;
 
 // ── Theme (serialisable hex-string form) ──────────────────────────────────────
 
@@ -291,47 +311,83 @@ impl ThemeColorsExt for ThemeColors {
 
     fn dock_style(&self, egui_style: &egui::Style) -> egui_dock::Style {
         let mut style = egui_dock::Style::from_egui(egui_style);
-        let zero_rounding = egui::CornerRadius::ZERO;
 
-        // ── Tab bar ───────────────────────────────────────────────────────────
-        style.tab_bar.bg_fill = self.bg_sunken;
-        style.tab_bar.height = 28.0;
-        // Side padding on the tab bar strip itself.
+        // ── Tab bar — strip floats on the panel background ───────────────────
+        style.tab_bar.bg_fill = self.bg_panel;
+        style.tab_bar.height = TAB_H;
+        // The strip's fill differs from the dock panel's, so its top corners must
+        // match the panel radius exactly or a sliver of panel fill shows through.
+        style.tab_bar.corner_radius = egui::CornerRadius {
+            nw: RADIUS_PANEL as u8,
+            ne: RADIUS_PANEL as u8,
+            sw: 0,
+            se: 0,
+        };
         style.tab_bar.inner_margin = egui::Margin {
             left: 12,
             right: 12,
             top: 0,
             bottom: 0,
         };
-        style.tab_bar.hline_color = self.surface;
+        // No rule under the strip: design `.etabs` carries no border or shadow —
+        // the editor/dock panel is one unbroken card, and the active tab's own
+        // pill is what separates the strip from the body.
+        style.tab_bar.hline_color = Color32::TRANSPARENT;
 
         // ── Tab body ──────────────────────────────────────────────────────────
         style.tab.tab_body.bg_fill = self.bg;
         style.tab.tab_body.inner_margin = egui::Margin::ZERO;
         style.tab.tab_body.stroke = egui::Stroke::NONE;
 
-        // ── Active / focused tab: top+side accent (bottom covered by egui_dock) ─
-        style.tab.active.bg_fill = self.bg;
+        // Document tabs are *pills* — design `.etabs .tab{border-radius:--r-pill}`,
+        // active filled `surface0` with a hairline edge. This is deliberately not
+        // the underline treatment the in-pane `Tabs` component uses: app-mockup
+        // gives the two tab surfaces different vocabularies (`.etabs .tab` here,
+        // `.rtabs .rtab` there). An outline box around the active tab, which is
+        // what this used to draw, is neither.
+        // Safari's tab shape rather than the sheet's `--r-pill`: a rounded
+        // *rectangle*, not a lozenge. A full pill on a 30pt tab needs a 15pt
+        // radius, which rounds the short ends so hard that a two-word title reads
+        // as a capsule floating in the strip; Safari keeps the ends square enough
+        // that the tab still reads as a rectangular surface you could stack.
+        //
+        // Also note `RADIUS_PILL as u8` saturates to 255, and egui_dock derives its
+        // "connect the tab to the body" hline from the *raw* corner radius
+        // (`min.x + sw ..= max.x - se`) — at 255 that range inverts on any normal
+        // tab and paints a stray 2px line. Staying on the ladder avoids that.
+        let tab_radius = egui::CornerRadius::same(RADIUS_PANEL as u8);
+        // The design's `.tab.active{box-shadow:var(--edge)}` hairline, carried a
+        // little brighter than `edge_stroke`'s 34% so the active tab reads as a
+        // raised surface the way Safari's does. egui_dock has no shadow field on a
+        // tab, so the border is the only elevation cue available.
+        //
+        // It must be set on *every* state explicitly: egui_dock's `from_egui_*`
+        // defaults derive `outline_color` from `widgets.hovered.bg_stroke`, which
+        // this theme sets to the accent, so a mauve ring leaks through otherwise.
+        let edge = with_alpha(self.surface_raised, 130); // surface1@51%
+
+        // ── Active / focused tab: filled rounded rect with a hairline edge ─────
+        style.tab.active.bg_fill = self.surface;
         style.tab.active.text_color = self.fg;
-        style.tab.active.outline_color = self.accent;
-        style.tab.active.corner_radius = zero_rounding;
+        style.tab.active.outline_color = edge;
+        style.tab.active.corner_radius = tab_radius;
 
-        style.tab.focused.bg_fill = self.bg;
+        style.tab.focused.bg_fill = self.surface;
         style.tab.focused.text_color = self.fg;
-        style.tab.focused.outline_color = self.accent;
-        style.tab.focused.corner_radius = zero_rounding;
+        style.tab.focused.outline_color = edge;
+        style.tab.focused.corner_radius = tab_radius;
 
-        // ── Inactive tab: no visible border ───────────────────────────────────
-        style.tab.inactive.bg_fill = self.bg_sunken;
+        // ── Inactive tab: bare label on the strip, no chrome at all ───────────
+        style.tab.inactive.bg_fill = Color32::TRANSPARENT;
         style.tab.inactive.text_color = self.fg_muted;
         style.tab.inactive.outline_color = Color32::TRANSPARENT;
-        style.tab.inactive.corner_radius = zero_rounding;
+        style.tab.inactive.corner_radius = tab_radius;
 
         // ── Hovered tab ───────────────────────────────────────────────────────
-        style.tab.hovered.bg_fill = self.surface;
+        style.tab.hovered.bg_fill = with_alpha(self.fg, 20); // text@8%
         style.tab.hovered.text_color = self.fg;
         style.tab.hovered.outline_color = Color32::TRANSPARENT;
-        style.tab.hovered.corner_radius = zero_rounding;
+        style.tab.hovered.corner_radius = tab_radius;
 
         style.tab.inactive_with_kb_focus = style.tab.inactive.clone();
         style.tab.active_with_kb_focus = style.tab.active.clone();
@@ -401,6 +457,58 @@ pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
                 list.insert(0, family.clone());
             }
         }
+    }
+
+    // ── Real weight axes ─────────────────────────────────────────────────────
+    // egui resolves a `FontId` to a *family*, with no weight axis, so the design's
+    // `font-weight: 500` / `600` can only be honoured by registering those faces as
+    // named families. Everything that wanted a weight previously faked it by
+    // painting the galley twice a fraction of a pixel apart, which smears at small
+    // sizes and reads heavier than intended.
+    //
+    // The UI face is Inter per the design; a user-chosen `font_family` overrides it.
+    // Each named family always resolves — it falls back to the Proportional stack —
+    // so `medium_font_id`/`semibold_font_id` are safe to call regardless of what is
+    // installed.
+    let ui_family = settings.font_family.as_deref().unwrap_or("Inter");
+    for (name, weight) in [
+        (crate::theme::FAMILY_MEDIUM, fontdb::Weight::MEDIUM),
+        (crate::theme::FAMILY_SEMIBOLD, fontdb::Weight::SEMIBOLD),
+    ] {
+        let stack = match crate::platform::has_weight(ui_family, weight)
+            .then(|| crate::platform::find_font_bytes_weighted(ui_family, weight))
+            .flatten()
+        {
+            Some(bytes) => {
+                let key = format!("{ui_family}-{}", weight.0);
+                fonts.font_data.insert(
+                    key.clone(),
+                    std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+                );
+                // The weighted face covers only its own glyph set, and egui walks a
+                // family's entries in order for missing glyphs — so keep the normal
+                // stack behind it or emoji/CJK/icons render as tofu.
+                let mut stack = vec![key];
+                stack.extend(
+                    fonts
+                        .families
+                        .get(&egui::FontFamily::Proportional)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+                stack
+            }
+            // No real face at this weight — alias the family to the normal stack so
+            // callers degrade to regular text rather than to a missing font.
+            None => fonts
+                .families
+                .get(&egui::FontFamily::Proportional)
+                .cloned()
+                .unwrap_or_default(),
+        };
+        fonts
+            .families
+            .insert(egui::FontFamily::Name(name.into()), stack);
     }
 
     ctx.set_fonts(fonts);
@@ -499,6 +607,10 @@ fn build_visuals(dark_mode: bool, c: &ThemeColors) -> egui::Visuals {
 
     // ── Backgrounds ──────────────────────────────────────────────────────────
     v.override_text_color = Some(c.fg);
+    // Content background for `Frame::central_panel` (used inside each dock tab),
+    // so it blends with the floating dock panel's fill. NOT the root canvas —
+    // that is crust and comes from `App::clear_color`; using bg_sunken here would
+    // paint a square crust rect over the dock panel's rounded corners.
     v.panel_fill = c.bg;
     v.window_fill = c.bg_panel; // modal / popup backgrounds
     v.extreme_bg_color = c.surface; // TextEdit / ComboBox text-area background
@@ -537,9 +649,9 @@ fn build_visuals(dark_mode: bool, c: &ThemeColors) -> egui::Visuals {
     v.widgets.active.bg_stroke = egui::Stroke::new(1.0, c.accent);
 
     // ── Windows / popups ─────────────────────────────────────────────────────
-    v.window_stroke = egui::Stroke::new(1.0, c.surface_raised);
-    v.popup_shadow = egui::Shadow::NONE;
-    v.window_shadow = egui::Shadow::NONE;
+    v.window_stroke = edge_stroke(c);
+    v.popup_shadow = dialog_shadow(dark_mode);
+    v.window_shadow = dialog_shadow(dark_mode);
 
     // ── Selection & links ────────────────────────────────────────────────────
     v.selection.bg_fill =

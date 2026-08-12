@@ -29,4 +29,14 @@ pub struct JsonTree {
     #[builder(default)]
     #[serde(default)]
     pub id: String,
+    /// Draw the outer container (canvas fill + hairline edge + rounded corners +
+    /// 4px padding — design `.tree`). Defaults to `true`; set `false` when the
+    /// tree sits inside a container that already owns those corners.
+    #[builder(default = true)]
+    #[serde(default = "default_true")]
+    pub framed: bool,
+}
+
+fn default_true() -> bool {
+    true
 }

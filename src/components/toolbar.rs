@@ -63,27 +63,19 @@ impl Toolbar {
         props: ToolbarProps<'_>,
         events: &mut Vec<ToolbarEvent>,
     ) {
-        // Use theme colors from context
-        let bg_color = ui.ctx().memory(|mem| {
-            mem.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
-                .map(|c| c.bg_sunken)
-                .unwrap_or(ui.ctx().global_style().visuals.extreme_bg_color)
-        });
-
-        // Row 1: Title bar (32px height - integrated with window controls, with title)
-        // Hide completely in fullscreen mode
+        // Title bar — transparent chrome strip; background comes from the window clear color.
         if !props.is_fullscreen {
             egui::Panel::top("title_bar_row")
-                .exact_size(32.0)
-                .frame(egui::Frame::NONE.fill(bg_color).inner_margin(egui::Margin {
+                .exact_size(38.0)
+                .show_separator_line(false)
+                .frame(egui::Frame::NONE.inner_margin(egui::Margin {
                     left: 8,
                     right: 8,
                     top: 0,
                     bottom: 0,
                 }))
                 .show_inside(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(2.0, 0.0);
 
                         #[cfg(target_os = "macos")]
@@ -165,7 +157,8 @@ impl Toolbar {
         #[cfg(target_os = "linux")]
         egui::Panel::top("menu_bar_row")
             .exact_size(28.0)
-            .frame(egui::Frame::NONE.fill(bg_color).inner_margin(egui::Margin {
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
                 left: 4,
                 right: 4,
                 top: 0,

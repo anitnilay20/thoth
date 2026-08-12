@@ -1,3 +1,6 @@
+#[cfg(feature = "egui")]
+mod ui;
+
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
@@ -29,21 +32,17 @@ pub struct NumberInput {
     /// Optional maximum.
     #[serde(default)]
     pub max: Option<f64>,
+    /// Amount the `−` / `+` spin buttons add or subtract. Defaults to `1`; a
+    /// value that isn't finite and positive (zero, negative, NaN, infinite) is
+    /// normalised to `1` rather than making the buttons inert or reversed.
+    #[serde(default)]
+    pub step: Option<f64>,
+    /// Optional unit suffix shown inside the control, e.g. `"rows"` — design
+    /// `.num .unit`.
+    #[serde(default)]
+    pub unit: Option<String>,
     /// Disable interaction.
     #[builder(default)]
     #[serde(default)]
     pub disabled: bool,
-}
-
-#[cfg(feature = "egui")]
-impl NumberInput {
-    /// Render the input, editing [`value`](NumberInput::value) in place.
-    pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        if !self.label.is_empty() {
-            ui.label(&self.label);
-        }
-        let range = self.min.unwrap_or(f64::NEG_INFINITY)..=self.max.unwrap_or(f64::INFINITY);
-        let drag = egui::DragValue::new(&mut self.value).range(range);
-        ui.add_enabled(!self.disabled, drag)
-    }
 }

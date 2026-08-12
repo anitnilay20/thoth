@@ -54,10 +54,21 @@ pub struct Input {
     /// Optional leading Phosphor icon glyph (single-line only).
     #[serde(default)]
     pub icon: Option<String>,
-    /// Mask the text as bullets (password field).
+    /// Mask the text as bullets (password field). Renders a trailing eye that
+    /// toggles the mask off, matching design `.field[data-pw] .eye`.
     #[builder(default)]
     #[serde(default)]
     pub password: bool,
+    /// Render the value in the monospace family — design `.field.mono`. Use for
+    /// connection strings, ids, and other machine text.
+    #[builder(default)]
+    #[serde(default)]
+    pub mono: bool,
+    /// Validation message. When set the field switches to its error styling (red
+    /// hairline, no focus ring) and the message is shown below it — design
+    /// `.field.err` + `.err-msg`.
+    #[serde(default)]
+    pub error: Option<String>,
     /// Disable interaction.
     #[builder(default)]
     #[serde(default)]

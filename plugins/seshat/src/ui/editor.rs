@@ -1,8 +1,8 @@
 //! The SQL editor tab: header, code editor, Run, and the typed results grid.
 
 use thoth_plugin_sdk::components::{
-    Button, ButtonColor, ButtonSize, ButtonType, CodeEditor, Column, CustomSyntax, IconButton, Row,
-    Scroll, Select, SelectOption, Separator, Size, VSplit,
+    Button, ButtonColor, ButtonType, CodeEditor, Column, CustomSyntax, IconButton, Row, Scroll,
+    Select, SelectOption, Spacer, VSplit,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -68,7 +68,6 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                             })
                                             .collect::<Vec<_>>(),
                                     )
-                                    .size(Size::Small)
                                     .width(180.0)
                                     .searchable(true)
                                     .build(),
@@ -90,30 +89,28 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                             })
                                             .collect::<Vec<_>>(),
                                     )
-                                    .size(Size::Small)
                                     .width(180.0)
                                     .searchable(true)
                                     .build(),
                             ),
-                            RenderNode::Separator(Separator::plain()),
+                            // Design `.etoolbar .tbdiv`: the target group is set
+                            // off from the actions by a 20px void, not a rule.
+                            RenderNode::Spacer(Spacer::builder().size(20.0).build()),
                             RenderNode::Button(
                                 Button::builder()
                                     .id("run")
                                     .label("Run")
                                     .button_type(ButtonType::Elevated)
                                     .color(ButtonColor::Primary)
-                                    .button_size(ButtonSize::Small)
                                     .icon(ICON_PLAY)
                                     .enabled(!st.loading)
                                     .build(),
                             ),
-                            RenderNode::Separator(Separator::plain()),
                             RenderNode::IconButton(
                                 IconButton::builder()
                                     .id("save-query")
                                     .icon(ICON_FLOPPY_DISK)
                                     .frame(true)
-                                    .size(Size::Small)
                                     .tooltip("Save query as .sql")
                                     .build(),
                             ),
@@ -122,7 +119,6 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                     .id("open-query")
                                     .icon(ICON_FOLDER_OPEN)
                                     .frame(true)
-                                    .size(Size::Small)
                                     .tooltip("Open a .sql file")
                                     .build(),
                             ),
@@ -131,7 +127,6 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                     .id("format-editor")
                                     .icon(ICON_FORMAT)
                                     .frame(true)
-                                    .size(Size::Small)
                                     .tooltip(format!(
                                         "Format the SQL query ({})",
                                         format_button_tooltip_shortcut
@@ -141,7 +136,9 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                         ])
                         .build(),
                 ),
-                RenderNode::Separator(Separator::plain()),
+                // No rule under the toolbar: the design keeps the editor panel one
+                // unbroken card, and the split below already insets its two panes
+                // on the crust gutter.
                 // Editor over results, with a draggable divider to re-apportion
                 // their heights. Each pane scrolls on its own: the code editor has
                 // its own vertical scroll, and the results grid is wrapped in a
@@ -154,7 +151,8 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                             CodeEditor::builder()
                                 .id("sql")
                                 .value(st.sql.clone())
-                                .font_size(12.0)
+                                // Body size (the component's own default) — the
+                                // design sets the editor at 13px/21px.
                                 .custom_syntax(
                                     CustomSyntax::builder()
                                         .language("sql")

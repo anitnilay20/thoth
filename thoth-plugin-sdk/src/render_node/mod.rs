@@ -212,21 +212,40 @@ impl RenderNode {
 
     /// Renders a result cell styled by the column's [`ColumnType`] (rather than
     /// by the JSON shape of the value, as [`json_cell`](RenderNode::json_cell)
-    /// does). Every cell is monospace: numbers/temporal/text use
-    /// `mono(text, ty.text_color())`, an enum becomes a soft coloured pill, a
-    /// json object/array becomes a tree (json-as-text is info-tinted), and null
-    /// is muted italic. `Text` and unknown types fall through to the default
-    /// mono styling — they do **not** defer to `json_cell`.
+    /// does):
+    ///
+    /// - `Text` and `Boolean` are prose, in the body face — monospacing ordinary
+    ///   text columns made them read like code.
+    /// - Numeric, temporal and UUID cells, and any unknown type, are monospace in
+    ///   `ty.text_color()`, so digits line up down the column.
+    /// - An enum becomes a soft coloured pill; a json object/array becomes a tree
+    ///   (json-as-text is info-tinted); null is muted italic.
+    ///
+    /// Unknown types fall through to the mono styling — they do **not** defer to
+    /// `json_cell`.
     pub fn typed_cell(value: &serde_json::Value, ty: crate::components::ColumnType) -> Self {
         use crate::components::{Badge, ColumnType, TypographyVariant};
         use serde_json::Value;
 
-        // Every result cell is monospace, matching the design handoff's grid.
+        // Monospace for the cells whose glyphs need to line up column-wise —
+        // numbers, timestamps, UUIDs, raw JSON.
         let mono = |text: String, color: &str| {
             RenderNode::Text(
                 Typography::builder()
                     .text(text)
                     .variant(TypographyVariant::Mono)
+                    .color(color)
+                    .build(),
+            )
+        };
+        // Prose cells stay proportional: the design's table has numeric cells in
+        // mono (`.tv td.r`) but string cells in the body face (`.tv td.str`).
+        // Monospacing everything made ordinary text columns read like code.
+        let prose = |text: String, color: &str| {
+            RenderNode::Text(
+                Typography::builder()
+                    .text(text)
+                    .variant(TypographyVariant::Body)
                     .color(color)
                     .build(),
             )
@@ -262,7 +281,9 @@ impl RenderNode {
                 }
                 _ => mono(text, "info"),
             },
-            // Numbers → number colour, temporal → string colour, else default fg.
+            // Text and booleans are prose; numbers, temporal values and UUIDs are
+            // mono so digits align down the column.
+            ColumnType::Text | ColumnType::Boolean => prose(text, ty.text_color()),
             _ => mono(text, ty.text_color()),
         }
     }

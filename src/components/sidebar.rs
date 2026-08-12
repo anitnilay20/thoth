@@ -17,7 +17,7 @@ use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
 use crate::plugin::{Plugin, render_node::render_ui_node, wasm_data_source::ConsentRequest};
 use crate::search::SearchMessage;
-use eframe::egui::{self, Margin};
+use eframe::egui;
 use thoth_plugin_sdk::components::IconButton;
 
 /// Which sidebar section is currently selected
@@ -527,97 +527,110 @@ impl ContextComponent for Sidebar {
 
         let mut events = Vec::new();
 
-        // Get theme colors
-        let theme_colors = ui.ctx().memory(|mem| {
-            mem.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
-        });
-
-        let (icon_strip_bg, content_bg) = if let Some(colors) = theme_colors {
-            (colors.bg_sunken, colors.bg_panel)
-        } else {
-            let visuals = ui.visuals();
-            (visuals.widgets.inactive.bg_fill, visuals.panel_fill)
-        };
-
-        let mut sidebar_panel = egui::Panel::left("sidebar");
-        if props.expanded {
-            let min_width = MIN_SIDEBAR_WIDTH;
-            let window_width = ui.ctx().content_rect().width();
-            let max_width = window_width * MAX_SIDEBAR_WIDTH_RATIO;
-            sidebar_panel = sidebar_panel
-                .resizable(true)
-                .size_range(min_width..=max_width)
-                .default_size(props.sidebar_width.clamp(min_width, max_width));
-        } else {
-            sidebar_panel = sidebar_panel.resizable(false).exact_size(48.0);
-        }
-
-        let sidebar_response = sidebar_panel
-            .frame(egui::Frame::NONE.fill(if props.expanded {
-                content_bg // Use content background, icon strip will override its area
-            } else {
-                icon_strip_bg
-            }))
-            .show_inside(ui, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-
-                if props.expanded {
-                    // Horizontal layout: icon buttons on left, content on right
-                    let available_rect = ui.available_rect_before_wrap();
-                    let available_height = available_rect.height();
-                    let actual_width = available_rect.width(); // Use actual rendered width
-
-                    // Left side: 48px icon strip with darker background
-                    let icon_strip_rect = egui::Rect::from_min_size(
-                        available_rect.min,
-                        egui::vec2(48.0, available_height),
-                    );
-                    ui.painter()
-                        .rect_filled(icon_strip_rect, 0.0, icon_strip_bg);
-
-                    let mut icon_ui = ui.new_child(
-                        egui::UiBuilder::new()
-                            .max_rect(icon_strip_rect)
-                            .layout(egui::Layout::top_down(egui::Align::Center)),
-                    );
-                    self.render_icon_buttons(&mut icon_ui, &props, &mut events);
-
-                    // Right side: expanded content (takes remaining width)
-                    let content_width = actual_width - 48.0; // Calculate from actual width
-                    let content_rect = egui::Rect::from_min_size(
-                        available_rect.min + egui::vec2(48.0, 0.0),
-                        egui::vec2(content_width, available_height),
-                    );
-
-                    let mut content_ui = ui.new_child(
-                        egui::UiBuilder::new()
-                            .max_rect(content_rect)
-                            .layout(egui::Layout::top_down(egui::Align::Min)),
-                    );
-
-                    egui::Frame::NONE
-                        .inner_margin(Margin::ZERO)
-                        .show(&mut content_ui, |ui| {
-                            // Vertical-only: sidebar content must fit the panel
-                            // width (no horizontal scrolling).
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.render_content(ui, &props, &mut events));
-                        });
-
-                    // Advance the cursor to consume the full area
-                    ui.allocate_rect(available_rect, egui::Sense::hover());
-                } else {
-                    // Just show icon buttons
-                    self.render_icon_buttons(ui, &props, &mut events);
-                }
+        let colors = ui
+            .ctx()
+            .memory(|mem| {
+                mem.data
+                    .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+            })
+            .unwrap_or_else(|| {
+                let dark_mode = ui.ctx().global_style().visuals.dark_mode;
+                crate::theme::Theme::for_dark_mode(dark_mode).colors()
             });
 
-        // Emit width change event if sidebar is being actively resized
+        let panel_bg = colors.bg_panel;
+
+        // Layout constants
+        const LEFT_PAD: f32 = 10.0; // gap from window edge to rail
+        const RAIL_W: f32 = 48.0;
+        const INNER_GAP: f32 = crate::theme::GUTTER_GAP; // gap between rail and content
+        const RIGHT_GAP: f32 = crate::theme::GUTTER_GAP; // gap from sidebar to dock
+        // Everything the outer panel carries besides the content frame. Props and
+        // events speak the *content* width (the persisted unit); the panel system
+        // speaks the outer width, so convert by this amount at that boundary.
+        const CHROME_W: f32 = LEFT_PAD + RAIL_W + INNER_GAP + RIGHT_GAP;
+
+        // Transparent outer container — no background, no border. It purely
+        // allocates space in the panel system; the visual chrome lives on the
+        // inner rail and content frames painted via paint_at.
+        let mut outer_panel = egui::Panel::left("sidebar");
         if props.expanded {
-            let actual_width = sidebar_response.response.rect.width();
-            if (actual_width - props.sidebar_width).abs() > 0.1 {
-                events.push(SidebarEvent::WidthChanged(actual_width));
+            let min_w = CHROME_W + MIN_SIDEBAR_WIDTH;
+            let window_width = ui.ctx().content_rect().width();
+            // A narrow (or not-yet-sized) window puts the ratio below the
+            // minimum; never let the range invert, or `clamp` panics.
+            let max_w = (window_width * MAX_SIDEBAR_WIDTH_RATIO).max(min_w);
+            outer_panel = outer_panel
+                .resizable(true)
+                .size_range(min_w..=max_w)
+                .default_size((props.sidebar_width + CHROME_W).clamp(min_w, max_w));
+        } else {
+            outer_panel = outer_panel
+                .resizable(false)
+                .exact_size(LEFT_PAD + RAIL_W + RIGHT_GAP);
+        }
+
+        let outer_response = outer_panel
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE)
+            .show_inside(ui, |ui| {
+                let available = ui.available_rect_before_wrap();
+                let h = available.height();
+
+                // Shared floating frame style (fill, radius, shadow, stroke).
+                // paint_at uses the panel's painter so shadow bleeds into the
+                // gap/crust area without being clipped by child UI clip rects.
+                let floating = egui::Frame::NONE
+                    .fill(panel_bg)
+                    .corner_radius(egui::CornerRadius::same(crate::theme::RADIUS_PANEL as u8))
+                    .shadow(crate::theme::panel_shadow(ui.visuals().dark_mode))
+                    .stroke(crate::theme::edge_stroke(&colors));
+
+                // Leave GUTTER_GAP crust gap at the bottom so panel shadows fall
+                // into the gap rather than bleeding into the transparent status bar.
+                let panel_h = h - RIGHT_GAP; // RIGHT_GAP == GUTTER_GAP
+
+                // ── Rail ─────────────────────────────────────────────────────
+                let rail_rect = egui::Rect::from_min_size(
+                    available.min + egui::vec2(LEFT_PAD, 0.0),
+                    egui::vec2(RAIL_W, panel_h),
+                );
+                ui.painter().add(floating.paint(rail_rect));
+                let mut rail_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(rail_rect)
+                        .layout(egui::Layout::top_down(egui::Align::Center)),
+                );
+                self.render_icon_buttons(&mut rail_ui, &props, &mut events);
+
+                // ── Content (when expanded) ───────────────────────────────────
+                if props.expanded {
+                    let content_x = LEFT_PAD + RAIL_W + INNER_GAP;
+                    let content_w = (available.width() - content_x - RIGHT_GAP).max(0.0);
+                    if content_w > 0.0 {
+                        let content_rect = egui::Rect::from_min_size(
+                            available.min + egui::vec2(content_x, 0.0),
+                            egui::vec2(content_w, panel_h),
+                        );
+                        ui.painter().add(floating.paint(content_rect));
+                        let mut content_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(content_rect)
+                                .layout(egui::Layout::top_down(egui::Align::Min)),
+                        );
+                        egui::ScrollArea::vertical().show(&mut content_ui, |ui| {
+                            self.render_content(ui, &props, &mut events);
+                        });
+                    }
+                }
+
+                ui.allocate_rect(available, egui::Sense::hover());
+            });
+
+        if props.expanded {
+            let content_width = (outer_response.response.rect.width() - CHROME_W).max(0.0);
+            if (content_width - props.sidebar_width).abs() > 0.1 {
+                events.push(SidebarEvent::WidthChanged(content_width));
             }
         }
 

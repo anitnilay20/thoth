@@ -1,11 +1,13 @@
 use eframe::egui;
 
-use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
+use crate::components::settings_dialog::helpers::{
+    group_rows, section_header, setting_row, slider_control,
+};
 use crate::components::settings_dialog::theme_picker::{ThemePicker, ThemePickerProps};
 use crate::components::traits::StatelessComponent;
 use crate::settings::Settings;
 use crate::theme::ThemeColors;
-use thoth_plugin_sdk::components::{Select, SelectOption};
+use thoth_plugin_sdk::components::{NumberInput, Select, SelectOption};
 
 #[derive(Debug, Clone)]
 pub enum GeneralTabEvent {
@@ -49,7 +51,7 @@ impl StatelessComponent for GeneralTab {
                     colors,
                 );
 
-                group_rows(ui, "THEME", "general-theme", colors, |ui| {
+                group_rows(ui, "THEME", |ui| {
                     let picker_out = ThemePicker::render(
                         ui,
                         ThemePickerProps {
@@ -66,7 +68,7 @@ impl StatelessComponent for GeneralTab {
                 });
 
                 // ── Typography ───────────────────────────────────────────────
-                group_rows(ui, "TYPOGRAPHY", "general-typography", colors, |ui| {
+                group_rows(ui, "TYPOGRAPHY", |ui| {
                     setting_row(
                         ui,
                         "Font size",
@@ -75,16 +77,12 @@ impl StatelessComponent for GeneralTab {
                         None,
                         colors,
                         |ui| {
-                            let mut val = s.font_size;
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut val, 8.0..=24.0)
-                                        .step_by(0.5)
-                                        .suffix(" px"),
-                                )
-                                .changed()
+                            if let Some(val) =
+                                slider_control(ui, s.font_size as f64, 8.0, 24.0, "px")
                             {
-                                events.push(GeneralTabEvent::FontSize(val));
+                                // Keep the old half-point granularity.
+                                let snapped = (val * 2.0).round() / 2.0;
+                                events.push(GeneralTabEvent::FontSize(snapped as f32));
                             }
                         },
                     );
@@ -142,7 +140,7 @@ impl StatelessComponent for GeneralTab {
                 });
 
                 // ── Window ───────────────────────────────────────────────────
-                group_rows(ui, "WINDOW", "general-window", colors, |ui| {
+                group_rows(ui, "WINDOW", |ui| {
                     setting_row(
                         ui,
                         "Default width",
@@ -151,16 +149,15 @@ impl StatelessComponent for GeneralTab {
                         None,
                         colors,
                         |ui| {
-                            let mut val = s.window.default_width as i32;
-                            if ui
-                                .add(
-                                    egui::DragValue::new(&mut val)
-                                        .range(400..=7680)
-                                        .suffix(" px"),
-                                )
-                                .changed()
-                            {
-                                events.push(GeneralTabEvent::WindowWidth(val as f32));
+                            let mut num = NumberInput::builder()
+                                .id("window_default_width")
+                                .value(s.window.default_width as f64)
+                                .min(400.0)
+                                .max(7680.0)
+                                .unit("px")
+                                .build();
+                            if num.show(ui).changed() {
+                                events.push(GeneralTabEvent::WindowWidth(num.value as f32));
                             }
                         },
                     );
@@ -173,22 +170,19 @@ impl StatelessComponent for GeneralTab {
                         None,
                         colors,
                         |ui| {
-                            let mut val = s.window.default_height as i32;
-                            if ui
-                                .add(
-                                    egui::DragValue::new(&mut val)
-                                        .range(300..=4320)
-                                        .suffix(" px"),
-                                )
-                                .changed()
-                            {
-                                events.push(GeneralTabEvent::WindowHeight(val as f32));
+                            let mut num = NumberInput::builder()
+                                .id("window_default_height")
+                                .value(s.window.default_height as f64)
+                                .min(300.0)
+                                .max(4320.0)
+                                .unit("px")
+                                .build();
+                            if num.show(ui).changed() {
+                                events.push(GeneralTabEvent::WindowHeight(num.value as f32));
                             }
                         },
                     );
                 });
-
-                ui.add_space(24.0);
             });
 
         GeneralTabOutput { events }

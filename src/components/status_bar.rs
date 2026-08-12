@@ -293,25 +293,18 @@ impl ContextComponent for StatusBar {
             },
         );
 
-        // Use theme colors from context
-        let bg_color = ui.ctx().memory(|mem| {
-            mem.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
-                .unwrap_or_else(|| {
-                    // Fallback: create default theme based on dark mode from visuals
-                    let dark_mode = ui.ctx().global_style().visuals.dark_mode;
-                    crate::theme::Theme::for_dark_mode(dark_mode).colors()
-                })
-                .bg_sunken
-        });
-
         egui::Panel::bottom("status_bar")
-            .exact_size(24.0)
-            .frame(egui::Frame::NONE.fill(bg_color).inner_margin(egui::Margin {
+            .exact_size(26.0)
+            .show_separator_line(false)
+            // Design `.statusbar{padding:0 12px}` — no vertical padding. With 4px
+            // top and bottom the usable height was only 18px, so the 22px chips
+            // and the bell couldn't fit and the row's items drifted out of line
+            // with each other.
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
                 left: 12,
                 right: 12,
-                top: 4,
-                bottom: 4,
+                top: 0,
+                bottom: 0,
             }))
             .show_inside(ui, |ui| {
                 // Use theme text color from context
@@ -319,15 +312,20 @@ impl ContextComponent for StatusBar {
                     mem.data
                         .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
                         .unwrap_or_else(|| {
-                            // Fallback: create default theme based on dark mode from visuals
                             let dark_mode = ui.ctx().global_style().visuals.dark_mode;
                             crate::theme::Theme::for_dark_mode(dark_mode).colors()
                         })
-                        .fg
+                        .fg_muted
                 });
                 ui.style_mut().visuals.override_text_color = Some(text_color);
+                // Design token: status bar uses 11.5px, smaller than body text.
+                ui.style_mut().override_font_id = Some(egui::FontId::proportional(11.5));
 
-                ui.horizontal(|ui| {
+                // Centre every item on the bar's full 26px height, so the taller
+                // chips (and the bell) sit on the same axis as the plain labels
+                // instead of each group settling at its own baseline.
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.set_min_height(ui.available_height());
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
 
                     if let Some(summary) = props.chart_summary {

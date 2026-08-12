@@ -1,9 +1,14 @@
+#[cfg(feature = "egui")]
+mod ui;
+
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
 use super::SelectOption;
+use crate::components::Size;
 
-/// A checkbox list selecting multiple values. Owns the selected `value` set;
+/// A dropdown selecting multiple values: a trigger summarising the selection
+/// count, opening a popover of checkbox rows. Owns the selected `value` set;
 /// [`MultiSelect::show`] updates it in place.
 ///
 /// ```
@@ -21,7 +26,7 @@ pub struct MultiSelect {
     #[builder(default)]
     #[serde(default)]
     pub id: String,
-    /// Optional group label shown above the options.
+    /// Optional group label shown above the trigger.
     #[builder(default)]
     #[serde(default)]
     pub label: String,
@@ -37,32 +42,22 @@ pub struct MultiSelect {
     #[builder(default)]
     #[serde(default)]
     pub disabled: bool,
-}
-
-#[cfg(feature = "egui")]
-impl MultiSelect {
-    /// Render the list, updating [`value`](MultiSelect::value) in place.
-    /// Returns `true` if the selection changed this frame.
-    pub fn show(&mut self, ui: &mut egui::Ui) -> bool {
-        let mut changed = false;
-        ui.add_enabled_ui(!self.disabled, |ui| {
-            ui.vertical(|ui| {
-                if !self.label.is_empty() {
-                    ui.label(&self.label);
-                }
-                for opt in &self.options {
-                    let mut on = self.value.contains(&opt.value);
-                    if ui.checkbox(&mut on, &opt.label).changed() {
-                        changed = true;
-                        if on {
-                            self.value.push(opt.value.clone());
-                        } else {
-                            self.value.retain(|v| v != &opt.value);
-                        }
-                    }
-                }
-            });
-        });
-        changed
-    }
+    /// Singular noun used in the trigger's count summary for a single selection,
+    /// e.g. `"column"` renders as `"1 column"`. When `None` the summary reads
+    /// `"1 selected"`.
+    #[serde(default)]
+    pub item_noun: Option<String>,
+    /// Plural noun used for counts above one, e.g. `"columns"` renders as
+    /// `"2 columns"`. Plurals are never derived from
+    /// [`item_noun`](MultiSelect::item_noun) — some nouns don't take a bare `s`
+    /// (`"entry"`, `"match"`) — so without this the summary reads `"2 selected"`.
+    #[serde(default)]
+    pub item_noun_plural: Option<String>,
+    /// Trigger size. Defaults to [`Size::Medium`].
+    #[builder(default)]
+    #[serde(default)]
+    pub size: Size,
+    /// Fixed trigger width. When `None`, the trigger fills the available width.
+    #[serde(default)]
+    pub width: Option<f32>,
 }

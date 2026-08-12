@@ -23,9 +23,43 @@ pub enum PluginInstallProgress {
     Downloading(u8), // 0–99
     Complete,
     Failed(String),
+    /// The UI asked for the install to stop. The worker polls for this between
+    /// download chunks and archive entries, undoes any partial extraction, and
+    /// leaves the slot in this state.
+    Cancelled,
 }
 
 pub type InstallSlot = Arc<Mutex<PluginInstallProgress>>;
+
+/// Ask an in-flight install to stop.
+///
+/// Dropping the [`InstallSlot`] is not enough on its own: the worker thread owns
+/// its own clone, so it would keep downloading and keep writing files into the
+/// plugin directory. Callers should signal here *and* forget the slot.
+pub fn cancel_install(slot: &InstallSlot) {
+    if let Ok(mut guard) = slot.lock() {
+        // Only a running install can be cancelled — don't clobber a terminal
+        // state, or a completed install would report as cancelled.
+        if matches!(*guard, PluginInstallProgress::Downloading(_)) {
+            *guard = PluginInstallProgress::Cancelled;
+        }
+    }
+}
+
+/// Whether [`cancel_install`] has been called for this slot.
+fn is_cancelled(slot: &InstallSlot) -> bool {
+    slot.lock()
+        .is_ok_and(|g| matches!(*g, PluginInstallProgress::Cancelled))
+}
+
+/// How an install worker finished — reported so the caller can tell "stopped
+/// early" from "ran all the way through", which a bare `Ok(())` cannot.
+enum InstallOutcome {
+    /// Extraction finished; the plugin is on disk.
+    Completed,
+    /// A cancel was observed at a checkpoint and any partial tree was removed.
+    Stopped,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MarketPlacePlugin {
@@ -166,10 +200,21 @@ impl MarketPlacePlugin {
 
         thread::spawn(move || {
             let result = Self::perform_install(&url, &sha256, &id, &slot_clone, &ctx);
-            *slot_clone.lock().unwrap() = match result {
-                Ok(()) => PluginInstallProgress::Complete,
-                Err(e) => PluginInstallProgress::Failed(e.to_string()),
-            };
+            if let Ok(mut guard) = slot_clone.lock() {
+                match result {
+                    // Extraction finished, so the plugin *is* installed — report
+                    // that even if a cancel landed after the last checkpoint.
+                    // Anything else would leave the row saying "not installed"
+                    // with the files on disk.
+                    Ok(InstallOutcome::Completed) => {
+                        *guard = PluginInstallProgress::Complete;
+                    }
+                    // Stopped at a checkpoint: the partial tree is already gone,
+                    // and the slot is left in its `Cancelled` state.
+                    Ok(InstallOutcome::Stopped) => {}
+                    Err(e) => *guard = PluginInstallProgress::Failed(e.to_string()),
+                }
+            }
             ctx.request_repaint();
         });
 
@@ -182,7 +227,7 @@ impl MarketPlacePlugin {
         plugin_id: &str,
         slot: &InstallSlot,
         ctx: &egui::Context,
-    ) -> Result<()> {
+    ) -> Result<InstallOutcome> {
         use sha2::{Digest, Sha256};
 
         let client = reqwest::blocking::Client::builder()
@@ -211,6 +256,12 @@ impl MarketPlacePlugin {
         let mut buf = vec![0u8; 8192];
 
         loop {
+            // Checked per chunk so Cancel stops a large download promptly rather
+            // than at the next phase boundary. Nothing has been written to disk
+            // yet at this point, so there's nothing to undo.
+            if is_cancelled(slot) {
+                return Ok(InstallOutcome::Stopped);
+            }
             let n = response.read(&mut buf)?;
             if n == 0 {
                 break;
@@ -218,7 +269,13 @@ impl MarketPlacePlugin {
             data.extend_from_slice(&buf[..n]);
             if total_size > 0 {
                 let pct = ((data.len() as f64 / total_size as f64) * 85.0) as u8;
-                *slot.lock().unwrap() = PluginInstallProgress::Downloading(pct);
+                // Don't resurrect a `Downloading` state over a `Cancelled` one
+                // set between the check above and here.
+                if let Ok(mut guard) = slot.lock()
+                    && matches!(*guard, PluginInstallProgress::Downloading(_))
+                {
+                    *guard = PluginInstallProgress::Downloading(pct);
+                }
                 ctx.request_repaint();
             }
         }
@@ -284,6 +341,13 @@ impl MarketPlacePlugin {
         };
 
         for i in 0..len {
+            // From here on the worker is writing into `dest`, so a cancellation
+            // has to take the partial tree with it — a half-extracted plugin
+            // directory would be picked up as installed on the next launch.
+            if is_cancelled(slot) {
+                let _ = fs::remove_dir_all(&dest);
+                return Ok(InstallOutcome::Stopped);
+            }
             let mut entry = archive
                 .by_index(i)
                 .map_err(|e| ThothError::PluginDownloadError {
@@ -343,10 +407,16 @@ impl MarketPlacePlugin {
             }
 
             let pct = (90 + ((i + 1) as f64 / len as f64 * 9.0) as u8).min(99);
-            *slot.lock().unwrap() = PluginInstallProgress::Downloading(pct);
+            // As in the download loop: never write progress over a `Cancelled`
+            // state set since the checkpoint at the top of this iteration.
+            if let Ok(mut guard) = slot.lock()
+                && matches!(*guard, PluginInstallProgress::Downloading(_))
+            {
+                *guard = PluginInstallProgress::Downloading(pct);
+            }
             ctx.request_repaint();
         }
 
-        Ok(())
+        Ok(InstallOutcome::Completed)
     }
 }

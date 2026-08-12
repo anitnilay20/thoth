@@ -38,6 +38,30 @@ pub struct ListItemBadge {
     pub color: Option<String>,
 }
 
+/// How a [`List`]'s rows are chromed.
+///
+/// The design sheet draws list rows two ways, and they are not interchangeable:
+///
+/// * In a sidebar panel each row is its own **card** — an app-mockup `.card`:
+///   base fill, hairline edge, 6px gap to the next row, no dividers.
+/// * Inside a framed list each row is **flush** — a display-sheet `.li`:
+///   transparent, separated from its neighbour by a 1px inset hairline.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ListStyle {
+    /// Pick from context: [`Flush`](Self::Flush) for a [`framed`](List::framed)
+    /// list or a [`compact`](List::compact) strip, [`Card`](Self::Card)
+    /// otherwise. This is the default.
+    #[default]
+    Auto,
+    /// Sidebar shape — app-mockup `.card`: each row is a card on the panel
+    /// (base fill, hairline edge, 10px padding, 6px gaps, 3px accent stripe).
+    Card,
+    /// Framed/dense shape — display `.li`: transparent rows with 8px padding, a
+    /// 1px hairline between neighbours, and a 2px accent stripe.
+    Flush,
+}
+
 /// A leading element rendered before a row's content area.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ListItemPrefix {
@@ -77,6 +101,48 @@ pub enum ListItemPrefix {
     },
 }
 
+/// Per-tier type overrides for a [`List`]'s rows.
+///
+/// Every field defaults to "leave it alone", so a list that doesn't set one
+/// renders exactly as it always has. Reach for this when a screen's rows carry a
+/// different type ramp from the default flush/card row — design `.nrow`'s
+/// 12.5/11.5/10.5 stack, or `.pl .by`'s monospace author line.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Builder)]
+#[builder(on(String, into))]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub struct ListTextStyle {
+    /// Title size in points; the row shape's own size when unset.
+    #[serde(default)]
+    pub title_size: Option<f32>,
+    /// Thicken the title. Defaults to `false`.
+    #[builder(default)]
+    #[serde(default)]
+    pub title_bold: bool,
+    /// Title colour (hex or theme token) for every row; `fg` when unset. A single
+    /// row can override it again with [`ListItem::title_color`].
+    #[serde(default)]
+    pub title_color: Option<String>,
+    /// Description size in points; [`FONT_CAPTION`](crate::theme::FONT_CAPTION)
+    /// when unset.
+    #[serde(default)]
+    pub description_size: Option<f32>,
+    /// Description colour (hex or theme token); `fg-muted` when unset.
+    #[serde(default)]
+    pub description_color: Option<String>,
+    /// Meta-line size in points; 10.5 when unset.
+    #[serde(default)]
+    pub meta_size: Option<f32>,
+    /// Meta-line colour (hex or theme token); `fg-faint` when unset.
+    #[serde(default)]
+    pub meta_color: Option<String>,
+    /// Render the meta line in the monospace family — design `.pl .by`. Defaults
+    /// to `false` (proportional).
+    #[builder(default)]
+    #[serde(default)]
+    pub meta_mono: bool,
+}
+
 /// An always-visible element on the right of a row's title (unlike hover-revealed
 /// [`actions`](ListItem::actions)).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -91,6 +157,18 @@ pub enum ListItemPostfix {
         /// Text colour (hex or token); defaults to a contrasting colour.
         #[serde(default)]
         fg: Option<String>,
+    },
+    /// Plain trailing text, with no chip chrome at all — design `.cat .c`, a
+    /// bare count pinned to the row's right edge.
+    Text {
+        /// The text.
+        text: String,
+        /// Colour (hex or token); defaults to `fg-muted`.
+        #[serde(default)]
+        color: Option<String>,
+        /// Render in the monospace family — design `.cat .c{font-family:mono}`.
+        #[serde(default)]
+        mono: bool,
     },
     /// A full button. Reported via [`ListEvent::PostfixClicked`].
     Button(Button),
@@ -112,6 +190,10 @@ pub struct ListItem {
     /// Optional secondary description line (`\n` splits into two lines).
     #[serde(default)]
     pub description: Option<String>,
+    /// Optional third, quietest text line below the description (timestamps,
+    /// origins). Rendered one step under the description in size and colour.
+    #[serde(default)]
+    pub meta: Option<String>,
     /// Optional leading element rendered before the content area.
     #[serde(default)]
     pub prefix: Option<ListItemPrefix>,
@@ -132,6 +214,12 @@ pub struct ListItem {
     /// Optional left accent border colour (hex or token); non-compact rows only.
     #[serde(default)]
     pub accent: Option<String>,
+    /// Optional title colour for *this* row (hex or theme token), overriding both
+    /// the row shape's default and [`ListTextStyle::title_color`] — design
+    /// `.cat.on{color:var(--accent)}`, where a selected category's label itself
+    /// goes accent rather than just its background.
+    #[serde(default, rename = "title-color")]
+    pub title_color: Option<String>,
     /// Persistent highlight — used for the active/selected row.
     #[builder(default)]
     #[serde(default)]
@@ -141,6 +229,10 @@ pub struct ListItem {
 /// A scrollable list of rich rows with optional prefix, badge, description, tags,
 /// postfix, and per-row action buttons. Render with [`List::show`], which reports
 /// the clicked row, action, or postfix.
+///
+/// Rows are sized by their content, never pinned to a fixed height: a row is its
+/// padding around the taller of its leading media and its stacked text. See
+/// [`ListStyle`] for the two chrome shapes and how they're picked.
 ///
 /// ```
 /// use thoth_plugin_sdk::components::{List, ListItem};
@@ -164,12 +256,20 @@ pub struct List {
     /// Message shown when `items` is empty.
     #[serde(default)]
     pub empty_label: Option<String>,
-    /// Use compact 26px rows (navigation / category strips). No description,
-    /// tile prefix, or tags.
+    /// Use compact rows (navigation / category strips) — the dense 22px
+    /// data-row height from design `.dr`. No description, tile prefix, or tags.
     #[builder(default)]
     #[serde(default)]
     pub compact: bool,
-    /// Draw a separator line between rows. Defaults to `true`.
+    /// How rows are chromed — cards on a panel, or flush rows in a frame.
+    /// Defaults to [`ListStyle::Auto`], which picks from `framed`/`compact`.
+    #[builder(default)]
+    #[serde(default)]
+    pub style: ListStyle,
+    /// Draw a separator line between rows. Defaults to `true`. Only applies to
+    /// [`ListStyle::Flush`] rows — design puts a hairline between the rows of a
+    /// framed `.list`, never between sidebar cards (which are already separated
+    /// by a gap and their own edge) or between `.dr`-height compact rows.
     #[builder(default = true)]
     #[serde(default = "default_true")]
     pub show_separators: bool,
@@ -186,4 +286,9 @@ pub struct List {
     /// Cap the scroll area at this height (px) and scroll beyond it.
     #[serde(default)]
     pub max_height: Option<f32>,
+    /// Per-tier type overrides for the rows' title / description / meta lines.
+    /// Defaults to the row shape's own ramp.
+    #[builder(default)]
+    #[serde(default, rename = "text-style")]
+    pub text_style: ListTextStyle,
 }

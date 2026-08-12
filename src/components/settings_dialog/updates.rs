@@ -1,12 +1,14 @@
 use chrono::{DateTime, Utc};
-use eframe::egui::{self, RichText};
+use eframe::egui;
 
-use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
+use crate::components::settings_dialog::helpers::{
+    group_rows, section_header, setting_row, slider_control,
+};
 use crate::components::traits::StatelessComponent;
 use crate::settings::UpdateSettings;
 use crate::theme::ThemeColors;
 use crate::update::UpdateState;
-use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType, ToggleSwitch};
+use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType, ToggleSwitch, Typography};
 
 pub struct UpdatesTab;
 
@@ -53,7 +55,7 @@ impl StatelessComponent for UpdatesTab {
                 );
 
                 // ── Auto-update ───────────────────────��───────────────────────────
-                group_rows(ui, "AUTO-UPDATE", "updates-auto", colors, |ui| {
+                group_rows(ui, "AUTO-UPDATE", |ui| {
                     setting_row(
                         ui,
                         "Automatically check for updates",
@@ -80,30 +82,26 @@ impl StatelessComponent for UpdatesTab {
                         None,
                         colors,
                         |ui| {
-                            let mut val = s.check_interval_hours;
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut val, 1..=168)
-                                        .suffix(" h")
-                                        .clamping(egui::SliderClamping::Always),
-                                )
-                                .changed()
-                            {
-                                events.push(UpdatesTabEvent::CheckIntervalChanged(val));
+                            if let Some(val) = slider_control(
+                                ui,
+                                s.check_interval_hours as f64,
+                                1.0,
+                                168.0,
+                                "hours",
+                            ) {
+                                events.push(UpdatesTabEvent::CheckIntervalChanged(
+                                    val.round() as u64
+                                ));
                             }
                         },
                     );
                 });
 
                 // ── Status ────────────────────────────────────────────────────────
-                group_rows(ui, "STATUS", "updates-status", colors, |ui| {
+                group_rows(ui, "STATUS", |ui| {
                     // Current version
                     setting_row(ui, "Current version", None, false, None, colors, |ui| {
-                        ui.label(
-                            RichText::new(props.current_version)
-                                .size(13.0)
-                                .color(colors.fg_muted),
-                        );
+                        Typography::subtitle(ui, props.current_version);
                     });
 
                     // Last checked
@@ -115,11 +113,7 @@ impl StatelessComponent for UpdatesTab {
                         })
                         .unwrap_or_else(|| "Never".to_string());
                     setting_row(ui, "Last checked", None, false, None, colors, |ui| {
-                        ui.label(
-                            RichText::new(&last_check_str)
-                                .size(13.0)
-                                .color(colors.fg_muted),
-                        );
+                        Typography::subtitle(ui, &last_check_str);
                     });
 
                     // Next check (only meaningful when auto-check is enabled and we have a last_check)
@@ -134,11 +128,7 @@ impl StatelessComponent for UpdatesTab {
                             })
                             .unwrap_or_else(|| "Soon".to_string());
                         setting_row(ui, "Next check", None, false, None, colors, |ui| {
-                            ui.label(
-                                RichText::new(&next_check_str)
-                                    .size(13.0)
-                                    .color(colors.fg_muted),
-                            );
+                            Typography::subtitle(ui, &next_check_str);
                         });
                     }
 
@@ -159,7 +149,6 @@ impl StatelessComponent for UpdatesTab {
                                                 .label("Download")
                                                 .button_type(ButtonType::Elevated)
                                                 .color(ButtonColor::Success)
-                                                .size(13.0)
                                                 .build(),
                                         )
                                         .clicked()
@@ -199,7 +188,6 @@ impl StatelessComponent for UpdatesTab {
                                                 .label("Install & Restart")
                                                 .button_type(ButtonType::Elevated)
                                                 .color(ButtonColor::Primary)
-                                                .size(13.0)
                                                 .build(),
                                         )
                                         .clicked()
@@ -226,7 +214,6 @@ impl StatelessComponent for UpdatesTab {
                                                 .label("Retry")
                                                 .button_type(ButtonType::Elevated)
                                                 .color(ButtonColor::Default)
-                                                .size(13.0)
                                                 .build(),
                                         )
                                         .clicked()
@@ -259,7 +246,6 @@ impl StatelessComponent for UpdatesTab {
                                                 .label("Check now")
                                                 .button_type(ButtonType::Elevated)
                                                 .color(ButtonColor::Default)
-                                                .size(13.0)
                                                 .build(),
                                         )
                                         .clicked()
@@ -271,8 +257,6 @@ impl StatelessComponent for UpdatesTab {
                         }
                     }
                 });
-
-                ui.add_space(24.0);
             });
 
         UpdatesTabOutput { events }

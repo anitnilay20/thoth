@@ -5,27 +5,63 @@
 //! Emits [`ChartStudioEvent`]s up to the app, which does the data fetching and
 //! tab creation.
 //!
-//! Built entirely from `thoth-plugin-sdk` components (Select, ToggleSwitch,
-//! Button, IconButton, Icon, List, Typography, SidebarHeader) so it matches the
-//! rest of the app's styling.
+//! Built entirely from `thoth-plugin-sdk` components (Select, NumberInput,
+//! ToggleSwitch, Button, IconButton, List, Typography, SidebarHeader) so it
+//! matches the rest of the app's styling. The section rhythm and control
+//! metrics follow the design sheet's `.cs-side` block (`ChartStudio` in
+//! `screens.html`).
 
 use eframe::egui;
 use thoth_plugin_sdk::components::{
-    Button, ButtonColor, ButtonType, Icon, IconButton, List, ListEvent, ListItem, ListItemPrefix,
+    Button, ButtonColor, ButtonType, IconButton, List, ListEvent, ListItem, ListItemPrefix,
     NumberInput, Select, SelectOption, SidebarHeader, Size, ToggleSwitch, Typography,
     TypographyVariant,
 };
-use thoth_plugin_sdk::theme::color_to_hex;
+use thoth_plugin_sdk::theme::{FIELD_HEIGHT, FONT_CONTROL};
 
 use super::{
     Aggregation, ChartOptions, ChartSpec, ChartType, ColumnInfo, ProducerKind, ProducerRef,
     SortMode, series_palette,
 };
 use crate::app::tab_manager::TabId;
-use crate::theme::ThemeColors;
+use crate::theme::{GUTTER_GAP, ThemeColors};
 
-/// Horizontal inset, matching `SidebarHeader`/list rows.
-const PAD_X: f32 = 8.0;
+/// Horizontal inset, matching `SidebarHeader`/list rows and the sibling sidebar
+/// panels (all of which inset by [`GUTTER_GAP`]).
+const PAD_X: f32 = GUTTER_GAP;
+/// Trailing inset under the last section — design `.cs-side{padding:0 0 12px}`.
+const PAD_BOTTOM: f32 = 12.0;
+/// Space above each group label — design `.cs-sec{padding-top:12px}`.
+const SECTION_GAP: f32 = 12.0;
+/// Gap under a group label — design `.glabel{margin:0 0 7px}`.
+const LABEL_GAP: f32 = 7.0;
+/// Gap between the field caption and its control — design `.fl{margin-bottom:4px}`.
+const CAPTION_GAP: f32 = 4.0;
+/// Gap between form rows inside a section — design `.frow{margin-bottom:9px}`.
+const ROW_GAP: f32 = 9.0;
+/// Gap between the parts of a Y-series row — design `.yrow{gap:7px}`.
+const SERIES_GAP: f32 = 7.0;
+/// Gap between successive Y-series rows — design `.yrow{margin-bottom:6px}`.
+const SERIES_ROW_GAP: f32 = 6.0;
+/// Chart-type grid gutter — design `.cs-types{gap:6px}`.
+const TYPE_GAP: f32 = 6.0;
+/// Glyph inside a chart-type tile — design `.ct{font-size:20px}`.
+const TYPE_GLYPH: f32 = 20.0;
+/// Upper bound on a chart-type tile, so a wide sidebar doesn't grow huge squares
+/// (the tiles are `aspect-ratio:1`, sized by the 4-column grid).
+const TYPE_CELL_MAX: f32 = 84.0;
+/// Series colour chip — design `.yrow .sw{width:13px;height:13px}`.
+const SWATCH: f32 = 13.0;
+/// …and its corner radius — design `.sw{border-radius:3px}`. Below the control
+/// rung of the radius ladder: this is a 13px decoration, not a control.
+const SWATCH_RADIUS: f32 = 3.0;
+/// Vertical padding on an options row — design `.togrow{padding:5px 0}`.
+const TOGGLE_PAD_Y: f32 = 5.0;
+/// Toggle track width, reserved so the switch sits hard right — design
+/// `.switch{width:32px}` / `.togrow{justify-content:space-between}`.
+const TOGGLE_TRACK_W: f32 = 32.0;
+/// Full-width primary action — design `.btn.wide{height:30px}`.
+const WIDE_BUTTON_H: f32 = 30.0;
 
 /// What the config panel is asking the app to do.
 pub enum ChartStudioEvent {
@@ -136,32 +172,31 @@ impl ChartStudio {
             .inner_margin(egui::Margin {
                 left: PAD_X as i8,
                 right: PAD_X as i8,
-                top: 4,
-                bottom: 8,
+                // Each section opens with its own `SECTION_GAP`; the panel only
+                // owns the trailing inset — design `.cs-side{padding:0 0 12px}`.
+                top: 0,
+                bottom: PAD_BOTTOM as i8,
             })
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(6.0, 8.0);
+                // Every gap in the panel is explicit, straight off the design's
+                // `.cs-sec` / `.frow` / `.yrow` / `.togrow` metrics.
+                ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
                 // Fit the panel width exactly — no horizontal scrolling.
                 let width = ui.available_width();
 
-                self.data_source_section(ui, &colors, width, &mut events);
-                ui.add_space(6.0);
+                self.data_source_section(ui, width, &mut events);
                 self.chart_type_section(ui, width);
 
                 if !self.columns.is_empty() {
-                    ui.add_space(6.0);
                     self.axes_section(ui, &colors, width);
-                    ui.add_space(6.0);
                     self.data_section(ui, width);
-                    ui.add_space(6.0);
                     self.options_section(ui);
                 }
 
-                ui.add_space(10.0);
-                self.generate_button(ui, width, &mut events);
+                ui.add_space(SECTION_GAP);
+                self.generate_button(ui, &mut events);
 
                 if !self.open_charts.is_empty() {
-                    ui.add_space(14.0);
                     self.open_charts_section(ui, &mut events);
                 }
             });
@@ -169,30 +204,34 @@ impl ChartStudio {
         events
     }
 
+    /// Section heading — design `.glabel`, with `.cs-sec`'s 12px top padding
+    /// above it and its own 7px bottom margin below.
     fn group_label(ui: &mut egui::Ui, text: &str) {
-        ui.add_space(2.0);
+        ui.add_space(SECTION_GAP);
         ui.add(
             Typography::builder()
                 .text(text)
                 .variant(TypographyVariant::GroupLabel)
                 .build(),
         );
-        ui.add_space(2.0);
+        ui.add_space(LABEL_GAP);
     }
 
+    /// Caption above a control — design `.frow .fl{font-size:11px;color:overlay1;
+    /// margin-bottom:4px}`, i.e. the 11px muted `Caption` variant.
     fn field_label(ui: &mut egui::Ui, text: &str) {
         ui.add(
             Typography::builder()
                 .text(text)
-                .variant(TypographyVariant::Label)
+                .variant(TypographyVariant::Caption)
                 .build(),
         );
+        ui.add_space(CAPTION_GAP);
     }
 
     fn data_source_section(
         &mut self,
         ui: &mut egui::Ui,
-        colors: &ThemeColors,
         width: f32,
         events: &mut Vec<ChartStudioEvent>,
     ) {
@@ -223,11 +262,13 @@ impl ChartStudio {
                 );
             }
         }
-        let _ = colors;
         let mut select = Select::builder()
             .id("chart_ds")
             .value(self.selected.map(|t| t.to_string()).unwrap_or_default())
             .options(options)
+            // Design leads the source trigger with an accent database glyph.
+            .icon(egui_phosphor::regular::DATABASE)
+            .icon_color("accent")
             .width(width)
             .size(Size::Medium)
             .build();
@@ -240,16 +281,22 @@ impl ChartStudio {
         }
     }
 
+    /// The 4-column grid of square type tiles — design
+    /// `.cs-types{grid-template-columns:repeat(4,1fr);gap:6px}` with `.ct`
+    /// tiles (surface + hairline edge, accent fill + glow when `.on`), which is
+    /// exactly what a framed/selected `IconButton` paints.
     fn chart_type_section(&mut self, ui: &mut egui::Ui, width: f32) {
         Self::group_label(ui, "CHART TYPE");
-        let spacing = 5.0;
         let cols = 4;
         // Never exceed the row width (avoids horizontal overflow on narrow panels).
-        let cell = ((width - spacing * (cols as f32 - 1.0)) / cols as f32).clamp(1.0, 84.0);
-        let prev = ui.spacing().item_spacing;
-        ui.spacing_mut().item_spacing = egui::vec2(spacing, spacing);
-        for chunk in ChartType::ALL.chunks(cols) {
+        let cell =
+            ((width - TYPE_GAP * (cols as f32 - 1.0)) / cols as f32).clamp(1.0, TYPE_CELL_MAX);
+        for (row, chunk) in ChartType::ALL.chunks(cols).enumerate() {
+            if row > 0 {
+                ui.add_space(TYPE_GAP);
+            }
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = TYPE_GAP;
                 for &ct in chunk {
                     let clicked = ui
                         .add(
@@ -259,7 +306,7 @@ impl ChartStudio {
                                 .frame(true)
                                 .selected(self.chart_type == ct)
                                 .size_px(cell)
-                                .icon_size(22.0)
+                                .icon_size(TYPE_GLYPH)
                                 .build(),
                         )
                         .clicked();
@@ -269,7 +316,6 @@ impl ChartStudio {
                 }
             });
         }
-        ui.spacing_mut().item_spacing = prev;
     }
 
     fn axes_section(&mut self, ui: &mut egui::Ui, colors: &ThemeColors, width: f32) {
@@ -301,7 +347,7 @@ impl ChartStudio {
             self.x_col = i;
         }
 
-        ui.add_space(6.0);
+        ui.add_space(ROW_GAP);
         // Heatmap plots every numeric column and ignores the Y selection, so
         // don't offer a (no-op) Y picker for it.
         if self.chart_type == ChartType::Heatmap {
@@ -334,18 +380,18 @@ impl ChartStudio {
         }
 
         let multi = !self.chart_type.single_series() && self.y_cols.len() > 1;
-        // Leave room for the colour swatch (and the remove button when multi).
-        let combo_w = if multi { width - 52.0 } else { width - 22.0 };
+        // Leave room for the colour chip (and the remove button when multi) —
+        // design `.yrow{gap:7px}` with `.sw` 13px and a 26px `.ib`.
+        let remove_w = Size::Medium.metrics().1 + SERIES_GAP;
+        let combo_w = width - SWATCH - SERIES_GAP - if multi { remove_w } else { 0.0 };
         let mut remove: Option<usize> = None;
         for i in 0..self.y_cols.len() {
+            if i > 0 {
+                ui.add_space(SERIES_ROW_GAP);
+            }
             ui.horizontal(|ui| {
-                ui.add(
-                    Icon::builder()
-                        .glyph(egui_phosphor::regular::SQUARE)
-                        .color(color_to_hex(palette[i % palette.len()]))
-                        .size(12.0)
-                        .build(),
-                );
+                Self::series_swatch(ui, palette[i % palette.len()]);
+                ui.add_space(SERIES_GAP);
                 let mut y_select = Select::builder()
                     .id(format!("chart_y_{i}"))
                     .value(self.y_cols[i].to_string())
@@ -358,17 +404,22 @@ impl ChartStudio {
                 {
                     self.y_cols[i] = c;
                 }
-                if multi
-                    && ui
+                if multi {
+                    ui.add_space(SERIES_GAP);
+                    if ui
                         .add(
                             IconButton::builder()
                                 .icon(egui_phosphor::regular::X)
                                 .tooltip("Remove series")
+                                // Design's 26px `.ib`, matching the width
+                                // `remove_w` reserves for it above.
+                                .size(Size::Medium)
                                 .build(),
                         )
                         .clicked()
-                {
-                    remove = Some(i);
+                    {
+                        remove = Some(i);
+                    }
                 }
             });
         }
@@ -376,28 +427,44 @@ impl ChartStudio {
             self.y_cols.remove(i);
         }
 
-        if !self.chart_type.single_series()
+        let can_add = !self.chart_type.single_series()
             && self.y_cols.len() < palette.len()
-            && !numeric.is_empty()
-            && ui
+            && !numeric.is_empty();
+        if can_add {
+            ui.add_space(SERIES_ROW_GAP);
+            // Design `<button class="btn text sm">` — a small ghost text button
+            // in the muted role, not an accent one.
+            let clicked = ui
                 .add(
                     Button::builder()
                         .label("Add series")
                         .icon(egui_phosphor::regular::PLUS)
                         .button_type(ButtonType::Text)
-                        .color(ButtonColor::Secondary)
-                        .size(11.0)
+                        .button_size(Size::Small)
                         .build(),
                 )
-                .clicked()
-        {
-            let next = numeric
-                .iter()
-                .find(|c| !self.y_cols.contains(c))
-                .copied()
-                .unwrap_or(numeric[0]);
-            self.y_cols.push(next);
+                .clicked();
+            if clicked {
+                let next = numeric
+                    .iter()
+                    .find(|c| !self.y_cols.contains(c))
+                    .copied()
+                    .unwrap_or(numeric[0]);
+                self.y_cols.push(next);
+            }
         }
+    }
+
+    /// The series colour chip beside a Y picker — design
+    /// `.yrow .sw{width:13px;height:13px;border-radius:3px}`. No SDK component
+    /// paints a bare colour chip, so it is a direct fill in the series colour.
+    /// Claims the select's full height so the chip centres on it
+    /// (design `.yrow{align-items:center}`).
+    fn series_swatch(ui: &mut egui::Ui, color: egui::Color32) {
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(SWATCH, FIELD_HEIGHT), egui::Sense::hover());
+        let chip = egui::Rect::from_center_size(rect.center(), egui::Vec2::splat(SWATCH));
+        ui.painter().rect_filled(chip, SWATCH_RADIUS, color);
     }
 
     fn data_section(&mut self, ui: &mut egui::Ui, width: f32) {
@@ -432,7 +499,7 @@ impl ChartStudio {
             self.aggregation = *a;
         }
 
-        ui.add_space(6.0);
+        ui.add_space(ROW_GAP);
         Self::field_label(ui, "Sort");
         let sort_opts: Vec<SelectOption> = SortMode::ALL
             .iter()
@@ -462,7 +529,7 @@ impl ChartStudio {
             self.sort = *s;
         }
 
-        ui.add_space(6.0);
+        ui.add_space(ROW_GAP);
         Self::field_label(ui, "Top N (0 = all)");
         let mut top = NumberInput::builder()
             .id("chart_topn")
@@ -474,6 +541,9 @@ impl ChartStudio {
         self.top_n = top.value.max(0.0) as usize;
     }
 
+    /// Option rows — design `.togrow{display:flex;justify-content:space-between;
+    /// padding:5px 0;font-size:12.5px;color:var(--text)}`: the label reads on the
+    /// left in body colour, the switch sits hard right.
     fn options_section(&mut self, ui: &mut egui::Ui) {
         Self::group_label(ui, "OPTIONS");
         let rows = [
@@ -484,7 +554,19 @@ impl ChartStudio {
         ];
         let mut toggled = [false; 4];
         for (i, (label, enabled)) in rows.iter().enumerate() {
+            ui.add_space(TOGGLE_PAD_Y);
             ui.horizontal(|ui| {
+                ui.add(
+                    Typography::builder()
+                        .text(*label)
+                        .variant(TypographyVariant::Body)
+                        .size(FONT_CONTROL)
+                        .build(),
+                );
+                // Push the switch to the row's right edge without a centred
+                // right-to-left layout (which would claim the full pane height).
+                let gap = (ui.available_width() - TOGGLE_TRACK_W).max(0.0);
+                ui.add_space(gap);
                 if ui
                     .add(
                         ToggleSwitch::builder()
@@ -496,9 +578,8 @@ impl ChartStudio {
                 {
                     toggled[i] = true;
                 }
-                ui.add_space(4.0);
-                Self::field_label(ui, label);
             });
+            ui.add_space(TOGGLE_PAD_Y);
         }
         if toggled[0] {
             self.options.legend = !self.options.legend;
@@ -514,12 +595,10 @@ impl ChartStudio {
         }
     }
 
-    fn generate_button(
-        &mut self,
-        ui: &mut egui::Ui,
-        width: f32,
-        events: &mut Vec<ChartStudioEvent>,
-    ) {
+    /// The panel's primary action — design `<button class="btn secondary wide">`:
+    /// a full-width 30px neutral *surface* button (`ButtonColor::Default` is the
+    /// design's `.btn.secondary`), not a filled accent one.
+    fn generate_button(&mut self, ui: &mut egui::Ui, events: &mut Vec<ChartStudioEvent>) {
         let ready = self.selected.is_some() && !self.columns.is_empty() && !self.y_cols.is_empty();
         let editing = self.editing.is_some();
         let (label, icon) = if editing {
@@ -535,9 +614,9 @@ impl ChartStudio {
                     .label(label)
                     .icon(icon)
                     .button_type(ButtonType::Elevated)
-                    .color(ButtonColor::Secondary)
-                    .width(width)
-                    .height(30.0)
+                    .color(ButtonColor::Default)
+                    .full_width(true)
+                    .height(WIDE_BUTTON_H)
                     .build(),
             )
             .clicked();
@@ -562,18 +641,21 @@ impl ChartStudio {
             }));
             self.editing = None;
         }
-        if editing
-            && ui
+        if editing {
+            ui.add_space(SERIES_ROW_GAP);
+            // Design `.btn.text.sm` — a quiet escape hatch under the CTA.
+            let cancelled = ui
                 .add(
                     Button::builder()
                         .label("Cancel edit")
                         .button_type(ButtonType::Text)
-                        .size(11.0)
+                        .button_size(Size::Small)
                         .build(),
                 )
-                .clicked()
-        {
-            self.editing = None;
+                .clicked();
+            if cancelled {
+                self.editing = None;
+            }
         }
     }
 

@@ -1,3 +1,6 @@
+#[cfg(feature = "egui")]
+mod ui;
+
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
@@ -41,31 +44,4 @@ pub struct Radio {
     #[builder(default)]
     #[serde(default)]
     pub disabled: bool,
-}
-
-#[cfg(feature = "egui")]
-impl Radio {
-    /// Render the radio group, updating [`value`](Radio::value) in place.
-    /// Returns `Some(value)` when the selection changed this frame.
-    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<String> {
-        let mut changed = None;
-        ui.add_enabled_ui(!self.disabled, |ui| {
-            if !self.label.is_empty() {
-                ui.label(&self.label);
-            }
-            ui.horizontal(|ui| {
-                for opt in &self.options {
-                    if ui.radio(self.value == opt.value, &opt.label).clicked()
-                        && self.value != opt.value
-                    {
-                        changed = Some(opt.value.clone());
-                    }
-                }
-            });
-        });
-        if let Some(v) = &changed {
-            self.value = v.clone();
-        }
-        changed
-    }
 }

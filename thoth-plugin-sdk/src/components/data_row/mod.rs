@@ -30,6 +30,11 @@ pub struct DataRowIcon {
     /// Colour as a `#rrggbb` hex string; defaults to muted when unset.
     #[serde(default)]
     pub color: Option<String>,
+    /// Glyph size in points. Defaults to the row's body size (13) — design
+    /// `.dr .lead`. A marker rather than an icon takes its own size: the
+    /// design's non-primary-key column dot is `font-size:8px`.
+    #[serde(default)]
+    pub size: Option<f32>,
 }
 
 /// A single tree/data row: indentation, an optional expand caret or leaf
@@ -66,7 +71,8 @@ pub struct DataRow {
     #[serde(default)]
     pub value_token: Option<TextToken>,
     /// Background fill as a `#rrggbb`/`#rrggbbaa` hex string; transparent when
-    /// unset.
+    /// unset. Sits *under* the hover and selection washes, so a zebra stripe
+    /// survives both.
     #[serde(default)]
     pub background: Option<String>,
     /// Search-highlight ranges within the key/value text.
@@ -77,6 +83,12 @@ pub struct DataRow {
     #[builder(default)]
     #[serde(default)]
     pub syntax_highlighting: bool,
+    /// The value is a collapsed-container summary (`{…} (4 keys)`) and is drawn
+    /// muted rather than syntax-coloured — design `.dr .sum`. On a key-less row
+    /// (no `key: value` split) the whole text is treated as the summary.
+    #[builder(default)]
+    #[serde(default)]
+    pub summary_value: bool,
     /// Indentation depth (multiplied by a fixed step).
     #[builder(default)]
     #[serde(default)]
@@ -91,6 +103,14 @@ pub struct DataRow {
     /// Optional right-aligned muted text (e.g. a count or type).
     #[serde(default)]
     pub trailing: Option<String>,
+    /// Optional small chip drawn immediately *after* the row's text — design
+    /// `.dr .tybadge`: a surface-filled 9.5pt muted tag for a column's type.
+    ///
+    /// Distinct from [`trailing`](DataRow::trailing), which pins its text to the
+    /// row's right edge: a schema row wants both at once (`name [text]  … 14
+    /// tables`).
+    #[serde(default)]
+    pub chip: Option<String>,
     /// Optional right-aligned action icon (a Phosphor glyph). Clicking it reports
     /// [`DataRowOutput::action_clicked`] instead of a row click — e.g. an
     /// "open structure" affordance on a table row.

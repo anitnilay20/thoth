@@ -2,8 +2,8 @@
 //! shared `data-row` component so it matches the file-viewer tree styling.
 
 use thoth_plugin_sdk::components::{
-    Colored, Column, DataRow, DataRowIcon, Input, Row, Scroll, Separator, Size, Spinner,
-    Typography, TypographyVariant,
+    Colored, Column, DataRow, DataRowIcon, Input, Row, Scroll, Separator, Spinner, Typography,
+    TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 use thoth_plugin_sdk::tokens::TextToken;
@@ -26,6 +26,12 @@ fn loading_row() -> RenderNode {
 use crate::{
     ICON_CIRCLE, ICON_DATABASE, ICON_EYE, ICON_FOLDER, ICON_KEY, ICON_TABLE, ICON_TREE_STRUCTURE,
 };
+
+/// The filter field's leading glyph — design `.field > i.ph-magnifying-glass`.
+const ICON_MAGNIFYING_GLASS: &str = "\u{E30C}";
+/// A non-primary-key column's marker dot — design `.dr .lead{font-size:8px}`,
+/// well under the 13px row glyphs.
+const MARKER_GLYPH: f32 = 8.0;
 
 pub(crate) fn schema_panel(st: &State) -> RenderNode {
     let active = st
@@ -53,16 +59,18 @@ pub(crate) fn schema_panel(st: &State) -> RenderNode {
         Column::builder()
             .gap(0.0)
             .children(vec![
+                // Search strip — design `padding:8px 10px` around a full-width
+                // `.field` with a leading magnifier.
                 RenderNode::Row(
                     Row::builder()
-                        .padding(6.0)
+                        .padding(8.0)
                         .children(vec![RenderNode::Input(
                             Input::builder()
                                 .id("schema-filter")
                                 .value(st.schema_filter.clone())
                                 .placeholder("Filter tables…")
+                                .icon(ICON_MAGNIFYING_GLASS)
                                 .grow(true)
-                                .size(Size::Small)
                                 .build(),
                         )])
                         .build(),
@@ -117,7 +125,8 @@ fn filter_results(st: &State) -> RenderNode {
         Some(_) => nodes.push(muted("No tables match.")),
         None => nodes.push(loading_row()),
     }
-    RenderNode::Column(Column::builder().gap(2.0).children(nodes).build())
+    // Contiguous rows: the design stacks 22px `.dr`s with no gap between them.
+    RenderNode::Column(Column::builder().gap(0.0).children(nodes).build())
 }
 
 /// The lazy schema tree (database → schema → table/view → columns).
@@ -154,9 +163,9 @@ fn schema_tree(st: &State) -> RenderNode {
                 .as_ref()
                 .and_then(|s| s.first())
                 .and_then(|sc| sc.tables.as_ref())
-                .map(|t| t.len().to_string())
+                .map(|t| count_label(t.len(), "table"))
         } else {
-            db.schemas.as_ref().map(|s| s.len().to_string())
+            db.schemas.as_ref().map(|s| count_label(s.len(), "schema"))
         };
         nodes.push(data_row(
             &format!("db:{i}"),
@@ -181,7 +190,18 @@ fn schema_tree(st: &State) -> RenderNode {
         nodes.push(show_more_row(st.databases.len() - limit, 0));
     }
 
-    RenderNode::Column(Column::builder().gap(2.0).children(nodes).build())
+    // Contiguous rows: the design stacks 22px `.dr`s with no gap between them.
+    RenderNode::Column(Column::builder().gap(0.0).children(nodes).build())
+}
+
+/// A trailing child count with its unit — design `.dr .cnt` reads "2 schemas" /
+/// "14 tables" rather than a bare number.
+fn count_label(n: usize, unit: &str) -> String {
+    if n == 1 {
+        format!("{n} {unit}")
+    } else {
+        format!("{n} {unit}s")
+    }
 }
 
 /// A clickable "Show more" row that reveals the next page of a capped level.
@@ -193,6 +213,43 @@ fn show_more_row(hidden: usize, indent: usize) -> RenderNode {
         None,
         Some((ICON_CIRCLE, "muted")),
         None,
+    )
+}
+
+/// A column row: the design's `.dr` with a leading marker, the column name, and
+/// the column type as a `.tybadge` chip *beside* the name — not as the row's
+/// right-pinned `.cnt`, which is reserved for child counts.
+///
+/// The primary-key marker is a 13px key glyph; every other column takes the
+/// design's 8px dot (`.lead{font-size:8px}`), a marker rather than an icon.
+fn column_row(
+    id: &str,
+    name: &str,
+    indent: usize,
+    primary_key: bool,
+    data_type: &str,
+) -> RenderNode {
+    let (glyph, color, size) = if primary_key {
+        (ICON_KEY, "warning", None)
+    } else {
+        (ICON_CIRCLE, "muted", Some(MARKER_GLYPH))
+    };
+    RenderNode::DataRow(
+        DataRow::builder()
+            .row_id(id)
+            .display_text(name.to_string())
+            .key_token(TextToken::Key)
+            .indent(indent)
+            .leading_icon(
+                DataRowIcon::builder()
+                    .glyph(glyph)
+                    .color(color)
+                    .maybe_size(size)
+                    .build(),
+            )
+            .chip(data_type.to_string())
+            .truncate(true)
+            .build(),
     )
 }
 
@@ -230,7 +287,7 @@ fn push_schemas(nodes: &mut Vec<RenderNode>, i: usize, db: &DatabaseNode, limit:
         return;
     }
     for (j, sch) in schemas.iter().enumerate() {
-        let count = sch.tables.as_ref().map(|t| t.len().to_string());
+        let count = sch.tables.as_ref().map(|t| count_label(t.len(), "table"));
         nodes.push(data_row(
             &format!("sch:{i}:{j}"),
             &sch.name,
@@ -280,18 +337,12 @@ fn push_tables(
                 Some(cols) if cols.is_empty() => nodes.push(muted("(no columns)")),
                 Some(cols) => {
                     for (l, c) in cols.iter().enumerate() {
-                        let marker = if c.primary_key {
-                            (ICON_KEY, "warning")
-                        } else {
-                            (ICON_CIRCLE, "muted")
-                        };
-                        nodes.push(data_row(
+                        nodes.push(column_row(
                             &format!("col:{i}:{j}:{k}:{l}"),
                             &c.name,
                             indent + 1,
-                            None,
-                            Some(marker),
-                            Some(&c.data_type),
+                            c.primary_key,
+                            &c.data_type,
                         ));
                     }
                 }

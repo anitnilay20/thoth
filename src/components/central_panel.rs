@@ -41,10 +41,26 @@ pub enum CentralPanelEvent {
     OpenFilePicker,
     /// User clicked a recent file on the Welcome screen.
     OpenRecentFile(PathBuf),
+    /// User clicked "New window" on the Welcome screen.
+    NewWindow,
+    /// User clicked "Browse plugins…" on the Welcome screen.
+    BrowsePlugins,
+    /// User clicked "Clear" over the Welcome screen's Recent list.
+    ClearRecentFiles,
 }
 
 pub struct CentralPanelOutput {
     pub events: Vec<CentralPanelEvent>,
+}
+
+/// What the panel body shows this frame. Decided once so the frame's margin and
+/// the rendered content can never disagree.
+#[derive(Clone, Copy)]
+enum PanelContent {
+    Searching,
+    Plugin,
+    Welcome,
+    Viewer,
 }
 
 #[derive(Default)]
@@ -154,13 +170,27 @@ impl CentralPanel {
             }
         }
 
-        // Plugin panes manage their own padding, so drop the central-panel inner
-        // margin for them — but keep the panel *fill* (the dock tab viewer's
-        // clear_background is false, so this frame provides the background).
-        let panel_frame = if props.plugin_ui.is_some() {
-            egui::Frame::central_panel(ui.style()).inner_margin(0)
+        // The body's dispatch order, resolved once: the spinner wins, then a
+        // plugin pane, then the Welcome screen on an empty tab, then the viewer.
+        let content = if self.searching {
+            PanelContent::Searching
+        } else if props.plugin_ui.is_some() {
+            PanelContent::Plugin
+        } else if self.loaded_path.is_none() {
+            PanelContent::Welcome
         } else {
-            egui::Frame::central_panel(ui.style())
+            PanelContent::Viewer
+        };
+
+        // No fill: the enclosing floating dock panel already paints the content
+        // background as a *rounded* rect. Filling here would span the full leaf
+        // rect with square corners and clip the panel's rounded bottom corners.
+        // Plugin panes manage their own padding, so they get no inner margin —
+        // and so does the Welcome screen, whose `.wrap` carries the design's own
+        // 40/44 padding and would otherwise be inset by a further 8px.
+        let panel_frame = match content {
+            PanelContent::Plugin | PanelContent::Welcome => egui::Frame::NONE,
+            PanelContent::Searching | PanelContent::Viewer => egui::Frame::NONE.inner_margin(8), // matches Frame::central_panel
         };
         egui::CentralPanel::default()
             .frame(panel_frame)
@@ -172,57 +202,70 @@ impl CentralPanel {
                     ui.add(Separator::plain());
                 }
 
-                if self.searching {
-                    ui.horizontal(|ui| {
-                        ui.add(egui::Spinner::new().size(16.0));
-                        ui.label("Searching…");
-                    });
-                    ui.add_space(6.0);
-                    return;
-                }
-
-                // Plugin pane takes priority over the file viewer.
-                if let Some(output) = props.plugin_ui {
-                    match serde_json::from_str::<UiNode>(&output.node_json) {
-                        Ok(mut node) => {
-                            let mut ui_events = Vec::new();
-                            render_ui_node(ui, &mut node, &mut ui_events);
-                            for evt in ui_events {
-                                events.push(CentralPanelEvent::PluginUiEvent(evt));
-                            }
-                        }
-                        Err(e) => {
-                            ui.colored_label(
-                                egui::Color32::RED,
-                                format!("Plugin UI parse error: {e}"),
-                            );
-                        }
+                match content {
+                    PanelContent::Searching => {
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new().size(16.0));
+                            ui.label("Searching…");
+                        });
+                        ui.add_space(6.0);
                     }
-                    return;
-                }
 
-                if self.loaded_path.is_none() {
-                    use crate::components::welcome::{WelcomeEvent, WelcomePanel};
-                    let welcome_events = WelcomePanel::render(ui, props.recent_files, props.colors);
-                    for evt in welcome_events {
-                        match evt {
-                            WelcomeEvent::OpenFilePicker => {
-                                events.push(CentralPanelEvent::OpenFilePicker)
-                            }
-                            WelcomeEvent::OpenRecentFile(path) => {
-                                events.push(CentralPanelEvent::OpenRecentFile(path))
+                    // Plugin pane takes priority over the file viewer.
+                    PanelContent::Plugin => {
+                        if let Some(output) = props.plugin_ui {
+                            match serde_json::from_str::<UiNode>(&output.node_json) {
+                                Ok(mut node) => {
+                                    let mut ui_events = Vec::new();
+                                    render_ui_node(ui, &mut node, &mut ui_events);
+                                    for evt in ui_events {
+                                        events.push(CentralPanelEvent::PluginUiEvent(evt));
+                                    }
+                                }
+                                Err(e) => {
+                                    ui.colored_label(
+                                        egui::Color32::RED,
+                                        format!("Plugin UI parse error: {e}"),
+                                    );
+                                }
                             }
                         }
                     }
-                    return;
+
+                    PanelContent::Welcome => {
+                        use crate::components::welcome::{WelcomeEvent, WelcomePanel};
+                        let welcome_events =
+                            WelcomePanel::render(ui, props.recent_files, props.colors);
+                        for evt in welcome_events {
+                            match evt {
+                                WelcomeEvent::OpenFilePicker => {
+                                    events.push(CentralPanelEvent::OpenFilePicker)
+                                }
+                                WelcomeEvent::OpenRecentFile(path) => {
+                                    events.push(CentralPanelEvent::OpenRecentFile(path))
+                                }
+                                WelcomeEvent::NewWindow => {
+                                    events.push(CentralPanelEvent::NewWindow)
+                                }
+                                WelcomeEvent::BrowsePlugins => {
+                                    events.push(CentralPanelEvent::BrowsePlugins)
+                                }
+                                WelcomeEvent::ClearRecentFiles => {
+                                    events.push(CentralPanelEvent::ClearRecentFiles)
+                                }
+                            }
+                        }
+                    }
+
+                    PanelContent::Viewer => {
+                        // Update viewer settings right before rendering (so changes apply immediately)
+                        self.file_viewer
+                            .set_syntax_highlighting(props.syntax_highlighting);
+
+                        // Render the viewer (no filtering UI needed - search results shown in sidebar)
+                        self.file_viewer.ui(ui);
+                    }
                 }
-
-                // Update viewer settings right before rendering (so changes apply immediately)
-                self.file_viewer
-                    .set_syntax_highlighting(props.syntax_highlighting);
-
-                // Render the viewer (no filtering UI needed - search results shown in sidebar)
-                self.file_viewer.ui(ui);
             });
     }
 

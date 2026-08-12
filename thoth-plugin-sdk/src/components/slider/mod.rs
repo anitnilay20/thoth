@@ -1,3 +1,6 @@
+#[cfg(feature = "egui")]
+mod ui;
+
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
@@ -31,18 +34,4 @@ pub struct Slider {
     #[builder(default)]
     #[serde(default)]
     pub disabled: bool,
-}
-
-#[cfg(feature = "egui")]
-impl Slider {
-    /// Render the slider, editing [`value`](Slider::value) in place.
-    pub fn show(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        if !self.label.is_empty() {
-            ui.label(&self.label);
-        }
-        ui.add_enabled(
-            !self.disabled,
-            egui::Slider::new(&mut self.value, self.min..=self.max),
-        )
-    }
 }

@@ -38,7 +38,99 @@ use crate::settings::Settings;
 use crate::theme::{self, Theme, ThemeColors, icon_rich_text, phosphor_font_id};
 use eframe::egui;
 use std::sync::{Arc, Mutex};
-use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType, IconButton, Input};
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonType, IconButton, Input, Typography, TypographyVariant,
+};
+use thoth_plugin_sdk::theme::{
+    FONT_CONTROL, ICON_CONTROL, RADIUS_CONTROL, color_to_hex, with_alpha,
+};
+
+// ── Window chrome metrics ────────────────────────────────────────────────────
+
+/// Smallest the window may get before the two-column layout stops working.
+const MIN_W: f32 = 800.0;
+/// …and its vertical counterpart.
+const MIN_H: f32 = 520.0;
+/// Fraction of the parent window the settings window opens at.
+const OPEN_FRACTION: f32 = 0.85;
+
+/// Title bar height — design `.stitle{height:32px}`.
+const TITLE_H: f32 = 32.0;
+/// …and the gap between its items — design `.stitle{gap:8px}`.
+const TITLE_GAP: f32 = 8.0;
+/// Close button — design `.stitle .x{width:24px;height:24px}`…
+const CLOSE_SIZE: f32 = 24.0;
+/// …with a 14px glyph — design `.stitle .x{font-size:14px}`.
+const CLOSE_GLYPH: f32 = 14.0;
+
+/// Nav rail width — design `.snav{width:230px}`.
+const NAV_W: f32 = 230.0;
+/// Rail padding — design `.snav{padding:12px 10px}`.
+const NAV_PAD_H: i8 = 10;
+/// …vertical component of the same rule.
+const NAV_PAD_V: i8 = 12;
+/// Space under the rail heading — design `.snav .h{padding:0 4px 8px}`.
+const NAV_HEADING_BOTTOM: f32 = 8.0;
+/// …and its side inset.
+const NAV_HEADING_PAD: f32 = 4.0;
+/// Space under the search field — design `.snav .search{margin-bottom:8px}`.
+const NAV_SEARCH_BOTTOM: f32 = 8.0;
+
+/// Nav row height — design `.nitem{height:34px}`.
+const NAV_ITEM_H: f32 = 34.0;
+/// …its horizontal padding — design `.nitem{padding:0 9px}`.
+const NAV_ITEM_PAD: f32 = 9.0;
+/// …the gap between glyph and label — design `.nitem{gap:9px}`.
+const NAV_ITEM_GAP: f32 = 9.0;
+/// …and the space between rows — design `.snav .items{gap:1px}`.
+const NAV_ITEM_SPACING: f32 = 1.0;
+/// Nav glyph size — design `.nitem i{font-size:16px}`.
+const NAV_GLYPH: f32 = 16.0;
+/// Hover wash — design `.nitem:hover{background:text@6%}`.
+const NAV_HOVER_ALPHA: u8 = 15; // 6% of 255
+/// Selected wash — design `.nitem.on{background:mauve@14%}`.
+const NAV_SELECTED_ALPHA: u8 = 36; // 14% of 255
+/// Selected stripe — design `.nitem.on::before{width:3px;border-radius:3px}`…
+const NAV_STRIPE_W: f32 = 3.0;
+/// …inset this far from the row's top and bottom — design `{top:8px;bottom:8px}`.
+const NAV_STRIPE_INSET_Y: f32 = 8.0;
+/// …and sitting at the rail's own left edge — design `{left:-10px}`.
+const NAV_STRIPE_OFFSET_X: f32 = NAV_PAD_H as f32;
+/// Trailing unsaved-change dot — design `.nitem .dot{width:6px}`.
+const NAV_DOT_RADIUS: f32 = 3.0;
+
+/// Rail footer — design `.snav .foot{padding:8px 6px 2px}`.
+const NAV_FOOT_PAD_H: f32 = 6.0;
+/// …its top padding.
+const NAV_FOOT_PAD_TOP: f32 = 8.0;
+/// …the gap between glyph and filename — design `.snav .foot{gap:7px}`.
+const NAV_FOOT_GAP: f32 = 7.0;
+/// …its text size — design `.snav .foot{font-size:11.5px}`.
+const NAV_FOOT_FONT: f32 = 11.5;
+/// …and its glyph size — design `.snav .foot i{font-size:14px}`.
+const NAV_FOOT_GLYPH: f32 = 14.0;
+/// Height reserved for the footer row: 8px top padding, one 11.5px line, 2px below.
+const NAV_FOOT_H: f32 = 26.0;
+
+/// Content padding — design `.spane{padding:18px 20px}`.
+const PANE_PAD_V: i8 = 18;
+/// …horizontal component of the same rule.
+const PANE_PAD_H: i8 = 20;
+
+/// Footer bar height — design `.sfoot{height:52px}`.
+const FOOT_H: f32 = 52.0;
+/// …its horizontal padding — design `.sfoot{padding:0 18px}`.
+const FOOT_PAD_H: i8 = 18;
+/// Top hairline — design `.sfoot{box-shadow:inset 0 1px 0 surface1@26%}`.
+const FOOT_RULE_ALPHA: u8 = 66; // 26% of 255
+/// Dirty dot — design `.sfoot .dirty .d{width:7px}`.
+const FOOT_DOT_RADIUS: f32 = 3.5;
+/// …the gap after it — design `.sfoot .dirty{gap:7px}`.
+const FOOT_DOT_GAP: f32 = 7.0;
+/// Gap between the footer's action buttons — design `.sfoot .sp{gap:8px}`.
+const FOOT_BTN_GAP: f32 = 8.0;
+/// Dirty label size — design `.sfoot .dirty{font-size:12px}`.
+const FOOT_LABEL_FONT: f32 = 12.0;
 
 /// Settings dialog with modern UI
 pub struct SettingsDialog {
@@ -562,6 +654,35 @@ fn reset_section(tab: SettingsTab, draft: &mut Settings) {
     }
 }
 
+/// Build the settings window — design `.swin`, which is a window in its own
+/// right, so it wears the same chrome as the app's main window (`app-mockup`'s
+/// squircle `.win`).
+///
+/// The rounded corners and the drop shadow are the platform's: macOS only rounds
+/// a *titled* window, and an undecorated one is borderless — which is what left
+/// this window square. So instead of dropping the decorations, keep the native
+/// frame and make its title bar transparent and button-less, exactly as
+/// `main.rs` does for the main window; our own `.stitle` then owns the top row.
+/// No other platform splits a window that way, so there they stay undecorated.
+fn settings_viewport(width: f32, height: f32) -> egui::ViewportBuilder {
+    let builder = egui::ViewportBuilder::default()
+        .with_title("Thoth - Settings")
+        .with_inner_size([width, height])
+        .with_min_inner_size([MIN_W, MIN_H]);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .with_fullsize_content_view(true)
+        .with_titlebar_shown(false)
+        .with_title_shown(false)
+        .with_titlebar_buttons_shown(false);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.with_decorations(false);
+
+    builder
+}
+
 impl ContextComponent for SettingsDialog {
     type Props<'a> = SettingsDialogProps<'a>;
     type Output = SettingsDialogOutput;
@@ -592,19 +713,15 @@ impl ContextComponent for SettingsDialog {
         let last_check_clone = props.last_check;
         let current_version = props.current_version.to_string();
 
-        // Size the settings window to 75% of the parent window, clamped to a
-        // sensible minimum so the layout never breaks on small screens.
+        // Size the settings window to a fraction of the parent window, clamped
+        // to a sensible minimum so the layout never breaks on small screens.
         let parent_size = ui.ctx().content_rect().size();
-        let settings_w = (parent_size.x * 0.85).max(800.0);
-        let settings_h = (parent_size.y * 0.85).max(520.0);
+        let settings_w = (parent_size.x * OPEN_FRACTION).max(MIN_W);
+        let settings_h = (parent_size.y * OPEN_FRACTION).max(MIN_H);
 
         ui.ctx().show_viewport_deferred(
             viewport_id,
-            egui::ViewportBuilder::default()
-                .with_title("Thoth - Settings")
-                .with_decorations(false)
-                .with_inner_size([settings_w, settings_h])
-                .with_min_inner_size([800.0, 520.0]),
+            settings_viewport(settings_w, settings_h),
             move |ui, class| {
                 let ctx = ui.ctx().clone();
 
@@ -635,13 +752,18 @@ impl ContextComponent for SettingsDialog {
 
                 let mut new_settings = None;
 
-                // ── Custom title bar (32px) ───────────────────────────────
+                // ── Title bar — design `.stitle` ──────────────────────────
                 egui::Panel::top("settings_titlebar")
-                    .exact_size(32.0)
+                    .exact_size(TITLE_H)
                     .frame(
                         egui::Frame::default()
-                            .fill(theme_colors.bg_sunken)
-                            .inner_margin(egui::Margin::symmetric(12, 0)),
+                            .fill(theme_colors.bg_panel)
+                            .inner_margin(egui::Margin {
+                                left: 12,
+                                right: 8,
+                                top: 0,
+                                bottom: 0,
+                            }),
                     )
                     .show_inside(ui, |ui| {
                         // Make the whole bar draggable so the window can be moved
@@ -655,19 +777,28 @@ impl ContextComponent for SettingsDialog {
                         }
 
                         ui.horizontal_centered(|ui| {
-                            // App icon glyph
+                            // Every gap is explicit — design `.stitle{gap:8px}`.
+                            ui.spacing_mut().item_spacing.x = 0.0;
+
+                            // Leading accent glyph — design `.stitle .ico`.
                             ui.label(
-                                icon_rich_text(egui_phosphor::regular::TREE_STRUCTURE, 13.0)
-                                    .color(theme_colors.accent),
+                                icon_rich_text(
+                                    egui_phosphor::regular::TREE_STRUCTURE,
+                                    ICON_CONTROL,
+                                )
+                                .color(theme_colors.accent),
                             );
-                            ui.add_space(6.0);
-                            ui.label(
-                                egui::RichText::new("Settings")
-                                    .size(13.0)
-                                    .color(theme_colors.fg),
+                            ui.add_space(TITLE_GAP);
+                            // `.stitle .t` — 12.5px in the subdued title colour.
+                            ui.add(
+                                Typography::builder()
+                                    .text("Settings")
+                                    .size(FONT_CONTROL)
+                                    .color(color_to_hex(theme_colors.fg_subtle()))
+                                    .build(),
                             );
 
-                            // Close button (right-aligned)
+                            // Ghost close button — design `.stitle .x`.
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
@@ -676,7 +807,8 @@ impl ContextComponent for SettingsDialog {
                                             .icon(egui_phosphor::regular::X)
                                             .tooltip("Close")
                                             .frame(false)
-                                            .size_px(20.0)
+                                            .size_px(CLOSE_SIZE)
+                                            .icon_size(CLOSE_GLYPH)
                                             .build(),
                                     );
                                     if close_out.clicked() {
@@ -688,206 +820,44 @@ impl ContextComponent for SettingsDialog {
                                 },
                             );
                         });
-
-                        // Bottom divider
-                        ui.painter().hline(
-                            ui.clip_rect().x_range(),
-                            ui.clip_rect().bottom(),
-                            egui::Stroke::new(1.0, theme_colors.surface),
-                        );
                     });
 
-                // ── Footer (56px) ────────────────────────────────────────
-                egui::Panel::bottom("settings_bottom")
-                    .exact_size(56.0)
-                    .frame(
-                        egui::Frame::default()
-                            .fill(theme_colors.bg_sunken)
-                            .inner_margin(egui::Margin::symmetric(16, 0)),
-                    )
-                    .show_inside(ui, |ui| {
-                        // Top divider
-                        ui.painter().hline(
-                            ui.clip_rect().x_range(),
-                            ui.clip_rect().top(),
-                            egui::Stroke::new(1.0, theme_colors.surface_raised),
-                        );
-
-                        ui.horizontal_centered(|ui| {
-                            // Dirty indicator (left side)
-                            let (is_dirty, dirty_count) = if let (Ok(draft), Ok(baseline)) =
-                                (draft_settings.lock(), viewport_baseline.lock())
-                            {
-                                let count = SettingsTab::all()
-                                    .iter()
-                                    .filter(|&&t| section_is_dirty(t, &draft, &baseline))
-                                    .count();
-                                (count > 0, count)
-                            } else {
-                                (false, 0)
-                            };
-
-                            if is_dirty {
-                                ui.painter().circle_filled(
-                                    ui.cursor().center_top() + egui::vec2(5.0, 10.0),
-                                    4.0,
-                                    theme_colors.accent,
-                                );
-                                ui.add_space(14.0);
-                                let label = if dirty_count == 1 {
-                                    "1 unsaved change".to_string()
-                                } else {
-                                    format!("{dirty_count} unsaved changes")
-                                };
-                                ui.label(
-                                    egui::RichText::new(label)
-                                        .size(12.0)
-                                        .color(theme_colors.fg_muted),
-                                );
-                            }
-
-                            // Buttons (right side)
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    // Save button
-                                    let save_btn = ui.add(
-                                        Button::builder()
-                                            .label("Save changes")
-                                            .button_type(ButtonType::Elevated)
-                                            .color(ButtonColor::Primary)
-                                            .size(13.0)
-                                            .enabled(is_dirty)
-                                            .build(),
-                                    );
-                                    if save_btn.clicked()
-                                        && let Ok(settings) = draft_settings.lock()
-                                    {
-                                        new_settings = Some(settings.clone());
-                                        NotificationManager::notify(
-                                            Notification::new("Setting saved.", "")
-                                                .with_toast(true)
-                                                .with_status(NotificationStatus::Completed),
-                                        );
-                                    }
-
-                                    ui.add_space(8.0);
-
-                                    // Cancel button
-                                    let cancel_btn = ui.add(
-                                        Button::builder()
-                                            .label("Cancel")
-                                            .button_type(ButtonType::Elevated)
-                                            .color(ButtonColor::Default)
-                                            .size(13.0)
-                                            .build(),
-                                    );
-                                    if cancel_btn.clicked() {
-                                        if let Ok(mut closed) = viewport_closed.lock() {
-                                            *closed = true;
-                                        }
-                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                                    }
-
-                                    ui.add_space(8.0);
-
-                                    // Reset section button
-                                    if is_dirty {
-                                        let reset_btn = ui.add(
-                                            Button::builder()
-                                                .label("Reset section")
-                                                .button_type(ButtonType::Text)
-                                                .color(ButtonColor::Default)
-                                                .size(12.0)
-                                                .build(),
-                                        );
-                                        if reset_btn.clicked()
-                                            && let (Ok(mut draft), Ok(tab)) =
-                                                (draft_settings.lock(), selected_tab.lock())
-                                        {
-                                            reset_section(*tab, &mut draft);
-                                        }
-                                    }
-                                },
-                            );
-                        });
-                    });
-
-                // ── Sidebar (240px) ─────────────────────────────────────
+                // ── Nav rail — design `.snav` ─────────────────────────────
                 egui::Panel::left("settings_sidebar")
                     .resizable(false)
-                    .exact_size(240.0)
+                    .exact_size(NAV_W)
                     .frame(
                         egui::Frame::default()
                             .fill(theme_colors.bg_panel)
-                            .inner_margin(egui::Margin::ZERO),
+                            .inner_margin(egui::Margin::symmetric(NAV_PAD_H, NAV_PAD_V)),
                     )
                     .show_inside(ui, |ui| {
-                        // Title
-                        egui::Frame::new()
-                            .inner_margin(egui::Margin {
-                                left: 16,
-                                right: 16,
-                                top: 16,
-                                bottom: 8,
-                            })
-                            .show(ui, |ui| {
-                                ui.label(
-                                    egui::RichText::new("Settings")
-                                        .size(14.0)
-                                        .strong()
-                                        .color(theme_colors.fg),
-                                );
-                            });
-
-                        // Search box
-                        let search_id = egui::Id::new("settings_search_query");
-                        let mut search_query: String =
-                            ctx.data(|d| d.get_temp(search_id).unwrap_or_default());
-                        egui::Frame::NONE
-                            .outer_margin(egui::Margin::symmetric(12, 4))
-                            .show(ui, |ui| {
-                                let mut input = Input::builder()
-                                    .value(search_query.clone())
-                                    .placeholder("Search settings…")
-                                    .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
-                                    .rows(1)
-                                    .build();
-                                let r = input.show(ui);
-                                if r.inner {
-                                    search_query = input.value.clone();
-                                }
-                            });
-                        ctx.data_mut(|d| d.insert_temp(search_id, search_query.clone()));
-
-                        ui.add_space(4.0);
-                        ui.painter().hline(
-                            ui.clip_rect().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(0.5, theme_colors.surface_raised),
-                        );
-                        ui.add_space(4.0);
-
-                        // ── Settings file path (sidebar bottom) ─────────
+                        // ── Settings file, pinned to the bottom — design `.snav .foot`
                         egui::Panel::bottom("sidebar_settings_file")
-                            .exact_size(36.0)
+                            .exact_size(NAV_FOOT_H)
                             .frame(
                                 egui::Frame::default()
                                     .fill(theme_colors.bg_panel)
-                                    .inner_margin(egui::Margin::symmetric(12, 0)),
+                                    .inner_margin(egui::Margin {
+                                        left: NAV_FOOT_PAD_H as i8,
+                                        right: NAV_FOOT_PAD_H as i8,
+                                        top: NAV_FOOT_PAD_TOP as i8,
+                                        bottom: 0,
+                                    }),
                             )
                             .show_inside(ui, |ui| {
-                                ui.painter().hline(
-                                    ui.clip_rect().x_range(),
-                                    ui.clip_rect().top(),
-                                    egui::Stroke::new(0.5, theme_colors.surface_raised),
-                                );
-                                ui.horizontal_centered(|ui| {
+                                ui.horizontal(|ui| {
+                                    // Every gap is explicit — design `.foot{gap:7px}`.
+                                    ui.spacing_mut().item_spacing.x = 0.0;
                                     ui.label(
-                                        icon_rich_text(egui_phosphor::regular::FILE_TEXT, 11.0)
-                                            .color(theme_colors.fg_muted),
+                                        icon_rich_text(
+                                            egui_phosphor::regular::FILE_TEXT,
+                                            NAV_FOOT_GLYPH,
+                                        )
+                                        .color(theme_colors.fg_muted),
                                     );
-                                    ui.add_space(4.0);
+                                    ui.add_space(NAV_FOOT_GAP);
+
                                     let path_str = crate::settings::Settings::settings_file_path()
                                         .map(|p| {
                                             p.file_name()
@@ -896,22 +866,28 @@ impl ContextComponent for SettingsDialog {
                                                 .to_string()
                                         })
                                         .unwrap_or_else(|_| "settings.toml".to_string());
-                                    let btn = ui.add(
-                                        Button::builder()
-                                            .label(path_str)
-                                            .button_type(ButtonType::Text)
-                                            .color(ButtonColor::Default)
-                                            .size(11.0)
-                                            .build(),
-                                    );
-                                    if btn.clicked()
+                                    // `.foot .fn` — the filename reads in monospace.
+                                    let name = ui
+                                        .add(
+                                            Typography::builder()
+                                                .text(path_str)
+                                                .variant(TypographyVariant::Mono)
+                                                .size(NAV_FOOT_FONT)
+                                                .color(color_to_hex(theme_colors.fg_muted))
+                                                .build(),
+                                        )
+                                        .interact(egui::Sense::click());
+                                    if name.hovered() {
+                                        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if name.clicked()
                                         && let Ok(path) =
                                             crate::settings::Settings::settings_file_path()
                                     {
                                         let _ = open::that(path);
                                     }
                                     thoth_plugin_sdk::theme::hover_text(
-                                        btn,
+                                        name,
                                         crate::settings::Settings::settings_file_path()
                                             .map(|p| p.to_string_lossy().to_string())
                                             .unwrap_or_default(),
@@ -919,7 +895,30 @@ impl ContextComponent for SettingsDialog {
                                 });
                             });
 
-                        // Nav items
+                        // Heading — design `.snav .h{font-size:14px;font-weight:700}`.
+                        ui.horizontal(|ui| {
+                            ui.add_space(NAV_HEADING_PAD);
+                            Typography::title(ui, "Settings");
+                        });
+                        ui.add_space(NAV_HEADING_BOTTOM);
+
+                        // Search field — design `.snav .search`.
+                        let search_id = egui::Id::new("settings_search_query");
+                        let mut search_query: String =
+                            ctx.data(|d| d.get_temp(search_id).unwrap_or_default());
+                        let mut input = Input::builder()
+                            .value(search_query.clone())
+                            .placeholder("Search settings…")
+                            .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
+                            .rows(1)
+                            .build();
+                        if input.show(ui).inner {
+                            search_query = input.value.clone();
+                        }
+                        ctx.data_mut(|d| d.insert_temp(search_id, search_query.clone()));
+                        ui.add_space(NAV_SEARCH_BOTTOM);
+
+                        // ── Nav items — design `.nitem` ──────────────────
                         egui::ScrollArea::vertical()
                             .auto_shrink([false; 2])
                             .show(ui, |ui| {
@@ -943,12 +942,11 @@ impl ContextComponent for SettingsDialog {
                                         (SettingsTab::General, Default::default())
                                     };
 
-                                let filter: String = ctx
-                                    .data(|d| d.get_temp(egui::Id::new("settings_search_query")))
-                                    .unwrap_or_default();
-                                let filter_lower = filter.to_lowercase();
+                                let filter_lower = search_query.to_lowercase();
 
-                                ui.add_space(4.0);
+                                // `.snav .items{gap:1px}`
+                                ui.spacing_mut().item_spacing.y = NAV_ITEM_SPACING;
+
                                 for &tab in SettingsTab::all() {
                                     if !filter_lower.is_empty() {
                                         let matches =
@@ -965,65 +963,88 @@ impl ContextComponent for SettingsDialog {
                                     let is_dirty = dirty_sections.contains(&tab);
 
                                     let (rect, resp) = ui.allocate_exact_size(
-                                        egui::vec2(ui.available_width(), 36.0),
+                                        egui::vec2(ui.available_width(), NAV_ITEM_H),
                                         egui::Sense::click(),
                                     );
 
-                                    // Selection / hover background
-                                    let bg = if is_selected {
-                                        theme_colors.surface_raised
+                                    // `.nitem.on` fills with mauve@14%, `:hover` with text@6%.
+                                    let (fill, tint) = if is_selected {
+                                        (
+                                            Some(with_alpha(
+                                                theme_colors.accent,
+                                                NAV_SELECTED_ALPHA,
+                                            )),
+                                            theme_colors.accent,
+                                        )
                                     } else if resp.hovered() {
-                                        egui::Color32::from_rgba_unmultiplied(
-                                            theme_colors.surface.r(),
-                                            theme_colors.surface.g(),
-                                            theme_colors.surface.b(),
-                                            120,
+                                        (
+                                            Some(with_alpha(theme_colors.fg, NAV_HOVER_ALPHA)),
+                                            theme_colors.fg,
                                         )
                                     } else {
-                                        egui::Color32::TRANSPARENT
+                                        (None, theme_colors.fg_muted)
                                     };
-                                    ui.painter().rect_filled(rect, 4.0, bg);
-
-                                    // Selection accent bar
-                                    if is_selected {
+                                    if let Some(fill) = fill {
                                         ui.painter().rect_filled(
-                                            egui::Rect::from_min_size(
-                                                rect.min,
-                                                egui::vec2(3.0, rect.height()),
+                                            rect,
+                                            egui::CornerRadius::from(RADIUS_CONTROL),
+                                            fill,
+                                        );
+                                    }
+
+                                    // `.nitem.on::before` — 3px stripe at the rail's
+                                    // edge, which sits outside the scroll
+                                    // viewport, so widen the clip to reach it.
+                                    if is_selected {
+                                        let painter = ui.painter().with_clip_rect(
+                                            ui.clip_rect()
+                                                .expand2(egui::vec2(NAV_STRIPE_OFFSET_X, 0.0)),
+                                        );
+                                        painter.rect_filled(
+                                            egui::Rect::from_min_max(
+                                                egui::pos2(
+                                                    rect.left() - NAV_STRIPE_OFFSET_X,
+                                                    rect.top() + NAV_STRIPE_INSET_Y,
+                                                ),
+                                                egui::pos2(
+                                                    rect.left() - NAV_STRIPE_OFFSET_X
+                                                        + NAV_STRIPE_W,
+                                                    rect.bottom() - NAV_STRIPE_INSET_Y,
+                                                ),
                                             ),
-                                            egui::CornerRadius::same(2),
+                                            egui::CornerRadius::from(NAV_STRIPE_W),
                                             theme_colors.accent,
                                         );
                                     }
 
-                                    // Icon
-                                    let text_color = if is_selected {
-                                        theme_colors.fg
-                                    } else {
-                                        theme_colors.fg_muted
-                                    };
+                                    // Glyph, then label one gap to its right.
+                                    let glyph_x = rect.left() + NAV_ITEM_PAD;
                                     ui.painter().text(
-                                        rect.min + egui::vec2(14.0, rect.height() / 2.0),
+                                        egui::pos2(glyph_x, rect.center().y),
                                         egui::Align2::LEFT_CENTER,
                                         tab.icon(),
-                                        phosphor_font_id(15.0),
-                                        text_color,
+                                        phosphor_font_id(NAV_GLYPH),
+                                        tint,
                                     );
-
-                                    // Label
                                     ui.painter().text(
-                                        rect.min + egui::vec2(36.0, rect.height() / 2.0),
+                                        egui::pos2(
+                                            glyph_x + NAV_GLYPH + NAV_ITEM_GAP,
+                                            rect.center().y,
+                                        ),
                                         egui::Align2::LEFT_CENTER,
                                         tab.label(),
-                                        egui::FontId::proportional(13.0),
-                                        text_color,
+                                        egui::FontId::proportional(FONT_CONTROL),
+                                        tint,
                                     );
 
-                                    // Dirty dot
+                                    // `.nitem .dot` — trailing unsaved-change marker.
                                     if is_dirty {
                                         ui.painter().circle_filled(
-                                            rect.right_center() - egui::vec2(12.0, 0.0),
-                                            3.0,
+                                            egui::pos2(
+                                                rect.right() - NAV_ITEM_PAD - NAV_DOT_RADIUS,
+                                                rect.center().y,
+                                            ),
+                                            NAV_DOT_RADIUS,
                                             theme_colors.accent,
                                         );
                                     }
@@ -1040,9 +1061,144 @@ impl ContextComponent for SettingsDialog {
                             });
                     });
 
-                // Central content area
+                // ── Footer bar — design `.sfoot` ──────────────────────────
+                egui::Panel::bottom("settings_bottom")
+                    .exact_size(FOOT_H)
+                    .frame(
+                        egui::Frame::default()
+                            .fill(theme_colors.bg_panel)
+                            .inner_margin(egui::Margin::symmetric(FOOT_PAD_H, 0)),
+                    )
+                    .show_inside(ui, |ui| {
+                        // Top hairline — design `.sfoot{box-shadow:inset 0 1px 0 …}`.
+                        ui.painter().hline(
+                            ui.clip_rect().x_range(),
+                            ui.clip_rect().top(),
+                            egui::Stroke::new(
+                                1.0,
+                                with_alpha(theme_colors.surface_raised, FOOT_RULE_ALPHA),
+                            ),
+                        );
+
+                        ui.horizontal_centered(|ui| {
+                            // Every gap in the bar is explicit.
+                            ui.spacing_mut().item_spacing.x = 0.0;
+
+                            // Dirty indicator — design `.sfoot .dirty`.
+                            // `section_dirty` is the selected tab alone — the
+                            // reset action below only touches that section.
+                            let (is_dirty, dirty_count, section_dirty) =
+                                if let (Ok(draft), Ok(baseline), Ok(tab)) = (
+                                    draft_settings.lock(),
+                                    viewport_baseline.lock(),
+                                    selected_tab.lock(),
+                                ) {
+                                    let count = SettingsTab::all()
+                                        .iter()
+                                        .filter(|&&t| section_is_dirty(t, &draft, &baseline))
+                                        .count();
+                                    (count > 0, count, section_is_dirty(*tab, &draft, &baseline))
+                                } else {
+                                    (false, 0, false)
+                                };
+
+                            if is_dirty {
+                                let (dot, _) = ui.allocate_exact_size(
+                                    egui::Vec2::splat(FOOT_DOT_RADIUS * 2.0),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter().circle_filled(
+                                    dot.center(),
+                                    FOOT_DOT_RADIUS,
+                                    theme_colors.accent,
+                                );
+                                ui.add_space(FOOT_DOT_GAP);
+                                let label = if dirty_count == 1 {
+                                    "1 unsaved change".to_string()
+                                } else {
+                                    format!("{dirty_count} unsaved changes")
+                                };
+                                ui.add(
+                                    Typography::builder()
+                                        .text(label)
+                                        .size(FOOT_LABEL_FONT)
+                                        .color(color_to_hex(theme_colors.fg_subtle()))
+                                        .build(),
+                                );
+                            }
+
+                            // Actions, right-aligned — design `.sfoot .sp{gap:8px}`.
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.spacing_mut().item_spacing.x = 0.0;
+
+                                    // `.btn.primary`
+                                    let save_btn = ui.add(
+                                        Button::builder()
+                                            .label("Save changes")
+                                            .button_type(ButtonType::Elevated)
+                                            .color(ButtonColor::Primary)
+                                            .enabled(is_dirty)
+                                            .build(),
+                                    );
+                                    if save_btn.clicked()
+                                        && let Ok(settings) = draft_settings.lock()
+                                    {
+                                        new_settings = Some(settings.clone());
+                                        NotificationManager::notify(
+                                            Notification::new("Setting saved.", "")
+                                                .with_toast(true)
+                                                .with_status(NotificationStatus::Completed),
+                                        );
+                                    }
+
+                                    ui.add_space(FOOT_BTN_GAP);
+
+                                    // `.btn.default`
+                                    let cancel_btn = ui.add(
+                                        Button::builder()
+                                            .label("Cancel")
+                                            .button_type(ButtonType::Elevated)
+                                            .color(ButtonColor::Default)
+                                            .build(),
+                                    );
+                                    if cancel_btn.clicked() {
+                                        if let Ok(mut closed) = viewport_closed.lock() {
+                                            *closed = true;
+                                        }
+                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    }
+
+                                    // `.btn.text` — only offered when there is something to reset.
+                                    if section_dirty {
+                                        ui.add_space(FOOT_BTN_GAP);
+                                        let reset_btn = ui.add(
+                                            Button::builder()
+                                                .label("Reset section")
+                                                .button_type(ButtonType::Text)
+                                                .color(ButtonColor::Default)
+                                                .build(),
+                                        );
+                                        if reset_btn.clicked()
+                                            && let (Ok(mut draft), Ok(tab)) =
+                                                (draft_settings.lock(), selected_tab.lock())
+                                        {
+                                            reset_section(*tab, &mut draft);
+                                        }
+                                    }
+                                },
+                            );
+                        });
+                    });
+
+                // ── Content pane — design `.spane{padding:18px 20px}` ─────
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::default().fill(theme_colors.bg))
+                    .frame(
+                        egui::Frame::default()
+                            .fill(theme_colors.bg)
+                            .inner_margin(egui::Margin::symmetric(PANE_PAD_H, PANE_PAD_V)),
+                    )
                     .show_inside(ui, |ui| {
                         if let (Ok(current_tab), Ok(mut settings), Ok(mut events), Ok(baseline)) = (
                             selected_tab.lock(),

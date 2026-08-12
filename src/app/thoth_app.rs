@@ -52,6 +52,11 @@ pub struct ThothApp {
     /// Pending chart PNG export: `(chart rect in points, screenshot requested?)`
     /// — drives the two-frame screenshot → crop → save flow.
     chart_export: Option<(egui::Rect, bool)>,
+    /// Crust colour for the window canvas, refreshed each frame from the *applied*
+    /// palette. `clear_color` runs outside the frame and so can't read egui memory
+    /// itself; caching it here is what lets an unsaved theme **preview** repaint
+    /// the canvas instead of waiting for the settings to be saved.
+    canvas_color: egui::Color32,
 }
 
 /// Build the synthetic `http-response` UiEvent delivered to a plugin when an
@@ -150,9 +155,22 @@ struct SidebarPluginRuntime {
 }
 
 impl ThothApp {
+    /// The real app: restores the session persisted on disk.
     pub fn new(settings: settings::Settings, file_to_open: Option<PathBuf>) -> Self {
-        let persistent_state = PersistentState::default();
+        Self::with_persistent_state(settings, file_to_open, PersistentState::load_or_default())
+    }
 
+    /// Construct with an explicit [`PersistentState`], bypassing the on-disk one.
+    ///
+    /// Tests pass [`PersistentState::blank`] so they start from no open tabs and no
+    /// recent files. Without this they restore whatever session the developer has
+    /// open, and any assertion about the active tab reads their real file instead
+    /// of the test's fixture.
+    pub fn with_persistent_state(
+        settings: settings::Settings,
+        file_to_open: Option<PathBuf>,
+        persistent_state: PersistentState,
+    ) -> Self {
         let mut window_state = state::WindowState::default();
         if settings.ui.remember_sidebar_state {
             window_state.sidebar_expanded = persistent_state.get_sidebar_expanded();
@@ -192,6 +210,7 @@ impl ThothApp {
             };
 
         Self {
+            canvas_color: settings.theme.colors().bg_sunken,
             settings,
             persistent_state,
             window_state,
@@ -296,6 +315,14 @@ impl ThothApp {
 }
 
 impl App for ThothApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        // Crust is the root canvas the floating panels sit on, with GUTTER_GAP
+        // showing through between them. Not `visuals.panel_fill` — that is the
+        // *content* background, and making it crust would tint every
+        // `Frame::central_panel` too.
+        self.canvas_color.to_normalized_gamma_f32()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
@@ -303,6 +330,17 @@ impl App for ThothApp {
         // Publish the context once so off-thread workers (WebSocket tasks) can
         // request a repaint when data arrives.
         let _ = crate::EGUI_CTX.set(ctx.clone());
+
+        // Track the *applied* crust for `clear_color`, so previewing a theme in
+        // settings repaints the canvas immediately. Only overwrite once a palette
+        // has actually been published — `from_ctx` falls back to a zeroed one.
+        if let Some(applied) = ctx.memory(|m| {
+            m.data.get_temp::<crate::theme::ThemeColors>(egui::Id::new(
+                thoth_plugin_sdk::theme::THEME_MEMORY_ID,
+            ))
+        }) {
+            self.canvas_color = applied.bg_sunken;
+        }
 
         if UpdateHandler::should_check_updates(&self.update_state, &self.settings) {
             UpdateHandler::check_for_updates(&mut self.update_state);
@@ -357,6 +395,11 @@ impl App for ThothApp {
         if self.settings.ui.show_status_bar {
             self.render_status_bar(ui);
         }
+
+        // Panel::show_inside shrinks the available_rect but not the painter's
+        // clip_rect, so the outer painter still covers the status-bar area.
+        // Restrict it now so panel shadows can't bleed into the transparent strip.
+        ui.set_clip_rect(ui.available_rect_before_wrap().intersect(ui.clip_rect()));
 
         if let Some(text) = self.clipboard_text.take() {
             ctx.copy_text(text);
@@ -468,14 +511,45 @@ impl App for ThothApp {
             }
         }
 
-        if self.window_state.sidebar_selected_section
-            == Some(components::sidebar::SidebarSection::MarketPlace)
+        // Dock — the main content panel floats in the body area as a squircle panel.
+        // 10px right margin matches the body side-padding; left gap is provided by
+        // the sidebar container's transparent RIGHT_GAP area, so no left margin here.
         {
-            use crate::components::marketplace::{MarketplaceDetail, MarketplaceDetailProps};
-            use crate::components::traits::StatelessComponent;
-            MarketplaceDetail::render(ui, MarketplaceDetailProps);
-        } else {
-            self.render_central_panel(ui, msg_to_central);
+            let dock_colors = ui
+                .ctx()
+                .memory(|m| {
+                    m.data.get_temp::<crate::theme::ThemeColors>(egui::Id::new(
+                        thoth_plugin_sdk::theme::THEME_MEMORY_ID,
+                    ))
+                })
+                .unwrap_or_else(|| {
+                    let dark_mode = ui.ctx().global_style().visuals.dark_mode;
+                    crate::theme::Theme::for_dark_mode(dark_mode).colors()
+                });
+            egui::Frame::NONE
+                .fill(dock_colors.bg)
+                .outer_margin(egui::Margin {
+                    left: 0,
+                    right: crate::theme::GUTTER_GAP as i8 + 2, // 10px right body padding
+                    top: 0,
+                    bottom: crate::theme::GUTTER_GAP as i8,
+                })
+                .corner_radius(egui::CornerRadius::same(crate::theme::RADIUS_PANEL as u8))
+                .shadow(crate::theme::panel_shadow(ui.visuals().dark_mode))
+                .stroke(crate::theme::edge_stroke(&dock_colors))
+                .show(ui, |ui| {
+                    if self.window_state.sidebar_selected_section
+                        == Some(components::sidebar::SidebarSection::MarketPlace)
+                    {
+                        use crate::components::marketplace::{
+                            MarketplaceDetail, MarketplaceDetailProps,
+                        };
+                        use crate::components::traits::StatelessComponent;
+                        MarketplaceDetail::render(ui, MarketplaceDetailProps);
+                    } else {
+                        self.render_central_panel(ui, msg_to_central);
+                    }
+                });
         }
 
         self.render_error_modal(&ctx);
@@ -1621,8 +1695,9 @@ impl ThothApp {
         let focused_id = self.window_state.tab_manager.active_tab_id();
 
         let colors = ui.ctx().memory(|m| {
-            m.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+            m.data.get_temp::<crate::theme::ThemeColors>(egui::Id::new(
+                thoth_plugin_sdk::theme::THEME_MEMORY_ID,
+            ))
         });
 
         let mut dock_style = colors
@@ -1737,6 +1812,25 @@ impl ThothApp {
             }
             TabEvent::OpenRecentFile(path) => {
                 self.window_state.tab_manager.open_file(path, nav_capacity);
+            }
+            TabEvent::NewWindow => {
+                // Same target as `ShortcutAction::NewWindow` (⌘N).
+                self.create_new_window();
+            }
+            TabEvent::BrowsePlugins => {
+                self.window_state.previous_sidebar_section =
+                    self.window_state.sidebar_selected_section.clone();
+                self.window_state.sidebar_expanded = true;
+                self.window_state.sidebar_selected_section =
+                    Some(components::sidebar::SidebarSection::MarketPlace);
+            }
+            TabEvent::ClearRecentFiles => {
+                // `PersistentState` exposes no `clear_recent_files`, so the list is
+                // emptied through the existing per-path removal and saved once.
+                for path in self.persistent_state.get_recent_files().to_vec() {
+                    self.persistent_state.remove_recent_file(&path);
+                }
+                let _ = self.persistent_state.save();
             }
             TabEvent::ChartAction { tab_id, action } => {
                 use crate::components::chart_studio::ChartTabAction;

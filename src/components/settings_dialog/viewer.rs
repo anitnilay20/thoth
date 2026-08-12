@@ -42,7 +42,7 @@ impl StatelessComponent for ViewerTab {
                     colors,
                 );
 
-                group_rows(ui, "DISPLAY", "viewer-display", colors, |ui| {
+                group_rows(ui, "DISPLAY", |ui| {
                     setting_row(
                         ui,
                         "Syntax highlighting",
@@ -61,8 +61,6 @@ impl StatelessComponent for ViewerTab {
                         },
                     );
                 });
-
-                ui.add_space(24.0);
             });
 
         ViewerTabOutput { events }

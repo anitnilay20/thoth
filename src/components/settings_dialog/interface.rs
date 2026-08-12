@@ -1,6 +1,8 @@
 use eframe::egui;
 
-use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};
+use crate::components::settings_dialog::helpers::{
+    group_rows, section_header, setting_row, slider_control,
+};
 use crate::components::traits::StatelessComponent;
 use crate::settings::UiSettings;
 use crate::theme::ThemeColors;
@@ -50,7 +52,7 @@ impl StatelessComponent for InterfaceTab {
                 );
 
                 // ── Sidebar ──────────────────────────────────────────────────
-                group_rows(ui, "SIDEBAR", "interface-sidebar", colors, |ui| {
+                group_rows(ui, "SIDEBAR", |ui| {
                     setting_row(
                         ui,
                         "Sidebar width",
@@ -59,16 +61,12 @@ impl StatelessComponent for InterfaceTab {
                         None,
                         colors,
                         |ui| {
-                            let mut val = s.sidebar_width as i32;
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut val, 200..=1000)
-                                        .suffix(" px")
-                                        .clamping(egui::SliderClamping::Always),
-                                )
-                                .changed()
+                            if let Some(val) =
+                                slider_control(ui, s.sidebar_width as f64, 200.0, 1000.0, "px")
                             {
-                                events.push(InterfaceTabEvent::SidebarWidthChanged(val as f32));
+                                events.push(InterfaceTabEvent::SidebarWidthChanged(
+                                    val.round() as f32
+                                ));
                             }
                         },
                     );
@@ -93,7 +91,7 @@ impl StatelessComponent for InterfaceTab {
                 });
 
                 // ── Chrome ───────────────────────────────────────────────────
-                group_rows(ui, "CHROME", "interface-chrome", colors, |ui| {
+                group_rows(ui, "CHROME", |ui| {
                     setting_row(
                         ui,
                         "Show toolbar",
@@ -132,7 +130,7 @@ impl StatelessComponent for InterfaceTab {
                 });
 
                 // ── Motion ───────────────────────────────────────────────────
-                group_rows(ui, "MOTION", "interface-motion", colors, |ui| {
+                group_rows(ui, "MOTION", |ui| {
                     setting_row(
                         ui,
                         "Enable animations",
@@ -151,8 +149,6 @@ impl StatelessComponent for InterfaceTab {
                         },
                     );
                 });
-
-                ui.add_space(24.0);
             });
 
         InterfaceTabOutput { events }

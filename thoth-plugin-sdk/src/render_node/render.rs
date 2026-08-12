@@ -52,7 +52,7 @@ impl RenderNode {
                 ui.add(t.clone());
             }
             RenderNode::Separator(s) => {
-                ui.add(*s);
+                ui.add(s.clone());
             }
             RenderNode::Badge(b) => {
                 ui.add(b.clone());

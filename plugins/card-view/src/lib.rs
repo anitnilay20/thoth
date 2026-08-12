@@ -10,7 +10,9 @@ mod bindings;
 
 use serde::Deserialize;
 
-use thoth_plugin_sdk::components::{Card, Column, Split, Typography, TypographyVariant};
+use thoth_plugin_sdk::components::{
+    Card, Column, Row, Spacer, Split, Typography, TypographyVariant,
+};
 use thoth_plugin_sdk::render_node::RenderNode;
 use thoth_plugin_sdk::PluginMeta;
 
@@ -24,6 +26,17 @@ use bindings::exports::thoth::plugin::{
 const COLUMNS: usize = 2;
 /// Max cards rendered (matches the host DataView row cap); extra rows are noted.
 const MAX_CARDS: usize = 1000;
+
+/// Gap between grid cells — design `.cardgrid{gap:8px}`, the 8px panel gutter.
+const GRID_GAP: f32 = 8.0;
+/// Inset of the grid from the view edges — design `.cardgrid{padding:12px}`. The
+/// host draws a renderer's node flush (`.dvbody{padding:0}`), so the grid owns it.
+const GRID_PAD: f32 = 12.0;
+/// Space between a card's key/value lines — design `.kvl{line-height:1.75}`, i.e.
+/// ~21px lines for 12px mono text.
+const LINE_GAP: f32 = 6.0;
+/// Space after a key's colon — design `.kvl b` is followed by `": "`.
+const KEY_GAP: f32 = 4.0;
 
 #[derive(PluginMeta)]
 #[plugin(
@@ -55,21 +68,44 @@ fn muted(text: impl Into<String>) -> RenderNode {
     )
 }
 
+/// A mono run, optionally muted — the card body is monospaced throughout
+/// (design `.kvl{font-family:var(--mono);font-size:12px}`), with the key label
+/// carried a step brighter than its value.
+fn mono(text: impl Into<String>, muted: bool) -> RenderNode {
+    let run = Typography::builder()
+        .text(text.into())
+        .variant(TypographyVariant::Mono);
+    // Design `.kvl` sits at `--subtext0` with the value a further step down, so the
+    // brighter run is `fg-subtle` rather than full `fg`.
+    RenderNode::Text(if muted {
+        run.color("muted").build()
+    } else {
+        run.color("fg-subtle").build()
+    })
+}
+
 /// One row → a card: first column is the title, the rest are `name: value` lines.
 fn card_node(columns: &[String], row: &[String]) -> RenderNode {
     let title = row.first().cloned().unwrap_or_default();
+    // `.kvl b` (the key) reads brighter than the value it labels, so each line is
+    // a two-tone pair rather than one muted string.
     let lines: Vec<RenderNode> = columns
         .iter()
         .enumerate()
         .skip(1)
         .map(|(i, col)| {
-            muted(format!(
-                "{col}: {}",
-                row.get(i).cloned().unwrap_or_default()
-            ))
+            RenderNode::Row(
+                Row::builder()
+                    .gap(KEY_GAP)
+                    .children(vec![
+                        mono(format!("{col}:"), false),
+                        mono(row.get(i).cloned().unwrap_or_default(), true),
+                    ])
+                    .build(),
+            )
         })
         .collect();
-    let body = RenderNode::Column(Column::builder().gap(2.0).children(lines).build());
+    let body = RenderNode::Column(Column::builder().gap(LINE_GAP).children(lines).build());
     RenderNode::Card(Box::new(Card::builder().title(title).body(body).build()))
 }
 
@@ -85,7 +121,13 @@ impl RendererGuest for CardViewPlugin {
         })?;
 
         if recs.rows.is_empty() {
-            let empty = muted("No records to show.");
+            // Padded like the grid, so the hint isn't flush against the edge.
+            let empty = RenderNode::Row(
+                Row::builder()
+                    .padding(GRID_PAD)
+                    .children(vec![muted("No records to show.")])
+                    .build(),
+            );
             return serde_json::to_string(&empty).map_err(|e| PluginError {
                 code: 2,
                 message: e.to_string(),
@@ -100,29 +142,49 @@ impl RendererGuest for CardViewPlugin {
             .map(|row| card_node(&recs.columns, row))
             .collect();
 
-        // Lay the cards out COLUMNS-per-row via equal-width splits.
+        // Lay the cards out COLUMNS-per-row via equal-width splits. The splits are
+        // grid cells, not resizable regions, so they stay unframed (flush) — the
+        // cards themselves carry the panel fill, edge and corners. A short last
+        // chunk is padded with empty cells so its card keeps the grid's column
+        // width instead of stretching across the row.
         let mut grid: Vec<RenderNode> = cards
             .chunks(COLUMNS)
             .map(|chunk| {
-                if chunk.len() == 1 {
-                    chunk[0].clone()
-                } else {
-                    RenderNode::Split(
-                        Split::builder()
-                            .gap(8.0)
-                            .widths(vec![1.0; chunk.len()])
-                            .children(chunk.to_vec())
-                            .build(),
-                    )
+                let mut cells = chunk.to_vec();
+                while cells.len() < COLUMNS {
+                    cells.push(RenderNode::Spacer(Spacer::builder().size(0.0).build()));
                 }
+                RenderNode::Split(
+                    Split::builder()
+                        .gap(GRID_GAP)
+                        .widths(vec![1.0; cells.len()])
+                        .children(cells)
+                        .build(),
+                )
             })
             .collect();
 
         if total > shown {
-            grid.push(muted(format!("… {} more row(s) not shown.", total - shown)));
+            // Design: the overflow note is an italic caption under the grid.
+            grid.push(RenderNode::Text(
+                Typography::builder()
+                    .text(format!("… {} more row(s) not shown.", total - shown))
+                    .variant(TypographyVariant::Caption)
+                    .italic(true)
+                    .build(),
+            ));
         }
 
-        let root = RenderNode::Column(Column::builder().gap(8.0).children(grid).build());
+        // The grid supplies its own inset from the DataView body, which is flush.
+        let root = RenderNode::Row(
+            Row::builder()
+                .padding(GRID_PAD)
+                .max_width(true)
+                .children(vec![RenderNode::Column(
+                    Column::builder().gap(GRID_GAP).children(grid).build(),
+                )])
+                .build(),
+        );
         serde_json::to_string(&root).map_err(|e| PluginError {
             code: 2,
             message: e.to_string(),
@@ -160,7 +222,9 @@ mod tests {
         .to_string();
         let out = CardViewPlugin::render(recs).unwrap();
         assert!(out.contains("Alice"));
-        assert!(out.contains("dept: Eng"));
+        // Key and value are separate mono runs (two-tone `key: value` line).
+        assert!(out.contains("dept:"));
+        assert!(out.contains("Eng"));
         assert!(out.contains("Bob"));
     }
 

@@ -117,6 +117,12 @@ pub enum TabEvent {
     TabClosed(TabId),
     OpenFilePicker,
     OpenRecentFile(std::path::PathBuf),
+    /// The Welcome screen's "New window" action.
+    NewWindow,
+    /// The Welcome screen's "Browse plugins…" action.
+    BrowsePlugins,
+    /// The Welcome screen's Recent → "Clear" action.
+    ClearRecentFiles,
     /// A toolbar action from a chart tab (Edit / Refresh).
     ChartAction {
         tab_id: TabId,
@@ -176,9 +182,9 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         // Chart Studio tabs paint a chart directly — no file/plugin central panel.
         if let Some(chart) = tab.chart.as_mut() {
             let colors = self.colors.unwrap_or_default();
-            // Fill the whole leaf with the app background (egui_dock doesn't
-            // clear it, and there's no central panel here to provide a fill).
-            ui.painter().rect_filled(ui.max_rect(), 0.0, colors.bg);
+            // No leaf fill here: the enclosing floating dock panel paints the
+            // background as a rounded rect, and a square fill would clip its
+            // rounded bottom corners.
             let action = egui::Frame::new()
                 .inner_margin(egui::Margin::symmetric(16, 8))
                 .show(ui, |ui| chart.render(ui, &colors))
@@ -276,6 +282,15 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
                 CentralPanelEvent::OpenRecentFile(path) => {
                     self.events.push(TabEvent::OpenRecentFile(path));
                 }
+                CentralPanelEvent::NewWindow => {
+                    self.events.push(TabEvent::NewWindow);
+                }
+                CentralPanelEvent::BrowsePlugins => {
+                    self.events.push(TabEvent::BrowsePlugins);
+                }
+                CentralPanelEvent::ClearRecentFiles => {
+                    self.events.push(TabEvent::ClearRecentFiles);
+                }
             }
         }
     }
@@ -310,19 +325,21 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
             .tabs
             .get(tab_id)
             .is_some_and(|t| t.active_plugin_pane.is_some());
-        let accent = if is_plugin {
-            c.accent_secondary
-        } else {
-            c.accent
-        };
 
         let mut style = global_style.clone();
-        // Active/focused: colored top accent strip via outline_color.
-        style.active.outline_color = accent;
-        style.focused.outline_color = accent;
-        // Inactive: suppress the outline so only active tabs show the accent.
-        style.inactive.outline_color = eframe::egui::Color32::TRANSPARENT;
-        style.hovered.outline_color = accent.gamma_multiply(0.5);
+        // The shared `dock_style()` already paints the design's pill: `surface`
+        // fill with a hairline edge (`.tab.active{background:surface0;box-shadow:
+        // var(--edge)}`). Only the *label* is tinted here, to mark a plugin pane
+        // apart from a file tab.
+        //
+        // Do NOT set `outline_color` — this override runs per tab, after
+        // `dock_style()`, so an accent here becomes a ring around the pill. It
+        // used to draw one deliberately, back when tabs were square and the accent
+        // read as a top strip; against a pill it reads as an outline instead.
+        if is_plugin {
+            style.active.text_color = c.accent_secondary;
+            style.focused.text_color = c.accent_secondary;
+        }
         Some(style)
     }
 }

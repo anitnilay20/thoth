@@ -27,6 +27,10 @@ pub struct ToggleSwitch {
     #[builder(default)]
     #[serde(default)]
     pub enabled: bool,
+    /// Disable interaction — the switch still shows its state, dimmed.
+    #[builder(default)]
+    #[serde(default)]
+    pub disabled: bool,
     /// Optional tooltip shown on hover.
     #[serde(default)]
     pub hover_text: Option<String>,

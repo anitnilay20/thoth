@@ -13,12 +13,17 @@ pub struct ButtonGroupItem {
     pub value: String,
     /// The label shown on the segment.
     pub label: String,
+    /// Optional leading icon — a Phosphor glyph drawn 6px before the label,
+    /// per design `.seg .s{gap:6px}`.
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 /// A pill-style segmented control — one selection at a time.
 ///
-/// The active segment is filled with `surface_active`; inactive segments are
-/// transparent and highlight on hover. [`ButtonGroups::show`](Self::show) reports
+/// The track is `bg_sunken`; the active segment is a `surface`-filled thumb
+/// lifted off it by a tight shadow, and inactive segments carry muted text that
+/// brightens on hover. [`ButtonGroups::show`](Self::show) reports
 /// the newly-selected value; the plain `egui::Widget` impl discards it.
 ///
 /// ```
