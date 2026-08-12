@@ -14,6 +14,9 @@
 //! Host-only items (the `egui` renderer, the `theme` palette) are intentionally
 //! left out; import those directly when building the host.
 
+pub use crate::cli::{
+    CliArg, CliArgKind, CliInvocation, CliOutput, CliSchema, CliSubcommand, PluginCli,
+};
 pub use crate::components::*;
 pub use crate::render_node::RenderNode;
 pub use crate::settings::SettingsMap;

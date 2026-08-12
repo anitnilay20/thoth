@@ -13,6 +13,7 @@ use crate::notification::{Notification, NotificationManager, NotificationStatus}
 use crate::plugin::Capability;
 use crate::plugin::network_policy::NetworkPolicy;
 use crate::plugin::plugin_registry::PluginRegistry;
+use crate::plugin::wasm_cli::WasmCliLoader;
 use crate::plugin::wasm_data_source::WasmDataSourceLoader;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
 use crate::plugin::wasm_loader::WasmFileLoader;
@@ -193,6 +194,37 @@ impl PluginManager {
 
     pub fn get_data_source_plugins(&self) -> Vec<&Plugin> {
         self.registry.get_by_capability(Capability::DataSource)
+    }
+
+    /// Instantiate the display-free WIT CLI adapter for an opted-in plugin.
+    pub fn open_cli(&self, plugin_id: &str) -> Result<WasmCliLoader> {
+        let plugin = self
+            .registry
+            .get_by_id(plugin_id)
+            .ok_or_else(|| ThothError::Unknown {
+                message: format!("Plugin '{plugin_id}' not found"),
+            })?;
+        if !plugin.capabilities.contains(&Capability::Cli) {
+            return Err(ThothError::Unknown {
+                message: format!("Plugin '{plugin_id}' does not expose CLI commands"),
+            });
+        }
+        let wasm_path =
+            plugin
+                .location
+                .as_deref()
+                .map(Path::new)
+                .ok_or_else(|| ThothError::Unknown {
+                    message: format!("Plugin '{plugin_id}' has no wasm path"),
+                })?;
+        let settings = self
+            .plugin_settings
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default();
+        WasmCliLoader::open(&self.engine, wasm_path, &settings)
     }
 
     pub fn open_data_source(

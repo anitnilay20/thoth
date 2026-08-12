@@ -33,6 +33,8 @@ pub mod thoth {
                 /// data-renderer.render and appears as an extra view format in a
                 /// DataView (alongside table / json / raw).
                 Renderer,
+                /// Exposes commands through the optional plugin-cli interface.
+                Cli,
             }
             impl ::core::fmt::Debug for Capability {
                 fn fmt(
@@ -64,6 +66,7 @@ pub mod thoth {
                         Capability::Renderer => {
                             f.debug_tuple("Capability::Renderer").finish()
                         }
+                        Capability::Cli => f.debug_tuple("Capability::Cli").finish(),
                     }
                 }
             }
@@ -82,6 +85,7 @@ pub mod thoth {
                         5 => Capability::NewUiComponent,
                         6 => Capability::DataProducer,
                         7 => Capability::Renderer,
+                        8 => Capability::Cli,
                         _ => panic!("invalid enum discriminant"),
                     }
                 }
@@ -5546,27 +5550,27 @@ pub(crate) use __export_data_source_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 3680] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xd7\x1b\x01A\x02\x01\
-A)\x01B\x0a\x01m\x08\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\x0f\
-search-provider\x10new-ui-component\x0ddata-producer\x08renderer\x04\0\x0acapabi\
-lity\x03\0\0\x01p\x01\x01ks\x01r\x08\x02ids\x04names\x07versions\x0bdescriptions\
-\x0ccapabilities\x02\x06author\x03\x08homepage\x03\x04icon\x03\x04\0\x0bplugin-i\
-nfo\x03\0\x04\x01r\x02\x04codey\x07messages\x04\0\x0cplugin-error\x03\0\x06\x01r\
-\x02\x03keys\x05values\x04\0\x0csetting-data\x03\0\x08\x03\0\x18thoth:plugin/typ\
-es@0.1.0\x05\0\x02\x03\0\0\x0cplugin-error\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0c\
-plugin-error\x03\0\0\x01o\x02ss\x01p\x02\x01p}\x01k\x04\x01r\x04\x03urls\x06meth\
-ods\x07headers\x03\x04body\x05\x04\0\x0chttp-request\x03\0\x06\x01r\x03\x06statu\
-s{\x07headers\x03\x04body\x04\x04\0\x0dhttp-response\x03\0\x08\x01j\x01\x09\x01\x01\
-\x01@\x01\x03req\x07\0\x0a\x04\0\x05fetch\x01\x0b\x01@\x01\x03req\x07\0s\x04\0\x06\
-submit\x01\x0c\x03\0\x1ethoth:plugin/http-client@0.1.0\x05\x02\x01B\x05\x01@\0\0\
-s\x04\0\x04read\x01\0\x01j\0\x01s\x01@\x01\x04datas\0\x01\x04\0\x05write\x01\x02\
-\x03\0!thoth:plugin/plugin-storage@0.1.0\x05\x03\x01B\x03\x01ks\x01@\x03\x05titl\
-es\x04icon\0\x0dinitial-state\0\0s\x04\0\x08open-tab\x01\x01\x03\0\x1athoth:plug\
-in/ui-tabs@0.1.0\x05\x04\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\
-\0\x01j\x01w\x01\x01\x01@\x03\x04hosts\x04port{\x03tls\x7f\0\x02\x04\0\x07connec\
-t\x01\x03\x01p}\x01j\x01\x04\x01\x01\x01@\x02\x02idw\x03maxy\0\x05\x04\0\x04read\
-\x01\x06\x01j\x01y\x01\x01\x01@\x02\x02idw\x05bytes\x04\0\x07\x04\0\x05write\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 3684] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdb\x1b\x01A\x02\x01\
+A)\x01B\x0a\x01m\x09\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\x0f\
+search-provider\x10new-ui-component\x0ddata-producer\x08renderer\x03cli\x04\0\x0a\
+capability\x03\0\0\x01p\x01\x01ks\x01r\x08\x02ids\x04names\x07versions\x0bdescri\
+ptions\x0ccapabilities\x02\x06author\x03\x08homepage\x03\x04icon\x03\x04\0\x0bpl\
+ugin-info\x03\0\x04\x01r\x02\x04codey\x07messages\x04\0\x0cplugin-error\x03\0\x06\
+\x01r\x02\x03keys\x05values\x04\0\x0csetting-data\x03\0\x08\x03\0\x18thoth:plugi\
+n/types@0.1.0\x05\0\x02\x03\0\0\x0cplugin-error\x01B\x0f\x02\x03\x02\x01\x01\x04\
+\0\x0cplugin-error\x03\0\0\x01o\x02ss\x01p\x02\x01p}\x01k\x04\x01r\x04\x03urls\x06\
+methods\x07headers\x03\x04body\x05\x04\0\x0chttp-request\x03\0\x06\x01r\x03\x06s\
+tatus{\x07headers\x03\x04body\x04\x04\0\x0dhttp-response\x03\0\x08\x01j\x01\x09\x01\
+\x01\x01@\x01\x03req\x07\0\x0a\x04\0\x05fetch\x01\x0b\x01@\x01\x03req\x07\0s\x04\
+\0\x06submit\x01\x0c\x03\0\x1ethoth:plugin/http-client@0.1.0\x05\x02\x01B\x05\x01\
+@\0\0s\x04\0\x04read\x01\0\x01j\0\x01s\x01@\x01\x04datas\0\x01\x04\0\x05write\x01\
+\x02\x03\0!thoth:plugin/plugin-storage@0.1.0\x05\x03\x01B\x03\x01ks\x01@\x03\x05\
+titles\x04icon\0\x0dinitial-state\0\0s\x04\0\x08open-tab\x01\x01\x03\0\x1athoth:\
+plugin/ui-tabs@0.1.0\x05\x04\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\
+\0\0\x01j\x01w\x01\x01\x01@\x03\x04hosts\x04port{\x03tls\x7f\0\x02\x04\0\x07conn\
+ect\x01\x03\x01p}\x01j\x01\x04\x01\x01\x01@\x02\x02idw\x03maxy\0\x05\x04\0\x04re\
+ad\x01\x06\x01j\x01y\x01\x01\x01@\x02\x02idw\x05bytes\x04\0\x07\x04\0\x05write\x01\
 \x08\x01j\0\x01\x01\x01@\x02\x02idw\x04hosts\0\x09\x04\0\x09start-tls\x01\x0a\x01\
 @\x01\x02idw\x01\0\x04\0\x05close\x01\x0b\x03\0\x1dthoth:plugin/tcp-client@0.1.0\
 \x05\x05\x01B\x0b\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\0\x01\x01\

@@ -14,6 +14,7 @@ pub mod render_node;
 pub mod runtime;
 pub mod signals;
 pub mod theme_plugin;
+pub mod wasm_cli;
 pub mod wasm_data_source;
 pub mod wasm_exporter;
 pub mod wasm_file_viewer_loader;
@@ -88,6 +89,8 @@ pub enum Capability {
     /// Opts the plugin in as a dataset renderer (#135): it presents a host-owned
     /// dataset as an extra view format in a DataView.
     Renderer,
+    /// Exposes display-free commands through the `plugin-cli` WIT interface.
+    Cli,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +153,7 @@ impl Display for Capability {
                 Capability::Theme => "Theme",
                 Capability::DataProducer => "Data Producer",
                 Capability::Renderer => "Renderer",
+                Capability::Cli => "CLI",
             }
         )
     }
