@@ -349,10 +349,9 @@ impl PluginManager {
         for (dir, is_bundled) in self.plugin_directories() {
             if let Ok(dir) = dir
                 && dir.exists()
+                && let Err(e) = self.scan_directory(dir, is_bundled)
             {
-                if let Err(e) = self.scan_directory(dir, is_bundled) {
-                    eprintln!("Failed to scan plugin directory: {e:?}");
-                }
+                eprintln!("Failed to scan plugin directory: {e:?}");
             }
         }
 
@@ -361,10 +360,9 @@ impl PluginManager {
         // call scan_instances_dir directly instead.
         if let Ok(installs_dir) = PersistentState::plugin_install_dir()
             && installs_dir.exists()
+            && let Err(e) = self.scan_instances_dir(&installs_dir, false)
         {
-            if let Err(e) = self.scan_instances_dir(&installs_dir, false) {
-                eprintln!("Failed to scan marketplace installs: {e:?}");
-            }
+            eprintln!("Failed to scan marketplace installs: {e:?}");
         }
 
         Ok(())
