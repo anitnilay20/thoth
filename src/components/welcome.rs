@@ -58,9 +58,13 @@ const A_35_OPACITY: u8 = 89;
 
 /// `.wrap{max-width:980px}`. `box-sizing:border-box`, so the side padding below
 /// is *inside* this width.
-const WRAP_MAX_W: f32 = 980.0;
+///
+/// Public so the layout tests assert against the token rather than a copy of it.
+pub const WRAP_MAX_W: f32 = 980.0;
 /// `.wrap{padding:40px 44px}`.
-const WRAP_PAD_X: f32 = 44.0;
+///
+/// Public so the layout tests assert against the token rather than a copy of it.
+pub const WRAP_PAD_X: f32 = 44.0;
 const WRAP_PAD_Y: f32 = 40.0;
 
 // ── Hero — design `.hero` ────────────────────────────────────────────────────
@@ -77,7 +81,8 @@ const MARK_GLYPH: f32 = 28.0;
 /// — hand-rolled rather than [`crate::theme::glow_shadow`], which is the
 /// primary button's tighter `0 3px 10px @38%`.
 const MARK_GLOW_OFFSET: i8 = 6;
-const MARK_GLOW_BLUR: u8 = 18;
+/// Public so the layout tests can budget for the glow's bleed past the wrap edge.
+pub const MARK_GLOW_BLUR: u8 = 18;
 /// `.htext h1{font-size:26px;font-weight:700;line-height:1.1}`.
 const TITLE_FONT: f32 = 26.0;
 const TITLE_LINE: f32 = 1.1;

@@ -190,12 +190,18 @@ impl TableView {
     /// the viewport (virtual scrolling), so huge datasets stay cheap. Returns
     /// the row clicked this frame, if any.
     ///
+    /// `framed` matches [`TableView::framed`]: pass `true` for a standalone grid,
+    /// `false` when the grid sits in a container that already owns the fill, edge
+    /// and corners.
+    ///
     /// [`RenderNode`]: crate::render_node::RenderNode
+    #[allow(clippy::too_many_arguments)]
     pub fn show_rows(
         ui: &mut egui::Ui,
         headers: &[String],
         row_count: usize,
         min_col_width: Option<f32>,
+        framed: bool,
         events: &mut Vec<UiEvent>,
         mut build_row: impl FnMut(usize) -> Vec<crate::render_node::RenderNode>,
     ) -> Option<usize> {
@@ -207,7 +213,7 @@ impl TableView {
 
         let mut clicked_row: Option<usize> = None;
 
-        container(ui, true, &colors, |ui| {
+        container(ui, framed, &colors, |ui| {
             ui.set_min_width(ui.available_width());
 
             egui::ScrollArea::horizontal()

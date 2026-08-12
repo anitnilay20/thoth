@@ -411,6 +411,9 @@ impl ChartStudio {
                             IconButton::builder()
                                 .icon(egui_phosphor::regular::X)
                                 .tooltip("Remove series")
+                                // Design's 26px `.ib`, matching the width
+                                // `remove_w` reserves for it above.
+                                .size(Size::Medium)
                                 .build(),
                         )
                         .clicked()

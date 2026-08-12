@@ -53,8 +53,15 @@ impl Input {
         };
 
         // Whether a password field is currently revealed is view-only state, so
-        // it lives in egui memory rather than on the serialisable struct.
-        let reveal_id = ui.make_persistent_id((self.id.as_str(), "reveal"));
+        // it lives in egui memory rather than on the serialisable struct. An
+        // id-less field falls back to this `ui`'s auto id (as `CodeEditor` does),
+        // so two anonymous fields in one container don't share reveal state.
+        let id_source: String = if self.id.is_empty() {
+            format!("sdk_input_{:?}", ui.next_auto_id())
+        } else {
+            self.id.clone()
+        };
+        let reveal_id = ui.make_persistent_id((id_source.as_str(), "reveal"));
         let mut reveal: bool = ui.ctx().data(|d| d.get_temp(reveal_id).unwrap_or(false));
 
         // `grow` (and the default) fill the available width; `desired_width`
@@ -227,7 +234,7 @@ impl Input {
         let response = inner_response.unwrap_or_else(|| {
             ui.interact(
                 field_rect,
-                ui.make_persistent_id((self.id.as_str(), "field")),
+                ui.make_persistent_id((id_source.as_str(), "field")),
                 egui::Sense::hover(),
             )
         });

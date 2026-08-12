@@ -2,6 +2,7 @@
 // `.dt-head` identity block with its `.dt-actions`, over a `.dt-body` two-column
 // grid of README and `.meta-side` metadata.
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use eframe::egui;
@@ -106,13 +107,16 @@ pub(super) fn render(
     ui: &mut egui::Ui,
     plugin: &MarketPlacePlugin,
     install_state: &InstallState,
+    // Icon path resolved once when the manifest loaded — see
+    // `MarketplaceUiState::icon_files`.
+    icon_file: Option<&Path>,
     colors: &ThemeColors,
 ) -> Option<DetailAction> {
     let mut action = None;
 
     egui::Frame::NONE.fill(colors.bg).show(ui, |ui| {
         // Header: fixed above scroll, contains icon + content + actions top-right
-        render_header(ui, plugin, install_state, colors, &mut action);
+        render_header(ui, plugin, install_state, icon_file, colors, &mut action);
 
         // `.dt-head{box-shadow:inset 0 -1px 0 var(--surface)}`
         ui.add(Separator::rule(color_to_hex(colors.surface)));
@@ -195,6 +199,7 @@ fn render_header(
     ui: &mut egui::Ui,
     plugin: &MarketPlacePlugin,
     install_state: &InstallState,
+    icon_file: Option<&Path>,
     colors: &ThemeColors,
     action: &mut Option<DetailAction>,
 ) {
@@ -236,7 +241,7 @@ fn render_header(
                     egui::Layout::left_to_right(egui::Align::TOP),
                     |ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
-                        render_icon(ui, plugin, colors);
+                        render_icon(ui, plugin, icon_file, colors);
                         ui.add_space(HEAD_GAP);
                         ui.vertical(|ui| render_identity(ui, plugin, install_state, colors));
                     },
@@ -247,16 +252,18 @@ fn render_header(
 
 /// `.dt-icon`: the plugin's own 64px icon, or an accent-tinted tile with its
 /// category glyph.
-fn render_icon(ui: &mut egui::Ui, plugin: &MarketPlacePlugin, colors: &ThemeColors) {
+fn render_icon(
+    ui: &mut egui::Ui,
+    plugin: &MarketPlacePlugin,
+    icon_file: Option<&Path>,
+    colors: &ThemeColors,
+) {
     let (ir, _) = ui.allocate_exact_size(egui::Vec2::splat(ICON_BOX), egui::Sense::hover());
     if !ui.is_rect_visible(ir) {
         return;
     }
 
-    let texture = plugin
-        .get_icon_file(ui.ctx().clone())
-        .ok()
-        .and_then(|p| load_icon_texture(ui.ctx(), &p, "mp_detail_icon"));
+    let texture = icon_file.and_then(|p| load_icon_texture(ui.ctx(), p, "mp_detail_icon"));
 
     if let Some(tex) = texture {
         ui.put(
@@ -690,8 +697,11 @@ fn render_sidebar_meta(ui: &mut egui::Ui, plugin: &MarketPlacePlugin, colors: &T
 
     // `.sha`: mono caption on `--bg-sunken` behind the shared hairline edge.
     if !plugin.sha256.is_empty() {
-        let sha_short = if plugin.sha256.len() > SHA_CHARS {
-            format!("{}…", &plugin.sha256[..SHA_CHARS])
+        // Truncate by characters: the digest comes from the registry manifest,
+        // so byte slicing could land inside a multi-byte character and panic.
+        let sha_short = if plugin.sha256.chars().count() > SHA_CHARS {
+            let head: String = plugin.sha256.chars().take(SHA_CHARS).collect();
+            format!("{head}…")
         } else {
             plugin.sha256.clone()
         };

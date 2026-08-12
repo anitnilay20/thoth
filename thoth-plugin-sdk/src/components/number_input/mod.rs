@@ -32,7 +32,9 @@ pub struct NumberInput {
     /// Optional maximum.
     #[serde(default)]
     pub max: Option<f64>,
-    /// Amount the `−` / `+` spin buttons add or subtract. Defaults to `1`.
+    /// Amount the `−` / `+` spin buttons add or subtract. Defaults to `1`; a
+    /// value that isn't finite and positive (zero, negative, NaN, infinite) is
+    /// normalised to `1` rather than making the buttons inert or reversed.
     #[serde(default)]
     pub step: Option<f64>,
     /// Optional unit suffix shown inside the control, e.g. `"rows"` — design

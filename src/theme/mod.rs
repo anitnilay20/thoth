@@ -345,40 +345,49 @@ impl ThemeColorsExt for ThemeColors {
         // gives the two tab surfaces different vocabularies (`.etabs .tab` here,
         // `.rtabs .rtab` there). An outline box around the active tab, which is
         // what this used to draw, is neither.
-        // A *real* pill is half the tab's height. `RADIUS_PILL as u8` saturates to
-        // 255, which egui clamps when filling — so it still looks round — but
-        // egui_dock also derives its "connect the tab to the body" hline from the
-        // raw corner radius (`min.x + sw ..= max.x - se`). At 255 that range
-        // inverts on any normal-width tab and paints a stray 2px line.
-        let pill = egui::CornerRadius::same((TAB_H / 2.0) as u8);
-        // Design `.tab.active{box-shadow:var(--edge)}` — a hairline, *not* an
-        // accent ring. egui_dock's `from_egui_*` defaults derive `outline_color`
-        // from `widgets.hovered.bg_stroke`, which this theme sets to the accent,
-        // so every state has to be set explicitly or a mauve ring leaks through.
-        let edge = with_alpha(self.surface_raised, 87); // surface1@34%
+        // Safari's tab shape rather than the sheet's `--r-pill`: a rounded
+        // *rectangle*, not a lozenge. A full pill on a 30pt tab needs a 15pt
+        // radius, which rounds the short ends so hard that a two-word title reads
+        // as a capsule floating in the strip; Safari keeps the ends square enough
+        // that the tab still reads as a rectangular surface you could stack.
+        //
+        // Also note `RADIUS_PILL as u8` saturates to 255, and egui_dock derives its
+        // "connect the tab to the body" hline from the *raw* corner radius
+        // (`min.x + sw ..= max.x - se`) — at 255 that range inverts on any normal
+        // tab and paints a stray 2px line. Staying on the ladder avoids that.
+        let tab_radius = egui::CornerRadius::same(RADIUS_PANEL as u8);
+        // The design's `.tab.active{box-shadow:var(--edge)}` hairline, carried a
+        // little brighter than `edge_stroke`'s 34% so the active tab reads as a
+        // raised surface the way Safari's does. egui_dock has no shadow field on a
+        // tab, so the border is the only elevation cue available.
+        //
+        // It must be set on *every* state explicitly: egui_dock's `from_egui_*`
+        // defaults derive `outline_color` from `widgets.hovered.bg_stroke`, which
+        // this theme sets to the accent, so a mauve ring leaks through otherwise.
+        let edge = with_alpha(self.surface_raised, 130); // surface1@51%
 
-        // ── Active / focused tab: filled pill with a hairline edge ────────────
+        // ── Active / focused tab: filled rounded rect with a hairline edge ─────
         style.tab.active.bg_fill = self.surface;
         style.tab.active.text_color = self.fg;
         style.tab.active.outline_color = edge;
-        style.tab.active.corner_radius = pill;
+        style.tab.active.corner_radius = tab_radius;
 
         style.tab.focused.bg_fill = self.surface;
         style.tab.focused.text_color = self.fg;
         style.tab.focused.outline_color = edge;
-        style.tab.focused.corner_radius = pill;
+        style.tab.focused.corner_radius = tab_radius;
 
         // ── Inactive tab: bare label on the strip, no chrome at all ───────────
         style.tab.inactive.bg_fill = Color32::TRANSPARENT;
         style.tab.inactive.text_color = self.fg_muted;
         style.tab.inactive.outline_color = Color32::TRANSPARENT;
-        style.tab.inactive.corner_radius = pill;
+        style.tab.inactive.corner_radius = tab_radius;
 
         // ── Hovered tab ───────────────────────────────────────────────────────
         style.tab.hovered.bg_fill = with_alpha(self.fg, 20); // text@8%
         style.tab.hovered.text_color = self.fg;
         style.tab.hovered.outline_color = Color32::TRANSPARENT;
-        style.tab.hovered.corner_radius = pill;
+        style.tab.hovered.corner_radius = tab_radius;
 
         style.tab.inactive_with_kb_focus = style.tab.inactive.clone();
         style.tab.active_with_kb_focus = style.tab.active.clone();
@@ -476,7 +485,18 @@ pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
                     key.clone(),
                     std::sync::Arc::new(egui::FontData::from_owned(bytes)),
                 );
-                vec![key]
+                // The weighted face covers only its own glyph set, and egui walks a
+                // family's entries in order for missing glyphs — so keep the normal
+                // stack behind it or emoji/CJK/icons render as tofu.
+                let mut stack = vec![key];
+                stack.extend(
+                    fonts
+                        .families
+                        .get(&egui::FontFamily::Proportional)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+                stack
             }
             // No real face at this weight — alias the family to the normal stack so
             // callers degrade to regular text rather than to a missing font.

@@ -129,16 +129,30 @@ impl egui::Widget for Separator {
             // The line is centred in its slot, as egui's separator centres in
             // its 6pt. A slot can never be thinner than the line it carries, so
             // `spacing(0.0)` yields a rule exactly `thickness` tall.
-            let height = self.spacing.unwrap_or(DEFAULT_SPACING).max(stroke.width);
-            let (rect, response) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width(), height),
-                egui::Sense::hover(),
-            );
+            let thickness = self.spacing.unwrap_or(DEFAULT_SPACING).max(stroke.width);
+            // Orientation comes from the layout, exactly as `ui.separator()` picks
+            // it: a rule across a top-down column, a rule *down* a left-to-right
+            // row. Without this a styled separator in a `ui.horizontal` would claim
+            // the whole row's width and paint over its neighbours.
+            let horizontal_line = !ui.layout().main_dir().is_horizontal();
+            let size = if horizontal_line {
+                egui::vec2(ui.available_width(), thickness)
+            } else {
+                egui::vec2(thickness, ui.available_height())
+            };
+            let (rect, response) = ui.allocate_exact_size(size, egui::Sense::hover());
             if ui.is_rect_visible(rect) {
-                let line = egui::Rect::from_min_size(
-                    egui::pos2(rect.left(), rect.center().y - stroke.width / 2.0),
-                    egui::vec2(rect.width(), stroke.width),
-                );
+                let line = if horizontal_line {
+                    egui::Rect::from_min_size(
+                        egui::pos2(rect.left(), rect.center().y - stroke.width / 2.0),
+                        egui::vec2(rect.width(), stroke.width),
+                    )
+                } else {
+                    egui::Rect::from_min_size(
+                        egui::pos2(rect.center().x - stroke.width / 2.0, rect.top()),
+                        egui::vec2(stroke.width, rect.height()),
+                    )
+                };
                 ui.painter().rect_filled(line, 0.0, stroke.color);
             }
             response

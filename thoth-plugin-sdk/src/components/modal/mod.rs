@@ -26,7 +26,7 @@ fn default_true() -> bool {
 ///
 /// let modal = Modal::builder().id("confirm").title("Delete file?").open(true).build();
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize, Builder)]
+#[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(on(String, into))]
 #[non_exhaustive]
 pub struct Modal {
@@ -98,4 +98,30 @@ pub struct Modal {
     #[builder(default)]
     #[serde(default)]
     pub footer: Vec<RenderNode>,
+}
+
+impl Default for Modal {
+    /// A closed, dismissible modal — mirrors the builder's and the
+    /// deserializer's defaults (a derived `Default` would leave
+    /// [`dismissible`](Modal::dismissible) `false`).
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            title: String::new(),
+            eyebrow: None,
+            eyebrow_color: None,
+            subtitle: None,
+            open: false,
+            close_id: None,
+            width: None,
+            width_pct: None,
+            height_pct: None,
+            glyph: None,
+            glyph_color: None,
+            glyph_tile: false,
+            dismissible: default_true(),
+            children: Vec::new(),
+            footer: Vec::new(),
+        }
+    }
 }

@@ -502,7 +502,25 @@ pub const FAMILY_SEMIBOLD: &str = "ui-semibold";
 /// rendering before the theme is applied) has only egui's built-in families.
 fn weighted_font_id(ctx: &egui::Context, size: f32, family: &'static str) -> egui::FontId {
     let named = egui::FontFamily::Name(family.into());
-    if ctx.fonts(|f| f.families().contains(&named)) {
+    // `Fonts::families` clones the whole family list behind the font lock, and
+    // this runs for every run of weighted text, so the answer is memoised.
+    //
+    // Invalidation is by pass number, and it has to be: `Context::set_fonts`
+    // applies the new definitions on the *next* pass and never clears
+    // `ctx.data`, so a cache that outlived the pass would keep resolving to the
+    // fallback face after the host installs its fonts. Within one pass the
+    // registered families cannot change, which makes a per-pass entry exact.
+    let cache_id = egui::Id::new(("thoth-weighted-family", family));
+    let pass = ctx.cumulative_pass_nr();
+    let registered = match ctx.data(|d| d.get_temp::<(u64, bool)>(cache_id)) {
+        Some((cached_pass, registered)) if cached_pass == pass => registered,
+        _ => {
+            let registered = ctx.fonts(|f| f.families().contains(&named));
+            ctx.data_mut(|d| d.insert_temp(cache_id, (pass, registered)));
+            registered
+        }
+    };
+    if registered {
         egui::FontId::new(size, named)
     } else {
         egui::FontId::proportional(size)

@@ -70,9 +70,16 @@ impl Card {
                 ui.horizontal(|ui| {
                     // ── Leading icon ─────────────────────────────────────────
                     if let Some(icon) = &self.icon {
+                        // Zero spacing only *around the tile*, so `ICON_GAP` is the
+                        // whole icon↔content gap. Restored straight after: the row
+                        // and everything nested in it (the title/toggle line, the
+                        // body node) must keep the default gap whether or not this
+                        // card has an icon.
+                        let spacing = ui.spacing().item_spacing.x;
                         ui.spacing_mut().item_spacing.x = 0.0;
                         Self::icon_tile(ui, icon, &colors);
                         ui.add_space(ICON_GAP);
+                        ui.spacing_mut().item_spacing.x = spacing;
                     }
 
                     ui.vertical(|ui| {

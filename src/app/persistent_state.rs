@@ -109,7 +109,10 @@ impl PersistentState {
     /// The persisted state from disk, or a [`blank`](PersistentState::blank) one if
     /// it can't be read. This is what the running app wants at startup.
     pub fn load_or_default() -> Self {
-        Self::load().unwrap_or_else(|_| Self::blank())
+        Self::load().unwrap_or_else(|err| {
+            eprintln!("Failed to load persistent state: {}", err);
+            Self::blank()
+        })
     }
 
     /// Get the path to the app state storage
@@ -173,11 +176,7 @@ impl PersistentState {
                 eprintln!("Migrating from old recent_files.json format...");
                 let new_state = PersistentState {
                     recent_files: old_data.files,
-                    sidebar_width: DEFAULT_SIDEBAR_WIDTH,
-                    sidebar_expanded: false,
-                    bookmarks: Vec::new(),
-                    open_tabs: Vec::new(),
-                    active_tab_index: 0,
+                    ..Self::blank()
                 };
 
                 // Save in new format
@@ -192,14 +191,7 @@ impl PersistentState {
         }
 
         // No migration needed or failed, return default
-        Ok(Self {
-            recent_files: Vec::new(),
-            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
-            sidebar_expanded: false,
-            bookmarks: Vec::new(),
-            open_tabs: Vec::new(),
-            active_tab_index: 0,
-        })
+        Ok(Self::blank())
     }
 
     /// Save app state to disk

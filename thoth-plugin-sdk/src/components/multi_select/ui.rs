@@ -1,7 +1,7 @@
 use crate::components::select::ui::{paint_trigger, paint_truncated, show_popover};
 use crate::theme::{
-    FONT_CONTROL, RADIUS_CHECK, RADIUS_CHIP, ThemeColors, edge_stroke, get_contrast_text_color,
-    phosphor_font_id, with_alpha,
+    FONT_CONTROL, RADIUS_CHECK, RADIUS_CHIP, ThemeColors, edge_stroke, focus_stroke,
+    get_contrast_text_color, phosphor_font_id, with_alpha,
 };
 
 use super::MultiSelect;
@@ -107,15 +107,19 @@ impl MultiSelect {
                     }
                 }
 
-                let escape = ui.ctx().input(|i| i.key_pressed(egui::Key::Escape));
-                let interact_pos = ui
+                // Consumed, so an Escape that closes this popover doesn't also
+                // reach an enclosing overlay (e.g. a dismissible `Modal`).
+                let escape = ui
                     .ctx()
-                    .input(|i| i.pointer.interact_pos())
-                    .unwrap_or_default();
+                    .input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+                // An unknown pointer position counts as *outside* the trigger —
+                // defaulting it to the origin would read as a trigger click for any
+                // trigger containing (0, 0).
+                let interact_pos = ui.ctx().input(|i| i.pointer.interact_pos());
                 // Toggling a row keeps the popover open, so it only closes on a
                 // click outside it and the trigger — or on Escape.
-                let click_outside =
-                    popover_resp.clicked_elsewhere() && !trigger_rect.contains(interact_pos);
+                let click_outside = popover_resp.clicked_elsewhere()
+                    && !interact_pos.is_some_and(|p| trigger_rect.contains(p));
                 if escape || click_outside {
                     ui.ctx().data_mut(|d| d.insert_temp::<bool>(id, false));
                 }
@@ -128,11 +132,16 @@ impl MultiSelect {
     /// The trigger label: a count of what's selected, e.g. `"2 columns"`.
     fn summary(&self) -> String {
         let n = self.value.len();
-        match &self.item_noun {
-            Some(noun) if n == 1 => format!("1 {noun}"),
-            Some(noun) => format!("{n} {noun}s"),
-            None if n == 0 => "None selected".to_owned(),
-            None => format!("{n} selected"),
+        // An empty selection reads the same whether or not a noun is configured.
+        if n == 0 {
+            return "None selected".to_owned();
+        }
+        match (&self.item_noun, &self.item_noun_plural) {
+            (Some(noun), _) if n == 1 => format!("1 {noun}"),
+            // Plurals come from the caller; appending an `s` would produce
+            // `"entrys"` / `"matchs"`.
+            (_, Some(plural)) => format!("{n} {plural}"),
+            _ => format!("{n} selected"),
         }
     }
 }
@@ -155,6 +164,16 @@ fn row(
         if resp.hovered() {
             ui.painter()
                 .rect_filled(rect, RADIUS_CHIP, with_alpha(colors.fg, HOVER_ALPHA));
+        }
+        // Keyboard focus gets the same ring the fields use, drawn inside the row so
+        // it isn't clipped by the popover's padding.
+        if resp.has_focus() {
+            ui.painter().rect_stroke(
+                rect,
+                RADIUS_CHIP,
+                focus_stroke(colors),
+                egui::StrokeKind::Inside,
+            );
         }
 
         // ── Checkbox — design `.cb` / `.cb.on` ────────────────────────────────

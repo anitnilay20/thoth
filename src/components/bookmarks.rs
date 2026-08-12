@@ -74,19 +74,14 @@ impl StatefulComponent for Bookmarks {
 
         ui.add(Separator::with_margins(GUTTER_GAP, GUTTER_GAP / 2.0));
 
-        let show_filename: Vec<bool> = props
-            .bookmarks
-            .iter()
-            .map(|b| props.current_file_path != Some(&b.file_path))
-            .collect();
-
         let items: Vec<ListItem> = props
             .bookmarks
             .iter()
-            .enumerate()
-            .map(|(i, b)| {
+            .map(|b| {
                 let title = b.label.as_deref().unwrap_or(b.path.as_str());
-                let description = if show_filename[i] {
+                // A bookmark in another file gets its file name as the second
+                // line; one in the open file doesn't need it.
+                let description = if props.current_file_path != Some(&b.file_path) {
                     Some(
                         std::path::Path::new(&b.file_path)
                             .file_name()

@@ -279,7 +279,8 @@ pub(crate) fn paint_trigger(
             edge_stroke(colors),
             egui::StrokeKind::Inside,
         );
-        if is_open {
+        // Open *or* merely focused: a closed trigger still shows keyboard focus.
+        if is_open || resp.has_focus() {
             ui.painter().rect_stroke(
                 rect,
                 RADIUS_CONTROL,
@@ -287,18 +288,18 @@ pub(crate) fn paint_trigger(
                 egui::StrokeKind::Outside,
             );
         }
-        // A leading glyph shifts the label right by its width plus the gap
-        // (design `.viewsel` leads with an icon before the value).
+        // A leading glyph shifts the label right by the width it actually painted
+        // plus the gap (design `.viewsel` leads with an icon before the value).
         let icon_advance = match icon {
             Some((glyph, tint)) => {
-                ui.painter().text(
+                let painted = ui.painter().text(
                     egui::pos2(rect.min.x + TRIGGER_PAD_X, rect.center().y),
                     egui::Align2::LEFT_CENTER,
                     glyph,
                     phosphor_font_id(CARET_SIZE + 2.0),
                     tint,
                 );
-                CARET_SIZE + 2.0 + TRIGGER_GAP
+                painted.width() + TRIGGER_GAP
             }
             None => 0.0,
         };

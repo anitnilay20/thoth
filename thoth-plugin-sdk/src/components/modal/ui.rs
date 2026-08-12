@@ -212,6 +212,16 @@ impl Modal {
 
         let w = width.or_else(|| width_pct.map(|p| screen.width() * p.clamp(0.0, 1.0)));
         let h = height_pct.map(|p| screen.height() * p.clamp(0.0, 1.0));
+        // The footer strip is a *sibling* of the body, so a height-capped card has
+        // to take it out of the body's budget. Its height only exists once it's
+        // drawn (below the body), so the previous pass's measurement is cached and
+        // reserved here.
+        let footer_id = egui::Id::new(("modal_footer_h", id));
+        let footer_h = if footer.is_some() && h.is_some() {
+            ctx.data(|d| d.get_temp::<f32>(footer_id).unwrap_or(0.0))
+        } else {
+            0.0
+        };
         let win = match (w, h) {
             (Some(w), Some(h)) => win.fixed_size([w, h]),
             (Some(w), None) => win.min_width(w).max_width(w),
@@ -341,12 +351,15 @@ impl Modal {
                     // Body copy is 13px in the softer `subtext0`; children that set
                     // their own size or colour still win.
                     ui.visuals_mut().widgets.noninteractive.fg_stroke.color = colors.fg_subtle();
-                    if let Some(h) = h {
-                        // Head padding + title + body padding, so a height-capped
-                        // modal scrolls its body rather than overflowing the card.
-                        let header_overhead = 78.0;
+                    if h.is_some() {
+                        // What's left of the card: `available_height` already nets
+                        // out the *measured* header (whose height varies with the
+                        // glyph tile, eyebrow and subtitle) and this frame's own
+                        // padding, so only the footer has to be subtracted. The
+                        // body then scrolls rather than overflowing the card.
+                        let budget = (ui.available_height() - footer_h).max(0.0);
                         egui::ScrollArea::vertical()
-                            .max_height((h - header_overhead).max(0.0))
+                            .max_height(budget)
                             .show(ui, body);
                     } else {
                         body(ui);
@@ -387,6 +400,14 @@ impl Modal {
                         crate::theme::with_alpha(colors.surface_raised, 66), // 26%
                     ),
                 );
+                // Feed the measurement back for the next pass's body budget.
+                if h.is_some() {
+                    let measured = strip.response.rect.height();
+                    if (measured - footer_h).abs() > 0.5 {
+                        ui.ctx().data_mut(|d| d.insert_temp(footer_id, measured));
+                        ui.ctx().request_repaint();
+                    }
+                }
             }
         });
 

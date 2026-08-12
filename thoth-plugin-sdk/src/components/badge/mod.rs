@@ -166,15 +166,17 @@ impl egui::Widget for Badge {
         };
         let font = self.font_size.unwrap_or(size_font);
         let margin = egui::Margin::symmetric(pad_x, pad_y);
+        // `pill` overrides every variant's own corner; otherwise the soft chip is
+        // the squircle 8px and the filled/outlined ones the tighter 3px.
+        let radius = match (self.pill, self.soft) {
+            (true, _) => RADIUS_PILL,
+            (false, true) => RADIUS_BADGE_SOFT,
+            (false, false) => RADIUS_BADGE,
+        };
 
         if self.soft {
             // A faint tint of the colour behind coloured text (the chip look) —
             // design `.badge.soft`.
-            let radius = if self.pill {
-                RADIUS_PILL
-            } else {
-                RADIUS_BADGE_SOFT
-            };
             egui::Frame::new()
                 .fill(with_alpha(color, SOFT_TINT_ALPHA))
                 .corner_radius(radius)
@@ -184,7 +186,6 @@ impl egui::Widget for Badge {
         } else if self.outlined {
             // Transparent fill, coloured border + coloured monospace text — the
             // schema/structure constraint-tag style (design `.badge.outlined`).
-            let radius = if self.pill { RADIUS_PILL } else { RADIUS_BADGE };
             egui::Frame::new()
                 .stroke(egui::Stroke::new(1.0, color))
                 .corner_radius(radius)
@@ -194,7 +195,6 @@ impl egui::Widget for Badge {
         } else {
             // Design `.badge.filled`: solid fill, auto-contrast text.
             let fg = get_contrast_text_color(color);
-            let radius = if self.pill { RADIUS_PILL } else { RADIUS_BADGE };
             egui::Frame::new()
                 .fill(color)
                 .corner_radius(radius)

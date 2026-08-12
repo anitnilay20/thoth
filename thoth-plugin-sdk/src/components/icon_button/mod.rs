@@ -75,10 +75,13 @@ pub struct IconButton {
     /// `.bell` pins it to `fg` in every state instead.
     #[serde(default, rename = "glyph-color")]
     pub glyph_color: Option<String>,
-    /// Square button size preset — shares heights with [`Button`]/[`Select`], so
-    /// mixed toolbars line up. Defaults to [`Size::Small`] (24px), the common
-    /// compact icon-button size. Prefer this; use [`size_px`](IconButton::size_px)
-    /// only for host chrome that must fit an exact pixel dimension.
+    /// Square button size preset — shares heights with [`Button`] (via
+    /// [`Size::metrics`]), so a toolbar of buttons and icon buttons lines up.
+    /// Defaults to [`Size::Small`] (22px), the common compact icon-button size.
+    /// Note these heights are deliberately shorter than a text-entry control's
+    /// ([`Size::field_metrics`], which [`Select`] uses). Prefer this prop; use
+    /// [`size_px`](IconButton::size_px) only for host chrome that must fit an
+    /// exact pixel dimension.
     ///
     /// [`Button`]: crate::components::Button
     /// [`Select`]: crate::components::Select

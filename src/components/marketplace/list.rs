@@ -85,6 +85,10 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
 
             // Row 2: sort select (fills available width) + gap + refresh icon
             ui.horizontal(|ui| {
+                // Every gap in the row is explicit, so the width budget below
+                // is the whole story and the refresh button can't be clipped.
+                ui.spacing_mut().item_spacing.x = 0.0;
+
                 let select_w = (ui.available_width() - REFRESH_W - SORT_GAP).max(60.0);
 
                 let sort_val = match state.sort {
@@ -340,7 +344,8 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
                 name: p.name.clone(),
                 desc,
                 by_line: format!("by {} · v{}", p.author, p.version),
-                icon_file: p.get_icon_file(ui.ctx().clone()).ok(),
+                // Resolved once per manifest load, never per frame.
+                icon_file: state.icon_files.get(&p.id).cloned(),
             }
         })
         .collect();

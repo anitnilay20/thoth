@@ -48,6 +48,21 @@ impl Fill {
     }
 }
 
+/// The theme hue a [`ButtonColor`] role resolves to, or `None` for
+/// [`ButtonColor::Default`], which has no semantic hue: it *is* the neutral
+/// surface button. Shared by the filled and text paths so the two can't drift.
+fn semantic_color(color: ButtonColor, colors: &ThemeColors) -> Option<Color32> {
+    match color {
+        ButtonColor::Default => None,
+        // The design's primary button is lavender, not mauve; `Secondary` shares
+        // it so text buttons keep their lavender label colour.
+        ButtonColor::Primary | ButtonColor::Secondary => Some(colors.accent_secondary),
+        ButtonColor::Danger => Some(colors.error),
+        ButtonColor::Success => Some(colors.success),
+        ButtonColor::Warning => Some(colors.warning),
+    }
+}
+
 /// Everything needed to paint one filled button, resolved from the palette.
 struct Visual {
     fill: Fill,
@@ -61,18 +76,7 @@ struct Visual {
 impl Visual {
     /// Paint recipe for `color`, either solid or as a soft tint over the surface.
     fn resolve(color: ButtonColor, soft: bool, colors: &ThemeColors) -> Self {
-        // `Default` has no semantic hue: it *is* the neutral surface button.
-        let semantic = match color {
-            ButtonColor::Default => None,
-            // The design's primary button is lavender, not mauve; `Secondary`
-            // shares it so text buttons keep their lavender label colour.
-            ButtonColor::Primary | ButtonColor::Secondary => Some(colors.accent_secondary),
-            ButtonColor::Danger => Some(colors.error),
-            ButtonColor::Success => Some(colors.success),
-            ButtonColor::Warning => Some(colors.warning),
-        };
-
-        match (semantic, soft) {
+        match (semantic_color(color, colors), soft) {
             // `.btn.dsoft` — the hue reads in the label, the fill only hints at it.
             (Some(hue), true) => Self {
                 fill: Fill::surface(colors),
@@ -298,16 +302,8 @@ impl egui::Widget for Button {
                         // Text buttons paint with their semantic color; preserve it on
                         // hover — brightened by the same step as a solid fill — instead
                         // of falling back to the default foreground.
-                        let semantic = match self.color {
-                            ButtonColor::Default => None,
-                            ButtonColor::Primary | ButtonColor::Secondary => {
-                                Some(colors.accent_secondary)
-                            }
-                            ButtonColor::Danger => Some(colors.error),
-                            ButtonColor::Success => Some(colors.success),
-                            ButtonColor::Warning => Some(colors.warning),
-                        };
-                        let (normal_color, hover_color) = match semantic {
+                        let (normal_color, hover_color) = match semantic_color(self.color, &colors)
+                        {
                             Some(hue) => (hue, hue.gamma_multiply(HOVER_BRIGHTEN)),
                             None => (colors.fg_muted, colors.fg),
                         };

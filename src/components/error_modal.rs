@@ -29,7 +29,11 @@ pub struct ErrorModalOutput {
 
 /// Error modal component - displays errors with recovery options
 #[derive(Default)]
-pub struct ErrorModal;
+pub struct ErrorModal {
+    /// The error already written to the log, so a modal that stays open for
+    /// hundreds of frames logs once instead of once per frame.
+    logged: Option<String>,
+}
 
 impl StatefulComponent for ErrorModal {
     type Props<'a> = ErrorModalProps<'a>;
@@ -40,6 +44,7 @@ impl StatefulComponent for ErrorModal {
         let mut recovery_action = None;
 
         if !props.open {
+            self.logged = None;
             return ErrorModalOutput {
                 events,
                 recovery_action,
@@ -55,8 +60,12 @@ impl StatefulComponent for ErrorModal {
         let recoverable = ErrorHandler::is_recoverable(props.error);
         let resettable = matches!(action, RecoveryAction::Reset);
 
-        // Log the technical error
-        ErrorHandler::log_error(props.error);
+        // Log the technical error once per error instance, not once per frame.
+        let signature = props.error.to_string();
+        if self.logged.as_deref() != Some(signature.as_str()) {
+            ErrorHandler::log_error(props.error);
+            self.logged = Some(signature);
+        }
 
         // The card's head carries the title plus the message as its subtitle
         // (design `.m-head`: `An error occurred` over a `pre-line` detail line).

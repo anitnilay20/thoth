@@ -118,6 +118,10 @@ pub struct Column {
     /// Defaults to `0.0` — an unpadded column, which is what most callers want;
     /// set it for an inset region such as the design's `.tree{padding:4px}`.
     /// Nests *inside* [`framed`](Column::framed)'s card margin when both are set.
+    ///
+    /// egui margins are whole points (`i8`), so the value is truncated towards
+    /// zero — `4.6` renders as 4 — and saturates at ±127. Values at or below
+    /// `0.0` skip the padding frame entirely.
     #[builder(default)]
     #[serde(default)]
     pub padding: f32,
@@ -703,8 +707,13 @@ impl Split {
                             // grip (`.hhandle .grip`: 4x36, fully round,
                             // `surface-raised`), tinted mauve while hovered or
                             // dragging.
-                            let grip =
-                                egui::Rect::from_center_size(rect.center(), egui::vec2(4.0, 36.0));
+                            // 36pt tall where there's room; clamped to the handle
+                            // otherwise, since an unfilled row sizes it from
+                            // `row_min` and the grip would overhang both ends.
+                            let grip = egui::Rect::from_center_size(
+                                rect.center(),
+                                egui::vec2(4.0, 36.0_f32.min(rect.height())),
+                            );
                             ui.painter().rect_filled(
                                 grip,
                                 crate::theme::RADIUS_PILL,
@@ -768,7 +777,7 @@ impl VSplit {
             .fill(colors.bg_sunken)
             .inner_margin(GUTTER_GAP as i8)
             .show(ui, |ui| {
-                self.panes(ui, events, &pane_frame, handle_h);
+                self.panes(ui, events, &colors, &pane_frame, handle_h);
             });
     }
 
@@ -777,10 +786,10 @@ impl VSplit {
         &mut self,
         ui: &mut egui::Ui,
         events: &mut Vec<UiEvent>,
+        colors: &crate::theme::ThemeColors,
         pane_frame: &egui::Frame,
         handle_h: f32,
     ) {
-        let colors = crate::theme::ThemeColors::from_ctx(ui.ctx());
         let full = ui.available_size();
         let width = full.x;
         let total_h = full.y;

@@ -263,16 +263,22 @@ impl DataView {
                 }
             }
 
-            // `copy` is handled in-widget (no plugin round-trip).
-            ui.add(
-                Button::builder()
-                    .label("Copy")
-                    .icon(egui_phosphor::regular::COPY)
-                    .button_type(ButtonType::Text)
-                    .hover_text("Copy as JSON")
-                    .copy(records_json(page, true))
-                    .build(),
-            );
+            // Copy is handled in-widget (no plugin round-trip). Serialised on the
+            // click rather than through `Button::copy`, which would re-encode the
+            // whole page into a String every frame just to have it ready.
+            if ui
+                .add(
+                    Button::builder()
+                        .label("Copy")
+                        .icon(egui_phosphor::regular::COPY)
+                        .button_type(ButtonType::Text)
+                        .hover_text("Copy as JSON")
+                        .build(),
+                )
+                .clicked()
+            {
+                ui.ctx().copy_text(records_json(page, true));
+            }
         });
     }
 
@@ -292,9 +298,13 @@ impl DataView {
         use crate::dataset::{PluginRenderResult, render_with_plugin};
         use crate::render_node::RenderNode;
 
-        egui::ScrollArea::both()
-            .id_salt((node_id, "data_view_scroll"))
-            .show(ui, |ui| match view {
+        // The grid scrolls itself: `TableView` wraps it in a horizontal scroll area
+        // and `TableBuilder::body.rows` virtualises vertically off *its* viewport.
+        // Nesting it in the body's own scroll area would hand it an infinite
+        // viewport, and it would lay out every row of the page instead of the
+        // visible ones. Every other view is plain content, and scrolls here.
+        scrolled(ui, !table_view(view), (node_id, "data_view_scroll"), |ui| {
+            match view {
                 "json" => {
                     JsonTree::builder()
                         .id(format!("{node_id}_tree"))
@@ -321,9 +331,7 @@ impl DataView {
                 // interactions are discarded rather than routed to the producer.
                 plugin if plugin.starts_with("plugin:") => {
                     match render_with_plugin(&plugin["plugin:".len()..], &self.handle) {
-                        PluginRenderResult::Rendered(mut node) => {
-                            node.show(ui, &mut Vec::new())
-                        }
+                        PluginRenderResult::Rendered(mut node) => node.show(ui, &mut Vec::new()),
                         PluginRenderResult::ConsentPending => {
                             ui.add(
                                 Typography::builder()
@@ -378,7 +386,33 @@ impl DataView {
                         .build()
                         .show(ui, events);
                 }
-            });
+            }
+        });
+    }
+}
+
+/// Whether `view` selects the built-in grid — the one branch of
+/// [`DataView::body`] that owns its own scrolling. Kept beside the match it
+/// mirrors: table is the fallback, so anything that isn't a named built-in or a
+/// renderer plugin lands there.
+#[cfg(feature = "egui")]
+fn table_view(view: &str) -> bool {
+    !matches!(view, "json" | "raw") && !view.starts_with("plugin:")
+}
+
+/// Run `content` inside the body's scroll area, or directly into `ui` when the
+/// content scrolls itself.
+#[cfg(feature = "egui")]
+fn scrolled(
+    ui: &mut egui::Ui,
+    scroll: bool,
+    id_salt: impl std::hash::Hash,
+    content: impl FnOnce(&mut egui::Ui),
+) {
+    if scroll {
+        egui::ScrollArea::both().id_salt(id_salt).show(ui, content);
+    } else {
+        content(ui);
     }
 }
 

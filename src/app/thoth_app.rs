@@ -518,8 +518,9 @@ impl App for ThothApp {
             let dock_colors = ui
                 .ctx()
                 .memory(|m| {
-                    m.data
-                        .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+                    m.data.get_temp::<crate::theme::ThemeColors>(egui::Id::new(
+                        thoth_plugin_sdk::theme::THEME_MEMORY_ID,
+                    ))
                 })
                 .unwrap_or_else(|| {
                     let dark_mode = ui.ctx().global_style().visuals.dark_mode;
@@ -1694,8 +1695,9 @@ impl ThothApp {
         let focused_id = self.window_state.tab_manager.active_tab_id();
 
         let colors = ui.ctx().memory(|m| {
-            m.data
-                .get_temp::<crate::theme::ThemeColors>(egui::Id::new("theme_colors"))
+            m.data.get_temp::<crate::theme::ThemeColors>(egui::Id::new(
+                thoth_plugin_sdk::theme::THEME_MEMORY_ID,
+            ))
         });
 
         let mut dock_style = colors

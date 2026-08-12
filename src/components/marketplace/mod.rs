@@ -28,7 +28,7 @@ impl StatelessComponent for Marketplace {
 
         state.load_if_needed(ui.ctx(), false);
         let setting = settings::Settings::read(ui.ctx());
-        state.poll_pending(&setting.plugins.disabled_plugin_ids);
+        state.poll_pending(ui.ctx(), &setting.plugins.disabled_plugin_ids);
 
         let colors = ui.ctx().memory(|mem| {
             mem.data
@@ -64,7 +64,7 @@ impl StatelessComponent for MarketplaceDetail {
             .is_some_and(|slot| slot.lock().ok().is_some_and(|g| g.is_some()));
 
         let setting = settings::Settings::read(ui.ctx());
-        state.poll_pending(&setting.plugins.disabled_plugin_ids);
+        state.poll_pending(ui.ctx(), &setting.plugins.disabled_plugin_ids);
 
         let colors = ui.ctx().memory(|mem| {
             mem.data
@@ -120,7 +120,10 @@ impl StatelessComponent for MarketplaceDetail {
         }
 
         if let Some(plugin) = &selected_plugin {
-            if let Some(action) = detail::render(ui, plugin, &install_state, &colors) {
+            let icon_file = state.icon_files.get(&plugin.id).cloned();
+            if let Some(action) =
+                detail::render(ui, plugin, &install_state, icon_file.as_deref(), &colors)
+            {
                 match action {
                     DetailAction::Install => {
                         let slot = plugin.download_and_install(ui.ctx().clone());

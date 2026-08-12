@@ -29,7 +29,19 @@ impl NumberInput {
 
         let min = self.min.unwrap_or(f64::NEG_INFINITY);
         let max = self.max.unwrap_or(f64::INFINITY);
-        let step = self.step.unwrap_or(1.0);
+        // The bounds and the step arrive from plugin-supplied JSON, so they're
+        // normalised once here: `f64::clamp` panics on an inverted or NaN range,
+        // and a zero / negative / non-finite step would make the spin buttons
+        // inert or reverse them.
+        let (min, max) = match (min, max) {
+            (a, b) if a.is_nan() || b.is_nan() => (f64::NEG_INFINITY, f64::INFINITY),
+            (a, b) if a > b => (b, a),
+            pair => pair,
+        };
+        let step = match self.step {
+            Some(s) if s.is_finite() && s > 0.0 => s,
+            _ => 1.0,
+        };
 
         // The unit is laid out up front so the control is exactly as wide as its
         // content (design `.num` is an inline-flex box).
@@ -61,7 +73,13 @@ impl NumberInput {
             egui::vec2(SPIN_W, rect.height()),
         );
 
-        let id = ui.make_persistent_id((self.id.as_str(), "num"));
+        // An id-less input falls back to this `ui`'s auto id, so sibling anonymous
+        // inputs don't share their spin-button interactions (or the value's state).
+        let id = if self.id.is_empty() {
+            ui.next_auto_id().with("num")
+        } else {
+            ui.make_persistent_id((self.id.as_str(), "num"))
+        };
         let mut spun = false;
 
         let inner = ui.scope(|ui| {
@@ -108,19 +126,28 @@ impl NumberInput {
                     if hovered { colors.fg } else { colors.fg_muted },
                 );
             }
+            // A click at a bound leaves the value where it is, so `changed()` is
+            // only reported when the clamped result actually moved.
             if dec.clicked() {
-                self.value = (self.value - step).clamp(min, max);
-                spun = true;
+                let next = (self.value - step).clamp(min, max);
+                spun |= next != self.value;
+                self.value = next;
             }
             if inc.clicked() {
-                self.value = (self.value + step).clamp(min, max);
-                spun = true;
+                let next = (self.value + step).clamp(min, max);
+                spun |= next != self.value;
+                self.value = next;
             }
 
             // ── Value ─────────────────────────────────────────────────────────
-            let builder = egui::UiBuilder::new().max_rect(value_rect).layout(
-                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-            );
+            let builder = egui::UiBuilder::new()
+                .max_rect(value_rect)
+                .layout(egui::Layout::centered_and_justified(
+                    egui::Direction::LeftToRight,
+                ))
+                // Same salt as the spin buttons, so the `DragValue` is unique per
+                // control even when no explicit id was given.
+                .id_salt(id);
             let drag = ui
                 .scope_builder(builder, |ui| {
                     let style = ui.style_mut();

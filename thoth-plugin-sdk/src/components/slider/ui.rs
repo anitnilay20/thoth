@@ -37,12 +37,26 @@ impl Slider {
             // layout's own item spacing and keep the geometry exact.
             ui.spacing_mut().item_spacing.x = 0.0;
 
-            let readout = ui.painter().layout_no_wrap(
-                format_value(self.value, self.max - self.min),
-                egui::FontId::monospace(READOUT_FONT),
-                colors.fg_subtle(),
-            );
-            let readout_w = readout.size().x.max(READOUT_MIN_WIDTH);
+            // Only the readout's *slot* is measured up front — the galley itself is
+            // laid out at paint time, after the drag handler below has moved
+            // `self.value`, so the number never lags a frame behind the thumb. The
+            // slot is measured from the range's endpoints (the widest the readout
+            // can get) rather than the current value, so the track keeps a stable
+            // width as digits come and go.
+            let span = self.max - self.min;
+            let readout_w = [self.min, self.max]
+                .into_iter()
+                .map(|v| {
+                    ui.painter()
+                        .layout_no_wrap(
+                            format_value(v, span),
+                            egui::FontId::monospace(READOUT_FONT),
+                            colors.fg_subtle(),
+                        )
+                        .size()
+                        .x
+                })
+                .fold(READOUT_MIN_WIDTH, f32::max);
             // The halo sits outside the thumb, so the row must be tall enough for both.
             let row_h = THUMB_DIAMETER + 2.0 * HALO_WIDTH;
             let track_w = (ui.available_width() - readout_w - READOUT_GAP).max(THUMB_DIAMETER);
@@ -60,18 +74,58 @@ impl Slider {
             // travel is narrower than the track itself.
             let half = THUMB_DIAMETER / 2.0;
             let (x0, x1) = (rect.left() + half, rect.right() - half);
-            let span = self.max - self.min;
 
             if (response.clicked() || response.dragged())
                 && let Some(pos) = response.interact_pointer_pos()
             {
                 let t = ((pos.x - x0) / (x1 - x0).max(1.0)).clamp(0.0, 1.0);
-                let value = self.min + t as f64 * span;
+                // Snap to the precision the readout shows, so the value the plugin
+                // receives is the number the user read off the slider.
+                let scale = 10f64.powi(decimals_for(span) as i32);
+                let value = ((self.min + t as f64 * span) * scale).round() / scale;
                 if value != self.value {
                     self.value = value;
                     response.mark_changed();
                 }
             }
+
+            // Keyboard control. `Sense::click_and_drag` already makes the track
+            // focusable, so without this a keyboard user can tab to the slider but
+            // never move it. One arrow press steps by the readout's own precision;
+            // Home/End jump to the ends.
+            if interactive && response.has_focus() {
+                let step = span.signum() * 10f64.powi(-(decimals_for(span) as i32));
+                let (lo, hi) = if self.min <= self.max {
+                    (self.min, self.max)
+                } else {
+                    (self.max, self.min)
+                };
+                let target = ui.input(|i| {
+                    use egui::Key;
+                    if i.key_pressed(Key::ArrowLeft) || i.key_pressed(Key::ArrowDown) {
+                        Some(self.value - step)
+                    } else if i.key_pressed(Key::ArrowRight) || i.key_pressed(Key::ArrowUp) {
+                        Some(self.value + step)
+                    } else if i.key_pressed(Key::Home) {
+                        Some(self.min)
+                    } else if i.key_pressed(Key::End) {
+                        Some(self.max)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(value) = target {
+                    let value = value.clamp(lo, hi);
+                    if value != self.value {
+                        self.value = value;
+                        response.mark_changed();
+                    }
+                }
+            }
+            // Assistive technologies read the value and label from here.
+            response.widget_info(|| {
+                egui::WidgetInfo::slider(interactive, self.value, self.label.as_str())
+            });
 
             // Right-aligned readout in its own slot, so the track keeps a stable
             // width regardless of the value's digit count.
@@ -93,6 +147,12 @@ impl Slider {
                     0.0
                 };
                 let thumb_center = egui::pos2(egui::lerp(x0..=x1, t), rect.center().y);
+                // Laid out here, from the value the drag handler just wrote.
+                let readout = painter.layout_no_wrap(
+                    format_value(self.value, span),
+                    egui::FontId::monospace(READOUT_FONT),
+                    colors.fg_subtle(),
+                );
 
                 // `RADIUS_PILL` saturates to `u8::MAX`; the tessellator clamps the
                 // corner radius to half the height, which is the full pill we want.
@@ -139,15 +199,21 @@ impl Slider {
     }
 }
 
-/// Format the readout with a precision that suits the range: wide ranges read as
-/// whole numbers, narrow ones keep the decimals that make dragging legible.
-fn format_value(value: f64, span: f64) -> String {
-    let decimals = if span.abs() >= 10.0 {
+/// Decimal places the readout shows for a range of `span`: wide ranges read as
+/// whole numbers, narrow ones keep the decimals that make dragging legible. Also
+/// the precision the dragged value is snapped to, so the two can't disagree.
+fn decimals_for(span: f64) -> usize {
+    if span.abs() >= 10.0 {
         0
     } else if span.abs() >= 1.0 {
         2
     } else {
         3
-    };
+    }
+}
+
+/// Format the readout at [`decimals_for`]'s precision.
+fn format_value(value: f64, span: f64) -> String {
+    let decimals = decimals_for(span);
     format!("{value:.decimals$}")
 }

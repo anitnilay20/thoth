@@ -546,6 +546,21 @@ fn render_row(ui: &mut egui::Ui, row: &NotifRow, colors: &ThemeColors) -> Option
 
     let mut event = None;
 
+    // The row's own click target. Registered *before* the children so egui stacks
+    // the dismiss / pinned-action buttons on top of it, and so activation needs a
+    // press **and** release on the row rather than a bare pointer test. Its rect
+    // is only known after layout, hence last frame's — the same one-frame trick
+    // as `was_hovered`, and harmless because a row's rect is stable.
+    let hit_id = row_id.with("hit");
+    let hit_rect = ui
+        .ctx()
+        .memory(|m| m.data.get_temp::<egui::Rect>(hit_id))
+        .unwrap_or(egui::Rect::NOTHING);
+    let row_resp = ui.interact(hit_rect, hit_id, Sense::click());
+    // Gives the row a focusable widget with a label, so Tab + Enter/Space and
+    // AccessKit clients can activate a notification.
+    row_resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, title));
+
     // Reserve a paint slot before the content so the wash draws behind the glyph
     // and text.
     let bg_slot = ui.painter().add(egui::Shape::Noop);
@@ -627,7 +642,12 @@ fn render_row(ui: &mut egui::Ui, row: &NotifRow, colors: &ThemeColors) -> Option
         })
         .inner;
 
-    let hovered = ui.rect_contains_pointer(response.rect);
+    ui.ctx()
+        .memory_mut(|m| m.data.insert_temp(hit_id, response.rect));
+
+    // `contains_pointer`, not `hovered`: the pointer sitting on the dismiss button
+    // is still inside the row, and the row's wash and revealed dismiss must stay.
+    let hovered = row_resp.contains_pointer();
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -662,7 +682,7 @@ fn render_row(ui: &mut egui::Ui, row: &NotifRow, colors: &ThemeColors) -> Option
         ui.painter().rect_filled(stripe, STRIPE_RADIUS, kind_color);
     }
 
-    if event.is_none() && hovered && ui.input(|i| i.pointer.primary_clicked()) {
+    if event.is_none() && row_resp.clicked() {
         event = Some(RowEvent::Activate);
     }
 

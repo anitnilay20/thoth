@@ -95,7 +95,7 @@ const BADGE_GAP: f32 = 5.0;
 const TAG_PAD_X: f32 = 6.0;
 /// …with enough vertical padding to clear the 10px text.
 const TAG_PAD_Y: f32 = 2.0;
-/// Gap above the tag row, and between wrapped pills.
+/// Gap above the tag row, and between pills.
 const TAG_GAP: f32 = 4.0;
 /// Trailing icon actions — design `.li .lacts{gap:1px}`.
 const ACTION_GAP: f32 = 1.0;
@@ -185,7 +185,8 @@ struct RowMetrics {
     meta_font: f32,
     meta_mono: bool,
     meta_h: f32,
-    /// Height of the tag-pill block, including the gap above it.
+    /// Height of the tag-pill row, including the gap above it. Tags are a single
+    /// row (see [`List::row_content`]), so this is one pill tall.
     tags_h: f32,
     /// List-wide type-tier colour overrides, resolved once per frame. `None`
     /// leaves the tier on its own default.
@@ -795,9 +796,14 @@ impl List {
 
                 if !item.tags.is_empty() {
                     ui.add_space(TAG_GAP - m.text_gap);
-                    ui.horizontal_wrapped(|ui| {
+                    // One row only: `RowMetrics::tags_h` reserves a single pill's
+                    // height, so a wrapped second row would paint over the row
+                    // below (virtual-scroll offsets come from that metric). Pills
+                    // that don't fit the content width are dropped rather than
+                    // wrapped — the first one always draws, however narrow the row.
+                    ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(TAG_GAP, TAG_PAD_Y);
-                        for tag in &item.tags {
+                        for (i, tag) in item.tags.iter().enumerate() {
                             let galley = ui.painter().layout_no_wrap(
                                 tag.clone(),
                                 FontId::proportional(POSTFIX_FONT),
@@ -805,6 +811,9 @@ impl List {
                             );
                             let pad = egui::vec2(TAG_PAD_X, TAG_PAD_Y);
                             let size = galley.size() + pad * 2.0;
+                            if i > 0 && size.x > ui.available_width() {
+                                break;
+                            }
                             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
                             if ui.is_rect_visible(rect) {
                                 ui.painter()

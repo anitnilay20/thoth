@@ -545,19 +545,25 @@ impl ContextComponent for Sidebar {
         const RAIL_W: f32 = 48.0;
         const INNER_GAP: f32 = crate::theme::GUTTER_GAP; // gap between rail and content
         const RIGHT_GAP: f32 = crate::theme::GUTTER_GAP; // gap from sidebar to dock
+        // Everything the outer panel carries besides the content frame. Props and
+        // events speak the *content* width (the persisted unit); the panel system
+        // speaks the outer width, so convert by this amount at that boundary.
+        const CHROME_W: f32 = LEFT_PAD + RAIL_W + INNER_GAP + RIGHT_GAP;
 
         // Transparent outer container — no background, no border. It purely
         // allocates space in the panel system; the visual chrome lives on the
         // inner rail and content frames painted via paint_at.
         let mut outer_panel = egui::Panel::left("sidebar");
         if props.expanded {
-            let min_w = LEFT_PAD + RAIL_W + INNER_GAP + MIN_SIDEBAR_WIDTH + RIGHT_GAP;
+            let min_w = CHROME_W + MIN_SIDEBAR_WIDTH;
             let window_width = ui.ctx().content_rect().width();
-            let max_w = window_width * MAX_SIDEBAR_WIDTH_RATIO;
+            // A narrow (or not-yet-sized) window puts the ratio below the
+            // minimum; never let the range invert, or `clamp` panics.
+            let max_w = (window_width * MAX_SIDEBAR_WIDTH_RATIO).max(min_w);
             outer_panel = outer_panel
                 .resizable(true)
                 .size_range(min_w..=max_w)
-                .default_size(props.sidebar_width.clamp(min_w, max_w));
+                .default_size((props.sidebar_width + CHROME_W).clamp(min_w, max_w));
         } else {
             outer_panel = outer_panel
                 .resizable(false)
@@ -622,9 +628,9 @@ impl ContextComponent for Sidebar {
             });
 
         if props.expanded {
-            let actual_width = outer_response.response.rect.width();
-            if (actual_width - props.sidebar_width).abs() > 0.1 {
-                events.push(SidebarEvent::WidthChanged(actual_width));
+            let content_width = (outer_response.response.rect.width() - CHROME_W).max(0.0);
+            if (content_width - props.sidebar_width).abs() > 0.1 {
+                events.push(SidebarEvent::WidthChanged(content_width));
             }
         }
 

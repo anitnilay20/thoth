@@ -12,6 +12,13 @@ const BADGE_H: f32 = 26.0;
 const BADGE_FONT: f32 = 12.0;
 /// Horizontal padding inside a badge — design `.pfield{padding:0 10px}`.
 const BADGE_PAD_H: f32 = 10.0;
+/// The literal badge of the tab-switching row. Held in a const so the width
+/// pre-pass measures the same string `static_shortcut_row` paints.
+const TAB_SWITCH_BADGE: &str = if cfg!(target_os = "macos") {
+    "⌘1 – ⌘9"
+} else {
+    "Ctrl+1 – Ctrl+9"
+};
 
 pub struct ShortcutsTab;
 
@@ -69,8 +76,11 @@ impl StatelessComponent for ShortcutsTab {
             ];
             let max_text_w = all
                 .iter()
-                .map(|s| {
-                    let txt = s.format();
+                .map(|s| s.format())
+                // The static rows paint literal text, which has to be measured
+                // too or a wide literal overflows its badge.
+                .chain(std::iter::once(TAB_SWITCH_BADGE.to_string()))
+                .map(|txt| {
                     if txt.is_empty() {
                         return 0.0_f32;
                     }
@@ -110,11 +120,7 @@ impl StatelessComponent for ShortcutsTab {
                     static_shortcut_row(
                         ui,
                         "Switch to tab 1–9",
-                        if cfg!(target_os = "macos") {
-                            "⌘1 – ⌘9"
-                        } else {
-                            "Ctrl+1 – Ctrl+9"
-                        },
+                        TAB_SWITCH_BADGE,
                         badge_width,
                         colors,
                     );
@@ -219,7 +225,8 @@ fn static_shortcut_row(
 }
 
 /// A keyboard shortcut badge with a uniform fixed width, styled as the design's
-/// read-only value field — `.pfield`: surface fill, hairline edge, mono label.
+/// read-only value field — `.pfield`: surface fill, hairline edge, proportional
+/// label (the same font the width pre-pass measures with).
 fn kbd_badge(ui: &mut egui::Ui, text: &str, width: f32, colors: &ThemeColors) {
     if text.is_empty() {
         // Still allocate the same width so columns stay aligned.

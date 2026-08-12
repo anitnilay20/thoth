@@ -1085,17 +1085,22 @@ impl ContextComponent for SettingsDialog {
                             ui.spacing_mut().item_spacing.x = 0.0;
 
                             // Dirty indicator — design `.sfoot .dirty`.
-                            let (is_dirty, dirty_count) = if let (Ok(draft), Ok(baseline)) =
-                                (draft_settings.lock(), viewport_baseline.lock())
-                            {
-                                let count = SettingsTab::all()
-                                    .iter()
-                                    .filter(|&&t| section_is_dirty(t, &draft, &baseline))
-                                    .count();
-                                (count > 0, count)
-                            } else {
-                                (false, 0)
-                            };
+                            // `section_dirty` is the selected tab alone — the
+                            // reset action below only touches that section.
+                            let (is_dirty, dirty_count, section_dirty) =
+                                if let (Ok(draft), Ok(baseline), Ok(tab)) = (
+                                    draft_settings.lock(),
+                                    viewport_baseline.lock(),
+                                    selected_tab.lock(),
+                                ) {
+                                    let count = SettingsTab::all()
+                                        .iter()
+                                        .filter(|&&t| section_is_dirty(t, &draft, &baseline))
+                                        .count();
+                                    (count > 0, count, section_is_dirty(*tab, &draft, &baseline))
+                                } else {
+                                    (false, 0, false)
+                                };
 
                             if is_dirty {
                                 let (dot, _) = ui.allocate_exact_size(
@@ -1166,7 +1171,7 @@ impl ContextComponent for SettingsDialog {
                                     }
 
                                     // `.btn.text` — only offered when there is something to reset.
-                                    if is_dirty {
+                                    if section_dirty {
                                         ui.add_space(FOOT_BTN_GAP);
                                         let reset_btn = ui.add(
                                             Button::builder()

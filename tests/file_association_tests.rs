@@ -153,9 +153,8 @@ fn thoth_app_picks_up_os_dispatched_file() {
     let _guard = test_guard();
     reset();
 
-    // Launch app with no file (simulates Finder-launched empty window).
-    // Session restore may reopen previously-open tabs, so we don't assert a blank
-    // initial state — that is legitimate behaviour.
+    // Launch app with no file (simulates Finder-launched empty window). A blank
+    // persistent state keeps the test independent of any session on disk.
     let mut app =
         ThothApp::with_persistent_state(Settings::default(), None, PersistentState::blank());
 

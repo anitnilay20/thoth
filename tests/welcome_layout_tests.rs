@@ -1,7 +1,13 @@
 use eframe::egui;
-use thoth::components::welcome::WelcomePanel;
+use thoth::components::welcome::{MARK_GLOW_BLUR, WRAP_MAX_W, WRAP_PAD_X, WelcomePanel};
 
-fn run(size: egui::Vec2, recent: &[String]) -> (Vec<egui::Rect>, egui::Rect) {
+/// `.wrap{max-width:WRAP_MAX_W;margin:0 auto;padding:… WRAP_PAD_X}` — how far the
+/// wrap's content sits from the pane's edge at a given pane width.
+fn wrap_inset(pane_w: f32) -> f32 {
+    (pane_w - pane_w.min(WRAP_MAX_W)) / 2.0 + WRAP_PAD_X
+}
+
+fn run(size: egui::Vec2, recent: &[String]) -> egui::Rect {
     let ctx = egui::Context::default();
     let mut fonts = egui::FontDefinitions::default();
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
@@ -11,19 +17,16 @@ fn run(size: egui::Vec2, recent: &[String]) -> (Vec<egui::Rect>, egui::Rect) {
     );
     ctx.set_fonts(fonts);
     let mut shapes_rect = egui::Rect::NOTHING;
-    let mut rects = Vec::new();
     for _ in 0..3 {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
             ..Default::default()
         };
-        rects.clear();
         let out = ctx.run_ui(input, |ctx| {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE)
                 .show_inside(ctx, |ui| {
                     let _ = WelcomePanel::render(ui, recent, None);
-                    rects.push(ui.min_rect());
                 });
         });
         // egui reports an id clash by painting a "🔥 …" debug label.
@@ -48,7 +51,7 @@ fn run(size: egui::Vec2, recent: &[String]) -> (Vec<egui::Rect>, egui::Rect) {
         }
         shapes_rect = union;
     }
-    (rects.clone(), shapes_rect)
+    shapes_rect
 }
 
 #[test]
@@ -59,24 +62,25 @@ fn tall_viewport_centres_the_block() {
         "/tmp/revenue.csv".into(),
     ];
     let size = egui::vec2(1200.0, 900.0);
-    let (_, painted) = run(size, &recent);
-    println!("tall painted = {painted:?}");
+    let painted = run(size, &recent);
     let top_gap = painted.top();
     let bottom_gap = size.y - painted.bottom();
     assert!(
         (top_gap - bottom_gap).abs() < 24.0,
         "block should be vertically centred: top {top_gap} vs bottom {bottom_gap}"
     );
-    // 980-wide wrap centred in a 1200 pane: content starts at 110+44 = 154, and
-    // the mark's 18px glow blur bleeds ~9px to the left of it.
+    // The wrap is centred in the pane; the tolerance is the mark's glow, which
+    // bleeds outwards by up to its blur radius.
+    let inset = wrap_inset(size.x);
+    let tol = f32::from(MARK_GLOW_BLUR);
     assert!(
-        (painted.left() - 154.0).abs() < 12.0,
-        "wrap should be centred horizontally, got left {}",
+        (painted.left() - inset).abs() < tol,
+        "wrap should be centred horizontally at WRAP_MAX_W/WRAP_PAD_X inset {inset}, got left {}",
         painted.left()
     );
     assert!(
-        ((1200.0 - painted.right()) - 154.0).abs() < 12.0,
-        "wrap right edge should mirror the left, got right {}",
+        ((size.x - painted.right()) - inset).abs() < tol,
+        "wrap right edge should mirror the left inset {inset}, got right {}",
         painted.right()
     );
 }
@@ -85,8 +89,7 @@ fn tall_viewport_centres_the_block() {
 fn short_viewport_scrolls_from_the_top() {
     let recent: Vec<String> = vec!["/tmp/a.json".into()];
     let size = egui::vec2(900.0, 320.0);
-    let (_, painted) = run(size, &recent);
-    println!("short painted = {painted:?}");
+    let painted = run(size, &recent);
     assert!(
         painted.top() >= -1.0 && painted.top() < 45.0,
         "content must start at the top when it overflows, got {}",
@@ -96,7 +99,6 @@ fn short_viewport_scrolls_from_the_top() {
 
 #[test]
 fn empty_recent_list_is_fine() {
-    let (_, painted) = run(egui::vec2(700.0, 600.0), &[]);
-    println!("narrow painted = {painted:?}");
+    let painted = run(egui::vec2(700.0, 600.0), &[]);
     assert!(painted.is_positive());
 }

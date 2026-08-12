@@ -29,10 +29,12 @@ impl Breadcrumbs {
         current: bool,
         colors: &ThemeColors,
     ) -> egui::Response {
+        // `PLACEHOLDER` leaves the colour to the `Painter::galley` calls below —
+        // baking one in here would make that argument a no-op.
         let galley = ui.painter().layout_no_wrap(
             label.to_owned(),
             egui::FontId::proportional(FONT_SIZE),
-            colors.fg,
+            egui::Color32::PLACEHOLDER,
         );
         let size = galley.size() + SEGMENT_PADDING * 2.0;
         let sense = if current {

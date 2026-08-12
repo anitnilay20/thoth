@@ -38,6 +38,8 @@ pub(crate) fn button(
 ) -> RenderNode {
     let button_type = match btype {
         "Text" => ButtonType::Text,
+        // `.btn.dsoft` — a tinted wash rather than a solid fill.
+        "Soft" => ButtonType::Soft,
         _ => ButtonType::Elevated,
     };
     let color = match color {
@@ -45,6 +47,9 @@ pub(crate) fn button(
         "Secondary" => ButtonColor::Secondary,
         "Danger" => ButtonColor::Danger,
         "Success" => ButtonColor::Success,
+        // Cautionary but reversible — without this arm it fell through to the
+        // neutral surface, silently dropping the hue the caller asked for.
+        "Warning" => ButtonColor::Warning,
         _ => ButtonColor::Default,
     };
     RenderNode::Button(

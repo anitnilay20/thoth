@@ -50,7 +50,9 @@ impl egui::Widget for Spinner {
         use std::f32::consts::TAU;
 
         let colors = ThemeColors::from_ctx(ui.ctx());
-        let diameter = self.size.unwrap_or(DEFAULT_SIZE);
+        // `size` arrives from plugin JSON, so keep it in a paintable range: a
+        // zero or negative diameter would derive a negative radius.
+        let diameter = self.size.unwrap_or(DEFAULT_SIZE).max(STROKE);
         let stroke_w = if diameter >= LARGE_SIZE {
             STROKE_LARGE
         } else {

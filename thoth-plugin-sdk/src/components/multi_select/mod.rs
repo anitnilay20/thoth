@@ -42,10 +42,17 @@ pub struct MultiSelect {
     #[builder(default)]
     #[serde(default)]
     pub disabled: bool,
-    /// Singular noun used in the trigger's count summary, e.g. `"column"` renders
-    /// as `"2 columns"`. When `None` the summary reads `"2 selected"`.
+    /// Singular noun used in the trigger's count summary for a single selection,
+    /// e.g. `"column"` renders as `"1 column"`. When `None` the summary reads
+    /// `"1 selected"`.
     #[serde(default)]
     pub item_noun: Option<String>,
+    /// Plural noun used for counts above one, e.g. `"columns"` renders as
+    /// `"2 columns"`. Plurals are never derived from
+    /// [`item_noun`](MultiSelect::item_noun) — some nouns don't take a bare `s`
+    /// (`"entry"`, `"match"`) — so without this the summary reads `"2 selected"`.
+    #[serde(default)]
+    pub item_noun_plural: Option<String>,
     /// Trigger size. Defaults to [`Size::Medium`].
     #[builder(default)]
     #[serde(default)]

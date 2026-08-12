@@ -57,6 +57,8 @@ fn method_badge_token(method: &str) -> &'static str {
 /// on `--green`, with the other classes stepping through the semantic ramp.
 fn status_token(code: u16) -> &'static str {
     match code {
+        // 1xx is informational, not a failure — it reads as a neutral note.
+        100..=199 => "info",
         200..=299 => "success",
         300..=399 => "info",
         400..=499 => "warning",

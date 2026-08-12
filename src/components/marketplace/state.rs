@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{Arc, Mutex},
     thread,
 };
@@ -132,6 +133,10 @@ pub struct MarketplaceUiState {
     /// "all" | "installed" | "updates"
     pub selected_category: String,
     pub plugins: Vec<MarketPlacePlugin>,
+    /// On-disk icon path per plugin id. Resolving one stats the file and may
+    /// schedule a download, so it happens once per manifest load instead of on
+    /// every frame of the list and the detail header.
+    pub icon_files: HashMap<String, PathBuf>,
     pub install_states: HashMap<String, InstallState>,
     /// Active download/install threads keyed by plugin id.
     pub install_handles: HashMap<String, InstallSlot>,
@@ -151,6 +156,7 @@ impl Default for MarketplaceUiState {
             selected_id: None,
             selected_category: "all".to_string(),
             plugins: Vec::new(),
+            icon_files: HashMap::new(),
             install_states: HashMap::new(),
             install_handles: HashMap::new(),
             load_error: None,
@@ -225,7 +231,7 @@ impl MarketplaceUiState {
 
     /// Check whether the background fetch has completed and apply the result.
     /// Must be called every frame.
-    pub fn poll_pending(&mut self, disabled_plugins: &[String]) {
+    pub fn poll_pending(&mut self, ctx: &egui::Context, disabled_plugins: &[String]) {
         let result = self
             .pending
             .as_ref()
@@ -253,6 +259,17 @@ impl MarketplaceUiState {
 
                 let mut plugins: Vec<MarketPlacePlugin> = data.into_values().collect();
                 plugins.sort_by(|a, b| a.name.cmp(&b.name));
+
+                // Resolve every icon path once, here, so the render passes only
+                // read the map (see `icon_files`).
+                self.icon_files = plugins
+                    .iter()
+                    .filter_map(|p| {
+                        p.get_icon_file(ctx.clone())
+                            .ok()
+                            .map(|file| (p.id.clone(), file))
+                    })
+                    .collect();
 
                 self.plugins = plugins;
                 self.install_states = install_states;
