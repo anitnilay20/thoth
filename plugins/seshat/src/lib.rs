@@ -1,5 +1,6 @@
 #[rustfmt::skip]
 mod bindings;
+mod cli;
 mod constants;
 mod db;
 mod es;
@@ -21,6 +22,7 @@ use bindings::exports::thoth::plugin::{
         PluginError as ProducerError,
     },
     data_source::{ConfigEntry, Guest as DataSourceGuest, PaneOutput, PluginError, SourceSchema},
+    plugin_cli::Guest as CliGuest,
     plugin_lifecycle::Guest as LifecycleGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
     tab_host::Guest as TabHostGuest,
@@ -67,11 +69,42 @@ pub(crate) const ICON_CHART_BAR: &str = "\u{E150}"; // Stats result tab
     name = "Seshat",
     version = "0.1.0",
     description = "Database client for Thoth",
-    capabilities = [DataSource, NewUiComponent],
+    capabilities = [DataSource, NewUiComponent, Cli],
     author = "Thoth contributors",
     icon = ICON_DATABASE,
 )]
 struct Seshat;
+
+impl CliGuest for Seshat {
+    fn schema() -> Result<String, bindings::exports::thoth::plugin::plugin_cli::PluginError> {
+        serde_json::to_string(&cli::schema()).map_err(|error| {
+            bindings::exports::thoth::plugin::plugin_cli::PluginError {
+                code: 1,
+                message: error.to_string(),
+            }
+        })
+    }
+
+    fn run(
+        invocation_json: String,
+    ) -> Result<String, bindings::exports::thoth::plugin::plugin_cli::PluginError> {
+        let invocation = serde_json::from_str(&invocation_json).map_err(|error| {
+            bindings::exports::thoth::plugin::plugin_cli::PluginError {
+                code: 2,
+                message: format!("invalid CLI invocation: {error}"),
+            }
+        })?;
+        let output = cli::run(invocation).map_err(|message| {
+            bindings::exports::thoth::plugin::plugin_cli::PluginError { code: 3, message }
+        })?;
+        serde_json::to_string(&output).map_err(|error| {
+            bindings::exports::thoth::plugin::plugin_cli::PluginError {
+                code: 4,
+                message: error.to_string(),
+            }
+        })
+    }
+}
 
 // ── shared helpers ────────────────────────────────────────────────────────────
 

@@ -7,11 +7,7 @@ use clap_complete::{Shell, generate};
 use serde_json::{Map, Value};
 use thoth_plugin_sdk::cli::{CliArgKind, CliInvocation, CliSchema, PluginCli};
 
-use crate::{
-    headless::{CliCommand, HeadlessRuntime},
-    plugin::plugin_ui_host::PluginCore,
-    settings::Settings,
-};
+use crate::{headless::HeadlessRuntime, plugin::plugin_ui_host::PluginCore, settings::Settings};
 
 /// Fully rendered output from one CLI invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +18,7 @@ pub struct CliOutput {
 }
 
 enum Action {
-    Runtime(CliCommand),
+    ListCliPlugins,
     Plugin {
         plugin_id: String,
         invocation: CliInvocation,
@@ -64,7 +60,7 @@ where
 
     match action {
         Action::Completions(shell) => completion_output(shell, command(&schemas)),
-        Action::Runtime(command) => runtime_output(runtime.run(command)),
+        Action::ListCliPlugins => cli_plugins_output(&schemas),
         Action::Plugin {
             plugin_id,
             invocation,
@@ -83,7 +79,7 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let mut runtime = HeadlessRuntime::with_adapters(settings, core_plugins, cli_plugins);
+    let runtime = HeadlessRuntime::with_adapters(settings, core_plugins, cli_plugins);
     let schemas = runtime.cli_schemas();
     let cli = command(&schemas);
     let action = match parse(args, cli, &schemas) {
@@ -93,7 +89,7 @@ where
 
     match action {
         Action::Completions(shell) => completion_output(shell, command(&schemas)),
-        Action::Runtime(command) => runtime_output(runtime.run(command)),
+        Action::ListCliPlugins => cli_plugins_output(&schemas),
         Action::Plugin {
             plugin_id,
             invocation,
@@ -107,7 +103,7 @@ fn command(schemas: &[CliSchema]) -> Command {
         .about("Explore data from the terminal or desktop")
         .subcommand_required(true)
         .after_help("Plugin commands: thoth <plugin-id> <subcommand> [options]")
-        .subcommand(Command::new("plugins").about("List discovered plugins as JSON"))
+        .subcommand(Command::new("plugins").about("List available CLI plugin names"))
         .subcommand(
             Command::new("completions")
                 .about("Generate shell completion definitions")
@@ -122,8 +118,14 @@ fn command(schemas: &[CliSchema]) -> Command {
         let mut plugin = Command::new(schema.id.clone())
             .about(schema.about.clone())
             .subcommand_required(true);
+        if !schema.examples.is_empty() {
+            plugin = plugin.after_help(format_examples(&schema.examples));
+        }
         for declared in &schema.subcommands {
             let mut subcommand = Command::new(declared.name.clone()).about(declared.about.clone());
+            if !declared.examples.is_empty() {
+                subcommand = subcommand.after_help(format_examples(&declared.examples));
+            }
             for declared_arg in &declared.args {
                 let mut arg = Arg::new(declared_arg.id.clone())
                     .help(declared_arg.help.clone())
@@ -152,6 +154,10 @@ fn command(schemas: &[CliSchema]) -> Command {
     command
 }
 
+fn format_examples(examples: &[String]) -> String {
+    format!("Examples:\n  {}", examples.join("\n  "))
+}
+
 fn parse<I, T>(args: I, command: Command, schemas: &[CliSchema]) -> Result<Action, clap::Error>
 where
     I: IntoIterator<Item = T>,
@@ -162,7 +168,7 @@ where
         unreachable!("clap requires a top-level subcommand");
     };
     match top_level {
-        "plugins" => Ok(Action::Runtime(CliCommand::ListPlugins)),
+        "plugins" => Ok(Action::ListCliPlugins),
         "completions" => Ok(Action::Completions(
             *matches
                 .get_one::<Shell>("shell")
@@ -221,17 +227,14 @@ fn completion_output(shell: Shell, mut command: Command) -> CliOutput {
     }
 }
 
-fn runtime_output(result: crate::headless::HeadlessResult) -> CliOutput {
+fn cli_plugins_output(schemas: &[CliSchema]) -> CliOutput {
     CliOutput {
-        exit_code: result.exit_code,
-        stdout: result
-            .stdout
-            .map(|value| format!("{value}\n"))
-            .unwrap_or_default(),
-        stderr: result
-            .stderr
-            .map(|value| format!("{value}\n"))
-            .unwrap_or_default(),
+        exit_code: 0,
+        stdout: schemas
+            .iter()
+            .map(|schema| format!("{}\n", schema.id))
+            .collect(),
+        stderr: String::new(),
     }
 }
 
@@ -241,11 +244,7 @@ fn plugin_output(
     match result {
         Ok(output) => CliOutput {
             exit_code: 0,
-            stdout: output
-                .records
-                .into_iter()
-                .map(|record| format!("{record}\n"))
-                .collect(),
+            stdout: render_table(&output.records),
             stderr: String::new(),
         },
         Err(error) => CliOutput {
@@ -254,6 +253,120 @@ fn plugin_output(
             stderr: format!("{error}\n"),
         },
     }
+}
+
+fn render_table(records: &[Value]) -> String {
+    if records.is_empty() {
+        return "No results.\n".to_string();
+    }
+
+    let all_objects = records.iter().all(Value::is_object);
+    let columns = if all_objects {
+        let mut columns = Vec::new();
+        for record in records {
+            for key in record.as_object().expect("all records are objects").keys() {
+                if !columns.contains(key) {
+                    columns.push(key.clone());
+                }
+            }
+        }
+        columns
+    } else {
+        vec!["value".to_string()]
+    };
+
+    if columns.is_empty() {
+        return "No fields.\n".to_string();
+    }
+
+    let rows: Vec<Vec<String>> = records
+        .iter()
+        .map(|record| {
+            if all_objects {
+                let object = record.as_object().expect("all records are objects");
+                columns
+                    .iter()
+                    .map(|column| object.get(column).map(format_value).unwrap_or_default())
+                    .collect()
+            } else {
+                vec![format_value(record)]
+            }
+        })
+        .collect();
+    let widths: Vec<usize> = columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            rows.iter()
+                .map(|row| display_width(&row[index]))
+                .max()
+                .unwrap_or_default()
+                .max(display_width(column))
+        })
+        .collect();
+
+    let border = table_border(&widths);
+    let mut output = String::new();
+    output.push_str(&border);
+    write_table_row(&mut output, &columns, &widths);
+    output.push_str(&border);
+    for row in &rows {
+        write_table_row(&mut output, row, &widths);
+    }
+    output.push_str(&border);
+    output
+}
+
+fn format_value(value: &Value) -> String {
+    match value {
+        Value::Null => "—".to_string(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(value) => value.to_string(),
+        Value::String(value) => single_line(value),
+        Value::Array(values) => values
+            .iter()
+            .map(format_value)
+            .collect::<Vec<_>>()
+            .join(", "),
+        Value::Object(values) => values
+            .iter()
+            .map(|(key, value)| format!("{key}={}", format_value(value)))
+            .collect::<Vec<_>>()
+            .join("; "),
+    }
+}
+
+fn single_line(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
+fn display_width(value: &str) -> usize {
+    value.chars().count()
+}
+
+fn table_border(widths: &[usize]) -> String {
+    let mut border = String::from("+");
+    for width in widths {
+        border.push_str(&"-".repeat(width + 2));
+        border.push('+');
+    }
+    border.push('\n');
+    border
+}
+
+fn write_table_row(output: &mut String, cells: &[String], widths: &[usize]) {
+    output.push('|');
+    for (cell, width) in cells.iter().zip(widths) {
+        output.push(' ');
+        output.push_str(cell);
+        output.push_str(&" ".repeat(width.saturating_sub(display_width(cell)) + 1));
+        output.push('|');
+    }
+    output.push('\n');
 }
 
 fn clap_error(error: clap::Error) -> CliOutput {
@@ -276,7 +389,7 @@ fn clap_error(error: clap::Error) -> CliOutput {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{Value, json};
+    use serde_json::json;
     use thoth_plugin_sdk::cli::{
         CliArg, CliArgKind, CliInvocation, CliOutput as PluginOutput, CliSchema, CliSubcommand,
         PluginCli,
@@ -292,6 +405,7 @@ mod tests {
             CliSchema {
                 id: "demo".into(),
                 about: "Demo plugin commands".into(),
+                examples: vec!["thoth demo query --index logs".into()],
                 subcommands: vec![CliSubcommand {
                     name: "query".into(),
                     about: "Query demo data".into(),
@@ -316,6 +430,7 @@ mod tests {
                             },
                         },
                     ],
+                    examples: vec!["thoth demo query --index logs".into()],
                 }],
             }
         }
@@ -364,10 +479,30 @@ mod tests {
             vec![Box::new(DemoCli)],
         );
         assert_eq!(output.exit_code, 0);
-        let value: Value = serde_json::from_str(output.stdout.trim()).unwrap();
-        assert_eq!(value["command"], "query");
-        assert_eq!(value["values"]["index"], "logs");
-        assert_eq!(value["values"]["pretty"], true);
+        assert_eq!(
+            output.stdout,
+            concat!(
+                "+---------+-------------------------+\n",
+                "| command | values                  |\n",
+                "+---------+-------------------------+\n",
+                "| query   | index=logs; pretty=true |\n",
+                "+---------+-------------------------+\n",
+            )
+        );
+    }
+
+    #[test]
+    fn plugins_lists_only_registered_cli_command_names() {
+        let output = run_with_plugins(
+            ["thoth", "plugins"],
+            disabled_settings(),
+            vec![],
+            vec![Box::new(DemoCli)],
+        );
+
+        assert_eq!(output.exit_code, 0);
+        assert_eq!(output.stdout, "demo\n");
+        assert!(output.stderr.is_empty());
     }
 
     #[test]
@@ -400,5 +535,27 @@ mod tests {
         assert_eq!(exit_code, 0);
         assert!(stdout.contains("#compdef thoth"));
         assert!(stderr.is_empty());
+    }
+
+    #[test]
+    fn plugin_records_render_as_a_table_without_json_syntax() {
+        let output = super::plugin_output(Ok(PluginOutput {
+            records: vec![
+                json!({ "name": "primary", "count": 2, "active": true }),
+                json!({ "name": "archive", "count": null, "active": false }),
+            ],
+        }));
+
+        assert!(output.stdout.contains("| active | count | name"));
+        assert!(output.stdout.contains("| true   | 2     | primary"));
+        assert!(output.stdout.contains("| false  | —     | archive"));
+        assert!(!output.stdout.contains("\"name\""));
+        assert!(!output.stdout.contains("{"));
+    }
+
+    #[test]
+    fn empty_plugin_output_is_human_readable() {
+        let output = super::plugin_output(Ok(PluginOutput::default()));
+        assert_eq!(output.stdout, "No results.\n");
     }
 }

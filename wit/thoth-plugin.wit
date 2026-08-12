@@ -143,7 +143,8 @@ interface plugin-cli {
     schema: func() -> result<string, plugin-error>;
 
     /// Run a JSON-encoded `CliInvocation`. On success, return a JSON-encoded
-    /// `CliOutput`; the host writes each output record as one JSON line.
+    /// `CliOutput`; the host renders its structured records for the active
+    /// output surface (for example, a table in the terminal).
     run: func(invocation-json: string) -> result<string, plugin-error>;
 }
 
@@ -921,6 +922,10 @@ world base-plugin {
 /// A headless-only plugin that exposes command-line operations.
 world cli-plugin {
     include base-plugin;
+    import plugin-storage;
+    import secure-storage;
+    import http-client;
+    import tcp-client;
     export plugin-cli;
 }
 

@@ -112,16 +112,16 @@ pub type QueryResult = std::result::Result<String, String>;
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const TCP_IO_TIMEOUT: Duration = Duration::from_secs(60);
 /// Cap a single `read` allocation so a plugin can't request a huge buffer.
-const TCP_READ_CAP: usize = 1 << 20; // 1 MiB
+pub(crate) const TCP_READ_CAP: usize = 1 << 20; // 1 MiB
 
 /// A plaintext or TLS-wrapped stream the plugin reads/writes through `tcp-client`.
 /// TLS is terminated host-side so the plugin always sees decrypted bytes.
-trait ReadWrite: Read + Write + Send {}
+pub(crate) trait ReadWrite: Read + Write + Send {}
 impl<T: Read + Write + Send> ReadWrite for T {}
 
 /// Adapts an already-boxed stream back into a concrete `Read + Write` so it can
 /// be handed to `tcp_tls` for an in-place STARTTLS upgrade.
-struct BoxIo(Box<dyn ReadWrite>);
+pub(crate) struct BoxIo(pub(crate) Box<dyn ReadWrite>);
 impl Read for BoxIo {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.read(buf)
@@ -397,7 +397,7 @@ fn tcp_err(code: u32, message: impl Into<String>) -> thoth::plugin::tcp_client::
 }
 
 /// Open a plaintext TCP stream with connect/IO timeouts.
-fn tcp_connect(host: &str, port: u16) -> std::io::Result<TcpStream> {
+pub(crate) fn tcp_connect(host: &str, port: u16) -> std::io::Result<TcpStream> {
     use std::net::ToSocketAddrs;
     let mut last_err = std::io::Error::other("no addresses resolved");
     for addr in (host, port).to_socket_addrs()? {
@@ -416,7 +416,7 @@ fn tcp_connect(host: &str, port: u16) -> std::io::Result<TcpStream> {
 /// Wrap any byte stream with host-side TLS (rustls + Mozilla roots). Generic so
 /// it works both at connect time (a fresh `TcpStream`) and for an in-place
 /// STARTTLS upgrade of an already-open plaintext stream.
-fn tcp_tls<S: Read + Write + Send + 'static>(
+pub(crate) fn tcp_tls<S: Read + Write + Send + 'static>(
     stream: S,
     host: &str,
 ) -> std::result::Result<Box<dyn ReadWrite>, String> {
@@ -666,16 +666,16 @@ impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
 /// `cfg(test)` — so unit tests never touch (or hang/prompt on) a real keychain,
 /// which keeps them reliable in CI (no D-Bus secret-service, no macOS prompt).
 #[cfg(not(test))]
-mod secret_store {
+pub(crate) mod secret_store {
     use super::KEYRING_SERVICE;
 
-    pub(super) fn write(account: &str, secret: &str) -> Result<(), String> {
+    pub(crate) fn write(account: &str, secret: &str) -> Result<(), String> {
         keyring::Entry::new(KEYRING_SERVICE, account)
             .and_then(|e| e.set_password(secret))
             .map_err(|e| e.to_string())
     }
 
-    pub(super) fn read(account: &str) -> Result<Option<String>, String> {
+    pub(crate) fn read(account: &str) -> Result<Option<String>, String> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
         match entry.get_password() {
             Ok(p) => Ok(Some(p)),
@@ -684,7 +684,7 @@ mod secret_store {
         }
     }
 
-    pub(super) fn delete(account: &str) -> Result<(), String> {
+    pub(crate) fn delete(account: &str) -> Result<(), String> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -694,14 +694,14 @@ mod secret_store {
 }
 
 #[cfg(test)]
-mod secret_store {
+pub(crate) mod secret_store {
     use std::collections::HashMap;
     use std::sync::{LazyLock, Mutex};
 
     static STORE: LazyLock<Mutex<HashMap<String, String>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
-    pub(super) fn write(account: &str, secret: &str) -> Result<(), String> {
+    pub(crate) fn write(account: &str, secret: &str) -> Result<(), String> {
         STORE
             .lock()
             .unwrap()
@@ -709,11 +709,11 @@ mod secret_store {
         Ok(())
     }
 
-    pub(super) fn read(account: &str) -> Result<Option<String>, String> {
+    pub(crate) fn read(account: &str) -> Result<Option<String>, String> {
         Ok(STORE.lock().unwrap().get(account).cloned())
     }
 
-    pub(super) fn delete(account: &str) -> Result<(), String> {
+    pub(crate) fn delete(account: &str) -> Result<(), String> {
         STORE.lock().unwrap().remove(account);
         Ok(())
     }

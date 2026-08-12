@@ -2994,6 +2994,206 @@ pub mod exports {
     pub mod thoth {
         pub mod plugin {
             /// ---------------------------------------------------------------------------
+            /// plugin-cli — optional display-free command interface
+            ///
+            /// The schema and invocation payloads use the versioned JSON structures from
+            /// thoth-plugin-sdk::cli. JSON keeps this boundary extensible and equally usable
+            /// from non-Rust component languages. Worlds that do not export this interface
+            /// remain fully compatible.
+            /// ---------------------------------------------------------------------------
+            #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+            pub mod plugin_cli {
+                #[used]
+                #[doc(hidden)]
+                static __FORCE_SECTION_REF: fn() = super::super::super::super::__link_custom_section_describing_imports;
+                use super::super::super::super::_rt;
+                pub type PluginError = super::super::super::super::thoth::plugin::types::PluginError;
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_schema_cabi<T: Guest>() -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let result0 = T::schema();
+                    let ptr1 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result0 {
+                        Ok(e) => {
+                            *ptr1.add(0).cast::<u8>() = (0i32) as u8;
+                            let vec2 = (e.into_bytes()).into_boxed_slice();
+                            let ptr2 = vec2.as_ptr().cast::<u8>();
+                            let len2 = vec2.len();
+                            ::core::mem::forget(vec2);
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len2;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr2.cast_mut();
+                        }
+                        Err(e) => {
+                            *ptr1.add(0).cast::<u8>() = (1i32) as u8;
+                            let super::super::super::super::thoth::plugin::types::PluginError {
+                                code: code3,
+                                message: message3,
+                            } = e;
+                            *ptr1
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(code3);
+                            let vec4 = (message3.into_bytes()).into_boxed_slice();
+                            let ptr4 = vec4.as_ptr().cast::<u8>();
+                            let len4 = vec4.len();
+                            ::core::mem::forget(vec4);
+                            *ptr1
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len4;
+                            *ptr1
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr4.cast_mut();
+                        }
+                    };
+                    ptr1
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_schema<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = *arg0
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l1, l2, 1);
+                        }
+                        _ => {
+                            let l3 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l4 = *arg0
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l3, l4, 1);
+                        }
+                    }
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn _export_run_cabi<T: Guest>(
+                    arg0: *mut u8,
+                    arg1: usize,
+                ) -> *mut u8 {
+                    #[cfg(target_arch = "wasm32")] _rt::run_ctors_once();
+                    let len0 = arg1;
+                    let bytes0 = _rt::Vec::from_raw_parts(arg0.cast(), len0, len0);
+                    let result1 = T::run(_rt::string_lift(bytes0));
+                    let ptr2 = (&raw mut _RET_AREA.0).cast::<u8>();
+                    match result1 {
+                        Ok(e) => {
+                            *ptr2.add(0).cast::<u8>() = (0i32) as u8;
+                            let vec3 = (e.into_bytes()).into_boxed_slice();
+                            let ptr3 = vec3.as_ptr().cast::<u8>();
+                            let len3 = vec3.len();
+                            ::core::mem::forget(vec3);
+                            *ptr2
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len3;
+                            *ptr2
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr3.cast_mut();
+                        }
+                        Err(e) => {
+                            *ptr2.add(0).cast::<u8>() = (1i32) as u8;
+                            let super::super::super::super::thoth::plugin::types::PluginError {
+                                code: code4,
+                                message: message4,
+                            } = e;
+                            *ptr2
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<i32>() = _rt::as_i32(code4);
+                            let vec5 = (message4.into_bytes()).into_boxed_slice();
+                            let ptr5 = vec5.as_ptr().cast::<u8>();
+                            let len5 = vec5.len();
+                            ::core::mem::forget(vec5);
+                            *ptr2
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>() = len5;
+                            *ptr2
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>() = ptr5.cast_mut();
+                        }
+                    };
+                    ptr2
+                }
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub unsafe fn __post_return_run<T: Guest>(arg0: *mut u8) {
+                    let l0 = i32::from(*arg0.add(0).cast::<u8>());
+                    match l0 {
+                        0 => {
+                            let l1 = *arg0
+                                .add(::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l2 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l1, l2, 1);
+                        }
+                        _ => {
+                            let l3 = *arg0
+                                .add(2 * ::core::mem::size_of::<*const u8>())
+                                .cast::<*mut u8>();
+                            let l4 = *arg0
+                                .add(3 * ::core::mem::size_of::<*const u8>())
+                                .cast::<usize>();
+                            _rt::cabi_dealloc(l3, l4, 1);
+                        }
+                    }
+                }
+                pub trait Guest {
+                    /// Return a JSON-encoded `CliSchema`. The host uses it to build clap help,
+                    /// validation, and completion definitions before invoking the plugin.
+                    fn schema() -> Result<_rt::String, PluginError>;
+                    /// Run a JSON-encoded `CliInvocation`. On success, return a JSON-encoded
+                    /// `CliOutput`; the host renders its structured records for the active
+                    /// output surface (for example, a table in the terminal).
+                    fn run(
+                        invocation_json: _rt::String,
+                    ) -> Result<_rt::String, PluginError>;
+                }
+                #[doc(hidden)]
+                macro_rules! __export_thoth_plugin_plugin_cli_0_1_0_cabi {
+                    ($ty:ident with_types_in $($path_to_types:tt)*) => {
+                        const _ : () = { #[unsafe (export_name =
+                        "thoth:plugin/plugin-cli@0.1.0#schema")] unsafe extern "C" fn
+                        export_schema() -> * mut u8 { unsafe { $($path_to_types)*::
+                        _export_schema_cabi::<$ty > () } } #[unsafe (export_name =
+                        "cabi_post_thoth:plugin/plugin-cli@0.1.0#schema")] unsafe extern
+                        "C" fn _post_return_schema(arg0 : * mut u8,) { unsafe {
+                        $($path_to_types)*:: __post_return_schema::<$ty > (arg0) } }
+                        #[unsafe (export_name = "thoth:plugin/plugin-cli@0.1.0#run")]
+                        unsafe extern "C" fn export_run(arg0 : * mut u8, arg1 : usize,)
+                        -> * mut u8 { unsafe { $($path_to_types)*::
+                        _export_run_cabi::<$ty > (arg0, arg1) } } #[unsafe (export_name =
+                        "cabi_post_thoth:plugin/plugin-cli@0.1.0#run")] unsafe extern "C"
+                        fn _post_return_run(arg0 : * mut u8,) { unsafe {
+                        $($path_to_types)*:: __post_return_run::<$ty > (arg0) } } };
+                    };
+                }
+                #[doc(hidden)]
+                pub(crate) use __export_thoth_plugin_plugin_cli_0_1_0_cabi;
+                #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                struct _RetArea(
+                    [::core::mem::MaybeUninit<
+                        u8,
+                    >; 4 * ::core::mem::size_of::<*const u8>()],
+                );
+                static mut _RET_AREA: _RetArea = _RetArea(
+                    [::core::mem::MaybeUninit::uninit(); 4
+                        * ::core::mem::size_of::<*const u8>()],
+                );
+            }
+            /// ---------------------------------------------------------------------------
             /// data-source — implement when capability = data-source
             ///
             /// Connects Thoth to an external system: REST API, database, message queue,
@@ -5514,11 +5714,14 @@ mod _rt {
 /// ```
 #[allow(unused_macros)]
 #[doc(hidden)]
-macro_rules! __export_data_source_plugin_impl {
+macro_rules! __export_data_source_cli_plugin_impl {
     ($ty:ident) => {
         self::export!($ty with_types_in self);
     };
     ($ty:ident with_types_in $($path_to_types_root:tt)*) => {
+        $($path_to_types_root)*::
+        exports::thoth::plugin::plugin_cli::__export_thoth_plugin_plugin_cli_0_1_0_cabi!($ty
+        with_types_in $($path_to_types_root)*:: exports::thoth::plugin::plugin_cli);
         $($path_to_types_root)*::
         exports::thoth::plugin::data_source::__export_thoth_plugin_data_source_0_1_0_cabi!($ty
         with_types_in $($path_to_types_root)*:: exports::thoth::plugin::data_source);
@@ -5543,16 +5746,16 @@ macro_rules! __export_data_source_plugin_impl {
     };
 }
 #[doc(inline)]
-pub(crate) use __export_data_source_plugin_impl as export;
+pub(crate) use __export_data_source_cli_plugin_impl as export;
 #[cfg(target_arch = "wasm32")]
 #[unsafe(
-    link_section = "component-type:wit-bindgen:0.41.0:thoth:plugin@0.1.0:data-source-plugin:encoded world"
+    link_section = "component-type:wit-bindgen:0.41.0:thoth:plugin@0.1.0:data-source-cli-plugin:encoded world"
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 3684] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdb\x1b\x01A\x02\x01\
-A)\x01B\x0a\x01m\x09\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\x0f\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 3804] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xcf\x1c\x01A\x02\x01\
+A+\x01B\x0a\x01m\x09\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\x0f\
 search-provider\x10new-ui-component\x0ddata-producer\x08renderer\x03cli\x04\0\x0a\
 capability\x03\0\0\x01p\x01\x01ks\x01r\x08\x02ids\x04names\x07versions\x0bdescri\
 ptions\x0ccapabilities\x02\x06author\x03\x08homepage\x03\x04icon\x03\x04\0\x0bpl\
@@ -5600,41 +5803,44 @@ r\x02\x04paths\x08contentss\x04\0\x0bopened-file\x03\0\x02\x01ps\x01k\x03\x01j\x
 \x05\x01\x01\x01@\x02\x05titles\x0aextensions\x04\0\x06\x04\0\x09open-file\x01\x07\
 \x01ks\x01j\x01\x08\x01\x01\x01@\x04\x05titles\x0cdefault-names\x0aextensions\x04\
 \x08contentss\0\x09\x04\0\x09save-file\x01\x0a\x03\0\x1ethoth:plugin/file-dialog\
-@0.1.0\x05\x0d\x01B\x1c\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\
-\x04names\x0bdescriptions\x08required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\
-\x01r\x03\x04names\x09type-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\
-\x01p\x05\x01r\x02\x04names\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\
-\x09node-jsons\x0bheight-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\
-\x04\0\x0frequired-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\
-\x04\0\x07connect\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\
-\x04\0\x06schema\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01\
-@\x01\x06handles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06h\
-andles\0\x14\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.\
-0\x05\x0e\x01B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09\
-widget-ids\x04kinds\x05values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\
-\x0bheight-hinty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\
-\0\x09render-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\
-\x01k\x05\x01j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\
-\x1fthoth:plugin/ui-component@0.1.0\x05\x0f\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0c\
-plugin-error\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\
-\0\x08tab-icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\
-\x01j\0\x01\x01\x01@\x01\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\
-\x01\0\x04\0\x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0d\
-on-tab-closed\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.0\x05\x10\x01B\x0c\x02\x03\
-\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x04names\x09type-hints\x04\0\
-\x0edataset-column\x03\0\x02\x01p\x03\x01ps\x01p\x05\x01r\x04\x04names\x04kinds\x07\
-columns\x04\x04rows\x06\x04\0\x07dataset\x03\0\x07\x01j\x01\x08\x01\x01\x01@\0\0\
-\x09\x04\0\x0fprovide-dataset\x01\x0a\x04\0\x20thoth:plugin/data-producer@0.1.0\x05\
-\x11\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x12\x04\0\x0bplugin-inf\
-o\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-me\
-ta@0.1.0\x05\x13\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\
-\0\x01\0\x04\0\x08on-close\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#thoth:\
-plugin/plugin-lifecycle@0.1.0\x05\x14\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplug\
-in-error\x03\0\0\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0fsettings-output\
-\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\0\x0frender-settings\x01\x05\x04\
-\0\"thoth:plugin/plugin-settings@0.1.0\x05\x15\x04\0%thoth:plugin/data-source-pl\
-ugin@0.1.0\x04\0\x0b\x18\x01\0\x12data-source-plugin\x03\0\0\0G\x09producers\x01\
-\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+@0.1.0\x05\x0d\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\x01\
+s\x01\x01\x01@\0\0\x02\x04\0\x06schema\x01\x03\x01@\x01\x0finvocation-jsons\0\x02\
+\x04\0\x03run\x01\x04\x04\0\x1dthoth:plugin/plugin-cli@0.1.0\x05\x0e\x01B\x1c\x02\
+\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0bdescriptions\
+\x08required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04names\x09\
+type-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\x02\x04\
+names\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-jsons\x0bh\
+eight-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0frequir\
+ed-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07connec\
+t\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06schem\
+a\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06han\
+dles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\
+\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x0f\x01\
+B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04\
+kinds\x05values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hin\
+ty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09rende\
+r-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01\
+j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:pl\
+ugin/ui-component@0.1.0\x05\x10\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-err\
+or\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-\
+icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\
+\x01\x01@\x01\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\
+\x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-close\
+d\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.0\x05\x11\x01B\x0c\x02\x03\x02\x01\x01\
+\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x04names\x09type-hints\x04\0\x0edataset-\
+column\x03\0\x02\x01p\x03\x01ps\x01p\x05\x01r\x04\x04names\x04kinds\x07columns\x04\
+\x04rows\x06\x04\0\x07dataset\x03\0\x07\x01j\x01\x08\x01\x01\x01@\0\0\x09\x04\0\x0f\
+provide-dataset\x01\x0a\x04\0\x20thoth:plugin/data-producer@0.1.0\x05\x12\x02\x03\
+\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x13\x04\0\x0bplugin-info\x03\0\0\x01\
+@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x14\
+\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08\
+on-close\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-life\
+cycle@0.1.0\x05\x15\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01\
+r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\
+\x01\x01\x01@\0\0\x04\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugi\
+n-settings@0.1.0\x05\x16\x04\0)thoth:plugin/data-source-cli-plugin@0.1.0\x04\0\x0b\
+\x1c\x01\0\x16data-source-cli-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\
+\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

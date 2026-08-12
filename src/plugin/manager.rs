@@ -197,7 +197,7 @@ impl PluginManager {
     }
 
     /// Instantiate the display-free WIT CLI adapter for an opted-in plugin.
-    pub fn open_cli(&self, plugin_id: &str) -> Result<WasmCliLoader> {
+    pub fn open_cli(&self, plugin_id: &str, policy: NetworkPolicy) -> Result<WasmCliLoader> {
         let plugin = self
             .registry
             .get_by_id(plugin_id)
@@ -224,7 +224,7 @@ impl PluginManager {
             .get(plugin_id)
             .cloned()
             .unwrap_or_default();
-        WasmCliLoader::open(&self.engine, wasm_path, &settings)
+        WasmCliLoader::open(&self.engine, wasm_path, plugin_id, policy, &settings)
     }
 
     pub fn open_data_source(
@@ -350,7 +350,6 @@ impl PluginManager {
             if let Ok(dir) = dir
                 && dir.exists()
             {
-                eprintln!("Checking {}", dir.display());
                 if let Err(e) = self.scan_directory(dir, is_bundled) {
                     eprintln!("Failed to scan plugin directory: {e:?}");
                 }
@@ -363,7 +362,6 @@ impl PluginManager {
         if let Ok(installs_dir) = PersistentState::plugin_install_dir()
             && installs_dir.exists()
         {
-            eprintln!("Checking marketplace installs {}", installs_dir.display());
             if let Err(e) = self.scan_instances_dir(&installs_dir, false) {
                 eprintln!("Failed to scan marketplace installs: {e:?}");
             }

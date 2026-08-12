@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thoth_plugin_sdk::state::PluginState;
 
-use crate::bindings::thoth::plugin::{db_runtime, plugin_storage};
+use crate::bindings::thoth::plugin::{db_runtime, plugin_storage, secure_storage};
 use crate::db::{self, AuthMode, ColumnInfo, Engine, TableDetail, TableInfo};
 
 // ── connection + form models ──────────────────────────────────────────────────
@@ -411,6 +411,35 @@ fn read_persisted() -> Persisted {
         return Persisted::default();
     }
     serde_json::from_str(&raw).unwrap_or_default()
+}
+
+/// Saved connection metadata for display-free commands.
+pub(crate) fn saved_connections() -> Vec<Connection> {
+    read_persisted().connections
+}
+
+/// Resolve an exact saved connection id or display name and load its secret.
+pub(crate) fn saved_profile(name: &str) -> Result<(Engine, db::Profile), String> {
+    let connections = saved_connections();
+    let connection = connections
+        .iter()
+        .find(|connection| connection.id == name || connection.name == name)
+        .ok_or_else(|| format!("saved connection '{name}' was not found"))?;
+    let password = secure_storage::read(&pw_key(&connection.id))
+        .map_err(|error| error.message)?
+        .unwrap_or_default();
+    Ok((
+        connection.engine,
+        db::Profile {
+            host: connection.host.clone(),
+            port: connection.port,
+            database: connection.database.clone(),
+            user: connection.user.clone(),
+            password,
+            tls: connection.tls,
+            auth: connection.auth,
+        },
+    ))
 }
 
 fn write_persisted(p: &Persisted) {

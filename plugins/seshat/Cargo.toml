@@ -34,4 +34,4 @@ package = "thoth:seshat"
 
 [package.metadata.component.target]
 path = "../../wit"
-world = "data-source-plugin"
+world = "data-source-cli-plugin"

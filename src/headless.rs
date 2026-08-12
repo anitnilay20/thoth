@@ -9,7 +9,8 @@ use thoth_plugin_sdk::cli::{CliInvocation, CliOutput, CliSchema, PluginCli};
 use crate::{
     core::ThothCore,
     plugin::{
-        Capability,
+        Capability, NetworkDeclarations,
+        network_policy::NetworkPolicy,
         plugin_ui_host::{PluginCore, PluginCoreEvent},
         runtime::PluginRuntimeState,
     },
@@ -141,7 +142,22 @@ impl HeadlessRuntime {
         };
         let mut command_ids = HashSet::new();
         for plugin in manager.get_all_plugin_by_capability(Capability::Cli) {
-            let adapter = manager.open_cli(&plugin.id).map_err(|error| {
+            let user_policy = self
+                .core
+                .settings
+                .plugins
+                .network_policies
+                .get(&plugin.id)
+                .cloned()
+                .unwrap_or_default();
+            let policy = NetworkPolicy::from_plugin_and_settings(
+                plugin
+                    .network
+                    .as_ref()
+                    .unwrap_or(&NetworkDeclarations::default()),
+                &user_policy,
+            );
+            let adapter = manager.open_cli(&plugin.id, policy).map_err(|error| {
                 format!("failed to load CLI for plugin '{}': {error}", plugin.id)
             })?;
             let schema = adapter.cli_schema();

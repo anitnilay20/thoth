@@ -3,7 +3,7 @@
 //! CLI support is opt-in: ordinary plugins do not implement [`PluginCli`]. A
 //! host reads [`CliSchema`] to construct its native argument parser, then sends
 //! a validated [`CliInvocation`] across the component boundary. Results remain
-//! structured until the host serializes each record as newline-delimited JSON.
+//! structured until the host renders the records for its output surface.
 //!
 //! # Minimal plugin
 //!
@@ -20,10 +20,12 @@
 //!         CliSchema {
 //!             id: "status".into(),
 //!             about: "Inspect service status".into(),
+//!             examples: vec!["thoth status ping".into()],
 //!             subcommands: vec![CliSubcommand {
 //!                 name: "ping".into(),
 //!                 about: "Check connectivity".into(),
 //!                 args: vec![],
+//!                 examples: vec!["thoth status ping".into()],
 //!             }],
 //!         }
 //!     }
@@ -48,6 +50,9 @@ pub struct CliSchema {
     pub id: String,
     /// One-line description shown in top-level help.
     pub about: String,
+    /// Complete invocations shown at the bottom of plugin help.
+    #[serde(default)]
+    pub examples: Vec<String>,
     /// Commands offered beneath the plugin id.
     pub subcommands: Vec<CliSubcommand>,
 }
@@ -129,6 +134,9 @@ pub struct CliSubcommand {
     /// Arguments accepted by this command.
     #[serde(default)]
     pub args: Vec<CliArg>,
+    /// Complete invocations shown at the bottom of command help.
+    #[serde(default)]
+    pub examples: Vec<String>,
 }
 
 /// One positional, option, or boolean flag in a plugin command.
@@ -187,12 +195,12 @@ pub struct CliInvocation {
 /// Structured records produced by a plugin invocation.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct CliOutput {
-    /// Each value is emitted as one JSON line, in order.
+    /// Values the host renders as rows, in order.
     pub records: Vec<Value>,
 }
 
 impl CliOutput {
-    /// Build output containing one JSON record.
+    /// Build output containing one structured record.
     pub fn one(record: Value) -> Self {
         Self {
             records: vec![record],
@@ -218,6 +226,7 @@ mod tests {
         let schema = CliSchema {
             id: "demo".into(),
             about: "Demo commands".into(),
+            examples: vec![],
             subcommands: vec![CliSubcommand {
                 name: "show".into(),
                 about: "Show a record".into(),
@@ -230,6 +239,7 @@ mod tests {
                         short: Some('p'),
                     },
                 }],
+                examples: vec![],
             }],
         };
 
@@ -244,10 +254,12 @@ mod tests {
             name: "show".into(),
             about: String::new(),
             args: vec![],
+            examples: vec![],
         };
         let schema = CliSchema {
             id: "demo".into(),
             about: String::new(),
+            examples: vec![],
             subcommands: vec![command.clone(), command],
         };
 
