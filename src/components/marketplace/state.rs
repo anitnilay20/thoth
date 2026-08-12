@@ -200,6 +200,7 @@ impl MarketplaceUiState {
     pub fn poll_installs(&mut self) -> Vec<(String, Result<(), String>)> {
         let mut state_updates: Vec<(String, InstallState)> = Vec::new();
         let mut completed: Vec<(String, Result<(), String>)> = Vec::new();
+        let mut cancelled: Vec<String> = Vec::new();
 
         for (id, slot) in &self.install_handles {
             let progress = slot.lock().ok().map(|g| g.clone());
@@ -215,6 +216,13 @@ impl MarketplaceUiState {
                     state_updates.push((id.clone(), InstallState::Failed(e.clone())));
                     completed.push((id.clone(), Err(e)));
                 }
+                // The cancelling handler already dropped this plugin's handle and
+                // state, so a slot seen here was cancelled elsewhere: drop the
+                // handle and leave no state, returning the row to "not installed"
+                // rather than reporting a failure the user caused.
+                Some(PluginInstallProgress::Cancelled) => {
+                    cancelled.push(id.clone());
+                }
                 None => {}
             }
         }
@@ -224,6 +232,10 @@ impl MarketplaceUiState {
         }
         for (id, _) in &completed {
             self.install_handles.remove(id);
+        }
+        for id in cancelled {
+            self.install_handles.remove(&id);
+            self.install_states.remove(&id);
         }
 
         completed

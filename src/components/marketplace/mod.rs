@@ -205,7 +205,14 @@ impl StatelessComponent for MarketplaceDetail {
                         });
                     }
                     DetailAction::Retry => {
-                        state.install_handles.remove(&plugin.id);
+                        // This is the Cancel button while an install is in
+                        // flight. Dropping the handle only stops the UI from
+                        // *watching* it — the worker owns its own clone of the
+                        // slot and would keep downloading and keep writing into
+                        // the plugin directory — so signal it first.
+                        if let Some(slot) = state.install_handles.remove(&plugin.id) {
+                            crate::plugin::marketplace::cancel_install(&slot);
+                        }
                         state.install_states.remove(&plugin.id);
                     }
                 }
