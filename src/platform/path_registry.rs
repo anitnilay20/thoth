@@ -7,7 +7,6 @@
 ///   on PATH by default on Ubuntu 20.04+, Fedora, Arch, etc.
 /// - Windows: Modifies the User PATH registry key via PowerShell.
 use crate::error::{Result, ThothError};
-use std::env;
 use std::path::PathBuf;
 
 #[cfg(target_os = "windows")]
@@ -33,7 +32,7 @@ pub fn is_in_path() -> bool {
 }
 
 fn get_executable_path() -> Result<PathBuf> {
-    env::current_exe().map_err(|e| ThothError::PathRegistryError {
+    super::current_executable_path().map_err(|e| ThothError::PathRegistryError {
         reason: format!("Failed to get executable path: {}", e),
     })
 }
