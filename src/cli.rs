@@ -17,6 +17,24 @@ pub struct CliOutput {
     pub stderr: String,
 }
 
+/// Return whether an argument selects a built-in or discovered CLI command.
+pub fn is_known_command(argument: &str, plugin_ids: &[String]) -> bool {
+    argument.starts_with('-')
+        || matches!(argument, "plugins" | "completions" | "help")
+        || plugin_ids.iter().any(|id| id == argument)
+}
+
+/// Discover plugin command IDs for resolving a command/file name collision.
+pub fn discover_command_ids(settings: Settings) -> Result<Vec<String>, String> {
+    let mut runtime = HeadlessRuntime::new(settings);
+    runtime.discover_cli_plugins()?;
+    Ok(runtime
+        .cli_schemas()
+        .into_iter()
+        .map(|schema| schema.id)
+        .collect())
+}
+
 enum Action {
     ListCliPlugins,
     Plugin {
@@ -35,8 +53,8 @@ where
     run_with(args, || settings)
 }
 
-/// Parse a CLI invocation and load settings only when it reaches the runtime.
-/// Help and completion generation therefore remain side-effect free.
+/// Load settings, discover plugin command schemas, then parse and run a CLI
+/// invocation. Discovery also runs for help and completion generation.
 pub fn run_with<I, T, F>(args: I, load_settings: F) -> CliOutput
 where
     I: IntoIterator<Item = T>,
@@ -345,7 +363,7 @@ fn single_line(value: &str) -> String {
 }
 
 fn display_width(value: &str) -> usize {
-    value.chars().count()
+    unicode_width::UnicodeWidthStr::width(value)
 }
 
 fn table_border(widths: &[usize]) -> String {
@@ -557,5 +575,20 @@ mod tests {
     fn empty_plugin_output_is_human_readable() {
         let output = super::plugin_output(Ok(PluginOutput::default()));
         assert_eq!(output.stdout, "No results.\n");
+    }
+
+    #[test]
+    fn recognizes_built_in_flags_and_discovered_commands() {
+        let plugins = vec!["seshat".to_string()];
+        assert!(super::is_known_command("--help", &plugins));
+        assert!(super::is_known_command("completions", &plugins));
+        assert!(super::is_known_command("seshat", &plugins));
+        assert!(!super::is_known_command("data.json", &plugins));
+    }
+
+    #[test]
+    fn table_width_uses_terminal_cells() {
+        assert_eq!(super::display_width("界"), 2);
+        assert_eq!(super::display_width("e\u{301}"), 1);
     }
 }

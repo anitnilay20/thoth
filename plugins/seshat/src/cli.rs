@@ -4,9 +4,12 @@ use serde_json::{json, Map, Value};
 use thoth_plugin_sdk::cli::{
     CliArg, CliArgKind, CliInvocation, CliOutput, CliSchema, CliSubcommand,
 };
+use url::Url;
 
 use crate::{
     db::{self, AuthMode, Engine, Profile},
+    query::{self, Bound},
+    service,
     state::STATE,
 };
 
@@ -19,7 +22,7 @@ pub(crate) fn schema() -> CliSchema {
             "thoth seshat ping production".into(),
             "thoth seshat indices production".into(),
             "thoth seshat query production -q 'select * from logs'".into(),
-            "thoth seshat ping --connection-string 'postgres://user:password@localhost:5432/postgres'".into(),
+            "THOTH_SESHAT_PASSWORD=secret thoth seshat ping --connection-string 'postgres://user@localhost:5432/postgres'".into(),
         ],
         subcommands: vec![
             CliSubcommand {
@@ -34,7 +37,7 @@ pub(crate) fn schema() -> CliSchema {
                 args: connection_args(),
                 examples: vec![
                     "thoth seshat ping production".into(),
-                    "thoth seshat ping --connection-string 'postgres://user:password@localhost:5432/postgres'".into(),
+                    "THOTH_SESHAT_PASSWORD=secret thoth seshat ping --connection-string 'postgres://user@localhost:5432/postgres'".into(),
                 ],
             },
             CliSubcommand {
@@ -48,7 +51,7 @@ pub(crate) fn schema() -> CliSchema {
             },
             CliSubcommand {
                 name: "query".into(),
-                about: "Run a query and emit one JSON object per row".into(),
+                about: "Run a query and render the returned rows as a table".into(),
                 args: {
                     let mut args = connection_args();
                     args.extend([
@@ -82,7 +85,7 @@ pub(crate) fn schema() -> CliSchema {
                 examples: vec![
                     "thoth seshat query production -q 'select * from logs' --limit 100".into(),
                     "thoth seshat query elastic-local --index logs -q '{\"query\":{\"match_all\":{}}}'".into(),
-                    "thoth seshat query --connection-string 'mysql://root:password@localhost:3306/app' -q 'show tables'".into(),
+                    "THOTH_SESHAT_PASSWORD=secret thoth seshat query --connection-string 'mysql://root@localhost:3306/app' -q 'select * from users'".into(),
                 ],
             },
         ],
@@ -93,7 +96,7 @@ fn connection_args() -> Vec<CliArg> {
     vec![
         CliArg {
             id: "connection".into(),
-            help: "Saved connection id or display name".into(),
+            help: "Saved connection id (preferred) or unique display name".into(),
             required: false,
             kind: CliArgKind::Positional {
                 value_name: "CONNECTION".into(),
@@ -112,7 +115,7 @@ fn connection_args() -> Vec<CliArg> {
             "connection-string",
             None,
             "URL",
-            "Connection URL; otherwise use a saved Seshat connection",
+            "Connection URL; saved connections are preferred. Inline passwords are exposed in process arguments and shell history; omit the password and set THOTH_SESHAT_PASSWORD instead",
             false,
         ),
     ]
@@ -156,10 +159,9 @@ pub(crate) fn run(invocation: CliInvocation) -> Result<CliOutput, String> {
         return Ok(CliOutput { records });
     }
     let (engine, profile) = connection(&invocation.values)?;
-    let adapter = db::adapter(engine);
     match invocation.subcommand.as_str() {
         "ping" => {
-            let detail = adapter.test_connection(&profile)?;
+            let detail = service::test_connection(engine, &profile)?;
             Ok(CliOutput::one(json!({
                 "status": "ok",
                 "engine": engine_name(engine),
@@ -168,14 +170,12 @@ pub(crate) fn run(invocation: CliInvocation) -> Result<CliOutput, String> {
         }
         "indices" => {
             let records = if engine == Engine::Elasticsearch {
-                adapter
-                    .list_tables(&profile, "_all")?
+                service::list_indices(engine, &profile)?
                     .into_iter()
                     .map(|table| json!({ "index": table.name }))
                     .collect()
             } else {
-                adapter
-                    .list_databases(&profile)?
+                service::list_databases(engine, &profile)?
                     .into_iter()
                     .map(|database| json!({ "database": database }))
                     .collect()
@@ -193,8 +193,18 @@ pub(crate) fn run(invocation: CliInvocation) -> Result<CliOutput, String> {
             if limit == 0 {
                 return Err("--limit must be greater than zero".into());
             }
-            let query = cap_query(engine, string(&invocation.values, "index"), query, limit);
-            let result = adapter.run_query(&profile, &query)?;
+            let query = if engine == Engine::Elasticsearch {
+                string(&invocation.values, "index")
+                    .map(|index| format!("{index}\n{query}"))
+                    .unwrap_or_else(|| query.to_string())
+            } else {
+                query.to_string()
+            };
+            let prepared = query::prepare(engine, &query, limit);
+            if prepared.bound == Bound::Unavailable {
+                return Err("query cannot be safely bounded; use a read query with an explicit result limit".into());
+            }
+            let result = service::run_query(engine, &profile, &prepared.sql)?;
             let names: Vec<String> = result
                 .columns
                 .into_iter()
@@ -249,9 +259,8 @@ fn connection(values: &Map<String, Value>) -> Result<(Engine, Profile), String> 
 }
 
 fn parse_connection_url(url: &str, requested: Option<&str>) -> Result<(Engine, Profile), String> {
-    let (scheme, rest) = url
-        .split_once("://")
-        .ok_or_else(|| "connection string must be a URL".to_string())?;
+    let parsed = Url::parse(url).map_err(|error| format!("invalid connection URL: {error}"))?;
+    let scheme = parsed.scheme();
     let inferred = match scheme {
         "postgres" | "postgresql" => Engine::Postgres,
         "mysql" => Engine::Mysql,
@@ -259,22 +268,30 @@ fn parse_connection_url(url: &str, requested: Option<&str>) -> Result<(Engine, P
         _ => return Err(format!("unsupported connection scheme '{scheme}'")),
     };
     let engine = requested.map(parse_engine).transpose()?.unwrap_or(inferred);
-    let (credentials, address) = rest.rsplit_once('@').unwrap_or(("", rest));
-    let (user, password) = credentials.split_once(':').unwrap_or((credentials, ""));
-    let (authority, database) = address.split_once('/').unwrap_or((address, ""));
     let defaults = db::adapter(engine).connection_defaults();
-    let (host, port) = authority
-        .rsplit_once(':')
-        .map(|(host, port)| {
-            port.parse::<u16>()
-                .map(|port| (host, port))
-                .map_err(|_| "connection URL has an invalid port".to_string())
-        })
-        .transpose()?
-        .unwrap_or((authority, defaults.port));
-    if host.is_empty() {
-        return Err("connection URL has no host".into());
-    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "connection URL has no host".to_string())?
+        .trim_start_matches('[')
+        .trim_end_matches(']');
+    let port = parsed.port().unwrap_or(defaults.port);
+    let decode = |value: &str| {
+        percent_encoding::percent_decode_str(value)
+            .decode_utf8()
+            .map(|value| value.into_owned())
+            .map_err(|error| format!("connection URL contains invalid UTF-8: {error}"))
+    };
+    let user = decode(parsed.username())?;
+    let inline_password = parsed.password().map(decode).transpose()?;
+    let password = inline_password
+        .or_else(|| std::env::var("THOTH_SESHAT_PASSWORD").ok())
+        .unwrap_or_default();
+    let database = decode(parsed.path().trim_start_matches('/'))?;
+    let auth = if engine == Engine::Elasticsearch && user.is_empty() && password.is_empty() {
+        AuthMode::None
+    } else {
+        AuthMode::Password
+    };
     Ok((
         engine,
         Profile {
@@ -283,35 +300,18 @@ fn parse_connection_url(url: &str, requested: Option<&str>) -> Result<(Engine, P
             database: if database.is_empty() {
                 defaults.database.into()
             } else {
-                database.into()
+                database
             },
             user: if user.is_empty() {
                 defaults.user.into()
             } else {
-                user.into()
+                user
             },
-            password: password.into(),
+            password: password.clone(),
             tls: scheme == "https",
-            auth: if engine == Engine::Elasticsearch && user.is_empty() && password.is_empty() {
-                AuthMode::None
-            } else {
-                AuthMode::Password
-            },
+            auth,
         },
     ))
-}
-
-fn cap_query(engine: Engine, index: Option<&str>, query: &str, limit: usize) -> String {
-    if engine == Engine::Elasticsearch {
-        let query = if let Some(index) = index {
-            format!("{index}\n{query}")
-        } else {
-            query.to_string()
-        };
-        crate::es::cap(&query, limit).unwrap_or(query)
-    } else {
-        crate::sql::add_limit(query, limit).unwrap_or_else(|| query.to_string())
-    }
 }
 
 fn string<'a>(values: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
@@ -337,7 +337,7 @@ fn engine_name(engine: Engine) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{cap_query, parse_connection_url, schema};
+    use super::{parse_connection_url, schema};
     use crate::db::Engine;
 
     #[test]
@@ -361,10 +361,14 @@ mod tests {
     }
 
     #[test]
-    fn caps_sql_queries() {
-        assert_eq!(
-            cap_query(Engine::Postgres, None, "select * from logs", 25),
-            "select * from logs LIMIT 25"
-        );
+    fn parses_percent_encoded_credentials_and_ipv6() {
+        let (_, profile) =
+            parse_connection_url("postgres://alice%40example:p%40ss@[::1]:5440/my%20db", None)
+                .unwrap();
+        assert_eq!(profile.user, "alice@example");
+        assert_eq!(profile.password, "p@ss");
+        assert_eq!(profile.host, "::1");
+        assert_eq!(profile.port, 5440);
+        assert_eq!(profile.database, "my db");
     }
 }

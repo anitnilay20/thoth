@@ -59,8 +59,10 @@ fn parse_file_argument(args: &[String]) -> Result<Option<PathBuf>> {
 
 /// File-association launches still use the desktop app. Every other argument
 /// selects the command-line interface.
-fn is_file_invocation(args: &[String]) -> bool {
-    args.len() == 2 && PathBuf::from(&args[1]).is_file()
+fn is_file_invocation(args: &[String], plugin_commands: &[String]) -> bool {
+    args.len() == 2
+        && !thoth::cli::is_known_command(&args[1], plugin_commands)
+        && PathBuf::from(&args[1]).is_file()
 }
 
 fn main() -> Result<()> {
@@ -93,27 +95,35 @@ fn main() -> Result<()> {
             .map_err(|e| format!("MCP error: {e}").into());
     }
 
+    let settings = settings::Settings::load().unwrap_or_else(|e| {
+        eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);
+        settings::Settings::default()
+    });
+    // Only discover plugin command names when a single argument is also an
+    // existing file. This resolves collisions in favour of commands without
+    // adding a second discovery pass to ordinary CLI or file launches.
+    let plugin_commands = if args.len() == 2
+        && PathBuf::from(&args[1]).is_file()
+        && !thoth::cli::is_known_command(&args[1], &[])
+    {
+        thoth::cli::discover_command_ids(settings.clone()).unwrap_or_else(|error| {
+            eprintln!("Warning: failed to discover plugin commands: {error}");
+            Vec::new()
+        })
+    } else {
+        Vec::new()
+    };
+
     // Any non-file arguments select the display-free CLI. Keep this before
     // notification, consent, icon, and eframe initialization.
-    if args.len() > 1 && !is_file_invocation(&args) {
-        let output = thoth::cli::run_with(args, || {
-            settings::Settings::load().unwrap_or_else(|e| {
-                eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);
-                settings::Settings::default()
-            })
-        });
+    if args.len() > 1 && !is_file_invocation(&args, &plugin_commands) {
+        let output = thoth::cli::run(args, settings.clone());
         print!("{}", output.stdout);
         eprint!("{}", output.stderr);
         std::process::exit(output.exit_code);
     }
 
     let file_to_open = parse_file_argument(&args)?;
-
-    // Load settings first
-    let settings = settings::Settings::load().unwrap_or_else(|e| {
-        eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);
-        settings::Settings::default()
-    });
 
     NOTIFICATION_MANAGER
         .set(std::sync::Mutex::new(NotificationManager::new()))
@@ -221,13 +231,24 @@ mod tests {
             test_file.path().to_string_lossy().into_owned(),
         ];
 
-        assert!(is_file_invocation(&args));
+        assert!(is_file_invocation(&args, &[]));
     }
 
     #[test]
     fn command_arguments_are_not_file_invocations() {
         let args = vec!["thoth".to_string(), "plugins".to_string()];
-        assert!(!is_file_invocation(&args));
+        assert!(!is_file_invocation(&args, &[]));
+    }
+
+    #[test]
+    fn discovered_command_takes_precedence_over_same_named_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("seshat");
+        std::fs::write(&path, "not a data file").unwrap();
+        let command = path.to_string_lossy().into_owned();
+        let args = vec!["thoth".to_string(), command.clone()];
+
+        assert!(!is_file_invocation(&args, &[command]));
     }
 
     #[test]

@@ -421,13 +421,37 @@ pub(crate) fn saved_connections() -> Vec<Connection> {
 /// Resolve an exact saved connection id or display name and load its secret.
 pub(crate) fn saved_profile(name: &str) -> Result<(Engine, db::Profile), String> {
     let connections = saved_connections();
-    let connection = connections
-        .iter()
-        .find(|connection| connection.id == name || connection.name == name)
-        .ok_or_else(|| format!("saved connection '{name}' was not found"))?;
-    let password = secure_storage::read(&pw_key(&connection.id))
-        .map_err(|error| error.message)?
-        .unwrap_or_default();
+    let connection = if let Some(connection) = connections.iter().find(|item| item.id == name) {
+        connection
+    } else {
+        let mut matches = connections.iter().filter(|item| item.name == name);
+        let connection = matches
+            .next()
+            .ok_or_else(|| format!("saved connection '{name}' was not found"))?;
+        if matches.next().is_some() {
+            return Err(format!(
+                "saved connection name '{name}' is ambiguous; use its connection id"
+            ));
+        }
+        connection
+    };
+    let password = secure_storage::read(&pw_key(&connection.id)).map_err(|error| error.message)?;
+    let password = match (connection.auth, password) {
+        (AuthMode::None, secret) => secret.unwrap_or_default(),
+        (AuthMode::Password, Some(secret)) | (AuthMode::ApiKey, Some(secret)) => secret,
+        (AuthMode::Password, None) => {
+            return Err(format!(
+                "saved connection '{}' has no stored password",
+                connection.id
+            ));
+        }
+        (AuthMode::ApiKey, None) => {
+            return Err(format!(
+                "saved connection '{}' has no stored API key",
+                connection.id
+            ));
+        }
+    };
     Ok((
         connection.engine,
         db::Profile {

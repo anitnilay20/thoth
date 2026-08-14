@@ -17,6 +17,22 @@ use crate::{
     settings::Settings,
 };
 
+fn accept_cli_id(
+    plugin_id: &str,
+    cli_id: &str,
+    command_ids: &mut HashSet<String>,
+) -> std::result::Result<(), String> {
+    if matches!(cli_id, "plugins" | "completions" | "help") {
+        return Err(format!(
+            "plugin '{plugin_id}' uses reserved CLI id '{cli_id}'"
+        ));
+    }
+    if !command_ids.insert(cli_id.to_string()) {
+        return Err(format!("duplicate plugin CLI id '{cli_id}'"));
+    }
+    Ok(())
+}
+
 /// A command accepted by [`HeadlessRuntime`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -119,14 +135,15 @@ impl HeadlessRuntime {
             .collect()
     }
 
-    /// Discover every manifest that declares the CLI capability and load its
-    /// adapter through the `plugin-cli` WIT interface.
-    pub fn discover_cli_plugins(&mut self) -> std::result::Result<(), String> {
+    fn wait_for_manager(
+        &self,
+    ) -> std::result::Result<Option<std::sync::Arc<crate::plugin::manager::PluginManager>>, String>
+    {
         let deadline = std::time::Instant::now() + self.plugin_init_timeout;
-        let manager = loop {
+        loop {
             match self.core.plugins.state() {
-                PluginRuntimeState::Ready(manager) => break Some(manager),
-                PluginRuntimeState::Disabled => break None,
+                PluginRuntimeState::Ready(manager) => return Ok(Some(manager)),
+                PluginRuntimeState::Disabled => return Ok(None),
                 PluginRuntimeState::Loading if std::time::Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(1));
                 }
@@ -134,7 +151,13 @@ impl HeadlessRuntime {
                     return Err("plugin initialization timed out".into());
                 }
             }
-        };
+        }
+    }
+
+    /// Discover every manifest that declares the CLI capability and load its
+    /// adapter through the `plugin-cli` WIT interface.
+    pub fn discover_cli_plugins(&mut self) -> std::result::Result<(), String> {
+        let manager = self.wait_for_manager()?;
 
         self.cli_plugins.clear();
         let Some(manager) = manager else {
@@ -157,18 +180,17 @@ impl HeadlessRuntime {
                     .unwrap_or(&NetworkDeclarations::default()),
                 &user_policy,
             );
-            let adapter = manager.open_cli(&plugin.id, policy).map_err(|error| {
-                format!("failed to load CLI for plugin '{}': {error}", plugin.id)
-            })?;
+            let adapter = match manager.open_cli(&plugin.id, policy) {
+                Ok(adapter) => adapter,
+                Err(error) => {
+                    eprintln!("Skipping CLI plugin '{}': {error}", plugin.id);
+                    continue;
+                }
+            };
             let schema = adapter.cli_schema();
-            if matches!(schema.id.as_str(), "plugins" | "completions" | "help") {
-                return Err(format!(
-                    "plugin '{}' uses reserved CLI id '{}'",
-                    plugin.id, schema.id
-                ));
-            }
-            if !command_ids.insert(schema.id.clone()) {
-                return Err(format!("duplicate plugin CLI id '{}'", schema.id));
+            if let Err(error) = accept_cli_id(&plugin.id, &schema.id, &mut command_ids) {
+                eprintln!("Skipping CLI plugin '{}': {error}", plugin.id);
+                continue;
             }
             self.cli_plugins.push(Box::new(adapter));
         }
@@ -206,35 +228,24 @@ impl HeadlessRuntime {
     }
 
     fn list_plugins(&self) -> HeadlessResult {
-        let deadline = std::time::Instant::now() + self.plugin_init_timeout;
-        loop {
-            match self.core.plugins.state() {
-                PluginRuntimeState::Ready(manager) => {
-                    let plugins: Vec<Value> = manager
-                        .get_all_plugin()
-                        .into_iter()
-                        .map(|plugin| {
-                            serde_json::json!({
-                                "id": plugin.id,
-                                "name": plugin.name,
-                                "version": plugin.version,
-                                "capabilities": plugin.capabilities,
-                            })
-                        })
-                        .collect();
-                    return HeadlessResult::success(serde_json::json!({ "plugins": plugins }));
-                }
-                PluginRuntimeState::Disabled => {
-                    return HeadlessResult::success(serde_json::json!({ "plugins": [] }));
-                }
-                PluginRuntimeState::Loading if std::time::Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(1));
-                }
-                PluginRuntimeState::Loading => {
-                    return HeadlessResult::failure("plugin initialization timed out");
-                }
-            }
-        }
+        let manager = match self.wait_for_manager() {
+            Ok(Some(manager)) => manager,
+            Ok(None) => return HeadlessResult::success(serde_json::json!({ "plugins": [] })),
+            Err(error) => return HeadlessResult::failure(error),
+        };
+        let plugins: Vec<Value> = manager
+            .get_all_plugin()
+            .into_iter()
+            .map(|plugin| {
+                serde_json::json!({
+                    "id": plugin.id,
+                    "name": plugin.name,
+                    "version": plugin.version,
+                    "capabilities": plugin.capabilities,
+                })
+            })
+            .collect();
+        HeadlessResult::success(serde_json::json!({ "plugins": plugins }))
     }
 
     fn run_plugin_command(
@@ -283,7 +294,7 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    use super::{CliCommand, HeadlessRuntime};
+    use super::{CliCommand, HeadlessRuntime, accept_cli_id};
     use crate::plugin::plugin_ui_host::{PluginCore, PluginCoreEvent};
 
     struct MockPlugin {
@@ -364,5 +375,21 @@ mod tests {
 
         assert_eq!(result.exit_code, 0);
         assert_eq!(result.stdout.unwrap(), serde_json::json!({ "plugins": [] }));
+    }
+
+    #[test]
+    fn rejects_reserved_cli_ids() {
+        let mut ids = std::collections::HashSet::new();
+        let error = accept_cli_id("test.plugin", "plugins", &mut ids).unwrap_err();
+        assert!(error.contains("reserved CLI id"));
+        assert!(ids.is_empty());
+    }
+
+    #[test]
+    fn rejects_duplicate_cli_ids() {
+        let mut ids = std::collections::HashSet::new();
+        accept_cli_id("first", "demo", &mut ids).unwrap();
+        let error = accept_cli_id("second", "demo", &mut ids).unwrap_err();
+        assert!(error.contains("duplicate plugin CLI id 'demo'"));
     }
 }

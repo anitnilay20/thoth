@@ -8,6 +8,8 @@ mod events;
 mod icons;
 mod mysql;
 mod pg;
+mod query;
+mod service;
 mod shim;
 mod sql;
 mod state;
@@ -69,7 +71,7 @@ pub(crate) const ICON_CHART_BAR: &str = "\u{E150}"; // Stats result tab
     name = "Seshat",
     version = "0.1.0",
     description = "Database client for Thoth",
-    capabilities = [DataSource, NewUiComponent, Cli],
+    capabilities = [DataSource, NewUiComponent, DataProducer, Cli],
     author = "Thoth contributors",
     icon = ICON_DATABASE,
 )]
@@ -241,7 +243,6 @@ impl DataSourceGuest for Seshat {
     /// Dispatch one [`Request`] against the active profile and return its JSON.
     fn query(_handle: String, q: String) -> Result<String, PluginError> {
         let (profile, engine) = STATE.with(|st| (st.query_profile(), st.engine()));
-        let adapter = db::adapter(engine);
         let req: Request =
             serde_json::from_str(&q).map_err(|e| err(2, format!("bad request: {e}")))?;
         // Queries and database listing use the connection's configured database;
@@ -249,14 +250,16 @@ impl DataSourceGuest for Seshat {
         // reconnect there by overriding `database` (Postgres can't introspect a
         // database other than the one it's connected to).
         match req {
-            Request::Query { sql } => to_json(adapter.run_query(&profile, &sql)),
-            Request::TestConnection => to_json(adapter.test_connection(&profile)),
-            Request::ListDatabases => to_json(adapter.list_databases(&profile)),
-            Request::ListSchemas { database } => to_json(adapter.list_schemas(&db::Profile {
-                database,
-                ..profile
-            })),
-            Request::ListTables { database, schema } => to_json(adapter.list_tables(
+            Request::Query { sql } => to_json(service::run_query(engine, &profile, &sql)),
+            Request::TestConnection => to_json(service::test_connection(engine, &profile)),
+            Request::ListDatabases => to_json(service::list_databases(engine, &profile)),
+            Request::ListSchemas { database } => {
+                to_json(db::adapter(engine).list_schemas(&db::Profile {
+                    database,
+                    ..profile
+                }))
+            }
+            Request::ListTables { database, schema } => to_json(db::adapter(engine).list_tables(
                 &db::Profile {
                     database,
                     ..profile
@@ -265,12 +268,14 @@ impl DataSourceGuest for Seshat {
             )),
             // Search scope is the adapter's concern (MySQL is server-wide;
             // Postgres iterates its databases), so query against the base profile.
-            Request::FindTables { query } => to_json(adapter.find_tables(&profile, &query)),
+            Request::FindTables { query } => {
+                to_json(db::adapter(engine).find_tables(&profile, &query))
+            }
             Request::DescribeTable {
                 database,
                 schema,
                 table,
-            } => to_json(adapter.describe_table(
+            } => to_json(db::adapter(engine).describe_table(
                 &db::Profile {
                     database,
                     ..profile
@@ -282,7 +287,7 @@ impl DataSourceGuest for Seshat {
                 database,
                 schema,
                 table,
-            } => to_json(adapter.list_columns(
+            } => to_json(db::adapter(engine).list_columns(
                 &db::Profile {
                     database,
                     ..profile

@@ -1012,7 +1012,7 @@ impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
 
 // ── reqwest bridge ────────────────────────────────────────────────────────────
 
-fn execute_http_request(
+pub(crate) fn execute_http_request(
     req: thoth::plugin::http_client::HttpRequest,
 ) -> std::result::Result<thoth::plugin::http_client::HttpResponse, String> {
     let client = reqwest::blocking::Client::builder()

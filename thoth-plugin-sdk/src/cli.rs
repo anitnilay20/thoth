@@ -158,11 +158,13 @@ pub struct CliArg {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum CliArgKind {
     /// An ordered value without a flag name.
+    #[serde(rename_all = "kebab-case")]
     Positional {
         /// Display name used in generated help.
         value_name: String,
     },
     /// A named option that consumes one value.
+    #[serde(rename_all = "kebab-case")]
     Option {
         /// Long spelling without the leading `--`.
         long: String,
@@ -173,6 +175,7 @@ pub enum CliArgKind {
         value_name: String,
     },
     /// A named boolean switch.
+    #[serde(rename_all = "kebab-case")]
     Flag {
         /// Long spelling without the leading `--`.
         long: String,
@@ -246,6 +249,17 @@ mod tests {
         let json = serde_json::to_string(&schema).unwrap();
         assert_eq!(serde_json::from_str::<CliSchema>(&json).unwrap(), schema);
         schema.validate().unwrap();
+
+        let positional = CliArgKind::Positional {
+            value_name: "PATH".into(),
+        };
+        let positional_json = serde_json::to_string(&positional).unwrap();
+        assert!(positional_json.contains("value-name"));
+        assert!(!positional_json.contains("value_name"));
+        assert_eq!(
+            serde_json::from_str::<CliArgKind>(&positional_json).unwrap(),
+            positional
+        );
     }
 
     #[test]

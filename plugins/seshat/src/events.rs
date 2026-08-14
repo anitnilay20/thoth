@@ -8,6 +8,7 @@ use crate::bindings::thoth::plugin::dataset_bus::{self, DatasetColumn};
 use crate::bindings::thoth::plugin::signals::{self, Status as SignalStatus};
 use crate::bindings::thoth::plugin::{file_dialog, secure_storage, ui_tabs};
 use crate::db::{self, ColumnInfo, TableInfo};
+use crate::query::{self, Bound};
 use crate::sql;
 use crate::state::{
     engine_from_value, make_id, pw_key, record_history, save_connections, submit, Connection,
@@ -455,19 +456,11 @@ fn execute_current(st: &mut State) {
     // Push a "running" signal to the host status bar; the result handler
     // overwrites it with the row count + latency (Ready) or an Error.
     signals::emit_signal("rows", "", SignalStatus::Loading, 0);
-    // Elasticsearch caps rows per query dialect (Query-DSL `size`, SQL/ES|QL
-    // LIMIT); both use the same +1 sentinel-row convention as the SQL engines.
-    let capped = if st.engine() == crate::db::Engine::Elasticsearch {
-        crate::es::cap(&base, st.row_limit + 1)
-    } else {
-        sql::add_limit(&base, st.row_limit + 1)
-    };
-    let (sql, limited) = match capped {
-        Some(c) => (c, true),
-        None => (base, false),
-    };
-    st.run_limited = limited;
-    submit(&Request::Query { sql }, Kind::Query, st);
+    // Query preparation is shared with the CLI. The UI requests one sentinel
+    // row so it can reveal "Load more" when Seshat applied the bound itself.
+    let prepared = query::prepare(st.engine(), &base, st.row_limit + 1);
+    st.run_limited = prepared.bound == Bound::Applied;
+    submit(&Request::Query { sql: prepared.sql }, Kind::Query, st);
 }
 
 /// Lazily run `EXPLAIN ANALYZE` for the **last-run** query — triggered when the

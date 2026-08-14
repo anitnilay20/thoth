@@ -6123,6 +6123,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "fallible-iterator",
+ "percent-encoding",
  "postgres-protocol",
  "rand 0.8.5",
  "rsa",
@@ -6132,6 +6133,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlformat",
  "thoth-plugin-sdk",
+ "url",
  "wit-bindgen-rt",
 ]
 
@@ -6642,6 +6644,7 @@ dependencies = [
  "toml 0.8.2",
  "tracing",
  "tracing-subscriber",
+ "unicode-width",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-http",

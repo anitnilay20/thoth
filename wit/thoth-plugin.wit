@@ -912,16 +912,21 @@ interface dataset-bus {
 }
 
 
-/// Every plugin must satisfy this base world.
-world base-plugin {
+/// Metadata and lifecycle shared by graphical and headless plugins.
+world plugin-common {
     export plugin-meta;
     export plugin-lifecycle;
+}
+
+/// Graphical plugins also expose settings metadata and callbacks.
+world base-plugin {
+    include plugin-common;
     export plugin-settings;
 }
 
 /// A headless-only plugin that exposes command-line operations.
 world cli-plugin {
-    include base-plugin;
+    include plugin-common;
     import plugin-storage;
     import secure-storage;
     import http-client;

@@ -21,7 +21,10 @@ use crate::{
     app::persistent_state::PersistentState,
     plugin::{
         network_policy::{CheckOutcome, NetworkPolicy},
-        wasm_data_source::{BoxIo, ReadWrite, TCP_READ_CAP, secret_store, tcp_connect, tcp_tls},
+        wasm_data_source::{
+            BoxIo, ReadWrite, TCP_READ_CAP, execute_http_request, secret_store, tcp_connect,
+            tcp_tls,
+        },
     },
 };
 
@@ -31,6 +34,7 @@ wasmtime::component::bindgen!({
 });
 
 const CLI_FUEL_BUDGET: u64 = 5_000_000_000;
+const MAX_TCP_STREAMS: usize = 32;
 
 struct CliState {
     wasi: WasiCtx,
@@ -69,16 +73,26 @@ impl WasmCliLoader {
         wasm_path: &Path,
         plugin_id: &str,
         policy: NetworkPolicy,
-        _settings: &[crate::settings::PluginSettingData],
+        settings: &[crate::settings::PluginSettingData],
     ) -> Result<Self> {
         let load_error = |reason: String| ThothError::PluginLoadError {
             path: wasm_path.to_path_buf(),
             reason,
         };
+        let mut wasi = WasiCtxBuilder::new();
+        wasi.inherit_stderr();
+        // Passwords supplied for Seshat connection URLs are deliberately
+        // whitelisted one variable at a time instead of exposing the host's
+        // complete environment to every plugin.
+        if plugin_id == "com.thoth.seshat"
+            && let Ok(password) = std::env::var("THOTH_SESHAT_PASSWORD")
+        {
+            wasi.env("THOTH_SESHAT_PASSWORD", password);
+        }
         let mut store = Store::new(
             engine,
             CliState {
-                wasi: WasiCtxBuilder::new().inherit_stderr().build(),
+                wasi: wasi.build(),
                 table: ResourceTable::new(),
                 plugin_id: plugin_id.to_string(),
                 policy,
@@ -115,6 +129,12 @@ impl WasmCliLoader {
         thoth::plugin::tcp_client::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
             .map_err(|error| load_error(error.to_string()))?;
         let bindings = CliPlugin::instantiate(&mut store, &component, &linker)
+            .map_err(|error| load_error(error.to_string()))?;
+        let settings_json = serde_json::to_string(settings)
+            .map_err(|error| load_error(format!("failed to encode plugin settings: {error}")))?;
+        bindings
+            .thoth_plugin_plugin_lifecycle()
+            .call_on_load(&mut store, &settings_json)
             .map_err(|error| load_error(error.to_string()))?;
         let schema_json = bindings
             .thoth_plugin_plugin_cli()
@@ -219,49 +239,6 @@ fn http_error(code: u32, message: impl Into<String>) -> thoth::plugin::http_clie
     }
 }
 
-fn execute_http_request(
-    req: thoth::plugin::http_client::HttpRequest,
-) -> std::result::Result<thoth::plugin::http_client::HttpResponse, String> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|error| error.to_string())?;
-    let mut builder = match req.method.to_uppercase().as_str() {
-        "POST" => client.post(&req.url),
-        "PUT" => client.put(&req.url),
-        "PATCH" => client.patch(&req.url),
-        "DELETE" => client.delete(&req.url),
-        _ => client.get(&req.url),
-    };
-    for (key, value) in req.headers {
-        builder = builder.header(key, value);
-    }
-    if let Some(body) = req.body {
-        builder = builder.body(body);
-    }
-    let response = builder.send().map_err(|error| error.to_string())?;
-    let status = response.status().as_u16();
-    let headers = response
-        .headers()
-        .iter()
-        .map(|(key, value)| {
-            (
-                key.to_string(),
-                value.to_str().unwrap_or_default().to_string(),
-            )
-        })
-        .collect();
-    let body = response
-        .bytes()
-        .map_err(|error| error.to_string())?
-        .to_vec();
-    Ok(thoth::plugin::http_client::HttpResponse {
-        status,
-        headers,
-        body,
-    })
-}
-
 impl thoth::plugin::http_client::Host for CliState {
     fn fetch(
         &mut self,
@@ -272,7 +249,20 @@ impl thoth::plugin::http_client::Host for CliState {
     > {
         match self.policy.check_data_source(&req.url) {
             Ok(CheckOutcome::Allowed) => {
-                execute_http_request(req).map_err(|error| http_error(1, error))
+                let response = execute_http_request(
+                    crate::plugin::wasm_data_source::thoth::plugin::http_client::HttpRequest {
+                        url: req.url,
+                        method: req.method,
+                        headers: req.headers,
+                        body: req.body,
+                    },
+                )
+                .map_err(|error| http_error(1, error))?;
+                Ok(thoth::plugin::http_client::HttpResponse {
+                    status: response.status,
+                    headers: response.headers,
+                    body: response.body,
+                })
             }
             Ok(CheckOutcome::NeedsConsent { domain }) => Err(http_error(
                 403,
@@ -285,7 +275,7 @@ impl thoth::plugin::http_client::Host for CliState {
     }
 
     fn submit(&mut self, _req: thoth::plugin::http_client::HttpRequest) -> String {
-        "unsupported-in-cli".to_string()
+        panic!("asynchronous HTTP submit is unavailable in CLI mode")
     }
 }
 
@@ -303,6 +293,12 @@ impl thoth::plugin::tcp_client::Host for CliState {
         port: u16,
         tls: bool,
     ) -> std::result::Result<u64, thoth::plugin::tcp_client::PluginError> {
+        if self.tcp_streams.len() >= MAX_TCP_STREAMS {
+            return Err(tcp_error(
+                429,
+                format!("maximum of {MAX_TCP_STREAMS} concurrent TCP streams reached"),
+            ));
+        }
         match self.policy.check_tcp(&host) {
             Ok(CheckOutcome::Allowed) => {}
             Ok(CheckOutcome::NeedsConsent { domain }) => {

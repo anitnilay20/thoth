@@ -137,6 +137,20 @@ pub(crate) fn add_limit(sql: &str, n: usize) -> Option<String> {
     Some(format!("{trimmed} LIMIT {n}"))
 }
 
+/// Whether a single read query already contains an explicit `LIMIT` token.
+/// This intentionally mirrors [`add_limit`]'s conservative detection so callers
+/// can distinguish "already capped" from "cannot be capped".
+pub(crate) fn has_explicit_limit(sql: &str) -> bool {
+    if statements(sql).len() != 1 {
+        return false;
+    }
+    let lower = sql.trim().trim_end_matches(';').trim().to_lowercase();
+    (lower.starts_with("select") || lower.starts_with("with"))
+        && lower
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .any(|word| word == "limit")
+}
+
 /// The trimmed text of a character range `[start, end)` of `sql`.
 pub(crate) fn slice(sql: &str, start: usize, end: usize) -> String {
     sql.chars()
@@ -259,6 +273,8 @@ mod tests {
         );
         // Already limited, non-select, or multi-statement → untouched.
         assert_eq!(add_limit("SELECT * FROM t LIMIT 5", 101), None);
+        assert!(has_explicit_limit("SELECT * FROM t LIMIT 5"));
+        assert!(!has_explicit_limit("UPDATE t SET a = 1 LIMIT 5"));
         assert_eq!(add_limit("UPDATE t SET a = 1", 101), None);
         assert_eq!(add_limit("SELECT 1; SELECT 2;", 101), None);
     }

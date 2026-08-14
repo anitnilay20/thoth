@@ -910,10 +910,21 @@ impl ThothApp {
             let _ = loader.init_with_state(state);
         }
         let Some(ui) = loader.as_ui() else {
+            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                tab.error = Some(crate::error::ThothError::Unknown {
+                    message: format!("Plugin '{plugin_id}' does not expose a UI component"),
+                });
+            }
             return;
         };
-        let Ok(ui_output) = ui.render_ui() else {
-            return;
+        let ui_output = match ui.render_ui() {
+            Ok(output) => output,
+            Err(error) => {
+                if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                    tab.error = Some(error);
+                }
+                return;
+            }
         };
         let sidebar_output = ui.render_sidebar().ok().flatten();
         let nav_capacity = self.core.settings.performance.navigation_history_size;
