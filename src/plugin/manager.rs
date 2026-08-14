@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
@@ -386,8 +385,10 @@ impl PluginManager {
     }
 
     fn bundled_plugins_dir(&self) -> Result<PathBuf> {
-        let exe = env::current_exe().map_err(|_| ThothError::PluginDirectoryInvalid {
-            dir: "Bundled".to_string(),
+        let exe = crate::platform::current_executable_path().map_err(|_| {
+            ThothError::PluginDirectoryInvalid {
+                dir: "Bundled".to_string(),
+            }
         })?;
         let exe_dir = exe
             .parent()
