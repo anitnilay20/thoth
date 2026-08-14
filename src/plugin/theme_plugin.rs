@@ -1,63 +1,49 @@
 use std::{collections::HashMap, fs::File, io::BufReader};
 
-use crate::{PLUGIN_MANAGER, plugin::Plugin, theme::Theme};
-
-// TODO: Optimise theme plugin mod
-pub fn all_theme_plugins<'a>() -> Vec<&'a Plugin> {
-    if let Some(pm) = PLUGIN_MANAGER.get()
-        && let Some(pm) = pm
-    {
-        return pm.get_all_plugin_by_capability(super::Capability::Theme);
-    }
-
-    vec![]
-}
+use crate::theme::Theme;
 
 pub fn get_plugin_theme_catalog() -> Vec<(String, bool, String)> {
-    all_theme_plugins()
-        .iter()
-        .flat_map(|plugin| {
-            if let Some(theme_plugin) = &plugin.theme {
-                let family = &theme_plugin.family;
-
-                theme_plugin
-                    .catalog
-                    .iter()
-                    .map(|c| (c.0.clone(), c.1, family.clone()))
-                    .collect()
-            } else {
-                vec![]
-            }
+    super::runtime::active_manager()
+        .map(|manager| {
+            manager
+                .get_all_plugin_by_capability(super::Capability::Theme)
+                .into_iter()
+                .filter_map(|plugin| plugin.theme.as_ref())
+                .flat_map(|theme| {
+                    theme
+                        .catalog
+                        .iter()
+                        .map(|entry| (entry.0.clone(), entry.1, theme.family.clone()))
+                })
+                .collect()
         })
-        .collect()
+        .unwrap_or_default()
 }
 
 pub fn get_plugin_theme_by_name(name: &str) -> Option<Theme> {
-    let mut theme: Option<Theme> = None;
-
-    all_theme_plugins().iter().for_each(|plugin| {
-        if let Some(theme_plugin) = &plugin.theme
-            && let Some(location) = &plugin.location
-            && theme_plugin.catalog.iter().any(|(n, _)| n == name)
-            && let Ok(file) = File::open(location).map_err(|err| {
-                eprintln!(
-                    "Error opening theme.json file for {} - {}",
-                    plugin.name, err
-                );
-            })
-        {
-            {
-                let rdr = BufReader::new(file);
-                if let Ok(value) = serde_json::from_reader::<_, HashMap<String, Theme>>(rdr)
-                    .map_err(|err| {
-                        eprintln!("Error parsing theme file for {} - {}", plugin.name, err);
-                    })
-                {
-                    theme = value.get(name).cloned();
-                };
-            };
-        }
-    });
-
-    theme
+    let manager = super::runtime::active_manager()?;
+    let plugin = manager
+        .get_all_plugin_by_capability(super::Capability::Theme)
+        .into_iter()
+        .find(|plugin| {
+            plugin
+                .theme
+                .as_ref()
+                .is_some_and(|theme| theme.catalog.iter().any(|(entry, _)| entry == name))
+        })?;
+    let location = plugin.location.as_ref()?;
+    let file = File::open(location)
+        .map_err(|error| {
+            eprintln!(
+                "Error opening theme.json file for {} - {}",
+                plugin.name, error
+            );
+        })
+        .ok()?;
+    let themes = serde_json::from_reader::<_, HashMap<String, Theme>>(BufReader::new(file))
+        .map_err(|error| {
+            eprintln!("Error parsing theme file for {} - {}", plugin.name, error);
+        })
+        .ok()?;
+    themes.get(name).cloned()
 }

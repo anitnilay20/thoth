@@ -13,7 +13,6 @@ use std::sync::Arc;
 
 use self::types::ViewerState;
 use self::viewer_type::ViewerType;
-use crate::PLUGIN_MANAGER;
 use crate::file::loaders::{FileKind, FileType, load_file_auto};
 use crate::helpers::LruCache;
 use crate::plugin::Capability;
@@ -89,24 +88,22 @@ impl FileViewer {
         // Check if a plugin is registered for this extension.
         // If one is registered, its result (success or error) is used — we do NOT
         // silently fall through to JSON parsing when a plugin claims the format.
-        let plugin_result = PLUGIN_MANAGER
-            .get()
-            .and_then(|opt| opt.as_ref())
-            .and_then(|pm| {
-                if pm.find_loader_for_extension(ext_str).is_some() {
-                    let result: crate::error::Result<(FileType, FileKind)> =
-                        if pm.plugin_has_capability(ext_str, &Capability::FileViewer) {
-                            pm.open_file_with_viewer(ext_str, path)
-                                .map(|wfl| (FileType::PluginWithViewer(wfl), FileKind::PluginTable))
-                        } else {
-                            pm.open_file(ext_str, path)
-                                .map(|wfl| (FileType::Plugin(wfl), FileKind::Plugin))
-                        };
-                    Some(result)
-                } else {
-                    None
-                }
-            });
+        let plugin_manager = crate::plugin::runtime::active_manager();
+        let plugin_result = plugin_manager.as_deref().and_then(|pm| {
+            if pm.find_loader_for_extension(ext_str).is_some() {
+                let result: crate::error::Result<(FileType, FileKind)> =
+                    if pm.plugin_has_capability(ext_str, &Capability::FileViewer) {
+                        pm.open_file_with_viewer(ext_str, path)
+                            .map(|wfl| (FileType::PluginWithViewer(wfl), FileKind::PluginTable))
+                    } else {
+                        pm.open_file(ext_str, path)
+                            .map(|wfl| (FileType::Plugin(wfl), FileKind::Plugin))
+                    };
+                Some(result)
+            } else {
+                None
+            }
+        });
 
         let (loader, kind) = match plugin_result {
             Some(Ok((file_type, file_kind))) => (file_type, file_kind),

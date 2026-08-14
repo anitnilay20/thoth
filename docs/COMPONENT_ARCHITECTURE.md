@@ -6,6 +6,22 @@ This document explains Thoth's component architecture and the one-way data bindi
 
 Thoth uses a **trait-based component system** inspired by React's component model, adapted to work with Rust's ownership system and egui's immediate mode GUI pattern.
 
+Application state is split above the component layer:
+
+- `ThothCore` owns display-independent settings, persisted state, updater
+  state, the asynchronously initialized plugin manager, the dataset store,
+  deferred plugin/session work, and the core event queue. It provides `init`,
+  `dispatch_event`, and non-blocking `tick` methods and imports no egui types.
+- `ThothApp` owns `ThothCore` plus window-only state such as components,
+  dialogs, native menus, clipboard integration, and screenshot geometry. GUI
+  events are translated into core events; actions returned by `tick` are then
+  applied to the active window.
+
+This boundary allows a headless runtime to construct and drive the application
+core without creating an eframe window. Legacy WIT and SDK callbacks reach the
+active plugin manager and dataset store through weak bridges; those bridges do
+not own either service or extend the lifetime of `ThothCore`.
+
 > **Two tiers of UI.** Since the SDK migration, Thoth's UI is split in two:
 >
 > 1. **Reusable widgets** (Button, Input, Select, List, Card, DataRow, Tabs, …)

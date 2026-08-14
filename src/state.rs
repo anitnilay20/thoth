@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::{
     app::tab_manager::TabManager,
     components,
-    plugin::{plugin_ui_host::PluginUiHost, render_node::UiOutput},
+    plugin::{plugin_ui_host::PluginCore, render_node::UiOutput},
     search, update,
 };
 
@@ -17,7 +17,7 @@ pub struct ActivePluginPane {
     pub ui_output: UiOutput,
     /// The loader is kept here so the central panel can forward UI events.
     /// Boxed so a pane can hold either a data-source or a ui-component loader.
-    pub loader: Box<dyn PluginUiHost>,
+    pub loader: Box<dyn PluginCore>,
     /// Cached tab title/icon from the plugin's `tab-host` export, refreshed after
     /// `render_ui` and each `handle_event`. Read cheaply by the dock tab label
     /// (which is queried every frame, so it must not lock the WASM store).

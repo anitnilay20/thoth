@@ -11,6 +11,8 @@ crate-type = ["cdylib"] # required for WASM component output
 wit-bindgen-rt = "0.41"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+url = "2"
+percent-encoding = "2"
 # Postgres wire-protocol codec (transport-agnostic; driven over the host
 # tcp-client shim). The high-level `postgres`/`tokio-postgres` crates open their
 # own sockets and won't compile to wasm32-wasip1 — this is just the codec.
@@ -34,4 +36,4 @@ package = "thoth:seshat"
 
 [package.metadata.component.target]
 path = "../../wit"
-world = "data-source-plugin"
+world = "data-source-cli-plugin"

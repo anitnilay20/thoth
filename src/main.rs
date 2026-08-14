@@ -11,9 +11,8 @@ use eframe::{
 };
 use std::path::PathBuf;
 use thoth::{
-    CONSENT_MANAGER, NOTIFICATION_MANAGER, PLUGIN_MANAGER, app, consent::manager::ConsentManager,
-    error::Result, helpers::load_icon, notification::NotificationManager,
-    plugin::manager::PluginManager, settings,
+    CONSENT_MANAGER, NOTIFICATION_MANAGER, app, consent::manager::ConsentManager, error::Result,
+    helpers::load_icon, notification::NotificationManager, settings,
 };
 
 /// Parse command-line arguments to extract file path
@@ -58,6 +57,14 @@ fn parse_file_argument(args: &[String]) -> Result<Option<PathBuf>> {
     Ok(Some(canonical_path))
 }
 
+/// File-association launches still use the desktop app. Every other argument
+/// selects the command-line interface.
+fn is_file_invocation(args: &[String], plugin_commands: &[String]) -> bool {
+    args.len() == 2
+        && !thoth::cli::is_known_command(&args[1], plugin_commands)
+        && PathBuf::from(&args[1]).is_file()
+}
+
 fn main() -> Result<()> {
     // Initialize dhat heap profiler (only when profiling feature is enabled)
     // When the app exits, dhat writes 'dhat-heap.json' which can be viewed at:
@@ -88,13 +95,35 @@ fn main() -> Result<()> {
             .map_err(|e| format!("MCP error: {e}").into());
     }
 
-    let file_to_open = parse_file_argument(&args)?;
-
-    // Load settings first
     let settings = settings::Settings::load().unwrap_or_else(|e| {
         eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);
         settings::Settings::default()
     });
+    // Only discover plugin command names when a single argument is also an
+    // existing file. This resolves collisions in favour of commands without
+    // adding a second discovery pass to ordinary CLI or file launches.
+    let plugin_commands = if args.len() == 2
+        && PathBuf::from(&args[1]).is_file()
+        && !thoth::cli::is_known_command(&args[1], &[])
+    {
+        thoth::cli::discover_command_ids(settings.clone()).unwrap_or_else(|error| {
+            eprintln!("Warning: failed to discover plugin commands: {error}");
+            Vec::new()
+        })
+    } else {
+        Vec::new()
+    };
+
+    // Any non-file arguments select the display-free CLI. Keep this before
+    // notification, consent, icon, and eframe initialization.
+    if args.len() > 1 && !is_file_invocation(&args, &plugin_commands) {
+        let output = thoth::cli::run(args, settings.clone());
+        print!("{}", output.stdout);
+        eprint!("{}", output.stderr);
+        std::process::exit(output.exit_code);
+    }
+
+    let file_to_open = parse_file_argument(&args)?;
 
     NOTIFICATION_MANAGER
         .set(std::sync::Mutex::new(NotificationManager::new()))
@@ -102,23 +131,6 @@ fn main() -> Result<()> {
     CONSENT_MANAGER
         .set(std::sync::Mutex::new(ConsentManager::new()))
         .ok();
-
-    let plugin_settings = settings.plugins.plugin_settings.clone();
-
-    // Load Plugins
-    if settings.plugins.enabled {
-        std::thread::spawn(move || {
-            PLUGIN_MANAGER
-                .set(
-                    PluginManager::init(&plugin_settings)
-                        .map_err(|err| {
-                            eprintln!("Warning Unable to load plugins: {}", err);
-                        })
-                        .ok(),
-                )
-                .unwrap();
-        });
-    }
 
     let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
 
@@ -176,6 +188,12 @@ fn main() -> Result<()> {
             thoth_plugin_sdk::dataset::set_plugin_renderer(app::render_dataset_with_plugin);
 
             let mut app = app::ThothApp::new(settings, file_to_open);
+            app.core.plugins.install_as_active();
+            app.core.datasets.install_as_active();
+            app.core.plugins.start(
+                app.core.settings.plugins.enabled,
+                app.core.settings.plugins.plugin_settings.clone(),
+            );
             app.setup_native_menu(cc);
             Ok(Box::new(app))
         }),
@@ -203,6 +221,34 @@ mod tests {
         let args = vec!["thoth".to_string()];
         let result = parse_file_argument(&args).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn existing_file_is_a_gui_invocation() {
+        let test_file = tempfile::NamedTempFile::new().unwrap();
+        let args = vec![
+            "thoth".to_string(),
+            test_file.path().to_string_lossy().into_owned(),
+        ];
+
+        assert!(is_file_invocation(&args, &[]));
+    }
+
+    #[test]
+    fn command_arguments_are_not_file_invocations() {
+        let args = vec!["thoth".to_string(), "plugins".to_string()];
+        assert!(!is_file_invocation(&args, &[]));
+    }
+
+    #[test]
+    fn discovered_command_takes_precedence_over_same_named_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("seshat");
+        std::fs::write(&path, "not a data file").unwrap();
+        let command = path.to_string_lossy().into_owned();
+        let args = vec!["thoth".to_string(), command.clone()];
+
+        assert!(!is_file_invocation(&args, &[command]));
     }
 
     #[test]

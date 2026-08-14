@@ -77,6 +77,8 @@ interface types {
         // data-renderer.render and appears as an extra view format in a
         // DataView (alongside table / json / raw).
         renderer,
+        // Exposes commands through the optional plugin-cli interface.
+        cli,
     }
 
     /// Maps from src/wit/mod.rs `Plugin` struct.
@@ -121,6 +123,29 @@ interface plugin-meta {
     /// Return static metadata about this plugin.
     /// Called once by the host immediately after instantiation.
     get-info: func() -> plugin-info;
+}
+
+
+// ---------------------------------------------------------------------------
+// plugin-cli — optional display-free command interface
+//
+// The schema and invocation payloads use the versioned JSON structures from
+// thoth-plugin-sdk::cli. JSON keeps this boundary extensible and equally usable
+// from non-Rust component languages. Worlds that do not export this interface
+// remain fully compatible.
+// ---------------------------------------------------------------------------
+
+interface plugin-cli {
+    use types.{plugin-error};
+
+    /// Return a JSON-encoded `CliSchema`. The host uses it to build clap help,
+    /// validation, and completion definitions before invoking the plugin.
+    schema: func() -> result<string, plugin-error>;
+
+    /// Run a JSON-encoded `CliInvocation`. On success, return a JSON-encoded
+    /// `CliOutput`; the host renders its structured records for the active
+    /// output surface (for example, a table in the terminal).
+    run: func(invocation-json: string) -> result<string, plugin-error>;
 }
 
 
@@ -887,11 +912,26 @@ interface dataset-bus {
 }
 
 
-/// Every plugin must satisfy this base world.
-world base-plugin {
+/// Metadata and lifecycle shared by graphical and headless plugins.
+world plugin-common {
     export plugin-meta;
     export plugin-lifecycle;
+}
+
+/// Graphical plugins also expose settings metadata and callbacks.
+world base-plugin {
+    include plugin-common;
     export plugin-settings;
+}
+
+/// A headless-only plugin that exposes command-line operations.
+world cli-plugin {
+    include plugin-common;
+    import plugin-storage;
+    import secure-storage;
+    import http-client;
+    import tcp-client;
+    export plugin-cli;
 }
 
 /// A plugin that teaches Thoth to open a new file format.
@@ -945,6 +985,13 @@ world data-source-plugin {
     export ui-component;
     export tab-host;
     export data-producer;
+}
+
+/// A data-source plugin that also opts into command-line operations. Keeping
+/// this as a distinct world means existing data-source plugins need no changes.
+world data-source-cli-plugin {
+    include data-source-plugin;
+    export plugin-cli;
 }
 
 /// A plugin that adds a new export format or destination.

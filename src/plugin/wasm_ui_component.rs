@@ -16,7 +16,7 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiVie
 
 use crate::app::persistent_state::PersistentState;
 use crate::error::{Result, ThothError};
-use crate::plugin::plugin_ui_host::{PluginUiHost, TabOpenRequest};
+use crate::plugin::plugin_ui_host::{PluginCore, PluginUi, TabOpenRequest};
 use crate::plugin::render_node::{UiEvent, UiOutput};
 use crate::settings::PluginSettingData;
 
@@ -348,21 +348,13 @@ enum TabLifecycle {
     Closed,
 }
 
-impl PluginUiHost for WasmUiComponentLoader {
+impl PluginCore for WasmUiComponentLoader {
     fn plugin_id(&self) -> &str {
         WasmUiComponentLoader::plugin_id(self)
     }
 
-    fn render_ui(&self) -> Result<UiOutput> {
-        WasmUiComponentLoader::render_ui(self)
-    }
-
-    fn handle_event(&self, event: UiEvent) -> Result<UiOutput> {
-        WasmUiComponentLoader::handle_event(self, event)
-    }
-
-    fn render_sidebar(&self) -> Result<Option<UiOutput>> {
-        WasmUiComponentLoader::render_sidebar(self)
+    fn as_ui(&self) -> Option<&dyn PluginUi> {
+        Some(self)
     }
 
     fn on_setting_change(&self, settings: &[PluginSettingData]) -> Result<()> {
@@ -399,5 +391,19 @@ impl PluginUiHost for WasmUiComponentLoader {
 
     fn drain_tab_open_requests(&self) -> Vec<TabOpenRequest> {
         WasmUiComponentLoader::drain_tab_open_requests(self)
+    }
+}
+
+impl PluginUi for WasmUiComponentLoader {
+    fn render_ui(&self) -> Result<UiOutput> {
+        WasmUiComponentLoader::render_ui(self)
+    }
+
+    fn handle_event(&self, event: UiEvent) -> Result<UiOutput> {
+        WasmUiComponentLoader::handle_event(self, event)
+    }
+
+    fn render_sidebar(&self) -> Result<Option<UiOutput>> {
+        WasmUiComponentLoader::render_sidebar(self)
     }
 }

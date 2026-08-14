@@ -53,9 +53,9 @@ pub struct ConsentRequest {
 // ── async HTTP result sent through the mpsc channel ──────────────────────────
 
 // These plain Send-safe types live in `plugin_ui_host` so they can be shared with
-// the `PluginUiHost` trait without depending on this loader's bindgen internals.
+// the `PluginCore` trait without depending on this loader's bindgen internals.
 pub use crate::plugin::plugin_ui_host::{HttpCallResult, HttpResponseRaw};
-use crate::plugin::plugin_ui_host::{PluginHttpRequest, PluginUiHost, TabOpenRequest};
+use crate::plugin::plugin_ui_host::{PluginCore, PluginHttpRequest, PluginUi, TabOpenRequest};
 
 // ── atomic counter so callers can know when requests are in flight ────────────
 
@@ -112,16 +112,16 @@ pub type QueryResult = std::result::Result<String, String>;
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const TCP_IO_TIMEOUT: Duration = Duration::from_secs(60);
 /// Cap a single `read` allocation so a plugin can't request a huge buffer.
-const TCP_READ_CAP: usize = 1 << 20; // 1 MiB
+pub(crate) const TCP_READ_CAP: usize = 1 << 20; // 1 MiB
 
 /// A plaintext or TLS-wrapped stream the plugin reads/writes through `tcp-client`.
 /// TLS is terminated host-side so the plugin always sees decrypted bytes.
-trait ReadWrite: Read + Write + Send {}
+pub(crate) trait ReadWrite: Read + Write + Send {}
 impl<T: Read + Write + Send> ReadWrite for T {}
 
 /// Adapts an already-boxed stream back into a concrete `Read + Write` so it can
 /// be handed to `tcp_tls` for an in-place STARTTLS upgrade.
-struct BoxIo(Box<dyn ReadWrite>);
+pub(crate) struct BoxIo(pub(crate) Box<dyn ReadWrite>);
 impl Read for BoxIo {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.0.read(buf)
@@ -397,7 +397,7 @@ fn tcp_err(code: u32, message: impl Into<String>) -> thoth::plugin::tcp_client::
 }
 
 /// Open a plaintext TCP stream with connect/IO timeouts.
-fn tcp_connect(host: &str, port: u16) -> std::io::Result<TcpStream> {
+pub(crate) fn tcp_connect(host: &str, port: u16) -> std::io::Result<TcpStream> {
     use std::net::ToSocketAddrs;
     let mut last_err = std::io::Error::other("no addresses resolved");
     for addr in (host, port).to_socket_addrs()? {
@@ -416,7 +416,7 @@ fn tcp_connect(host: &str, port: u16) -> std::io::Result<TcpStream> {
 /// Wrap any byte stream with host-side TLS (rustls + Mozilla roots). Generic so
 /// it works both at connect time (a fresh `TcpStream`) and for an in-place
 /// STARTTLS upgrade of an already-open plaintext stream.
-fn tcp_tls<S: Read + Write + Send + 'static>(
+pub(crate) fn tcp_tls<S: Read + Write + Send + 'static>(
     stream: S,
     host: &str,
 ) -> std::result::Result<Box<dyn ReadWrite>, String> {
@@ -666,16 +666,16 @@ impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
 /// `cfg(test)` — so unit tests never touch (or hang/prompt on) a real keychain,
 /// which keeps them reliable in CI (no D-Bus secret-service, no macOS prompt).
 #[cfg(not(test))]
-mod secret_store {
+pub(crate) mod secret_store {
     use super::KEYRING_SERVICE;
 
-    pub(super) fn write(account: &str, secret: &str) -> Result<(), String> {
+    pub(crate) fn write(account: &str, secret: &str) -> Result<(), String> {
         keyring::Entry::new(KEYRING_SERVICE, account)
             .and_then(|e| e.set_password(secret))
             .map_err(|e| e.to_string())
     }
 
-    pub(super) fn read(account: &str) -> Result<Option<String>, String> {
+    pub(crate) fn read(account: &str) -> Result<Option<String>, String> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
         match entry.get_password() {
             Ok(p) => Ok(Some(p)),
@@ -684,7 +684,7 @@ mod secret_store {
         }
     }
 
-    pub(super) fn delete(account: &str) -> Result<(), String> {
+    pub(crate) fn delete(account: &str) -> Result<(), String> {
         let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -694,14 +694,14 @@ mod secret_store {
 }
 
 #[cfg(test)]
-mod secret_store {
+pub(crate) mod secret_store {
     use std::collections::HashMap;
     use std::sync::{LazyLock, Mutex};
 
     static STORE: LazyLock<Mutex<HashMap<String, String>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
-    pub(super) fn write(account: &str, secret: &str) -> Result<(), String> {
+    pub(crate) fn write(account: &str, secret: &str) -> Result<(), String> {
         STORE
             .lock()
             .unwrap()
@@ -709,11 +709,11 @@ mod secret_store {
         Ok(())
     }
 
-    pub(super) fn read(account: &str) -> Result<Option<String>, String> {
+    pub(crate) fn read(account: &str) -> Result<Option<String>, String> {
         Ok(STORE.lock().unwrap().get(account).cloned())
     }
 
-    pub(super) fn delete(account: &str) -> Result<(), String> {
+    pub(crate) fn delete(account: &str) -> Result<(), String> {
         STORE.lock().unwrap().remove(account);
         Ok(())
     }
@@ -1012,7 +1012,7 @@ impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
 
 // ── reqwest bridge ────────────────────────────────────────────────────────────
 
-fn execute_http_request(
+pub(crate) fn execute_http_request(
     req: thoth::plugin::http_client::HttpRequest,
 ) -> std::result::Result<thoth::plugin::http_client::HttpResponse, String> {
     let client = reqwest::blocking::Client::builder()
@@ -1080,7 +1080,7 @@ pub struct WasmDataSourceLoader {
     /// Receives WebSocket lifecycle + message events from connection tasks.
     ws_event_rx: std::sync::mpsc::Receiver<(String, WsEvent)>,
     plugin_id: String,
-    /// Unique per instance; exposed via `PluginUiHost::instance_id` so the host
+    /// Unique per instance; exposed via `PluginCore::instance_id` so the host
     /// can scope this pane's signals and reconcile them on close.
     instance_id: String,
     /// Last rendered sidebar/main-UI trees. When a query worker owns the Store
@@ -1712,7 +1712,7 @@ impl WasmDataSourceLoader {
     }
 }
 
-// ── PluginUiHost — lets an ActivePluginPane hold this loader as a trait object ──
+// ── PluginCore / PluginUi — split headless runtime from rendering ─────────────
 
 fn http_req_to_plugin(r: thoth::plugin::http_client::HttpRequest) -> PluginHttpRequest {
     PluginHttpRequest {
@@ -1732,25 +1732,17 @@ fn plugin_req_to_http(r: PluginHttpRequest) -> thoth::plugin::http_client::HttpR
     }
 }
 
-impl PluginUiHost for WasmDataSourceLoader {
+impl PluginCore for WasmDataSourceLoader {
     fn plugin_id(&self) -> &str {
         WasmDataSourceLoader::plugin_id(self)
     }
 
+    fn as_ui(&self) -> Option<&dyn PluginUi> {
+        Some(self)
+    }
+
     fn instance_id(&self) -> &str {
         &self.instance_id
-    }
-
-    fn render_ui(&self) -> Result<UiOutput> {
-        WasmDataSourceLoader::render_ui(self)
-    }
-
-    fn handle_event(&self, event: UiEvent) -> Result<UiOutput> {
-        WasmDataSourceLoader::handle_event(self, event)
-    }
-
-    fn render_sidebar(&self) -> Result<Option<UiOutput>> {
-        WasmDataSourceLoader::render_sidebar(self)
     }
 
     fn busy(&self) -> bool {
@@ -1839,6 +1831,20 @@ impl PluginUiHost for WasmDataSourceLoader {
 
     fn provide_dataset(&self) -> Result<crate::plugin::plugin_ui_host::ProvidedDataset> {
         WasmDataSourceLoader::provide_dataset(self)
+    }
+}
+
+impl PluginUi for WasmDataSourceLoader {
+    fn render_ui(&self) -> Result<UiOutput> {
+        WasmDataSourceLoader::render_ui(self)
+    }
+
+    fn handle_event(&self, event: UiEvent) -> Result<UiOutput> {
+        WasmDataSourceLoader::handle_event(self, event)
+    }
+
+    fn render_sidebar(&self) -> Result<Option<UiOutput>> {
+        WasmDataSourceLoader::render_sidebar(self)
     }
 }
 

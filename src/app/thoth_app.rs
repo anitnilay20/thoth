@@ -2,10 +2,11 @@ use eframe::{App, Frame, egui};
 use std::path::PathBuf;
 
 use crate::{
-    NOTIFICATION_MANAGER, PLUGIN_MANAGER,
+    NOTIFICATION_MANAGER,
     app::{file_picker, pick_file, tab_manager::TabEvent},
     components::{self, traits::ContextComponent},
-    plugin::plugin_ui_host::PluginUiHost,
+    core::{CoreAction, CoreEvent, ThothCore},
+    plugin::plugin_ui_host::PluginCore,
     settings, state,
     theme::ThemeColorsExt,
 };
@@ -16,39 +17,16 @@ use super::{
 };
 
 pub struct ThothApp {
-    pub settings: settings::Settings,
-    pub persistent_state: PersistentState,
+    /// Display-independent state shared with headless runtimes.
+    pub core: ThothCore,
     pub window_state: state::WindowState,
-    pub update_state: state::ApplicationUpdateState,
     settings_dialog: components::settings_dialog::SettingsDialog,
     clipboard_text: Option<String>,
-    settings_changed: bool,
-    session_dirty: bool,
     show_update_consent: bool,
     /// Holds the live native menu bar (muda) so it isn't dropped.
     _native_menu: Option<crate::platform::native_menu::NativeMenu>,
-    /// Plugin IDs from the persisted session that couldn't be restored yet because
-    /// PLUGIN_MANAGER was still initializing on the background thread. Drained each
-    /// frame once the manager becomes available.
-    pending_plugin_restores: Vec<(String, Option<String>)>,
-    /// Active-tab index to switch to once all deferred session tabs are open.
-    /// `None` once the switch has been applied (or when no session is being restored).
-    session_restore_active_index: Option<usize>,
-    /// The plugin tab that was active last frame. Used to fire on-tab-focused /
-    /// on-tab-blurred lifecycle callbacks when the active tab changes.
-    last_active_plugin_tab: Option<crate::app::tab_manager::TabId>,
     /// The plugin whose sidebar is currently mounted (independent of any tab).
     sidebar_plugin: Option<SidebarPluginRuntime>,
-    /// Per-session counter for chart-tab titles ("Bar 1", "Line 2", …).
-    chart_counter: usize,
-    /// Cached resolution of the Chart Studio's selected source
-    /// `(tab id, column names, string rows)`, reused between column-preview and
-    /// Generate to avoid re-fetching.
-    chart_source: Option<(
-        crate::app::tab_manager::TabId,
-        Vec<String>,
-        Vec<Vec<String>>,
-    )>,
     /// Pending chart PNG export: `(chart rect in points, screenshot requested?)`
     /// — drives the two-frame screenshot → crop → save flow.
     chart_export: Option<(egui::Rect, bool)>,
@@ -150,7 +128,7 @@ fn build_ws_event(
 /// spawned from it explicitly via the `ui-tabs` `open-tab` import.
 struct SidebarPluginRuntime {
     plugin_id: String,
-    loader: Box<dyn PluginUiHost>,
+    loader: Box<dyn PluginCore>,
     output: Option<crate::plugin::render_node::UiOutput>,
 }
 
@@ -171,13 +149,15 @@ impl ThothApp {
         file_to_open: Option<PathBuf>,
         persistent_state: PersistentState,
     ) -> Self {
+        let canvas_color = settings.theme.colors().bg_sunken;
+        let mut core = ThothCore::with_persistent_state(settings, persistent_state);
         let mut window_state = state::WindowState::default();
-        if settings.ui.remember_sidebar_state {
-            window_state.sidebar_expanded = persistent_state.get_sidebar_expanded();
+        if core.settings.ui.remember_sidebar_state {
+            window_state.sidebar_expanded = core.persistent_state.get_sidebar_expanded();
         }
 
         // Replace the default TabManager with one that uses the configured nav history size.
-        let nav_capacity = settings.performance.navigation_history_size;
+        let nav_capacity = core.settings.performance.navigation_history_size;
         window_state.tab_manager = crate::app::TabManager::new(nav_capacity);
 
         let (pending_plugin_restores, session_restore_active_index) =
@@ -189,12 +169,12 @@ impl ThothApp {
             } else {
                 // Restore the previous session (file tabs whose paths still exist, plugin tabs
                 // that can be re-instantiated). Plugin tabs that can't be opened yet (because
-                // PLUGIN_MANAGER is still initializing on a background thread) are returned
+                // the core plugin runtime is still initializing) are returned
                 // here and retried via poll_pending_plugin_restores() each frame.
                 let (deferred, active_index) = Self::restore_tab_session(
                     &mut window_state.tab_manager,
-                    &persistent_state,
-                    &settings,
+                    &core.persistent_state,
+                    &core.settings,
                 );
                 // Switch to the previously-active tab immediately if there are no deferred
                 // plugins; otherwise defer until poll_pending_plugin_restores() finishes.
@@ -209,35 +189,27 @@ impl ThothApp {
                 (deferred, restore_index)
             };
 
+        core.pending_plugin_restores = pending_plugin_restores;
+        core.session_restore_active_index = session_restore_active_index;
+
         Self {
-            canvas_color: settings.theme.colors().bg_sunken,
-            settings,
-            persistent_state,
+            canvas_color,
+            core,
             window_state,
-            update_state: state::ApplicationUpdateState::default(),
             settings_dialog: components::settings_dialog::SettingsDialog::default(),
             clipboard_text: None,
-            settings_changed: false,
-            session_dirty: false,
             show_update_consent: false,
             _native_menu: None,
-            pending_plugin_restores,
-            session_restore_active_index,
-            last_active_plugin_tab: None,
             sidebar_plugin: None,
-            chart_counter: 0,
-            chart_source: None,
             chart_export: None,
         }
     }
 
     pub fn setup_native_menu(&mut self, cc: &eframe::CreationContext<'_>) {
         use raw_window_handle::HasWindowHandle as _;
-        self._native_menu = cc
-            .window_handle()
-            .ok()
-            .map(|h| h.as_raw())
-            .and_then(|raw| crate::platform::native_menu::setup(raw, &self.settings.shortcuts));
+        self._native_menu = cc.window_handle().ok().map(|h| h.as_raw()).and_then(|raw| {
+            crate::platform::native_menu::setup(raw, &self.core.settings.shortcuts)
+        });
     }
 
     pub fn create_new_window(&mut self) {
@@ -251,25 +223,26 @@ impl ThothApp {
     }
 
     fn apply_new_settings(&mut self, new_settings: settings::Settings) {
-        let prev_remember_sidebar = self.settings.ui.remember_sidebar_state;
-        let prev_plugins_enabled = self.settings.plugins.enabled;
-        let prev_disabled_plugin_ids = self.settings.plugins.disabled_plugin_ids.clone();
+        let prev_remember_sidebar = self.core.settings.ui.remember_sidebar_state;
+        let prev_plugins_enabled = self.core.settings.plugins.enabled;
+        let prev_disabled_plugin_ids = self.core.settings.plugins.disabled_plugin_ids.clone();
 
-        self.settings = new_settings;
-        self.settings_changed = true;
+        self.core.settings = new_settings;
+        self.core.settings_changed = true;
 
-        if !prev_remember_sidebar && self.settings.ui.remember_sidebar_state {
-            self.window_state.sidebar_expanded = self.persistent_state.get_sidebar_expanded();
+        if !prev_remember_sidebar && self.core.settings.ui.remember_sidebar_state {
+            self.window_state.sidebar_expanded = self.core.persistent_state.get_sidebar_expanded();
         }
 
-        if let Some(Some(pm)) = PLUGIN_MANAGER.get() {
-            pm.update_plugin_settings(self.settings.plugins.plugin_settings.clone());
+        if let Some(pm) = self.core.plugins.manager() {
+            pm.update_plugin_settings(self.core.settings.plugins.plugin_settings.clone());
         }
 
         if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
             && let Some(pane) = tab.active_plugin_pane.as_mut()
         {
             let updated = self
+                .core
                 .settings
                 .plugins
                 .plugin_settings
@@ -284,8 +257,8 @@ impl ThothApp {
             }
         }
 
-        let plugins_changed = self.settings.plugins.enabled != prev_plugins_enabled
-            || self.settings.plugins.disabled_plugin_ids != prev_disabled_plugin_ids;
+        let plugins_changed = self.core.settings.plugins.enabled != prev_plugins_enabled
+            || self.core.settings.plugins.disabled_plugin_ids != prev_disabled_plugin_ids;
         if plugins_changed {
             crate::notification::NotificationManager::notify(
                 crate::notification::Notification::new(
@@ -309,7 +282,7 @@ impl ThothApp {
     }
 
     fn open_settings_window(&mut self, ctx: &egui::Context) {
-        self.settings_dialog.open(&self.settings);
+        self.settings_dialog.open(&self.core.settings);
         ctx.request_repaint();
     }
 }
@@ -342,22 +315,22 @@ impl App for ThothApp {
             self.canvas_color = applied.bg_sunken;
         }
 
-        if UpdateHandler::should_check_updates(&self.update_state, &self.settings) {
-            UpdateHandler::check_for_updates(&mut self.update_state);
+        if UpdateHandler::should_check_updates(&self.core.update_state, &self.core.settings) {
+            UpdateHandler::check_for_updates(&mut self.core.update_state);
         }
 
         let should_show_updates =
-            UpdateHandler::handle_update_messages(&mut self.update_state, ctx);
+            UpdateHandler::handle_update_messages(&mut self.core.update_state, ctx);
 
         if should_show_updates {
             self.show_update_consent = true;
-            UpdateHandler::post_update_notification(&self.update_state);
+            UpdateHandler::post_update_notification(&self.core.update_state);
         }
 
         if crate::OPEN_UPDATES_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed)
             && !self.settings_dialog.open
         {
-            self.settings_dialog.open_updates(&self.settings);
+            self.settings_dialog.open_updates(&self.core.settings);
         }
 
         if let Some(nm) = NOTIFICATION_MANAGER.get()
@@ -366,7 +339,7 @@ impl App for ThothApp {
             nm.show_notifications(ctx);
         }
 
-        // Restore plugin tabs that were deferred at startup (PLUGIN_MANAGER not ready yet).
+        // Restore plugin tabs that were deferred while the core runtime initialized.
         self.poll_pending_plugin_restores();
 
         // Handle OS-dispatched file opens (e.g. macOS Apple Events / Finder)
@@ -383,16 +356,16 @@ impl App for ThothApp {
 
         let ctx = ui.ctx().clone();
 
-        settings::Settings::store(&ctx, &self.settings);
+        settings::Settings::store(&ctx, &self.core.settings);
 
         self.poll_plugin_panes(&ctx);
         self.drain_pending_exports();
 
-        if self.settings.ui.show_toolbar {
+        if self.core.settings.ui.show_toolbar {
             self.render_toolbar(ui);
         }
 
-        if self.settings.ui.show_status_bar {
+        if self.core.settings.ui.show_status_bar {
             self.render_status_bar(ui);
         }
 
@@ -428,7 +401,7 @@ impl App for ThothApp {
         }
 
         let shortcut_actions =
-            ShortcutHandler::handle_shortcuts(ui.ctx(), &self.settings.shortcuts);
+            ShortcutHandler::handle_shortcuts(ui.ctx(), &self.core.settings.shortcuts);
         self.handle_shortcut_actions(ui.ctx(), shortcut_actions);
 
         use crate::components::settings_dialog::{SettingsDialogEvent, SettingsDialogProps};
@@ -437,14 +410,14 @@ impl App for ThothApp {
         let settings_output = self.settings_dialog.render(
             ui,
             SettingsDialogProps {
-                update_state: Some(&self.update_state.update_status.state),
-                last_check: self.update_state.update_status.last_check,
+                update_state: Some(&self.core.update_state.update_status.state),
+                last_check: self.core.update_state.update_status.last_check,
                 current_version: crate::update::UpdateManager::get_current_version(),
             },
         );
 
         if !self.settings_dialog.open {
-            crate::theme::apply_theme(&ctx, &self.settings);
+            crate::theme::apply_theme(&ctx, &self.core.settings);
         }
 
         if let Some(new_settings) = settings_output.new_settings {
@@ -454,12 +427,12 @@ impl App for ThothApp {
         for event in settings_output.events {
             match event {
                 SettingsDialogEvent::CheckForUpdates => {
-                    UpdateHandler::check_for_updates(&mut self.update_state);
+                    UpdateHandler::check_for_updates(&mut self.core.update_state);
                 }
                 SettingsDialogEvent::DownloadUpdate => {
                     let latest_release =
                         if let crate::update::UpdateState::UpdateAvailable { releases, .. } =
-                            &self.update_state.update_status.state
+                            &self.core.update_state.update_status.state
                         {
                             releases.first().cloned()
                         } else {
@@ -467,21 +440,24 @@ impl App for ThothApp {
                         };
 
                     if let Some(latest) = latest_release {
-                        self.update_state.pending_download_release = Some(latest.clone());
-                        self.update_state.update_status.state =
+                        self.core.update_state.pending_download_release = Some(latest.clone());
+                        self.core.update_state.update_status.state =
                             crate::update::UpdateState::Downloading {
                                 progress: 0.0,
                                 version: latest.tag_name.clone(),
                             };
-                        self.update_state.update_manager.download_update(&latest);
+                        self.core
+                            .update_state
+                            .update_manager
+                            .download_update(&latest);
                         ctx.request_repaint();
                     }
                 }
                 SettingsDialogEvent::InstallUpdate => {
-                    if let Some(path) = self.update_state.pending_install_path.take() {
-                        self.update_state.update_status.state =
+                    if let Some(path) = self.core.update_state.pending_install_path.take() {
+                        self.core.update_state.update_status.state =
                             crate::update::UpdateState::Installing;
-                        self.update_state.update_manager.install_update(path);
+                        self.core.update_state.update_manager.install_update(path);
                     }
                 }
                 SettingsDialogEvent::RegisterInPath => {
@@ -563,7 +539,7 @@ impl App for ThothApp {
         self.save_session_if_dirty();
 
         #[cfg(feature = "profiling")]
-        if self.settings.dev.show_profiler {
+        if self.core.settings.dev.show_profiler {
             puffin::GlobalProfiler::lock().new_frame();
 
             egui::Window::new(format!(
@@ -603,18 +579,18 @@ impl App for ThothApp {
 
 impl ThothApp {
     fn handle_shortcut_actions(&mut self, ctx: &egui::Context, actions: Vec<ShortcutAction>) {
-        let nav_capacity = self.settings.performance.navigation_history_size;
+        let nav_capacity = self.core.settings.performance.navigation_history_size;
 
         for action in actions {
             match action {
                 ShortcutAction::OpenFile => {
-                    if let Some(path) = file_picker::pick_file(self.settings.plugins.enabled) {
+                    if let Some(path) = file_picker::pick_file(self.core.settings.plugins.enabled) {
                         if let Some(path_str) = path.to_str() {
-                            self.persistent_state.add_recent_file(
+                            self.core.persistent_state.add_recent_file(
                                 path_str.to_string(),
-                                self.settings.performance.max_recent_files,
+                                self.core.settings.performance.max_recent_files,
                             );
-                            let _ = self.persistent_state.save();
+                            let _ = self.core.persistent_state.save();
                         }
                         self.window_state.tab_manager.open_file(path, nav_capacity);
                     }
@@ -626,12 +602,12 @@ impl ThothApp {
                     self.open_settings_window(ctx);
                 }
                 ShortcutAction::ToggleTheme => {
-                    self.settings.dark_mode = !self.settings.dark_mode;
-                    self.settings_changed = true;
+                    self.core.settings.dark_mode = !self.core.settings.dark_mode;
+                    self.core.settings_changed = true;
                 }
                 ShortcutAction::ToggleProfiler => {
-                    self.settings.dev.show_profiler = !self.settings.dev.show_profiler;
-                    self.settings_changed = true;
+                    self.core.settings.dev.show_profiler = !self.core.settings.dev.show_profiler;
+                    self.core.settings_changed = true;
                 }
                 ShortcutAction::FocusSearch => {
                     let section = components::sidebar::SidebarSection::Search;
@@ -644,10 +620,11 @@ impl ThothApp {
                         self.window_state.sidebar_selected_section = Some(section);
                     }
 
-                    if self.settings.ui.remember_sidebar_state {
-                        self.persistent_state
+                    if self.core.settings.ui.remember_sidebar_state {
+                        self.core
+                            .persistent_state
                             .set_sidebar_expanded(self.window_state.sidebar_expanded);
-                        let _ = self.persistent_state.save();
+                        let _ = self.core.persistent_state.save();
                     }
                 }
                 ShortcutAction::NextMatch => {}
@@ -670,9 +647,9 @@ impl ThothApp {
                     if self.window_state.sidebar_expanded {
                         self.window_state.sidebar_expanded = false;
 
-                        if self.settings.ui.remember_sidebar_state {
-                            self.persistent_state.set_sidebar_expanded(false);
-                            let _ = self.persistent_state.save();
+                        if self.core.settings.ui.remember_sidebar_state {
+                            self.core.persistent_state.set_sidebar_expanded(false);
+                            let _ = self.core.persistent_state.save();
                         }
                     }
                 }
@@ -687,9 +664,10 @@ impl ThothApp {
                             Some((path, file_path))
                         });
                     if let Some((selected_path, file_path_str)) = info {
-                        self.persistent_state
+                        self.core
+                            .persistent_state
                             .toggle_bookmark(selected_path, file_path_str);
-                        if let Err(e) = self.persistent_state.save() {
+                        if let Err(e) = self.core.persistent_state.save() {
                             eprintln!("Failed to save bookmarks: {}", e);
                         }
                     }
@@ -699,9 +677,9 @@ impl ThothApp {
                     self.window_state.sidebar_selected_section =
                         Some(components::sidebar::SidebarSection::Bookmarks);
 
-                    if self.settings.ui.remember_sidebar_state {
-                        self.persistent_state.set_sidebar_expanded(true);
-                        let _ = self.persistent_state.save();
+                    if self.core.settings.ui.remember_sidebar_state {
+                        self.core.persistent_state.set_sidebar_expanded(true);
+                        let _ = self.core.persistent_state.save();
                     }
                 }
                 ShortcutAction::ExpandNode => {
@@ -771,7 +749,7 @@ impl ThothApp {
                     } else {
                         self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                     }
-                    self.session_dirty = true;
+                    self.core.session_dirty = true;
                 }
                 ShortcutAction::NewTab => {
                     self.window_state.tab_manager.open_new_tab(nav_capacity);
@@ -807,7 +785,7 @@ impl ThothApp {
     /// dock label can be rendered cheaply without locking the WASM store each frame.
     fn make_plugin_pane(
         plugin_id: String,
-        loader: Box<dyn PluginUiHost>,
+        loader: Box<dyn PluginCore>,
         ui_output: crate::plugin::render_node::UiOutput,
     ) -> crate::state::ActivePluginPane {
         let cached_tab_title = loader.tab_title();
@@ -845,13 +823,19 @@ impl ThothApp {
         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
             && let Some(pane) = tab.active_plugin_pane.as_mut()
         {
-            match pane.loader.handle_event(event) {
+            let Some(ui) = pane.loader.as_ui() else {
+                tab.error = Some(crate::error::ThothError::Unknown {
+                    message: format!("Plugin '{}' has no UI facet", pane.plugin_id),
+                });
+                return;
+            };
+            match ui.handle_event(event) {
                 Ok(new_output) => {
                     pane.ui_output = new_output;
                     // Title/icon may change in response to the event.
                     pane.cached_tab_title = pane.loader.tab_title();
                     pane.cached_tab_icon = pane.loader.tab_icon();
-                    if let Ok(sidebar) = pane.loader.render_sidebar() {
+                    if let Ok(sidebar) = ui.render_sidebar() {
                         tab.plugin_sidebar_output = sidebar;
                     }
                     handled = true;
@@ -867,7 +851,7 @@ impl ThothApp {
         // SQL, switched database), so mark the session dirty. The actual write is
         // skipped by `save_session_if_dirty` when the serialized tabs are unchanged.
         if handled {
-            self.session_dirty = true;
+            self.core.session_dirty = true;
         }
     }
 
@@ -880,7 +864,7 @@ impl ThothApp {
         manager: &crate::plugin::manager::PluginManager,
         plugin_id: &str,
         settings: &settings::Settings,
-    ) -> Option<Box<dyn PluginUiHost>> {
+    ) -> Option<Box<dyn PluginCore>> {
         use crate::plugin::Capability;
         let plugin = manager.registry.get_by_id(plugin_id)?;
         if plugin.capabilities.contains(&Capability::DataSource) {
@@ -898,22 +882,23 @@ impl ThothApp {
             manager
                 .open_data_source(plugin_id, policy)
                 .ok()
-                .map(|l| Box::new(l) as Box<dyn PluginUiHost>)
+                .map(|l| Box::new(l) as Box<dyn PluginCore>)
         } else if plugin.capabilities.contains(&Capability::NewUIComponent) {
             manager
                 .open_ui_component(plugin_id)
                 .ok()
-                .map(|l| Box::new(l) as Box<dyn PluginUiHost>)
+                .map(|l| Box::new(l) as Box<dyn PluginCore>)
         } else {
             None
         }
     }
 
     fn open_ui_component_tab(&mut self, plugin_id: &str, initial_state: Option<&str>) {
-        let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) else {
+        let Some(manager) = self.core.plugins.manager() else {
             return;
         };
-        let Some(loader) = Self::build_plugin_loader(manager, plugin_id, &self.settings) else {
+        let Some(loader) = Self::build_plugin_loader(&manager, plugin_id, &self.core.settings)
+        else {
             if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                 tab.error = Some(crate::error::ThothError::Unknown {
                     message: format!("Failed to load plugin '{plugin_id}'"),
@@ -924,11 +909,25 @@ impl ThothApp {
         if let Some(state) = initial_state {
             let _ = loader.init_with_state(state);
         }
-        let Ok(ui_output) = loader.render_ui() else {
+        let Some(ui) = loader.as_ui() else {
+            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                tab.error = Some(crate::error::ThothError::Unknown {
+                    message: format!("Plugin '{plugin_id}' does not expose a UI component"),
+                });
+            }
             return;
         };
-        let sidebar_output = loader.render_sidebar().ok().flatten();
-        let nav_capacity = self.settings.performance.navigation_history_size;
+        let ui_output = match ui.render_ui() {
+            Ok(output) => output,
+            Err(error) => {
+                if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                    tab.error = Some(error);
+                }
+                return;
+            }
+        };
+        let sidebar_output = ui.render_sidebar().ok().flatten();
+        let nav_capacity = self.core.settings.performance.navigation_history_size;
         let tab_id = if self
             .window_state
             .tab_manager
@@ -947,7 +946,7 @@ impl ThothApp {
             ));
             t.plugin_sidebar_output = sidebar_output;
         }
-        self.session_dirty = true;
+        self.core.session_dirty = true;
     }
 
     /// Handle a plugin-initiated `open-tab` request: always open a fresh instance
@@ -956,21 +955,24 @@ impl ThothApp {
         &mut self,
         req: crate::plugin::plugin_ui_host::TabOpenRequest,
     ) {
-        let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) else {
+        let Some(manager) = self.core.plugins.manager() else {
             return;
         };
-        let Some(loader) = Self::build_plugin_loader(manager, &req.plugin_id, &self.settings)
+        let Some(loader) = Self::build_plugin_loader(&manager, &req.plugin_id, &self.core.settings)
         else {
             return;
         };
         if let Some(state) = req.initial_state.as_deref() {
             let _ = loader.init_with_state(state);
         }
-        let Ok(ui_output) = loader.render_ui() else {
+        let Some(ui) = loader.as_ui() else {
             return;
         };
-        let sidebar_output = loader.render_sidebar().ok().flatten();
-        let nav_capacity = self.settings.performance.navigation_history_size;
+        let Ok(ui_output) = ui.render_ui() else {
+            return;
+        };
+        let sidebar_output = ui.render_sidebar().ok().flatten();
+        let nav_capacity = self.core.settings.performance.navigation_history_size;
         let tab_id = self.window_state.tab_manager.open_new_tab(nav_capacity);
         if let Some(t) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
             let mut pane = Self::make_plugin_pane(req.plugin_id.clone(), loader, ui_output);
@@ -985,7 +987,7 @@ impl ThothApp {
             t.active_plugin_pane = Some(pane);
             t.plugin_sidebar_output = sidebar_output;
         }
-        self.session_dirty = true;
+        self.core.session_dirty = true;
     }
 
     /// Ensure a tab-independent sidebar runtime is mounted for `plugin_id`,
@@ -998,13 +1000,16 @@ impl ThothApp {
         {
             return;
         }
-        let Some(manager) = PLUGIN_MANAGER.get().and_then(|m| m.as_ref()) else {
+        let Some(manager) = self.core.plugins.manager() else {
             return;
         };
-        let Some(loader) = Self::build_plugin_loader(manager, plugin_id, &self.settings) else {
+        let Some(loader) = Self::build_plugin_loader(&manager, plugin_id, &self.core.settings)
+        else {
             return;
         };
-        let output = loader.render_sidebar().ok().flatten();
+        let output = loader
+            .as_ui()
+            .and_then(|ui| ui.render_sidebar().ok().flatten());
         self.sidebar_plugin = Some(SidebarPluginRuntime {
             plugin_id: plugin_id.to_string(),
             loader,
@@ -1017,9 +1022,12 @@ impl ThothApp {
     /// in `poll_plugin_panes`.)
     fn dispatch_sidebar_event(&mut self, event: crate::plugin::render_node::UiEvent) {
         if let Some(rt) = self.sidebar_plugin.as_mut() {
-            match rt.loader.handle_event(event) {
+            let Some(ui) = rt.loader.as_ui() else {
+                return;
+            };
+            match ui.handle_event(event) {
                 Ok(_) => {
-                    rt.output = rt.loader.render_sidebar().ok().flatten();
+                    rt.output = ui.render_sidebar().ok().flatten();
                 }
                 Err(e) => {
                     eprintln!("Plugin sidebar event error: {e}");
@@ -1037,19 +1045,27 @@ impl ThothApp {
     pub fn poll_os_open_requests(&mut self) {
         let paths = crate::platform::drain_open_requests();
         if let Some(path) = paths.into_iter().last() {
-            // Add to recent files (same as toolbar / sidebar open-file paths)
-            if let Some(path_str) = path.to_str() {
-                self.persistent_state.add_recent_file(
-                    path_str.to_string(),
-                    self.settings.performance.max_recent_files,
-                );
-                let _ = self.persistent_state.save();
-            }
+            self.core.dispatch_event(CoreEvent::OpenFile(path));
+        }
 
-            let nav_capacity = self.settings.performance.navigation_history_size;
-            self.window_state.tab_manager.open_file(path, nav_capacity);
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                tab.error = None;
+        for action in self.core.tick() {
+            match action {
+                CoreAction::OpenFile(path) => {
+                    // Add to recent files (same as toolbar / sidebar open-file paths)
+                    if let Some(path_str) = path.to_str() {
+                        self.core.persistent_state.add_recent_file(
+                            path_str.to_string(),
+                            self.core.settings.performance.max_recent_files,
+                        );
+                        let _ = self.core.persistent_state.save();
+                    }
+
+                    let nav_capacity = self.core.settings.performance.navigation_history_size;
+                    self.window_state.tab_manager.open_file(path, nav_capacity);
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.error = None;
+                    }
+                }
             }
         }
     }
@@ -1192,8 +1208,8 @@ impl ThothApp {
 
         // Tab focus/blur lifecycle: notify plugins when the active tab changes.
         let active = self.window_state.tab_manager.active_tab_id();
-        if active != self.last_active_plugin_tab {
-            if let Some(prev) = self.last_active_plugin_tab
+        if active != self.core.last_active_plugin_tab {
+            if let Some(prev) = self.core.last_active_plugin_tab
                 && let Some(tab) = self.window_state.tab_manager.tabs.get(&prev)
                 && let Some(pane) = tab.active_plugin_pane.as_ref()
             {
@@ -1205,7 +1221,7 @@ impl ThothApp {
             {
                 pane.loader.on_tab_focused();
             }
-            self.last_active_plugin_tab = active;
+            self.core.last_active_plugin_tab = active;
         }
 
         if needs_repaint {
@@ -1235,29 +1251,29 @@ impl ThothApp {
             ui,
             components::toolbar::ToolbarProps {
                 file_type: &file_type,
-                dark_mode: self.settings.dark_mode,
-                shortcuts: &self.settings.shortcuts,
+                dark_mode: self.core.settings.dark_mode,
+                shortcuts: &self.core.settings.shortcuts,
                 file_path: file_path_opt.as_deref(),
                 is_fullscreen: ui
                     .ctx()
                     .input(|i: &egui::InputState| i.viewport().fullscreen.unwrap_or(false)),
                 can_go_back,
                 can_go_forward,
-                plugins_enabled: self.settings.plugins.enabled,
+                plugins_enabled: self.core.settings.plugins.enabled,
             },
         );
 
-        let nav_capacity = self.settings.performance.navigation_history_size;
+        let nav_capacity = self.core.settings.performance.navigation_history_size;
 
         for event in output.events {
             match event {
                 components::toolbar::ToolbarEvent::FileOpen { path, file_type } => {
                     if let Some(path_str) = path.to_str() {
-                        self.persistent_state.add_recent_file(
+                        self.core.persistent_state.add_recent_file(
                             path_str.to_string(),
-                            self.settings.performance.max_recent_files,
+                            self.core.settings.performance.max_recent_files,
                         );
-                        let _ = self.persistent_state.save();
+                        let _ = self.core.persistent_state.save();
                     }
                     let id = self.window_state.tab_manager.open_file(path, nav_capacity);
                     if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
@@ -1273,14 +1289,14 @@ impl ThothApp {
                     } else {
                         self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                     }
-                    self.session_dirty = true;
+                    self.core.session_dirty = true;
                 }
                 components::toolbar::ToolbarEvent::NewWindow => {
                     self.create_new_window();
                 }
                 components::toolbar::ToolbarEvent::ToggleTheme => {
-                    self.settings.dark_mode = !self.settings.dark_mode;
-                    self.settings_changed = true;
+                    self.core.settings.dark_mode = !self.core.settings.dark_mode;
+                    self.core.settings_changed = true;
                 }
                 components::toolbar::ToolbarEvent::OpenSettings => {
                     self.open_settings_window(ui.ctx());
@@ -1309,17 +1325,17 @@ impl ThothApp {
             use crate::platform::native_menu::MenuAction;
             match action {
                 MenuAction::OpenFile => {
-                    let plugins_enabled = self.settings.plugins.enabled;
+                    let plugins_enabled = self.core.settings.plugins.enabled;
                     if let Some(path) = crate::app::pick_file(plugins_enabled)
                         && let Some(file_type) =
                             crate::components::toolbar::infer_file_type_pub(&path)
                     {
                         if let Some(path_str) = path.to_str() {
-                            self.persistent_state.add_recent_file(
+                            self.core.persistent_state.add_recent_file(
                                 path_str.to_string(),
-                                self.settings.performance.max_recent_files,
+                                self.core.settings.performance.max_recent_files,
                             );
-                            let _ = self.persistent_state.save();
+                            let _ = self.core.persistent_state.save();
                         }
                         let id = self.window_state.tab_manager.open_file(path, nav_capacity);
                         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
@@ -1337,7 +1353,7 @@ impl ThothApp {
                     } else {
                         self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                     }
-                    self.session_dirty = true;
+                    self.core.session_dirty = true;
                 }
                 MenuAction::OpenSettings => self.open_settings_window(ui.ctx()),
             }
@@ -1345,18 +1361,19 @@ impl ThothApp {
     }
 
     fn save_settings_if_changed(&mut self) {
-        if self.settings_changed {
-            if let Err(e) = self.settings.save() {
+        if self.core.settings_changed {
+            if let Err(e) = self.core.settings.save() {
                 eprintln!("Failed to save settings: {}", e);
             }
-            self.settings_changed = false;
+            self.core.settings_changed = false;
         }
     }
 
     /// Re-open tabs saved from the previous session.
     /// Returns `(deferred_plugin_ids, active_tab_index)`.
     /// - `deferred_plugin_ids`: plugin IDs that couldn't be opened yet because
-    ///   PLUGIN_MANAGER was still initializing; retried via `poll_pending_plugin_restores()`.
+    ///   the core plugin runtime was still initializing; retried via
+    ///   `poll_pending_plugin_restores()`.
     /// - `active_tab_index`: the dock-order index to switch to after all tabs are open.
     fn restore_tab_session(
         tab_manager: &mut crate::app::TabManager,
@@ -1393,25 +1410,9 @@ impl ThothApp {
                     }
                 }
                 PersistedTabKind::Plugin { plugin_id, state } => {
-                    // PLUGIN_MANAGER is set by a background thread; it may not be ready yet.
-                    match PLUGIN_MANAGER.get() {
-                        Some(manager_opt) => {
-                            if let Some(manager) = manager_opt.as_ref() {
-                                Self::open_plugin_tab(
-                                    tab_manager,
-                                    manager,
-                                    plugin_id,
-                                    state.as_deref(),
-                                    settings,
-                                );
-                            }
-                            // manager_opt == None means plugins are disabled — skip silently.
-                        }
-                        None => {
-                            // Manager not initialized yet — defer to poll loop.
-                            deferred_plugins.push((plugin_id.clone(), state.clone()));
-                        }
-                    }
+                    // Plugin initialization begins after the app core is installed,
+                    // so plugin tabs are restored by the non-blocking poll loop.
+                    deferred_plugins.push((plugin_id.clone(), state.clone()));
                 }
             }
         }
@@ -1438,10 +1439,13 @@ impl ThothApp {
         if let Some(s) = state {
             let _ = loader.init_with_state(s);
         }
-        let Ok(ui_output) = loader.render_ui() else {
+        let Some(ui) = loader.as_ui() else {
             return;
         };
-        let sidebar_output = loader.render_sidebar().ok().flatten();
+        let Ok(ui_output) = ui.render_ui() else {
+            return;
+        };
+        let sidebar_output = ui.render_sidebar().ok().flatten();
         let tab_id = if tab_manager.active_tab_mut().is_some_and(|t| t.is_empty()) {
             tab_manager.active_tab_id().unwrap()
         } else {
@@ -1457,41 +1461,42 @@ impl ThothApp {
         }
     }
 
-    /// Called each frame from `update()`. Once PLUGIN_MANAGER is ready, drains
+    /// Called each frame from `update()`. Once the core plugin runtime is ready, drains
     /// `pending_plugin_restores` and opens each plugin tab, then applies the
     /// saved active-tab index.
     fn poll_pending_plugin_restores(&mut self) {
-        if self.pending_plugin_restores.is_empty() {
+        if self.core.pending_plugin_restores.is_empty() {
             return;
         }
-        // Wait until the background init thread has called PLUGIN_MANAGER.set().
-        let Some(manager_opt) = PLUGIN_MANAGER.get() else {
-            return;
+        use crate::plugin::runtime::PluginRuntimeState;
+        let manager = match self.core.plugins.state() {
+            PluginRuntimeState::Loading => return,
+            PluginRuntimeState::Disabled => None,
+            PluginRuntimeState::Ready(manager) => Some(manager),
         };
-        let plugin_ids = std::mem::take(&mut self.pending_plugin_restores);
-        if let Some(manager) = manager_opt.as_ref() {
+        let plugin_ids = std::mem::take(&mut self.core.pending_plugin_restores);
+        if let Some(manager) = manager {
             for (plugin_id, state) in &plugin_ids {
                 Self::open_plugin_tab(
                     &mut self.window_state.tab_manager,
-                    manager,
+                    &manager,
                     plugin_id,
                     state.as_deref(),
-                    &self.settings,
+                    &self.core.settings,
                 );
             }
-            self.session_dirty = true;
+            self.core.session_dirty = true;
         }
-        // If manager is None (plugins disabled), plugin_ids is simply dropped.
 
         // All deferred tabs are now open — apply the saved active-tab index.
-        if let Some(idx) = self.session_restore_active_index.take() {
+        if let Some(idx) = self.core.session_restore_active_index.take() {
             self.window_state.tab_manager.switch_to_tab_by_index(idx);
         }
     }
 
     /// Snapshot the current open tabs and write them to persistent_state, then save to disk.
     fn save_session_if_dirty(&mut self) {
-        if !self.session_dirty {
+        if !self.core.session_dirty {
             return;
         }
 
@@ -1543,18 +1548,20 @@ impl ThothApp {
         // Nothing structural or state-wise changed since the last write (a plugin
         // event that didn't touch persisted state, e.g. opening a dropdown) — clear
         // the flag without touching disk so typing/interaction doesn't churn I/O.
-        if tabs == self.persistent_state.get_open_tabs()
-            && active_tab_index == self.persistent_state.get_active_tab_index()
+        if tabs == self.core.persistent_state.get_open_tabs()
+            && active_tab_index == self.core.persistent_state.get_active_tab_index()
         {
-            self.session_dirty = false;
+            self.core.session_dirty = false;
             return;
         }
 
-        self.persistent_state.set_open_tabs(tabs, active_tab_index);
-        if let Err(e) = self.persistent_state.save() {
+        self.core
+            .persistent_state
+            .set_open_tabs(tabs, active_tab_index);
+        if let Err(e) = self.core.persistent_state.save() {
             eprintln!("Failed to save tab session: {e}");
         } else {
-            self.session_dirty = false;
+            self.core.session_dirty = false;
         }
     }
 
@@ -1691,7 +1698,7 @@ impl ThothApp {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        let nav_capacity = self.settings.performance.navigation_history_size;
+        let nav_capacity = self.core.settings.performance.navigation_history_size;
         let focused_id = self.window_state.tab_manager.active_tab_id();
 
         let colors = ui.ctx().memory(|m| {
@@ -1711,8 +1718,8 @@ impl ThothApp {
 
         let mut viewer = crate::app::tab_manager::ThothTabViewer {
             tabs,
-            settings: &self.settings,
-            persistent_state: &mut self.persistent_state,
+            settings: &self.core.settings,
+            persistent_state: &mut self.core.persistent_state,
             nav_capacity,
             search_msg: search_message.zip(focused_id).map(|(msg, id)| (id, msg)),
             events: Vec::new(),
@@ -1751,11 +1758,11 @@ impl ThothApp {
                 total_items,
             } => {
                 if let Some(path_str) = path.to_str() {
-                    self.persistent_state.add_recent_file(
+                    self.core.persistent_state.add_recent_file(
                         path_str.to_string(),
-                        self.settings.performance.max_recent_files,
+                        self.core.settings.performance.max_recent_files,
                     );
-                    let _ = self.persistent_state.save();
+                    let _ = self.core.persistent_state.save();
                 }
                 if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
                     tab.file_path = Some(path);
@@ -1767,7 +1774,7 @@ impl ThothApp {
                         tab.central_panel.navigate_to_path(pending_path);
                     }
                 }
-                self.session_dirty = true;
+                self.core.session_dirty = true;
             }
             TabEvent::FileOpenError { tab_id, error } => {
                 if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
@@ -1779,7 +1786,7 @@ impl ThothApp {
                     tab.file_path = None;
                     tab.total_items = 0;
                 }
-                self.session_dirty = true;
+                self.core.session_dirty = true;
             }
             TabEvent::FileTypeChanged { tab_id, file_type } => {
                 if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
@@ -1802,11 +1809,11 @@ impl ThothApp {
             TabEvent::TabClosed(id) => {
                 self.window_state.tab_manager.ensure_non_empty(nav_capacity);
                 let _ = id;
-                self.session_dirty = true;
+                self.core.session_dirty = true;
             }
             TabEvent::OpenFilePicker => {
-                let nav_cap = self.settings.performance.navigation_history_size;
-                if let Some(path) = pick_file(self.settings.plugins.enabled) {
+                let nav_cap = self.core.settings.performance.navigation_history_size;
+                if let Some(path) = pick_file(self.core.settings.plugins.enabled) {
                     self.window_state.tab_manager.open_file(path, nav_cap);
                 }
             }
@@ -1827,10 +1834,10 @@ impl ThothApp {
             TabEvent::ClearRecentFiles => {
                 // `PersistentState` exposes no `clear_recent_files`, so the list is
                 // emptied through the existing per-path removal and saved once.
-                for path in self.persistent_state.get_recent_files().to_vec() {
-                    self.persistent_state.remove_recent_file(&path);
+                for path in self.core.persistent_state.get_recent_files().to_vec() {
+                    self.core.persistent_state.remove_recent_file(&path);
                 }
-                let _ = self.persistent_state.save();
+                let _ = self.core.persistent_state.save();
             }
             TabEvent::ChartAction { tab_id, action } => {
                 use crate::components::chart_studio::ChartTabAction;
@@ -1861,15 +1868,14 @@ impl ThothApp {
 
         let focus_search = section_changed_to_search || sidebar_reopened_with_search;
 
-        let ds_plugins: Vec<&crate::plugin::Plugin> = PLUGIN_MANAGER
-            .get()
-            .and_then(|m| m.as_ref())
+        let plugin_manager = self.core.plugins.manager();
+        let ds_plugins: Vec<&crate::plugin::Plugin> = plugin_manager
+            .as_deref()
             .map(|m| m.get_data_source_plugins())
             .unwrap_or_default();
 
-        let ui_plugins: Vec<&crate::plugin::Plugin> = PLUGIN_MANAGER
-            .get()
-            .and_then(|m| m.as_ref())
+        let ui_plugins: Vec<&crate::plugin::Plugin> = plugin_manager
+            .as_deref()
             .map(|m| m.get_ui_component_plugins())
             .unwrap_or_default();
 
@@ -1891,9 +1897,8 @@ impl ThothApp {
 
         let plugin_sidebar_strings: Option<(String, String, Option<String>)> =
             sidebar_plugin_id.as_ref().and_then(|plugin_id| {
-                PLUGIN_MANAGER
-                    .get()
-                    .and_then(|m| m.as_ref())
+                plugin_manager
+                    .as_deref()
                     .and_then(|m| m.registry.get_by_id(plugin_id))
                     .map(|p| (p.id.clone(), p.name.clone(), p.icon.clone()))
             });
@@ -1935,11 +1940,11 @@ impl ThothApp {
         let output = self.window_state.sidebar.render(
             ui,
             components::sidebar::SidebarProps {
-                recent_files: self.persistent_state.get_recent_files(),
-                bookmarks: self.persistent_state.get_bookmarks(),
+                recent_files: self.core.persistent_state.get_recent_files(),
+                bookmarks: self.core.persistent_state.get_bookmarks(),
                 current_file_path: current_file_path.as_ref().and_then(|p| p.to_str()),
                 expanded: self.window_state.sidebar_expanded,
-                sidebar_width: self.persistent_state.get_sidebar_width(),
+                sidebar_width: self.core.persistent_state.get_sidebar_width(),
                 selected_section: self.window_state.sidebar_selected_section.clone(),
                 focus_search,
                 search_state: &search_state_clone,
@@ -1957,7 +1962,7 @@ impl ThothApp {
         }
         self.window_state.previous_sidebar_expanded = self.window_state.sidebar_expanded;
 
-        let nav_capacity = self.settings.performance.navigation_history_size;
+        let nav_capacity = self.core.settings.performance.navigation_history_size;
 
         for event in output.events {
             match event {
@@ -1966,19 +1971,19 @@ impl ThothApp {
                     self.window_state.tab_manager.open_file(path, nav_capacity);
                 }
                 components::sidebar::SidebarEvent::RemoveRecentFile(file_path) => {
-                    self.persistent_state.remove_recent_file(&file_path);
-                    if let Err(e) = self.persistent_state.save() {
+                    self.core.persistent_state.remove_recent_file(&file_path);
+                    if let Err(e) = self.core.persistent_state.save() {
                         eprintln!("Failed to save recent files: {}", e);
                     }
                 }
                 components::sidebar::SidebarEvent::OpenFilePicker => {
-                    if let Some(path) = pick_file(self.settings.plugins.enabled) {
+                    if let Some(path) = pick_file(self.core.settings.plugins.enabled) {
                         if let Some(path_str) = path.to_str() {
-                            self.persistent_state.add_recent_file(
+                            self.core.persistent_state.add_recent_file(
                                 path_str.to_string(),
-                                self.settings.performance.max_recent_files,
+                                self.core.settings.performance.max_recent_files,
                             );
-                            let _ = self.persistent_state.save();
+                            let _ = self.core.persistent_state.save();
                         }
                         self.window_state.tab_manager.open_file(path, nav_capacity);
                     }
@@ -2027,18 +2032,19 @@ impl ThothApp {
                         }
                     }
 
-                    if self.settings.ui.remember_sidebar_state {
-                        self.persistent_state
+                    if self.core.settings.ui.remember_sidebar_state {
+                        self.core
+                            .persistent_state
                             .set_sidebar_expanded(self.window_state.sidebar_expanded);
-                        let _ = self.persistent_state.save();
+                        let _ = self.core.persistent_state.save();
                     }
                 }
                 components::sidebar::SidebarEvent::OpenUiComponentTab(plugin_id) => {
                     self.open_ui_component_tab(&plugin_id, None);
                 }
                 components::sidebar::SidebarEvent::WidthChanged(new_width) => {
-                    self.persistent_state.set_sidebar_width(new_width);
-                    let _ = self.persistent_state.save();
+                    self.core.persistent_state.set_sidebar_width(new_width);
+                    let _ = self.core.persistent_state.save();
                 }
                 components::sidebar::SidebarEvent::Search(msg) => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
@@ -2089,11 +2095,11 @@ impl ThothApp {
                             tab.error = None;
                             tab.pending_navigation = Some(path.clone());
                         }
-                        self.persistent_state.add_recent_file(
+                        self.core.persistent_state.add_recent_file(
                             file_path.clone(),
-                            self.settings.performance.max_recent_files,
+                            self.core.settings.performance.max_recent_files,
                         );
-                        let _ = self.persistent_state.save();
+                        let _ = self.core.persistent_state.save();
                     } else {
                         if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                             tab.navigation_history.push(path.clone());
@@ -2102,8 +2108,8 @@ impl ThothApp {
                     }
                 }
                 components::sidebar::SidebarEvent::RemoveBookmark(index) => {
-                    self.persistent_state.remove_bookmark(index);
-                    if let Err(e) = self.persistent_state.save() {
+                    self.core.persistent_state.remove_bookmark(index);
+                    if let Err(e) = self.core.persistent_state.save() {
                         eprintln!("Failed to save bookmarks: {}", e);
                     }
                 }
@@ -2136,7 +2142,7 @@ impl ThothApp {
                     self.dispatch_sidebar_event(evt);
                 }
                 components::sidebar::SidebarEvent::OpenSettings => {
-                    self.settings_dialog.open(&self.settings);
+                    self.settings_dialog.open(&self.core.settings);
                 }
                 components::sidebar::SidebarEvent::ChartSelectSource(tab_id) => {
                     self.chart_select_source(tab_id);
@@ -2205,10 +2211,12 @@ impl ThothApp {
     /// Whether the plugin with `plugin_id` declares the `data-producer`
     /// capability in its manifest.
     fn plugin_declares_producer(&self, plugin_id: &str) -> bool {
-        matches!(PLUGIN_MANAGER.get(), Some(Some(pm))
-            if pm
-                .get_plugin_by_id(plugin_id)
-                .is_some_and(|p| p.capabilities.contains(&crate::plugin::Capability::DataProducer)))
+        self.core.plugins.manager().is_some_and(|pm| {
+            pm.get_plugin_by_id(plugin_id).is_some_and(|p| {
+                p.capabilities
+                    .contains(&crate::plugin::Capability::DataProducer)
+            })
+        })
     }
 
     /// Resolve a producer tab's data directly (no registry): file tabs read
@@ -2260,14 +2268,14 @@ impl ThothApp {
         };
         let columns = columns_info(&cols, &rows);
         let colnames = cols.into_iter().map(|(n, _)| n).collect();
-        self.chart_source = Some((tab_id, colnames, rows));
+        self.core.chart_source = Some((tab_id, colnames, rows));
         self.window_state.sidebar.set_chart_columns(columns);
     }
 
     /// Build a chart from a spec: either update the edited tab in place or open
     /// a new dock tab.
     fn chart_generate(&mut self, spec: crate::components::chart_studio::ChartSpec) {
-        let resolved = match &self.chart_source {
+        let resolved = match &self.core.chart_source {
             Some((t, cols, rows)) if *t == spec.source_tab => Some((cols.clone(), rows.clone())),
             _ => self
                 .resolve_dataset(spec.source_tab)
@@ -2277,15 +2285,15 @@ impl ThothApp {
             Self::notify_dataset_unavailable();
             return;
         };
-        self.chart_counter += 1;
+        self.core.chart_counter += 1;
         let chart = crate::components::chart_studio::ChartTab::from_spec(
             &spec,
             colnames,
             rows,
-            self.chart_counter,
+            self.core.chart_counter,
         );
         // Creating/updating a chart changes the persisted session.
-        self.session_dirty = true;
+        self.core.session_dirty = true;
         // Editing: replace the target tab's chart in place.
         if let Some(target) = spec.edit_target
             && let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&target)
@@ -2295,7 +2303,7 @@ impl ThothApp {
             self.window_state.tab_manager.focus_tab(target);
             return;
         }
-        let nav_capacity = self.settings.performance.navigation_history_size;
+        let nav_capacity = self.core.settings.performance.navigation_history_size;
         let id = self.window_state.tab_manager.open_new_tab(nav_capacity);
         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
             tab.chart = Some(chart);
@@ -2322,7 +2330,7 @@ impl ThothApp {
             Some((_n, cols, rows)) => {
                 let ci = columns_info(&cols, &rows);
                 let colnames = cols.into_iter().map(|(n, _)| n).collect();
-                self.chart_source = Some((spec.source_tab, colnames, rows));
+                self.core.chart_source = Some((spec.source_tab, colnames, rows));
                 ci
             }
             None => Vec::new(),
@@ -2353,7 +2361,7 @@ impl ThothApp {
             && let Some(chart) = tab.chart.as_mut()
         {
             chart.update_data(colnames, rows);
-            self.session_dirty = true;
+            self.core.session_dirty = true;
         }
     }
 
@@ -2440,7 +2448,7 @@ impl ThothApp {
         let records = dataset_records_json(handle);
 
         // Resolve the exporter plugin + engine, then run it.
-        let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+        let Some(pm) = self.core.plugins.manager() else {
             NotificationManager::notify_error(Notification::new(
                 "Export failed",
                 "The plugin manager is not available.",
@@ -2608,13 +2616,16 @@ impl ThothApp {
 
     fn render_update_consent_modal(&mut self, ui: &mut egui::Ui) {
         use super::update_handler::ConsentAction;
-        match UpdateHandler::render_consent_modal(ui, &self.update_state, self.show_update_consent)
-        {
+        match UpdateHandler::render_consent_modal(
+            ui,
+            &self.core.update_state,
+            self.show_update_consent,
+        ) {
             Some(ConsentAction::RemindLater) => self.show_update_consent = false,
             Some(ConsentAction::UpdateNow) => {
                 self.show_update_consent = false;
                 if !self.settings_dialog.open {
-                    self.settings_dialog.open_updates(&self.settings);
+                    self.settings_dialog.open_updates(&self.core.settings);
                 }
             }
             None => {}
@@ -2670,7 +2681,7 @@ fn sanitize_filename(name: &str) -> String {
 
 /// Enumerate installed exporter plugins for the DataView's Export dropdown.
 pub fn list_exporters_for_view() -> Vec<thoth_plugin_sdk::dataset::ExporterInfo> {
-    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+    let Some(pm) = crate::plugin::runtime::active_manager() else {
         return Vec::new();
     };
     pm.get_all_plugin_by_capability(crate::plugin::Capability::Exporter)
@@ -2689,7 +2700,7 @@ pub fn list_exporters_for_view() -> Vec<thoth_plugin_sdk::dataset::ExporterInfo>
 
 /// Enumerate installed renderer plugins for the DataView's view dropdown.
 pub fn list_renderers_for_view() -> Vec<thoth_plugin_sdk::dataset::RendererInfo> {
-    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+    let Some(pm) = crate::plugin::runtime::active_manager() else {
         return Vec::new();
     };
     pm.get_all_plugin_by_capability(crate::plugin::Capability::Renderer)
@@ -2801,7 +2812,7 @@ pub fn render_dataset_with_plugin(
     // Miss / stale: run the plugin. Structural failures (no manager / plugin /
     // path) aren't cached, so they retry once those resolve.
     let records = dataset_records_json(handle);
-    let Some(Some(pm)) = crate::PLUGIN_MANAGER.get() else {
+    let Some(pm) = crate::plugin::runtime::active_manager() else {
         return PluginRenderResult::Unavailable;
     };
     let Some(plugin) = pm.get_plugin_by_id(plugin_id) else {

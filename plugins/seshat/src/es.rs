@@ -839,6 +839,18 @@ pub(crate) fn cap(text: &str, n: usize) -> Option<String> {
     }
 }
 
+/// Whether a query already carries an explicit result cap for its dialect.
+pub(crate) fn has_explicit_cap(text: &str) -> bool {
+    match dialect(text) {
+        Dialect::Sql => crate::sql::has_explicit_limit(text),
+        Dialect::Esql => has_esql_limit_stage(text.trim()),
+        Dialect::QueryDsl => split_query(text)
+            .1
+            .as_object()
+            .is_some_and(|body| body.contains_key("size")),
+    }
+}
+
 /// Cap a Query-DSL search to `n` hits by injecting `"size": n` into its body.
 ///
 /// `n` is clamped to [`MAX_RESULT_WINDOW`] — the server rejects a larger `size`,

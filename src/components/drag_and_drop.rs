@@ -102,7 +102,7 @@ impl app::ThothApp {
 
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
         if !dropped_files.is_empty() {
-            let nav_capacity = self.settings.performance.navigation_history_size;
+            let nav_capacity = self.core.settings.performance.navigation_history_size;
             for file in dropped_files {
                 if let Some(path) = file.path {
                     match sniff_file_type(&path) {

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use rfd::FileDialog;
 
-use crate::{PLUGIN_MANAGER, plugin::Capability};
+use crate::plugin::{Capability, runtime::active_manager};
 
 fn supported_files(plugins_enabled: bool) -> Vec<(String, Vec<String>)> {
     let mut all_supported_file_types = vec![(
@@ -10,7 +10,7 @@ fn supported_files(plugins_enabled: bool) -> Vec<(String, Vec<String>)> {
         vec!["json".to_string(), "ndjson".to_string()],
     )];
 
-    if plugins_enabled && let Some(Some(plugin_manager)) = PLUGIN_MANAGER.get() {
+    if plugins_enabled && let Some(plugin_manager) = active_manager() {
         plugin_manager
             .get_all_plugin_by_capability(Capability::FileLoader)
             .iter()

@@ -5,14 +5,15 @@
 
 use std::sync::{OnceLock, atomic::AtomicBool};
 
-use crate::plugin::manager::PluginManager;
-
 pub mod app;
+pub mod cli;
 pub mod components;
 pub mod consent;
 pub mod constants;
+pub mod core;
 pub mod error;
 pub mod file;
+pub mod headless;
 pub mod helpers;
 pub mod mcp;
 pub mod notification;
@@ -25,7 +26,6 @@ pub mod state;
 pub mod theme;
 pub mod update;
 
-pub static PLUGIN_MANAGER: OnceLock<Option<PluginManager>> = OnceLock::new();
 pub static NOTIFICATION_MANAGER: OnceLock<std::sync::Mutex<notification::NotificationManager>> =
     OnceLock::new();
 pub static CONSENT_MANAGER: OnceLock<std::sync::Mutex<consent::manager::ConsentManager>> =

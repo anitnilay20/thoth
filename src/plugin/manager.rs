@@ -7,13 +7,13 @@ use wasmtime::component::ResourceTable;
 use wasmtime::{Cache, CacheConfig, Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 
-use crate::PLUGIN_MANAGER;
 use crate::app::persistent_state::PersistentState;
 use crate::error::Result;
 use crate::notification::{Notification, NotificationManager, NotificationStatus};
 use crate::plugin::Capability;
 use crate::plugin::network_policy::NetworkPolicy;
 use crate::plugin::plugin_registry::PluginRegistry;
+use crate::plugin::wasm_cli::WasmCliLoader;
 use crate::plugin::wasm_data_source::WasmDataSourceLoader;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
 use crate::plugin::wasm_loader::WasmFileLoader;
@@ -196,6 +196,37 @@ impl PluginManager {
         self.registry.get_by_capability(Capability::DataSource)
     }
 
+    /// Instantiate the display-free WIT CLI adapter for an opted-in plugin.
+    pub fn open_cli(&self, plugin_id: &str, policy: NetworkPolicy) -> Result<WasmCliLoader> {
+        let plugin = self
+            .registry
+            .get_by_id(plugin_id)
+            .ok_or_else(|| ThothError::Unknown {
+                message: format!("Plugin '{plugin_id}' not found"),
+            })?;
+        if !plugin.capabilities.contains(&Capability::Cli) {
+            return Err(ThothError::Unknown {
+                message: format!("Plugin '{plugin_id}' does not expose CLI commands"),
+            });
+        }
+        let wasm_path =
+            plugin
+                .location
+                .as_deref()
+                .map(Path::new)
+                .ok_or_else(|| ThothError::Unknown {
+                    message: format!("Plugin '{plugin_id}' has no wasm path"),
+                })?;
+        let settings = self
+            .plugin_settings
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default();
+        WasmCliLoader::open(&self.engine, wasm_path, plugin_id, policy, &settings)
+    }
+
     pub fn open_data_source(
         &self,
         plugin_id: &str,
@@ -307,7 +338,7 @@ impl PluginManager {
     }
 
     pub fn get_installed_plugin() -> HashMap<String, Plugin> {
-        if let Some(Some(pm)) = PLUGIN_MANAGER.get() {
+        if let Some(pm) = crate::plugin::runtime::active_manager() {
             return pm.registry.get_installed_plugins();
         }
 
@@ -318,11 +349,9 @@ impl PluginManager {
         for (dir, is_bundled) in self.plugin_directories() {
             if let Ok(dir) = dir
                 && dir.exists()
+                && let Err(e) = self.scan_directory(dir, is_bundled)
             {
-                eprintln!("Checking {}", dir.display());
-                if let Err(e) = self.scan_directory(dir, is_bundled) {
-                    eprintln!("Failed to scan plugin directory: {e:?}");
-                }
+                eprintln!("Failed to scan plugin directory: {e:?}");
             }
         }
 
@@ -331,11 +360,9 @@ impl PluginManager {
         // call scan_instances_dir directly instead.
         if let Ok(installs_dir) = PersistentState::plugin_install_dir()
             && installs_dir.exists()
+            && let Err(e) = self.scan_instances_dir(&installs_dir, false)
         {
-            eprintln!("Checking marketplace installs {}", installs_dir.display());
-            if let Err(e) = self.scan_instances_dir(&installs_dir, false) {
-                eprintln!("Failed to scan marketplace installs: {e:?}");
-            }
+            eprintln!("Failed to scan marketplace installs: {e:?}");
         }
 
         Ok(())

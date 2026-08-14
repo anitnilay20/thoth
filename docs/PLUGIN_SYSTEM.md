@@ -8,6 +8,7 @@ This document describes Thoth's plugin architecture — how it works, how plugin
 
 - [Why a Plugin System](#why-a-plugin-system)
 - [Architecture Overview](#architecture-overview)
+- [Host Runtime Facets](#host-runtime-facets)
 - [Technology Choice: WebAssembly](#technology-choice-webassembly)
 - [Plugin Types](#plugin-types)
 - [Plugin Storage and Discovery](#plugin-storage-and-discovery)
@@ -71,6 +72,35 @@ The `PluginManager` is initialized once at app startup, scans all plugin directo
 
 When a file is opened the host checks whether the matching plugin also implements `file-viewer`. If it does, a `WasmFileViewerLoader` is used and the viewer renders either a native table (when the plugin returns `preferred-display: table`) or a custom `RenderNode` tree (when it returns `custom`).
 
+## Host Runtime Facets
+
+The Rust host represents a live plugin instance through two object-safe traits:
+
+- `PluginCore` contains the headless runtime surface: identity, lifecycle and
+  settings, tab state, async transport queues, and dataset production. It has no
+  egui types or rendering methods.
+- `PluginUi: PluginCore` contains `render_ui`, `handle_event`, and
+  `render_sidebar`.
+
+Runtime owners store `Box<dyn PluginCore>`. A GUI path calls
+`PluginCore::as_ui` before using the rendering callbacks. A CLI-only plugin can
+implement `PluginCore` and leave the default UI facet as `None`.
+This is a host-side separation; the language-neutral plugin boundary remains
+the WIT capability/world split described below.
+
+### Headless runtime
+
+`HeadlessRuntime` constructs `ThothCore`, starts plugin discovery, installs the
+core-owned dataset/plugin callback bridges, and executes `CliCommand` values
+without creating an egui context or native window. Its result separates a JSON
+stdout value, a stderr diagnostic, and the intended process exit code.
+
+Display-independent plugin adapters override `PluginCore::init` and
+`PluginCore::on_event`. Initialization runs once per live adapter; subsequent
+commands reuse that initialized instance. The clap-based CLI parser and
+plugin-declared subcommands are available through the `PluginCli` SDK contract
+and the `plugin-cli` WIT export.
+
 ---
 
 ## Technology Choice: WebAssembly
@@ -103,6 +133,7 @@ WASM wins on portability, safety, and distribution simplicity. A plugin author c
 | **Exporter** | `exporter` | Adds new export formats or destinations |
 | **Search Provider** | `search-provider` | Extends the search experience with custom indexing or remote results |
 | **Data Producer** | `data-producer` | Offers a dataset to the data bus (#113); appears as a source in a consumer's picker. Pairs with the `data-producer` export |
+| **CLI** | `cli` | Declares headless subcommands, arguments, help, and structured results routed by `thoth <plugin> <command>` |
 
 A single plugin can declare multiple capabilities. `file-viewer` always pairs with `file-loader` — use the `file-viewer-plugin` world for this combination. `data-source` always pairs with `ui-component` — use the `data-source-plugin` world.
 

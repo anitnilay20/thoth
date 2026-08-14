@@ -1,11 +1,11 @@
-//! Shared abstraction over plugin loaders that render an interactive UI inside a
-//! dock tab.
+//! Shared abstractions over live plugin instances.
 //!
 //! Both [`WasmDataSourceLoader`](crate::plugin::wasm_data_source::WasmDataSourceLoader)
 //! and [`WasmUiComponentLoader`](crate::plugin::wasm_ui_component::WasmUiComponentLoader)
-//! implement [`PluginUiHost`], so an [`ActivePluginPane`](crate::state::ActivePluginPane)
-//! can hold either behind a `Box<dyn PluginUiHost>` and the app's poll/dispatch loop
-//! can drive both uniformly.
+//! implement [`PluginCore`] and [`PluginUi`]. Runtime owners keep the core facet
+//! behind a `Box<dyn PluginCore>` so headless code can drive lifecycle, async I/O,
+//! and datasets without depending on rendering. GUI paths explicitly request the
+//! optional [`PluginUi`] facet when they need to render or dispatch a widget event.
 //!
 //! The tab-state / lifecycle methods (`tab_title`, `get_state`, `on_tab_*`, …) map to
 //! the `tab-host` WIT export, which both the `ui-component-plugin` and
@@ -89,9 +89,34 @@ impl TabOpenRequest {
     }
 }
 
-/// Common interface for plugin loaders rendered inside a dock tab.
-pub trait PluginUiHost: Send {
+/// Headless-safe interface shared by every live plugin instance.
+///
+/// This trait deliberately contains no egui types or render callbacks. It is
+/// object-safe so the host's core runtime can store heterogeneous plugins as
+/// `Box<dyn PluginCore>`.
+pub trait PluginCore: Send {
     fn plugin_id(&self) -> &str;
+
+    /// Initialize this live instance for core/headless use.
+    ///
+    /// WASM UI loaders already run their WIT lifecycle during construction, so
+    /// their default implementation is a no-op. Headless adapters can override
+    /// this to perform explicit initialization.
+    fn init(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Handle a display-independent event. Returning `None` means the event is
+    /// not supported by this plugin instance.
+    fn on_event(&self, _event: &PluginCoreEvent) -> Result<Option<serde_json::Value>> {
+        Ok(None)
+    }
+
+    /// Return the optional UI facet implemented by this plugin instance.
+    /// Headless-only plugins keep the default `None` implementation.
+    fn as_ui(&self) -> Option<&dyn PluginUi> {
+        None
+    }
 
     /// Unique id for this plugin *instance* (pane). Defaults to `plugin_id` for
     /// loaders that don't need per-instance identity; data-source loaders
@@ -99,10 +124,6 @@ pub trait PluginUiHost: Send {
     fn instance_id(&self) -> &str {
         self.plugin_id()
     }
-
-    fn render_ui(&self) -> Result<UiOutput>;
-    fn handle_event(&self, event: UiEvent) -> Result<UiOutput>;
-    fn render_sidebar(&self) -> Result<Option<UiOutput>>;
 
     /// True when the plugin's Store is currently held by a background worker (a
     /// blocking DB query is running). Callers use this to defer work that would
@@ -192,6 +213,28 @@ pub trait PluginUiHost: Send {
     }
 }
 
+/// A display-independent event routed to a [`PluginCore`] instance.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PluginCoreEvent {
+    /// Invoke a named command with structured arguments.
+    Command {
+        /// Plugin-defined command name.
+        name: String,
+        /// JSON arguments supplied by the CLI layer.
+        args: serde_json::Value,
+    },
+}
+
+/// Rendering facet for plugins that expose an interactive UI.
+///
+/// A CLI-only plugin implements [`PluginCore`] without implementing this trait.
+/// The host obtains this facet through [`PluginCore::as_ui`] only in GUI paths.
+pub trait PluginUi: PluginCore {
+    fn render_ui(&self) -> Result<UiOutput>;
+    fn handle_event(&self, event: UiEvent) -> Result<UiOutput>;
+    fn render_sidebar(&self) -> Result<Option<UiOutput>>;
+}
+
 /// A dataset returned by a producer's `provide-dataset` export, in plain
 /// host-side types (no bindgen dependency) so it can cross into the bus.
 pub struct ProvidedDataset {
@@ -200,4 +243,24 @@ pub struct ProvidedDataset {
     /// `(column name, SQL-ish type hint)` pairs.
     pub columns: Vec<(String, String)>,
     pub rows: Vec<Vec<String>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PluginCore;
+
+    struct HeadlessPlugin;
+
+    impl PluginCore for HeadlessPlugin {
+        fn plugin_id(&self) -> &str {
+            "test.headless"
+        }
+    }
+
+    #[test]
+    fn core_is_object_safe_without_a_ui_facet() {
+        let plugin: Box<dyn PluginCore> = Box::new(HeadlessPlugin);
+        assert_eq!(plugin.plugin_id(), "test.headless");
+        assert!(plugin.as_ui().is_none());
+    }
 }
