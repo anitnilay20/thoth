@@ -126,29 +126,112 @@ pub(crate) fn add_limit(sql: &str, n: usize) -> Option<String> {
     if !(lower.starts_with("select") || lower.starts_with("with")) {
         return None;
     }
-    // Conservative: any existing `limit` token (even in a subquery) means we
-    // leave the query alone rather than risk a double `LIMIT`.
-    if lower
-        .split(|c: char| !c.is_alphanumeric() && c != '_')
-        .any(|w| w == "limit")
-    {
+    if has_top_level_token(trimmed, "limit") {
         return None;
     }
     Some(format!("{trimmed} LIMIT {n}"))
 }
 
-/// Whether a single read query already contains an explicit `LIMIT` token.
-/// This intentionally mirrors [`add_limit`]'s conservative detection so callers
-/// can distinguish "already capped" from "cannot be capped".
+/// Whether a single read query already contains an outer result `LIMIT`.
 pub(crate) fn has_explicit_limit(sql: &str) -> bool {
     if statements(sql).len() != 1 {
         return false;
     }
     let lower = sql.trim().trim_end_matches(';').trim().to_lowercase();
-    (lower.starts_with("select") || lower.starts_with("with"))
-        && lower
-            .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .any(|word| word == "limit")
+    (lower.starts_with("select") || lower.starts_with("with")) && has_top_level_token(sql, "limit")
+}
+
+/// Find a keyword outside literals, comments, and nested expressions. At depth
+/// zero, `LIMIT` belongs to the outer query result rather than a CTE/subquery.
+fn has_top_level_token(sql: &str, token: &str) -> bool {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut state = State::Normal;
+    let mut tag = String::new();
+    let mut depth = 0usize;
+    let mut i = 0usize;
+
+    while i < chars.len() {
+        let c = chars[i];
+        match state {
+            State::Normal => match c {
+                '\'' => state = State::Single,
+                '"' => state = State::Double,
+                '-' if chars.get(i + 1) == Some(&'-') => {
+                    state = State::Line;
+                    i += 1;
+                }
+                '/' if chars.get(i + 1) == Some(&'*') => {
+                    state = State::Block;
+                    i += 1;
+                }
+                '$' => {
+                    if let Some((t, len)) = dollar_open(&chars, i) {
+                        tag = t;
+                        state = State::Dollar;
+                        i += len - 1;
+                    }
+                }
+                '(' => depth += 1,
+                ')' => depth = depth.saturating_sub(1),
+                _ if depth == 0 && (c.is_alphanumeric() || c == '_') => {
+                    let start = i;
+                    while chars
+                        .get(i + 1)
+                        .is_some_and(|next| next.is_alphanumeric() || *next == '_')
+                    {
+                        i += 1;
+                    }
+                    if chars[start..=i]
+                        .iter()
+                        .collect::<String>()
+                        .eq_ignore_ascii_case(token)
+                    {
+                        return true;
+                    }
+                }
+                _ => {}
+            },
+            State::Single => {
+                if c == '\'' {
+                    if chars.get(i + 1) == Some(&'\'') {
+                        i += 1;
+                    } else {
+                        state = State::Normal;
+                    }
+                }
+            }
+            State::Double => {
+                if c == '"' {
+                    if chars.get(i + 1) == Some(&'"') {
+                        i += 1;
+                    } else {
+                        state = State::Normal;
+                    }
+                }
+            }
+            State::Line => {
+                if c == '\n' {
+                    state = State::Normal;
+                }
+            }
+            State::Block => {
+                if c == '*' && chars.get(i + 1) == Some(&'/') {
+                    state = State::Normal;
+                    i += 1;
+                }
+            }
+            State::Dollar => {
+                if c == '$' {
+                    if let Some(len) = dollar_close(&chars, i, &tag) {
+                        state = State::Normal;
+                        i += len - 1;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 /// The trimmed text of a character range `[start, end)` of `sql`.
@@ -277,5 +360,29 @@ mod tests {
         assert!(!has_explicit_limit("UPDATE t SET a = 1 LIMIT 5"));
         assert_eq!(add_limit("UPDATE t SET a = 1", 101), None);
         assert_eq!(add_limit("SELECT 1; SELECT 2;", 101), None);
+    }
+
+    #[test]
+    fn result_limit_ignores_literals_comments_and_nested_queries() {
+        let literal = "SELECT * FROM logs WHERE message = 'limit'";
+        assert_eq!(
+            add_limit(literal, 101).as_deref(),
+            Some("SELECT * FROM logs WHERE message = 'limit' LIMIT 101")
+        );
+        assert!(!has_explicit_limit(literal));
+
+        let nested = "WITH x AS (SELECT * FROM logs LIMIT 5) SELECT * FROM x";
+        assert_eq!(
+            add_limit(nested, 101).as_deref(),
+            Some("WITH x AS (SELECT * FROM logs LIMIT 5) SELECT * FROM x LIMIT 101")
+        );
+        assert!(!has_explicit_limit(nested));
+
+        let comment = "SELECT * FROM logs /* LIMIT 5 */";
+        assert_eq!(
+            add_limit(comment, 101).as_deref(),
+            Some("SELECT * FROM logs /* LIMIT 5 */ LIMIT 101")
+        );
+        assert!(!has_explicit_limit(comment));
     }
 }
