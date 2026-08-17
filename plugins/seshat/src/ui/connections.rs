@@ -6,9 +6,9 @@ use thoth_plugin_sdk::components::{
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
+use crate::constants::icons::{ICON_DATABASE, ICON_PENCIL, ICON_PLUS, ICON_TRASH};
 use crate::state::{engine_badge, Connection, State};
 use crate::ui::widgets::{button, muted};
-use crate::{ICON_DATABASE, ICON_PENCIL, ICON_PLUS, ICON_TRASH};
 
 /// Environment colour tokens in display order, with their group labels. A
 /// connection's `color` token places it in a group (matching the design's

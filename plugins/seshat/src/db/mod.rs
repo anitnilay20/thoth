@@ -6,6 +6,9 @@
 //! the host `tcp-client` shim, does its work, and closes. All methods are
 //! blocking and are only ever invoked on the host's db-runtime worker thread
 //! (never the UI thread), via the plugin's `query` export.
+pub(crate) mod es;
+pub(crate) mod mysql;
+pub(crate) mod pg;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -170,9 +173,9 @@ pub trait DbAdapter {
 /// The adapter for `engine`. Boxed so callers stay engine-agnostic.
 pub fn adapter(engine: Engine) -> Box<dyn DbAdapter> {
     match engine {
-        Engine::Postgres => Box::new(crate::pg::Postgres),
-        Engine::Mysql => Box::new(crate::mysql::Mysql),
-        Engine::Elasticsearch => Box::new(crate::es::Elasticsearch),
+        Engine::Postgres => Box::new(pg::Postgres),
+        Engine::Mysql => Box::new(mysql::Mysql),
+        Engine::Elasticsearch => Box::new(es::Elasticsearch),
     }
 }
 
