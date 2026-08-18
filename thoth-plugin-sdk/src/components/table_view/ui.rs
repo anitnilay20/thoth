@@ -34,6 +34,9 @@ impl TableView {
         let headers = self.headers.clone();
         let num_cols = headers.len().max(1);
         let min_col_width = self.min_col_width.unwrap_or(150.0);
+        let auto_fit_id = ui.id().with("table-view-auto-fit-column");
+        let auto_fit_column = ui.data_mut(|data| data.remove_temp::<usize>(auto_fit_id));
+        let requested_auto_fit = std::cell::Cell::new(None::<usize>);
         // Per-column right-alignment from the (optional) SQL types.
         let right_aligned: Vec<bool> = (0..num_cols)
             .map(|i| self.column_types.get(i).is_some_and(|t| t.right_aligned()))
@@ -62,19 +65,25 @@ impl TableView {
                     // Zebra wash, painted *under* the hover/selection fills by
                     // `egui_extras` (design `tbody tr:nth-child(even)`).
                     ui.style_mut().visuals.faint_bg_color = with_alpha(colors.fg, ZEBRA_ALPHA);
-                    TableBuilder::new(ui)
+                    let mut table = TableBuilder::new(ui)
                         .striped(true)
                         .sense(egui::Sense::click())
                         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .column(Column::exact(NUM_COL_W))
-                        .columns(
+                        .column(Column::exact(NUM_COL_W));
+                    for col in 0..num_cols {
+                        table = table.column(
                             Column::auto_with_initial_suggestion(min_col_width)
+                                .at_least(min_col_width)
                                 .clip(true)
-                                .resizable(true),
-                            num_cols,
-                        )
+                                .resizable(true)
+                                .auto_size_this_frame(auto_fit_column == Some(col)),
+                        );
+                    }
+                    table
                         .header(HEADER_H, |header_row| {
-                            paint_header_row(header_row, &headers, &colors);
+                            if let Some(col) = paint_header_row(header_row, &headers, &colors) {
+                                requested_auto_fit.set(Some(col));
+                            }
                         })
                         .body(|body| {
                             body.rows(ROW_H, rows.len(), |mut row| {
@@ -148,6 +157,14 @@ impl TableView {
                 });
         });
 
+        // The table's columns are configured before its header responses are
+        // available. Queue a header double-click for the next frame, when the
+        // requested column can enter egui_extras' content-measuring pass.
+        if let Some(col) = requested_auto_fit.get() {
+            ui.data_mut(|data| data.insert_temp(auto_fit_id, col));
+            ui.ctx().request_repaint();
+        }
+
         // Resolve a requested copy to clipboard text, now that the grid is drawn
         // and `rows` is free to read. Row → cells tab-separated; column → the
         // whole column newline-separated, header first.
@@ -208,6 +225,9 @@ impl TableView {
         let colors = ThemeColors::from_ctx(ui.ctx());
         let num_cols = headers.len().max(1);
         let min_col_width = min_col_width.unwrap_or(150.0);
+        let auto_fit_id = ui.id().with("table-view-auto-fit-column");
+        let auto_fit_column = ui.data_mut(|data| data.remove_temp::<usize>(auto_fit_id));
+        let requested_auto_fit = std::cell::Cell::new(None::<usize>);
 
         let grid = colors.surface;
 
@@ -222,19 +242,25 @@ impl TableView {
                     ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::NONE;
                     ui.style_mut().spacing.item_spacing.x = 0.0;
                     ui.style_mut().visuals.faint_bg_color = with_alpha(colors.fg, ZEBRA_ALPHA);
-                    TableBuilder::new(ui)
+                    let mut table = TableBuilder::new(ui)
                         .striped(true)
                         .sense(egui::Sense::click())
                         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .column(Column::exact(NUM_COL_W))
-                        .columns(
+                        .column(Column::exact(NUM_COL_W));
+                    for col in 0..num_cols {
+                        table = table.column(
                             Column::auto_with_initial_suggestion(min_col_width)
+                                .at_least(min_col_width)
                                 .clip(true)
-                                .resizable(true),
-                            num_cols,
-                        )
+                                .resizable(true)
+                                .auto_size_this_frame(auto_fit_column == Some(col)),
+                        );
+                    }
+                    table
                         .header(HEADER_H, |header_row| {
-                            paint_header_row(header_row, headers, &colors);
+                            if let Some(col) = paint_header_row(header_row, headers, &colors) {
+                                requested_auto_fit.set(Some(col));
+                            }
                         })
                         .body(|body| {
                             body.rows(ROW_H, row_count, |mut row| {
@@ -272,6 +298,11 @@ impl TableView {
                         });
                 });
         });
+
+        if let Some(col) = requested_auto_fit.get() {
+            ui.data_mut(|data| data.insert_temp(auto_fit_id, col));
+            ui.ctx().request_repaint();
+        }
 
         clicked_row
     }
@@ -443,22 +474,30 @@ fn paint_header_row(
     mut header_row: egui_extras::TableRow<'_, '_>,
     headers: &[String],
     colors: &ThemeColors,
-) {
+) -> Option<usize> {
+    let mut auto_fit = None;
     header_row.col(|ui| {
         ui.painter()
             .rect_filled(ui.max_rect(), 0.0, colors.bg_panel);
         paint_row_number(ui, colors, "#");
         paint_cell_borders(ui, colors.surface, colors.surface_raised);
     });
-    for h in headers {
+    for (col, h) in headers.iter().enumerate() {
         let (_, resp) = header_row.col(|ui| {
             ui.painter()
                 .rect_filled(ui.max_rect(), 0.0, colors.bg_panel);
             paint_header_label(ui, colors, h);
             paint_cell_borders(ui, colors.surface, colors.surface_raised);
         });
-        let _ = crate::theme::hover_text(resp, h.as_str());
+        let resp = crate::theme::hover_text(
+            resp,
+            format!("{h}\nDouble-click to fit column · drag edge to resize"),
+        );
+        if resp.double_clicked() {
+            auto_fit = Some(col);
+        }
     }
+    auto_fit
 }
 
 /// Paint one header cell's text: the column name left-aligned inside the 10px
