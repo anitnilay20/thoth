@@ -16,7 +16,7 @@ use postgres_protocol::message::{backend, frontend};
 use postgres_protocol::Oid;
 use serde_json::Value;
 
-use crate::db::{Column, ColumnInfo, DbAdapter, Profile, QueryResult, TableInfo};
+use crate::db::{int_at, str_at, Column, ColumnInfo, DbAdapter, Profile, QueryResult, TableInfo};
 use crate::shim::TcpShim;
 
 const READ_CHUNK: usize = 16 * 1024;
@@ -274,23 +274,6 @@ impl DbAdapter for Postgres {
     }
 }
 
-/// Read an integer cell, tolerating either a JSON number or a numeric string.
-fn int_at(row: &[Value], i: usize) -> i64 {
-    row.get(i)
-        .and_then(|v| {
-            v.as_i64()
-                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
-        })
-        .unwrap_or(0)
-}
-
-fn str_at(row: &[Value], i: usize) -> String {
-    row.get(i)
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .unwrap_or_default()
-}
-
 fn bool_at(row: &[Value], i: usize) -> bool {
     row.get(i).and_then(|v| v.as_bool()).unwrap_or(false)
 }
@@ -320,6 +303,7 @@ pub fn run_query(p: &Profile, sql: &str) -> Result<QueryResult, String> {
             ("user", p.user.as_str()),
             ("database", p.database.as_str()),
             ("client_encoding", "UTF8"),
+            ("options", "-c standard_conforming_strings=on"),
         ],
         &mut out,
     )

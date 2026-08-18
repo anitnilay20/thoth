@@ -6,6 +6,9 @@ use thoth_plugin_sdk::components::{
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
+use crate::constants::icons::{
+    ICON_HISTORY, ICON_PLUGS_CONNECTED, ICON_PLUS, ICON_TERMINAL, ICON_TREE_STRUCTURE,
+};
 use crate::state::State;
 use crate::ui::connections::connections_list;
 use crate::ui::dialog::dialog;
@@ -13,7 +16,6 @@ use crate::ui::error::error_modal;
 use crate::ui::history::history_list;
 use crate::ui::schema::schema_panel;
 use crate::ui::widgets::button;
-use crate::{ICON_HISTORY, ICON_PLUGS_CONNECTED, ICON_PLUS, ICON_TERMINAL, ICON_TREE_STRUCTURE};
 
 pub(crate) fn build_sidebar(st: &State) -> RenderNode {
     RenderNode::Column(

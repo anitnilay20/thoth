@@ -23,7 +23,7 @@ fn loading_row() -> RenderNode {
             .build(),
     )
 }
-use crate::{
+use crate::constants::icons::{
     ICON_CIRCLE, ICON_DATABASE, ICON_EYE, ICON_FOLDER, ICON_KEY, ICON_TABLE, ICON_TREE_STRUCTURE,
 };
 

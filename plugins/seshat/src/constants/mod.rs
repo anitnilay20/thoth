@@ -1,3 +1,5 @@
+pub(crate) mod icons;
+
 pub const KEYWORDS: [&str; 95] = [
     // Data Manipulation (DML)
     "SELECT",

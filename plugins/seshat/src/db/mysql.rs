@@ -3,10 +3,9 @@
 //! (`COM_QUERY`) protocol and `information_schema` introspection.
 //!
 //! Auth supported: `mysql_native_password` (SHA1 scramble) and
-//! `caching_sha2_password` (SHA256 scramble fast path, plus full auth). Full
-//! auth sends the cleartext password over TLS; without TLS it fetches the
-//! server's RSA public key and sends the password RSA/OAEP-encrypted (see
-//! `full_auth_sha2` / `rsa_encrypt_password`), so non-TLS connections work too.
+//! `caching_sha2_password` (SHA256 scramble fast path, plus full auth over TLS).
+//! Full auth is rejected without TLS because a server-supplied public key is
+//! unauthenticated and can expose the password to an active network attacker.
 
 use std::io::{Read, Write};
 
@@ -14,7 +13,9 @@ use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sha2::Sha256;
 
-use crate::db::{Column, ColumnInfo, DbAdapter, Profile, QueryResult, TableInfo};
+use crate::db::{
+    human_size, int_at, str_at, Column, ColumnInfo, DbAdapter, Profile, QueryResult, TableInfo,
+};
 use crate::shim::TcpShim;
 
 // ── capability flags (subset we use) ────────────────────────────────────────
@@ -29,6 +30,7 @@ const CLIENT_PLUGIN_AUTH: u32 = 0x0008_0000;
 
 const CHARSET_UTF8MB4: u8 = 45;
 const MAX_PACKET: u32 = 16 * 1024 * 1024;
+const MAX_FRAME_PAYLOAD: usize = 0x00ff_ffff;
 
 /// MySQL implementation of [`DbAdapter`].
 pub struct Mysql;
@@ -251,42 +253,6 @@ impl DbAdapter for Mysql {
     }
 }
 
-fn str_at(row: &[Value], i: usize) -> String {
-    row.get(i)
-        .and_then(|v| v.as_str())
-        .map(String::from)
-        .unwrap_or_default()
-}
-
-/// Read an integer cell, tolerating either a JSON number or a numeric string.
-fn int_at(row: &[Value], i: usize) -> i64 {
-    row.get(i)
-        .and_then(|v| {
-            v.as_i64()
-                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
-        })
-        .unwrap_or(0)
-}
-
-/// Format a byte count as a compact human-readable size (e.g. `318 MB`).
-fn human_size(bytes: i64) -> String {
-    if bytes <= 0 {
-        return "0 B".to_string();
-    }
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut size = bytes as f64;
-    let mut unit = 0;
-    while size >= 1024.0 && unit < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{size:.0} {}", UNITS[unit])
-    }
-}
-
 /// Quote a string as a MySQL SQL literal (backslash + quote escaping).
 fn quote_literal(s: &str) -> String {
     format!("'{}'", s.replace('\\', "\\\\").replace('\'', "''"))
@@ -324,7 +290,8 @@ fn run_query(p: &Profile, sql: &str) -> Result<QueryResult, String> {
 /// Read column definitions + text rows following a result-set header packet.
 fn read_result_set(conn: &mut TcpShim, header: &[u8]) -> Result<QueryResult, String> {
     let mut cur = Cursor::new(header);
-    let col_count = cur.lenenc_int()? as usize;
+    let col_count =
+        usize::try_from(cur.lenenc_int()?).map_err(|_| "column count is too large".to_string())?;
 
     let mut columns = Vec::with_capacity(col_count);
     let mut types = Vec::with_capacity(col_count);
@@ -438,43 +405,18 @@ fn auth_loop(conn: &mut TcpShim, p: &Profile, salt: Vec<u8>) -> Result<(), Strin
 }
 
 /// `caching_sha2_password` full authentication. Over TLS the server accepts the
-/// cleartext password; otherwise the password is RSA-encrypted with the server's
-/// public key (fetched on demand) before sending.
-fn full_auth_sha2(conn: &mut TcpShim, p: &Profile, salt: &[u8], seq: u8) -> Result<(), String> {
+/// cleartext password. Without TLS, a key supplied by the peer cannot be
+/// authenticated, so full authentication is refused.
+fn full_auth_sha2(conn: &mut TcpShim, p: &Profile, _salt: &[u8], seq: u8) -> Result<(), String> {
     if p.tls {
         let mut cleartext = p.password.as_bytes().to_vec();
         cleartext.push(0);
         return write_packet(conn, seq + 1, &cleartext);
     }
-    // Request the server's RSA public key (0x02), then encrypt with it.
-    write_packet(conn, seq + 1, &[0x02])?;
-    let (seq2, pk) = read_packet(conn)?;
-    if pk.first() != Some(&0x01) {
-        return Err("expected RSA public key from server".to_string());
-    }
-    let encrypted = rsa_encrypt_password(&pk[1..], p.password.as_bytes(), salt)?;
-    write_packet(conn, seq2 + 1, &encrypted)
-}
-
-/// RSA-OAEP(SHA1) encrypt `password` (NUL-terminated, XOR the salt) with the
-/// server's PEM public key — the MySQL `caching_sha2_password` full-auth scheme.
-fn rsa_encrypt_password(pem: &[u8], password: &[u8], salt: &[u8]) -> Result<Vec<u8>, String> {
-    use rsa::pkcs8::DecodePublicKey;
-    use rsa::{Oaep, RsaPublicKey};
-
-    if salt.is_empty() {
-        return Err("missing auth salt for RSA encryption".to_string());
-    }
-    let pem = std::str::from_utf8(pem).map_err(|_| "invalid public-key PEM".to_string())?;
-    let key = RsaPublicKey::from_public_key_pem(pem.trim()).map_err(|e| e.to_string())?;
-
-    let mut buf = password.to_vec();
-    buf.push(0);
-    for (i, b) in buf.iter_mut().enumerate() {
-        *b ^= salt[i % salt.len()];
-    }
-    key.encrypt(&mut rand::rngs::OsRng, Oaep::new::<Sha1>(), &buf)
-        .map_err(|e| e.to_string())
+    Err(
+        "caching_sha2_password full authentication requires TLS; enable Require TLS to avoid sending the password to an unauthenticated server key"
+            .to_string(),
+    )
 }
 
 /// Scramble the password for the given auth plugin. Empty password → empty.
@@ -693,23 +635,60 @@ fn parse_err(pkt: &[u8]) -> String {
 // ── framing ─────────────────────────────────────────────────────────────────
 
 fn read_packet(conn: &mut TcpShim) -> Result<(u8, Vec<u8>), String> {
-    let mut hdr = [0u8; 4];
-    conn.read_exact(&mut hdr).map_err(|e| e.to_string())?;
-    let len = (hdr[0] as usize) | ((hdr[1] as usize) << 8) | ((hdr[2] as usize) << 16);
-    let seq = hdr[3];
-    let mut payload = vec![0u8; len];
-    if len > 0 {
-        conn.read_exact(&mut payload).map_err(|e| e.to_string())?;
+    let (mut len, initial_seq) = read_packet_header(conn)?;
+    let mut seq = initial_seq;
+    let mut payload = Vec::new();
+    loop {
+        payload
+            .try_reserve(len)
+            .map_err(|_| "MySQL packet is too large".to_string())?;
+        let start = payload.len();
+        payload.resize(start + len, 0);
+        if len > 0 {
+            conn.read_exact(&mut payload[start..])
+                .map_err(|e| e.to_string())?;
+        }
+        if len < MAX_FRAME_PAYLOAD {
+            return Ok((initial_seq, payload));
+        }
+
+        let (next_len, next_seq) = read_packet_header(conn)?;
+        let expected = seq.wrapping_add(1);
+        if next_seq != expected {
+            return Err(format!(
+                "unexpected MySQL packet sequence: expected {expected}, got {next_seq}"
+            ));
+        }
+        len = next_len;
+        seq = next_seq;
     }
-    Ok((seq, payload))
 }
 
 fn write_packet(conn: &mut TcpShim, seq: u8, payload: &[u8]) -> Result<(), String> {
+    let mut next_seq = seq;
+    for chunk in payload.chunks(MAX_FRAME_PAYLOAD) {
+        write_packet_frame(conn, next_seq, chunk)?;
+        next_seq = next_seq.wrapping_add(1);
+    }
+    if payload.len().is_multiple_of(MAX_FRAME_PAYLOAD) {
+        write_packet_frame(conn, next_seq, &[])?;
+    }
+    conn.flush().map_err(|e| e.to_string())
+}
+
+fn read_packet_header(conn: &mut TcpShim) -> Result<(usize, u8), String> {
+    let mut hdr = [0u8; 4];
+    conn.read_exact(&mut hdr).map_err(|e| e.to_string())?;
+    let len = (hdr[0] as usize) | ((hdr[1] as usize) << 8) | ((hdr[2] as usize) << 16);
+    Ok((len, hdr[3]))
+}
+
+fn write_packet_frame(conn: &mut TcpShim, seq: u8, payload: &[u8]) -> Result<(), String> {
     let len = payload.len();
+    debug_assert!(len <= MAX_FRAME_PAYLOAD);
     let hdr = [len as u8, (len >> 8) as u8, (len >> 16) as u8, seq];
     conn.write_all(&hdr).map_err(|e| e.to_string())?;
-    conn.write_all(payload).map_err(|e| e.to_string())?;
-    conn.flush().map_err(|e| e.to_string())
+    conn.write_all(payload).map_err(|e| e.to_string())
 }
 
 fn put_u32(out: &mut Vec<u8>, v: u32) {
@@ -734,7 +713,7 @@ impl<'a> Cursor<'a> {
         self.buf.get(self.pos).copied()
     }
     fn skip(&mut self, n: usize) {
-        self.pos = (self.pos + n).min(self.buf.len());
+        self.pos = self.pos.saturating_add(n).min(self.buf.len());
     }
     fn u8(&mut self) -> Result<u8, String> {
         let v = *self.buf.get(self.pos).ok_or("unexpected end of packet")?;
@@ -746,11 +725,12 @@ impl<'a> Cursor<'a> {
         Ok(u16::from_le_bytes([b[0], b[1]]))
     }
     fn bytes(&mut self, n: usize) -> Result<&'a [u8], String> {
-        if self.pos + n > self.buf.len() {
+        if n > self.remaining() {
             return Err("unexpected end of packet".to_string());
         }
-        let s = &self.buf[self.pos..self.pos + n];
-        self.pos += n;
+        let end = self.pos + n;
+        let s = &self.buf[self.pos..end];
+        self.pos = end;
         Ok(s)
     }
     fn rest(&mut self) -> Vec<u8> {
@@ -791,15 +771,43 @@ impl<'a> Cursor<'a> {
         Ok(())
     }
     fn lenenc_bytes(&mut self) -> Result<&'a [u8], String> {
-        let n = self.lenenc_int()? as usize;
+        let n = usize::try_from(self.lenenc_int()?)
+            .map_err(|_| "length-encoded value too large".to_string())?;
         self.bytes(n)
     }
     fn lenenc_str(&mut self) -> Result<String, String> {
         Ok(String::from_utf8_lossy(self.lenenc_bytes()?).into_owned())
     }
     fn skip_lenenc_str(&mut self) -> Result<(), String> {
-        let n = self.lenenc_int()? as usize;
+        let n = usize::try_from(self.lenenc_int()?)
+            .map_err(|_| "length-encoded value too large".to_string())?;
         self.skip(n);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_rejects_oversized_reads_without_overflowing() {
+        let mut cursor = Cursor::new(&[1, 2, 3]);
+        assert_eq!(
+            cursor.bytes(usize::MAX).unwrap_err(),
+            "unexpected end of packet"
+        );
+        assert_eq!(cursor.remaining(), 3);
+
+        cursor.skip(usize::MAX);
+        assert_eq!(cursor.remaining(), 0);
+    }
+
+    #[test]
+    fn lenenc_bytes_rejects_a_length_larger_than_the_packet() {
+        let mut encoded = vec![0xfe];
+        encoded.extend_from_slice(&u64::MAX.to_le_bytes());
+        let mut cursor = Cursor::new(&encoded);
+        assert!(cursor.lenenc_bytes().is_err());
     }
 }

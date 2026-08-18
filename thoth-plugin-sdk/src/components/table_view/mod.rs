@@ -11,7 +11,9 @@ fn default_true() -> bool {
 }
 
 /// A horizontally-scrollable, virtually-scrolled data grid with a sticky `#`
-/// row-number gutter, compact headers, zebra rows, and grid lines.
+/// row-number gutter, compact headers, zebra rows, and grid lines. Columns can
+/// be resized by dragging their edge; double-clicking a header auto-fits that
+/// column to its visible content without shrinking below `min_col_width`.
 ///
 /// Each cell is a [`RenderNode`], so cells can be plain text *or* rich nodes
 /// (a `json-tree`, a `badge`, a styled run, …). Only the visible rows are laid
@@ -44,7 +46,9 @@ pub struct TableView {
     #[builder(default)]
     #[serde(default)]
     pub rows: Vec<Vec<RenderNode>>,
-    /// Minimum width per column in logical pixels. Defaults to 150.
+    /// Minimum width per column in logical pixels. Defaults to 150. A column
+    /// may grow beyond this value through resizing or header auto-fit, but can
+    /// never be dragged narrower.
     #[serde(default)]
     pub min_col_width: Option<f32>,
     /// Optional column type per column, parallel to [`headers`](TableView::headers).

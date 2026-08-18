@@ -6,6 +6,9 @@
 //! the host `tcp-client` shim, does its work, and closes. All methods are
 //! blocking and are only ever invoked on the host's db-runtime worker thread
 //! (never the UI thread), via the plugin's `query` export.
+pub(crate) mod es;
+pub(crate) mod mysql;
+pub(crate) mod pg;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -170,9 +173,46 @@ pub trait DbAdapter {
 /// The adapter for `engine`. Boxed so callers stay engine-agnostic.
 pub fn adapter(engine: Engine) -> Box<dyn DbAdapter> {
     match engine {
-        Engine::Postgres => Box::new(crate::pg::Postgres),
-        Engine::Mysql => Box::new(crate::mysql::Mysql),
-        Engine::Elasticsearch => Box::new(crate::es::Elasticsearch),
+        Engine::Postgres => Box::new(pg::Postgres),
+        Engine::Mysql => Box::new(mysql::Mysql),
+        Engine::Elasticsearch => Box::new(es::Elasticsearch),
+    }
+}
+
+/// Read a string cell, returning an empty string for NULL or a non-string value.
+pub(crate) fn str_at(row: &[Value], i: usize) -> String {
+    row.get(i)
+        .and_then(Value::as_str)
+        .map(String::from)
+        .unwrap_or_default()
+}
+
+/// Read an integer cell, tolerating either a JSON number or a numeric string.
+pub(crate) fn int_at(row: &[Value], i: usize) -> i64 {
+    row.get(i)
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        })
+        .unwrap_or(0)
+}
+
+/// Format a byte count consistently for every database adapter.
+pub(crate) fn human_size(bytes: i64) -> String {
+    if bytes <= 0 {
+        return "0 B".to_string();
+    }
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
     }
 }
 

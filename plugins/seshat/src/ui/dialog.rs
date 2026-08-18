@@ -7,9 +7,9 @@ use thoth_plugin_sdk::components::{
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
+use crate::constants::icons::ICON_PLUG;
 use crate::state::{engine_label, State, ENGINE_GROUPS};
 use crate::ui::widgets::{button, text_input};
-use crate::ICON_PLUG;
 
 /// Glyphs used only by the dialog: the Back affordance and the test-connection
 /// verdict (design's `.m-foot` caret and the `.m-body` status line).

@@ -6,10 +6,10 @@ use thoth_plugin_sdk::components::{
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
+use crate::constants::icons::{ICON_FLOPPY_DISK, ICON_FOLDER_OPEN, ICON_FORMAT, ICON_PLAY};
 use crate::constants::{KEYWORDS, SPECIAL, TYPES};
 use crate::state::State;
 use crate::ui::results::results_view;
-use crate::{ICON_FLOPPY_DISK, ICON_FOLDER_OPEN, ICON_FORMAT, ICON_PLAY};
 
 pub(crate) fn editor_view(st: &State) -> RenderNode {
     // The database this editor queries against — also what autocomplete is

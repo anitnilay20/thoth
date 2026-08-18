@@ -23,8 +23,8 @@ use serde_json::{Map, Value};
 
 use crate::bindings::thoth::plugin::http_client::{self, HttpRequest};
 use crate::db::{
-    AuthMode, Column, ColumnInfo, ConnectionDefaults, DbAdapter, Profile, QueryResult, TableDetail,
-    TableInfo,
+    human_size, AuthMode, Column, ColumnInfo, ConnectionDefaults, DbAdapter, Profile, QueryResult,
+    TableDetail, TableInfo,
 };
 
 /// The synthetic schema name under which indices are listed in the tree.
@@ -218,7 +218,7 @@ fn plural(n: usize) -> &'static str {
 
 /// Run a Query-DSL search: `POST <index>/_search`, hits flattened into a grid.
 fn run_search(p: &Profile, sql: &str) -> Result<QueryResult, String> {
-    let (index, body) = split_query(sql);
+    let (index, body) = split_query(sql)?;
     let path = format!("/{}/_search", enc(&index));
     let resp = request(p, "POST", &path, Some(body))?;
 
@@ -672,18 +672,20 @@ fn to_column_infos(fields: Vec<(String, String)>) -> Vec<ColumnInfo> {
 fn mapping_fields(p: &Profile, index: &str) -> Result<Vec<(String, String)>, String> {
     let v = request(p, "GET", &format!("/{}/_mapping", enc(index)), None)?;
     // Response shape: { "<index>": { "mappings": { "properties": { ... } } } }.
-    let properties = v
-        .as_object()
-        .and_then(|top| top.values().next()) // the (single) index entry
-        .and_then(|idx| idx.get("mappings"))
-        .and_then(|m| m.get("properties"))
-        .and_then(Value::as_object);
-
     let mut out = Vec::new();
-    if let Some(props) = properties {
-        flatten_properties("", props, &mut out);
+    if let Some(top) = v.as_object() {
+        for index in top.values() {
+            if let Some(properties) = index
+                .get("mappings")
+                .and_then(|m| m.get("properties"))
+                .and_then(Value::as_object)
+            {
+                flatten_properties("", properties, &mut out);
+            }
+        }
     }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.sort();
+    out.dedup();
     Ok(out)
 }
 
@@ -737,15 +739,16 @@ fn index_stats(p: &Profile, index: &str) -> Result<(i64, String), String> {
 ///   * `books`                      → index `books`, match_all
 ///   * `{ "query": ... }`           → `_all`, given body
 ///   * `books\n{ "query": ... }`    → index `books`, given body
-fn split_query(text: &str) -> (String, Value) {
+fn split_query(text: &str) -> Result<(String, Value), String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        return ("_all".to_string(), match_all());
+        return Ok(("_all".to_string(), match_all()));
     }
     // If the whole thing is a JSON object, there's no index directive.
     if trimmed.starts_with('{') {
-        let body = serde_json::from_str(trimmed).unwrap_or_else(|_| match_all());
-        return ("_all".to_string(), body);
+        let body =
+            serde_json::from_str(trimmed).map_err(|e| format!("invalid Query DSL body: {e}"))?;
+        return Ok(("_all".to_string(), body));
     }
     // Otherwise the first line is the index; the remainder (if any) is the body.
     let mut parts = trimmed.splitn(2, '\n');
@@ -759,9 +762,9 @@ fn split_query(text: &str) -> (String, Value) {
     let body = if rest.is_empty() {
         match_all()
     } else {
-        serde_json::from_str(rest).unwrap_or_else(|_| match_all())
+        serde_json::from_str(rest).map_err(|e| format!("invalid Query DSL body: {e}"))?
     };
-    (index, body)
+    Ok((index, body))
 }
 
 /// Which query language the editor text is written in. Elasticsearch exposes
@@ -845,9 +848,9 @@ pub(crate) fn has_explicit_cap(text: &str) -> bool {
         Dialect::Sql => crate::sql::has_explicit_limit(text),
         Dialect::Esql => has_esql_limit_stage(text.trim()),
         Dialect::QueryDsl => split_query(text)
-            .1
-            .as_object()
-            .is_some_and(|body| body.contains_key("size")),
+            .ok()
+            .and_then(|(_, body)| body.as_object().map(|body| body.contains_key("size")))
+            .unwrap_or(false),
     }
 }
 
@@ -873,7 +876,7 @@ pub(crate) fn add_size(text: &str, n: usize) -> Option<String> {
     if matches!(dialect(text), Dialect::Sql | Dialect::Esql) {
         return None;
     }
-    let (index, mut body) = split_query(text);
+    let (index, mut body) = split_query(text).ok()?;
     let obj = body.as_object_mut()?;
     if obj.contains_key("size") {
         return None;
@@ -938,25 +941,6 @@ fn base64_encode(input: &[u8]) -> String {
         });
     }
     out
-}
-
-/// Format a byte count as a short human string (matches the SQL adapters' style).
-fn human_size(bytes: i64) -> String {
-    if bytes <= 0 {
-        return String::new();
-    }
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut size = bytes as f64;
-    let mut unit = 0;
-    while size >= 1024.0 && unit < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{size:.1} {}", UNITS[unit])
-    }
 }
 
 #[cfg(test)]
@@ -1072,22 +1056,22 @@ mod tests {
     #[test]
     fn split_query_variants() {
         // empty → _all + match_all
-        let (idx, body) = split_query("   ");
+        let (idx, body) = split_query("   ").unwrap();
         assert_eq!(idx, "_all");
         assert_eq!(body, match_all());
 
         // bare index name
-        let (idx, body) = split_query("books");
+        let (idx, body) = split_query("books").unwrap();
         assert_eq!(idx, "books");
         assert_eq!(body, match_all());
 
         // pure JSON body → _all
-        let (idx, body) = split_query(r#"{"query":{"term":{"x":1}}}"#);
+        let (idx, body) = split_query(r#"{"query":{"term":{"x":1}}}"#).unwrap();
         assert_eq!(idx, "_all");
         assert_eq!(body["query"]["term"]["x"], 1);
 
         // index + body
-        let (idx, body) = split_query("books\n{\"size\":5}");
+        let (idx, body) = split_query("books\n{\"size\":5}").unwrap();
         assert_eq!(idx, "books");
         assert_eq!(body["size"], 5);
     }
@@ -1097,9 +1081,19 @@ mod tests {
         // Must match `events::es_search_query`'s format: index on line 1, then a
         // match_all body. This is what clicking an index in the schema tree runs.
         let text = format!("{}\n{{ \"query\": {{ \"match_all\": {{}} }} }}", "books");
-        let (idx, body) = split_query(&text);
+        let (idx, body) = split_query(&text).unwrap();
         assert_eq!(idx, "books");
         assert_eq!(body, match_all());
+    }
+
+    #[test]
+    fn invalid_query_dsl_is_not_replaced_with_match_all() {
+        let invalid = "books\n{\"query\":";
+        assert!(split_query(invalid)
+            .unwrap_err()
+            .starts_with("invalid Query DSL body:"));
+        assert_eq!(add_size(invalid, 100), None);
+        assert!(!has_explicit_cap(invalid));
     }
 
     #[test]
@@ -1123,7 +1117,7 @@ mod tests {
 
     #[test]
     fn human_size_formats() {
-        assert_eq!(human_size(0), "");
+        assert_eq!(human_size(0), "0 B");
         assert_eq!(human_size(512), "512 B");
         assert_eq!(human_size(2048), "2.0 KB");
     }
@@ -1133,7 +1127,7 @@ mod tests {
     #[test]
     fn add_size_injects_size_and_keeps_index() {
         let out = add_size("books\n{\"query\":{\"match_all\":{}}}", 101).unwrap();
-        let (idx, body) = split_query(&out);
+        let (idx, body) = split_query(&out).unwrap();
         assert_eq!(idx, "books");
         assert_eq!(body["size"], 101);
         // The original query is preserved alongside the injected cap.
@@ -1143,7 +1137,7 @@ mod tests {
     #[test]
     fn add_size_defaults_index_when_body_only() {
         let out = add_size("{\"query\":{\"match_all\":{}}}", 50).unwrap();
-        let (idx, body) = split_query(&out);
+        let (idx, body) = split_query(&out).unwrap();
         assert_eq!(idx, "_all");
         assert_eq!(body["size"], 50);
     }
@@ -1152,7 +1146,7 @@ mod tests {
     fn add_size_caps_a_bare_index_name() {
         // Clicking an index runs match_all; it must still be capped.
         let out = add_size("books", 101).unwrap();
-        let (idx, body) = split_query(&out);
+        let (idx, body) = split_query(&out).unwrap();
         assert_eq!(idx, "books");
         assert_eq!(body["size"], 101);
     }
@@ -1178,10 +1172,10 @@ mod tests {
         // Beyond the window we must still emit a `size` — returning the body
         // unsized would silently fall back to ES's default of 10 hits.
         let out = add_size("books", MAX_RESULT_WINDOW + 5000).unwrap();
-        assert_eq!(split_query(&out).1["size"], MAX_RESULT_WINDOW);
+        assert_eq!(split_query(&out).unwrap().1["size"], MAX_RESULT_WINDOW);
         // At the boundary the requested value is used verbatim.
         let out = add_size("books", MAX_RESULT_WINDOW).unwrap();
-        assert_eq!(split_query(&out).1["size"], MAX_RESULT_WINDOW);
+        assert_eq!(split_query(&out).unwrap().1["size"], MAX_RESULT_WINDOW);
     }
 
     #[test]
@@ -1195,7 +1189,7 @@ mod tests {
     #[test]
     fn cap_uses_size_for_query_dsl() {
         let out = cap("books", 101).unwrap();
-        assert_eq!(split_query(&out).1["size"], 101);
+        assert_eq!(split_query(&out).unwrap().1["size"], 101);
     }
 
     #[test]

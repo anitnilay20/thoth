@@ -518,7 +518,11 @@ fn open_tab(
     if run {
         state["run"] = Value::from(true);
     }
-    ui_tabs::open_tab(name, Some(crate::ICON_TERMINAL), Some(&state.to_string()));
+    ui_tabs::open_tab(
+        name,
+        Some(crate::constants::icons::ICON_TERMINAL),
+        Some(&state.to_string()),
+    );
 }
 
 /// The in-memory password for the active connection, if it matches `conn_id`
@@ -875,7 +879,11 @@ fn open_structure_tab(st: &State, i: usize, j: usize, k: usize) {
     if let Some(p) = active_password(st, &conn.id) {
         state["password"] = Value::from(p);
     }
-    ui_tabs::open_tab(&table, Some(crate::ICON_TABLE), Some(&state.to_string()));
+    ui_tabs::open_tab(
+        &table,
+        Some(crate::constants::icons::ICON_TABLE),
+        Some(&state.to_string()),
+    );
 }
 
 /// Open a table (by schema + name) as a `SELECT *` data tab against the active

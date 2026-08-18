@@ -9,13 +9,13 @@ use thoth_plugin_sdk::components::{
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
-use crate::db::{ColumnInfo, Engine, IndexInfo, TableDetail};
-use crate::state::{State, View};
-use crate::ui::widgets::muted;
-use crate::{
+use crate::constants::icons::{
     ICON_CHECK_SQUARE, ICON_CIRCLE, ICON_FINGERPRINT, ICON_KEY, ICON_LIGHTNING, ICON_LINK,
     ICON_LIST_NUMBERS, ICON_TABLE,
 };
+use crate::db::{ColumnInfo, Engine, IndexInfo, TableDetail};
+use crate::state::{State, View};
+use crate::ui::widgets::muted;
 
 pub(crate) fn structure_view(st: &State) -> RenderNode {
     let (schema, table) = match &st.view {

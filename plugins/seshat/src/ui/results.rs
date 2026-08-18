@@ -8,8 +8,9 @@ use thoth_plugin_sdk::{
 };
 
 use crate::{
-    state::State, ui::widgets::muted, ICON_CHART_BAR, ICON_CHAT_TEXT, ICON_TABLE,
-    ICON_TREE_STRUCTURE,
+    constants::icons::{ICON_CHART_BAR, ICON_CHAT_TEXT, ICON_TABLE, ICON_TREE_STRUCTURE},
+    state::State,
+    ui::widgets::muted,
 };
 
 pub fn results_view(state: &State) -> RenderNode {
