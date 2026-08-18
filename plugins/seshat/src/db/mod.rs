@@ -179,6 +179,43 @@ pub fn adapter(engine: Engine) -> Box<dyn DbAdapter> {
     }
 }
 
+/// Read a string cell, returning an empty string for NULL or a non-string value.
+pub(crate) fn str_at(row: &[Value], i: usize) -> String {
+    row.get(i)
+        .and_then(Value::as_str)
+        .map(String::from)
+        .unwrap_or_default()
+}
+
+/// Read an integer cell, tolerating either a JSON number or a numeric string.
+pub(crate) fn int_at(row: &[Value], i: usize) -> i64 {
+    row.get(i)
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        })
+        .unwrap_or(0)
+}
+
+/// Format a byte count consistently for every database adapter.
+pub(crate) fn human_size(bytes: i64) -> String {
+    if bytes <= 0 {
+        return "0 B".to_string();
+    }
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
+}
+
 impl Engine {
     /// The engine-specific `EXPLAIN` statement that yields a machine-readable
     /// plan **with actual run-time stats** for `sql`. Postgres `ANALYZE`
