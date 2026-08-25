@@ -1,5 +1,5 @@
 use crate::components::traits::StatefulComponent;
-use crate::search::{QueryMode, Search as SearchState, SearchMessage, decode_history_entry};
+// use crate::search::{QueryMode, Search as SearchState, SearchMessage, decode_history_entry};
 use crate::theme::GUTTER_GAP;
 use eframe::egui;
 use thoth_plugin_sdk::components::{

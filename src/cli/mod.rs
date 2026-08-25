@@ -1,5 +1,9 @@
 //! Command-line entry point for Thoth's display-free runtime.
 
+mod file_viewer;
+mod table_output;
+mod utils;
+
 use std::ffi::OsString;
 
 use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
@@ -42,6 +46,7 @@ enum Action {
         invocation: CliInvocation,
     },
     Completions(Shell),
+    QueryFile(String, String),
 }
 
 /// Parse and run a CLI invocation without initializing a native window.
@@ -73,7 +78,7 @@ where
     let parser = command(&schemas);
     let action = match parse(args, parser, &schemas) {
         Ok(action) => action,
-        Err(error) => return clap_error(error),
+        Err(error) => return utils::clap_error(error),
     };
 
     match action {
@@ -83,6 +88,7 @@ where
             plugin_id,
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
+        Action::QueryFile(raw, sql) => file_viewer::action(&raw, &sql),
     }
 }
 
@@ -102,7 +108,7 @@ where
     let cli = command(&schemas);
     let action = match parse(args, cli, &schemas) {
         Ok(action) => action,
-        Err(error) => return clap_error(error),
+        Err(error) => return utils::clap_error(error),
     };
 
     match action {
@@ -112,6 +118,7 @@ where
             plugin_id,
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
+        Action::QueryFile(_, _) => todo!(),
     }
 }
 
@@ -130,7 +137,8 @@ fn command(schemas: &[CliSchema]) -> Command {
                         .required(true)
                         .value_parser(value_parser!(Shell)),
                 ),
-        );
+        )
+        .subcommand(file_viewer::command());
 
     for schema in schemas {
         let mut plugin = Command::new(schema.id.clone())
@@ -192,6 +200,7 @@ where
                 .get_one::<Shell>("shell")
                 .expect("shell is required by clap"),
         )),
+        "query-file" => Ok(file_viewer::parse(&matches)),
         plugin_id => parse_plugin(plugin_id, matches, schemas),
     }
 }
@@ -262,7 +271,7 @@ fn plugin_output(
     match result {
         Ok(output) => CliOutput {
             exit_code: 0,
-            stdout: render_table(&output.records),
+            stdout: table_output::print_json(&output.records),
             stderr: String::new(),
         },
         Err(error) => CliOutput {
@@ -270,138 +279,6 @@ fn plugin_output(
             stdout: String::new(),
             stderr: format!("{error}\n"),
         },
-    }
-}
-
-fn render_table(records: &[Value]) -> String {
-    if records.is_empty() {
-        return "No results.\n".to_string();
-    }
-
-    let all_objects = records.iter().all(Value::is_object);
-    let columns = if all_objects {
-        let mut columns = Vec::new();
-        for record in records {
-            for key in record.as_object().expect("all records are objects").keys() {
-                if !columns.contains(key) {
-                    columns.push(key.clone());
-                }
-            }
-        }
-        columns
-    } else {
-        vec!["value".to_string()]
-    };
-
-    if columns.is_empty() {
-        return "No fields.\n".to_string();
-    }
-
-    let rows: Vec<Vec<String>> = records
-        .iter()
-        .map(|record| {
-            if all_objects {
-                let object = record.as_object().expect("all records are objects");
-                columns
-                    .iter()
-                    .map(|column| object.get(column).map(format_value).unwrap_or_default())
-                    .collect()
-            } else {
-                vec![format_value(record)]
-            }
-        })
-        .collect();
-    let widths: Vec<usize> = columns
-        .iter()
-        .enumerate()
-        .map(|(index, column)| {
-            rows.iter()
-                .map(|row| display_width(&row[index]))
-                .max()
-                .unwrap_or_default()
-                .max(display_width(column))
-        })
-        .collect();
-
-    let border = table_border(&widths);
-    let mut output = String::new();
-    output.push_str(&border);
-    write_table_row(&mut output, &columns, &widths);
-    output.push_str(&border);
-    for row in &rows {
-        write_table_row(&mut output, row, &widths);
-    }
-    output.push_str(&border);
-    output
-}
-
-fn format_value(value: &Value) -> String {
-    match value {
-        Value::Null => "—".to_string(),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        Value::String(value) => single_line(value),
-        Value::Array(values) => values
-            .iter()
-            .map(format_value)
-            .collect::<Vec<_>>()
-            .join(", "),
-        Value::Object(values) => values
-            .iter()
-            .map(|(key, value)| format!("{key}={}", format_value(value)))
-            .collect::<Vec<_>>()
-            .join("; "),
-    }
-}
-
-fn single_line(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
-fn display_width(value: &str) -> usize {
-    unicode_width::UnicodeWidthStr::width(value)
-}
-
-fn table_border(widths: &[usize]) -> String {
-    let mut border = String::from("+");
-    for width in widths {
-        border.push_str(&"-".repeat(width + 2));
-        border.push('+');
-    }
-    border.push('\n');
-    border
-}
-
-fn write_table_row(output: &mut String, cells: &[String], widths: &[usize]) {
-    output.push('|');
-    for (cell, width) in cells.iter().zip(widths) {
-        output.push(' ');
-        output.push_str(cell);
-        output.push_str(&" ".repeat(width.saturating_sub(display_width(cell)) + 1));
-        output.push('|');
-    }
-    output.push('\n');
-}
-
-fn clap_error(error: clap::Error) -> CliOutput {
-    let exit_code = error.exit_code();
-    let message = error.to_string();
-    if error.use_stderr() {
-        CliOutput {
-            exit_code,
-            stdout: String::new(),
-            stderr: message,
-        }
-    } else {
-        CliOutput {
-            exit_code,
-            stdout: message,
-            stderr: String::new(),
-        }
     }
 }
 
@@ -588,7 +465,7 @@ mod tests {
 
     #[test]
     fn table_width_uses_terminal_cells() {
-        assert_eq!(super::display_width("界"), 2);
-        assert_eq!(super::display_width("e\u{301}"), 1);
+        assert_eq!(super::table_output::display_width("界"), 2);
+        assert_eq!(super::table_output::display_width("e\u{301}"), 1);
     }
 }

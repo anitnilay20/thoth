@@ -1,9 +1,8 @@
 use crate::components::file_viewer::FileViewer;
 use crate::components::traits::ContextComponent;
 use crate::error::{ErrorHandler, ThothError};
-use crate::file::loaders::FileKind;
+use crate::file::FileKind;
 use crate::plugin::render_node::{UiEvent, UiNode, UiOutput, render_ui_node};
-use crate::search;
 use eframe::egui;
 use std::path::PathBuf;
 use thoth_plugin_sdk::components::Separator;
@@ -13,7 +12,7 @@ pub struct CentralPanelProps<'a> {
     pub file_path: &'a Option<PathBuf>,
     pub file_type: FileKind,
     pub error: &'a Option<ThothError>,
-    pub search_message: Option<search::SearchMessage>,
+    pub search_message: Option<String>,
     pub cache_size: usize,
     pub syntax_highlighting: bool,
     /// When `Some`, render this interactive `UiNode` tree from the plugin instead of the file viewer.
@@ -154,20 +153,21 @@ impl CentralPanel {
 
         // React to search messages
         if let Some(msg) = props.search_message {
-            self.searching = msg.is_searching();
+            // TODO: Random value set
+            self.searching = false;
 
-            match msg {
-                search::SearchMessage::StartSearch(search) => {
-                    self.file_viewer.set_highlights(Some(&search.results));
-                    // Search results are now displayed in the sidebar as a clickable list
-                    // Don't filter the main view - keep all records visible
-                    // Users can click on search results to navigate to them
-                }
-                search::SearchMessage::StopSearch => {
-                    // No filtering to clear
-                    self.file_viewer.set_highlights(None);
-                }
-            }
+            // match msg {
+            //     search::SearchMessage::StartSearch(search) => {
+            //         self.file_viewer.set_highlights(Some(&search.results));
+            //         // Search results are now displayed in the sidebar as a clickable list
+            //         // Don't filter the main view - keep all records visible
+            //         // Users can click on search results to navigate to them
+            //     }
+            //     search::SearchMessage::StopSearch => {
+            //         // No filtering to clear
+            //         self.file_viewer.set_highlights(None);
+            //     }
+            // }
         }
 
         // The body's dispatch order, resolved once: the spinner wins, then a

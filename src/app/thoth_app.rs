@@ -6,14 +6,15 @@ use crate::{
     app::{file_picker, pick_file, tab_manager::TabEvent},
     components::{self, traits::ContextComponent},
     core::{CoreAction, CoreEvent, ThothCore},
+    file::FileType,
     plugin::plugin_ui_host::PluginCore,
     settings, state,
     theme::ThemeColorsExt,
 };
 
 use super::{
-    ShortcutAction, persistent_state::PersistentState, search_handler::SearchHandler,
-    shortcut_handler::ShortcutHandler, update_handler::UpdateHandler,
+    ShortcutAction, persistent_state::PersistentState, shortcut_handler::ShortcutHandler,
+    update_handler::UpdateHandler,
 };
 
 pub struct ThothApp {
@@ -380,25 +381,26 @@ impl App for ThothApp {
 
         let sidebar_msg = self.render_sidebar(ui);
 
+        // TODO: Older search functions.
         // Handle search messages from sidebar against the active tab.
-        let (msg_to_central, search_error) =
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                SearchHandler::handle_search_messages(
-                    sidebar_msg,
-                    &mut tab.search_engine_state,
-                    &tab.file_path,
-                    &tab.file_type,
-                    &ctx,
-                )
-            } else {
-                (None, None)
-            };
+        // let (msg_to_central, search_error) =
+        //     if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+        //         SearchHandler::handle_search_messages(
+        //             sidebar_msg,
+        //             &mut tab.search_engine_state,
+        //             &tab.file_path,
+        //             &tab.file_type,
+        //             &ctx,
+        //         )
+        //     } else {
+        //         (None, None)
+        //     };
 
-        if let Some(error) = search_error
-            && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-        {
-            tab.error = Some(error);
-        }
+        // if let Some(error) = search_error
+        //     && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+        // {
+        //     tab.error = Some(error);
+        // }
 
         let shortcut_actions =
             ShortcutHandler::handle_shortcuts(ui.ctx(), &self.core.settings.shortcuts);
@@ -523,7 +525,7 @@ impl App for ThothApp {
                         use crate::components::traits::StatelessComponent;
                         MarketplaceDetail::render(ui, MarketplaceDetailProps);
                     } else {
-                        self.render_central_panel(ui, msg_to_central);
+                        self.render_central_panel(ui, Option::None);
                     }
                 });
         }
@@ -1239,12 +1241,8 @@ impl ThothApp {
                 let fwd = tab.navigation_history.can_go_forward();
                 (tab.file_type, tab.file_path.clone(), back, fwd)
             } else {
-                (
-                    crate::file::lazy_loader::FileKind::default(),
-                    None,
-                    false,
-                    false,
-                )
+                // TODO: Check if this needs fixing
+                (FileType::default(), None, false, false)
             };
 
         let output = self.window_state.toolbar.render(
@@ -1606,9 +1604,10 @@ impl ThothApp {
             active_plugin_id,
         ) = if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
             let search = &tab.search_engine_state.search;
-            let scanning = search.scanning;
-            let results_len = search.results.len();
-            let query_non_empty = !search.query.is_empty();
+            // TODO: Default random value set here
+            let scanning = false;
+            let results_len = 0;
+            let query_non_empty = false;
             let filtered = if query_non_empty && results_len > 0 {
                 Some(results_len)
             } else {
@@ -1635,7 +1634,7 @@ impl ThothApp {
         } else {
             (
                 None,
-                crate::file::lazy_loader::FileKind::default(),
+                FileType::default(),
                 0,
                 false,
                 false,
@@ -1690,11 +1689,7 @@ impl ThothApp {
     }
 
     /// Render the DockArea that hosts all open tabs.
-    fn render_central_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        search_message: Option<crate::search::SearchMessage>,
-    ) {
+    fn render_central_panel(&mut self, ui: &mut egui::Ui, search_message: Option<String>) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -1850,7 +1845,7 @@ impl ThothApp {
         }
     }
 
-    fn render_sidebar(&mut self, ui: &mut egui::Ui) -> Option<crate::search::SearchMessage> {
+    fn render_sidebar(&mut self, ui: &mut egui::Ui) -> Option<String> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -1887,7 +1882,7 @@ impl ThothApp {
                     tab.search_engine_state.search.clone(),
                 )
             } else {
-                (None, crate::search::Search::default())
+                (None, String::new())
             };
 
         // The mounted plugin sidebar (independent of any tab) drives the sidebar
@@ -1947,7 +1942,7 @@ impl ThothApp {
                 sidebar_width: self.core.persistent_state.get_sidebar_width(),
                 selected_section: self.window_state.sidebar_selected_section.clone(),
                 focus_search,
-                search_state: &search_state_clone,
+                // search_state: &search_state_clone,
                 search_history: search_history.as_ref(),
                 data_source_plugins: &ds_plugins,
                 ui_component_plugins: &ui_plugins,
@@ -2046,18 +2041,18 @@ impl ThothApp {
                     self.core.persistent_state.set_sidebar_width(new_width);
                     let _ = self.core.persistent_state.save();
                 }
-                components::sidebar::SidebarEvent::Search(msg) => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(file_path) = &tab.file_path
-                        && let Some(path_str) = file_path.to_str()
-                        && let Some(entry) = msg.history_entry()
-                    {
-                        let _ = super::persistent_state::PersistentState::add_search_query(
-                            path_str, entry,
-                        );
-                    }
-                    return Some(msg);
-                }
+                // components::sidebar::SidebarEvent::Search(msg) => {
+                //     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                //         && let Some(file_path) = &tab.file_path
+                //         && let Some(path_str) = file_path.to_str()
+                //         && let Some(entry) = msg.history_entry()
+                //     {
+                //         let _ = super::persistent_state::PersistentState::add_search_query(
+                //             path_str, entry,
+                //         );
+                //     }
+                //     return Some(msg);
+                // }
                 components::sidebar::SidebarEvent::NavigateToSearchResult { record_index } => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                         tab.central_panel.navigate_to_record(record_index);
@@ -2588,7 +2583,7 @@ impl ThothApp {
                             tab.error = None;
                             tab.file_path = None;
                             tab.total_items = 0;
-                            tab.search_engine_state.search = crate::search::Search::default();
+                            tab.search_engine_state.search = String::new();
                         }
                     }
                 }

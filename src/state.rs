@@ -4,7 +4,7 @@ use crate::{
     app::tab_manager::TabManager,
     components,
     plugin::{plugin_ui_host::PluginCore, render_node::UiOutput},
-    search, update,
+    update,
 };
 
 /// Holds the active plugin pane shown in the main area / a dock tab.
@@ -81,8 +81,8 @@ impl WindowState {
 
 #[derive(Default)]
 pub struct SearchEngineState {
-    pub search: search::Search,
-    pub search_rx: Option<std::sync::mpsc::Receiver<search::Search>>,
+    pub search: String,
+    pub search_rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 /// Navigation history for back/forward navigation through viewed JSON paths

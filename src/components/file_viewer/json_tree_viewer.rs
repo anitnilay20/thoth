@@ -1,4 +1,4 @@
-use crate::file::loaders::FileType;
+use crate::components::file_viewer::viewer_trait::{FileFormatViewer, FileViewerLoader};
 use crate::helpers::{
     LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_search_target,
     scroll_to_selection, split_root_rel,
@@ -15,7 +15,6 @@ use thoth_plugin_sdk::tokens::TextToken;
 use super::context_menu::{
     ContextMenuConfig, ContextMenuHandler, execute_context_menu_action, render_context_menu,
 };
-use super::viewer_trait::FileFormatViewer;
 
 /// JSON-specific tree viewer that handles expansion and rendering
 ///
@@ -209,7 +208,7 @@ impl JsonTreeViewer {
         &mut self,
         visible_roots: &Option<Vec<usize>>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         total_len: usize,
     ) {
         #[cfg(feature = "profiling")]
@@ -232,7 +231,7 @@ impl JsonTreeViewer {
             let value = if let Some(v) = cache.get(&i) {
                 v.clone()
             } else {
-                match loader.get(i) {
+                match loader.get_value(i) {
                     Ok(v) => {
                         cache.put(i, v.clone());
                         v
@@ -449,7 +448,7 @@ impl JsonTreeViewer {
         ui: &mut Ui,
         selected: &mut Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
         syntax_highlighting: bool,
@@ -645,7 +644,7 @@ impl ContextMenuHandler for JsonTreeViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
         if let Some(path) = selected {
             // Find the row to get display text
@@ -665,7 +664,7 @@ impl ContextMenuHandler for JsonTreeViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
         if let Some(path) = selected
             && let Ok((root_idx, rel)) = split_root_rel(path)
@@ -675,7 +674,7 @@ impl ContextMenuHandler for JsonTreeViewer {
                 v.clone()
             } else {
                 // Load from file
-                match loader.get(root_idx) {
+                match loader.get_value(root_idx) {
                     Ok(v) => {
                         cache.put(root_idx, v.clone());
                         v
@@ -705,7 +704,7 @@ impl FileFormatViewer for JsonTreeViewer {
         &mut self,
         visible_roots: &Option<Vec<usize>>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         total_len: usize,
     ) {
         self.rebuild_rows(visible_roots, cache, loader, total_len);
@@ -716,7 +715,7 @@ impl FileFormatViewer for JsonTreeViewer {
         ui: &mut Ui,
         selected: &mut Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
         syntax_highlighting: bool,
@@ -851,7 +850,7 @@ impl FileFormatViewer for JsonTreeViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
         ContextMenuHandler::copy_selected_value(self, selected, cache, loader)
     }
@@ -860,7 +859,7 @@ impl FileFormatViewer for JsonTreeViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
         ContextMenuHandler::copy_selected_object(self, selected, cache, loader)
     }
@@ -884,18 +883,18 @@ impl FileFormatViewer for JsonTreeViewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file::loaders::{FileType, JsonArrayFile};
+    use crate::file::loaders::JsonArrayFile;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
-    /// Helper: create a JsonArrayFile-backed FileType from a JSON string
-    fn make_json_array_loader(json: &str) -> (FileType, usize) {
+    /// Helper: create a JsonArrayFile from a JSON string
+    fn make_json_array_loader(json: &str) -> (JsonArrayFile, usize) {
         let mut tmp = NamedTempFile::new().unwrap();
         tmp.write_all(json.as_bytes()).unwrap();
         tmp.flush().unwrap();
         let loader = JsonArrayFile::open(tmp.path()).unwrap();
         let len = loader.len();
-        (FileType::JsonArray(loader), len)
+        (loader, len)
     }
 
     /// Helper: get display texts from the viewer's current rows

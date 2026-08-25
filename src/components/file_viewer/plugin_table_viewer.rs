@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use eframe::egui;
 use serde_json::Value;
 
-use crate::components::file_viewer::viewer_trait::FileFormatViewer;
-use crate::file::loaders::FileType;
+use crate::components::file_viewer::viewer_trait::{FileFormatViewer, FileViewerLoader};
 use crate::helpers::LruCache;
 use crate::plugin::wasm_file_viewer_loader::DisplayMode;
 use thoth_plugin_sdk::components::TableView;
@@ -46,7 +45,7 @@ impl FileFormatViewer for PluginTableViewer {
         &mut self,
         visible_roots: &Option<Vec<usize>>,
         _cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         total_len: usize,
     ) {
         if self.headers.is_empty() {
@@ -56,7 +55,7 @@ impl FileFormatViewer for PluginTableViewer {
             } else if total_len > 0 {
                 // Plugin didn't provide headers — derive them from the keys of
                 // the first record so the table has something to render.
-                if let Ok(first) = loader.get(0)
+                if let Ok(first) = loader.get_value(0)
                     && let Some(obj) = first.as_object()
                 {
                     let mut keys: Vec<String> = obj.keys().cloned().collect();
@@ -82,7 +81,7 @@ impl FileFormatViewer for PluginTableViewer {
         ui: &mut egui::Ui,
         _selected: &mut Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         _should_scroll_to_selection: &mut bool,
         _is_search_navigation: bool,
         _syntax_highlighting: bool,
@@ -110,7 +109,7 @@ impl FileFormatViewer for PluginTableViewer {
                         let cached = cache.get(&idx).cloned();
                         let record = match cached {
                             Some(v) => Some(v),
-                            None => loader.get(idx).ok().inspect(|v| {
+                            None => loader.get_value(idx).ok().inspect(|v| {
                                 cache.put(idx, v.clone());
                             }),
                         };
@@ -131,7 +130,7 @@ impl FileFormatViewer for PluginTableViewer {
                             let cached = cache.get(&idx).cloned();
                             let record = match cached {
                                 Some(v) => Some(v),
-                                None => loader.get(idx).ok().inspect(|v| {
+                                None => loader.get_value(idx).ok().inspect(|v| {
                                     cache.put(idx, v.clone());
                                 }),
                             };

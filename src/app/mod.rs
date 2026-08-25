@@ -1,6 +1,6 @@
 mod file_picker;
 pub mod persistent_state;
-mod search_handler;
+// mod search_handler;
 mod shortcut_handler;
 pub mod tab_manager;
 mod thoth_app;

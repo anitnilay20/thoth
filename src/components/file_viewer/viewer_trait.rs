@@ -1,8 +1,34 @@
 use eframe::egui::Ui;
 use serde_json::Value;
 
-use crate::file::loaders::FileType;
+use crate::file::loaders::FileLoader;
 use crate::helpers::LruCache;
+
+/// Trait for loaders used by file viewers
+pub trait FileViewerLoader: FileLoader {
+    /// Get the number of records
+    fn record_count(&self) -> usize;
+    
+    /// Get a parsed JSON value at the specified index
+    fn get_value(&mut self, index: usize) -> crate::error::Result<Value>;
+    
+    /// Get the preferred display mode (for plugin viewers)
+    fn preferred_display(&mut self) -> crate::plugin::wasm_file_viewer_loader::DisplayMode {
+        crate::plugin::wasm_file_viewer_loader::DisplayMode::Table
+    }
+    
+    /// Get column headers (for plugin viewers)
+    fn column_headers(&mut self) -> Option<Vec<String>> {
+        None
+    }
+    
+    /// Render a record using a plugin viewer
+    fn render_record(&mut self, _record_json: &str) -> crate::error::Result<String> {
+        Err(crate::error::ThothError::Unknown {
+            message: "render_record not supported".to_string(),
+        })
+    }
+}
 
 /// Trait that all file format viewers must implement
 ///
@@ -32,7 +58,7 @@ pub trait FileFormatViewer {
         &mut self,
         visible_roots: &Option<Vec<usize>>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         total_len: usize,
     );
 
@@ -55,7 +81,7 @@ pub trait FileFormatViewer {
         ui: &mut Ui,
         selected: &mut Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
         syntax_highlighting: bool,
@@ -130,7 +156,7 @@ pub trait FileFormatViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
         let _ = (selected, cache, loader);
         None // Default: no-op
@@ -142,7 +168,7 @@ pub trait FileFormatViewer {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
         let _ = (selected, cache, loader);
         None // Default: no-op

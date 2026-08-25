@@ -7,7 +7,7 @@ use crate::consent::{
     manager::ConsentManager,
     modal::{ConsentModal, ConsentModalProps},
 };
-use crate::file::loaders::FileKind;
+use crate::file::FileKind;
 use crate::notification::notification_dropdown::{NotificationDropdown, NotificationDropdownProps};
 use crate::settings::Settings;
 use thoth_plugin_sdk::components::Breadcrumbs;

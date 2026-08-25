@@ -89,11 +89,12 @@ fn main() -> Result<()> {
 
     // ── MCP server branch ────────────────────────────────────────────────
     // Must happen BEFORE any GUI init — stdout must stay clean for JSON-RPC.
-    if args.get(1).map(|s| s.as_str()) == Some("mcp") {
-        let mcp_args: Vec<String> = args[2..].to_vec();
-        return thoth::mcp::run_mcp_command(&mcp_args)
-            .map_err(|e| format!("MCP error: {e}").into());
-    }
+    // TODO: Fix the mcp server
+    // if args.get(1).map(|s| s.as_str()) == Some("mcp") {
+    //     let mcp_args: Vec<String> = args[2..].to_vec();
+    //     return thoth::mcp::run_mcp_command(&mcp_args)
+    //         .map_err(|e| format!("MCP error: {e}").into());
+    // }
 
     let settings = settings::Settings::load().unwrap_or_else(|e| {
         eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);

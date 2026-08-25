@@ -5,33 +5,32 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::error::Result;
-use crate::file::detect_file_type::DetectedFileType;
-use crate::file::loaders::{FileKind, FileType, load_file_auto};
+use crate::file::FileType;
+use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
+use crate::file::loaders::FileLoader;
 
 /// Represents a single file opened by the MCP server.
 pub struct OpenFile {
     pub path: PathBuf,
-    pub detected_type: DetectedFileType,
     pub file_type: FileType,
-    pub file_kind: FileKind,
+    pub detected_type: DetectedFileType,
 }
 
 impl OpenFile {
     /// Open a file at the given path with automatic format detection.
     pub fn open(path: &Path) -> Result<Self> {
-        let (detected, file_type) = load_file_auto(path)?;
-        let file_kind = FileKind::from(detected);
+        let detected = sniff_file_type(path)?;
+        let file_type = FileType::from_path(path);
         Ok(Self {
             path: path.to_path_buf(),
             detected_type: detected,
             file_type,
-            file_kind,
         })
     }
 
     /// Return the number of top-level records.
     pub fn record_count(&self) -> usize {
-        self.file_type.len()
+        self.file_type.len().unwrap_or(0)
     }
 
     /// Return the detected file type as a human-readable string.

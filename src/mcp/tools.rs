@@ -336,108 +336,108 @@ impl ThothMcpServer {
         })
     }
 
-    #[tool(
-        name = "search",
-        description = "Search records in an open file using text substring match or JSONPath query. Returns matching record indices with preview snippets."
-    )]
-    fn search(&self, Parameters(params): Parameters<SearchParams>) -> Json<SearchResult> {
-        use crate::search::{QueryMode, Search};
+    // #[tool(
+    //     name = "search",
+    //     description = "Search records in an open file using text substring match or JSONPath query. Returns matching record indices with preview snippets."
+    // )]
+    // fn search(&self, Parameters(params): Parameters<SearchParams>) -> Json<SearchResult> {
+    //     // use crate::search::{QueryMode, Search};
 
-        let max_results = params.max_results.unwrap_or(50);
-        let match_case = params.match_case.unwrap_or(false);
+    //     let max_results = params.max_results.unwrap_or(50);
+    //     let match_case = params.match_case.unwrap_or(false);
 
-        // Auto-detect mode from query prefix if not explicitly specified
-        let mode = match params.mode.as_deref() {
-            Some("jsonpath") => QueryMode::JsonPath,
-            Some("text") => QueryMode::Text,
-            _ => {
-                if params.query.starts_with('$') {
-                    QueryMode::JsonPath
-                } else {
-                    QueryMode::Text
-                }
-            }
-        };
+    //     // Auto-detect mode from query prefix if not explicitly specified
+    //     let mode = match params.mode.as_deref() {
+    //         Some("jsonpath") => QueryMode::JsonPath,
+    //         Some("text") => QueryMode::Text,
+    //         _ => {
+    //             if params.query.starts_with('$') {
+    //                 QueryMode::JsonPath
+    //             } else {
+    //                 QueryMode::Text
+    //             }
+    //         }
+    //     };
 
-        let mode_str = match mode {
-            QueryMode::Text => "text",
-            QueryMode::JsonPath => "jsonpath",
-        };
+    //     let mode_str = match mode {
+    //         QueryMode::Text => "text",
+    //         QueryMode::JsonPath => "jsonpath",
+    //     };
 
-        // Read file path and kind atomically to avoid race with concurrent close.
-        let file_context = self
-            .state
-            .with_file_read2(&params.handle, |file| (file.path.clone(), file.file_kind));
+    //     // Read file path and kind atomically to avoid race with concurrent close.
+    //     let file_context = self
+    //         .state
+    //         .with_file_read2(&params.handle, |file| (file.path.clone(), file.file_kind));
 
-        let (file_path, file_kind) = match file_context {
-            Some((p, k)) => (p, k),
-            None => {
-                return Json(SearchResult {
-                    total_matches: 0,
-                    matches: vec![],
-                    query: params.query,
-                    mode: mode_str.to_string(),
-                });
-            }
-        };
+    //     let (file_path, file_kind) = match file_context {
+    //         Some((p, k)) => (p, k),
+    //         None => {
+    //             return Json(SearchResult {
+    //                 total_matches: 0,
+    //                 matches: vec![],
+    //                 query: params.query,
+    //                 mode: mode_str.to_string(),
+    //             });
+    //         }
+    //     };
 
-        // Use Search engine — it reopens the file internally for thread-safe parallel scanning
-        let mut search = Search {
-            query: params.query.clone(),
-            match_case,
-            query_mode: mode,
-            ..Search::default()
-        };
+    //     // Use Search engine — it reopens the file internally for thread-safe parallel scanning
+    //     let mut search = Search {
+    //         query: params.query.clone(),
+    //         match_case,
+    //         query_mode: mode,
+    //         ..Search::default()
+    //     };
 
-        let path_opt = Some(file_path);
-        search.start_scanning_internal(&path_opt, &file_kind);
+    //     let path_opt = Some(file_path);
+    //     search.start_scanning_internal(&path_opt, &file_kind);
 
-        if let Some(err) = &search.error {
-            return Json(SearchResult {
-                total_matches: 0,
-                matches: vec![SearchMatch {
-                    record_index: 0,
-                    preview: Some(format!("Search error: {}", err)),
-                    match_path: None,
-                }],
-                query: params.query,
-                mode: mode_str.to_string(),
-            });
-        }
+    //     if let Some(err) = &search.error {
+    //         return Json(SearchResult {
+    //             total_matches: 0,
+    //             matches: vec![SearchMatch {
+    //                 record_index: 0,
+    //                 preview: Some(format!("Search error: {}", err)),
+    //                 match_path: None,
+    //             }],
+    //             query: params.query,
+    //             mode: mode_str.to_string(),
+    //         });
+    //     }
 
-        let hits = search.results.hits();
-        let total = hits.len();
-        let capped = &hits[..total.min(max_results)];
+    //     let hits = search.results.hits();
+    //     let total = hits.len();
+    //     let capped = &hits[..total.min(max_results)];
 
-        let matches: Vec<SearchMatch> = capped
-            .iter()
-            .map(|hit| {
-                let preview = hit
-                    .preview
-                    .as_ref()
-                    .map(|p| format!("{}«{}»{}", p.before, p.highlight, p.after));
+    //     let matches: Vec<SearchMatch> = capped
+    //         .iter()
+    //         .map(|hit| {
+    //             let preview = hit
+    //                 .preview
+    //                 .as_ref()
+    //                 .map(|p| format!("{}«{}»{}", p.before, p.highlight, p.after));
 
-                let match_path = hit
-                    .fragments
-                    .first()
-                    .and_then(|f| f.path.as_ref())
-                    .map(|p| p.to_string());
+    //             let match_path = hit
+    //                 .fragments
+    //                 .first()
+    //                 .and_then(|f| f.path.as_ref())
+    //                 .map(|p| p.to_string());
 
-                SearchMatch {
-                    record_index: hit.record_index,
-                    preview,
-                    match_path,
-                }
-            })
-            .collect();
+    //             SearchMatch {
+    //                 record_index: hit.record_index,
+    //                 preview,
+    //                 match_path,
+    //             }
+    //         })
+    //         .collect();
 
-        Json(SearchResult {
-            total_matches: total,
-            matches,
-            query: params.query,
-            mode: mode_str.to_string(),
-        })
-    }
+    //     Json(SearchResult {
+    //         total_matches: total,
+    //         matches,
+    //         query: params.query,
+    //         mode: mode_str.to_string(),
+    //     })
+    // }
 
     // ─── Phase 2: Data tools ─────────────────────────────────────────────
 

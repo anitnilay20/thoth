@@ -6,10 +6,12 @@ use egui_dock::{DockState, tab_viewer::OnCloseResponse};
 
 use crate::{
     app::persistent_state::PersistentState,
-    components::central_panel::{CentralPanel, CentralPanelProps},
-    components::traits::ContextComponent,
+    components::{
+        central_panel::{CentralPanel, CentralPanelProps},
+        traits::ContextComponent,
+    },
     error::ThothError,
-    file::lazy_loader::FileKind,
+    file::FileType,
     plugin::render_node::UiOutput,
     settings::Settings,
     state::{ActivePluginPane, NavigationHistory, SearchEngineState},
@@ -21,7 +23,7 @@ pub type TabId = usize;
 pub struct TabState {
     pub id: TabId,
     pub file_path: Option<PathBuf>,
-    pub file_type: FileKind,
+    pub file_type: FileType,
     pub error: Option<ThothError>,
     pub total_items: usize,
     pub search_engine_state: SearchEngineState,
@@ -40,7 +42,7 @@ impl TabState {
         Self {
             id,
             file_path,
-            file_type: FileKind::default(),
+            file_type: FileType::default(),
             error: None,
             total_items: 0,
             search_engine_state: SearchEngineState::default(),
@@ -89,7 +91,7 @@ pub enum TabEvent {
     FileOpened {
         tab_id: TabId,
         path: PathBuf,
-        file_type: FileKind,
+        file_type: FileType,
         total_items: usize,
     },
     FileOpenError {
@@ -101,7 +103,7 @@ pub enum TabEvent {
     },
     FileTypeChanged {
         tab_id: TabId,
-        file_type: FileKind,
+        file_type: FileType,
     },
     ErrorCleared {
         tab_id: TabId,
@@ -138,7 +140,7 @@ pub struct ThothTabViewer<'a> {
     pub persistent_state: &'a mut PersistentState,
     pub nav_capacity: usize,
     /// Search message for the focused tab, consumed by the first matching tab::ui call.
-    pub search_msg: Option<(TabId, crate::search::SearchMessage)>,
+    pub search_msg: Option<(TabId, String)>,
     /// Outbound events collected during show_inside, drained by ThothApp afterwards.
     pub events: Vec<TabEvent>,
     /// Current theme colors for per-tab style overrides.

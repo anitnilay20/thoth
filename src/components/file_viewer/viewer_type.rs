@@ -1,7 +1,7 @@
 use super::json_tree_viewer::JsonTreeViewer;
 use super::plugin_table_viewer::PluginTableViewer;
 use super::viewer_trait::FileFormatViewer;
-use crate::file::loaders::FileKind;
+use crate::file::FileKind;
 
 /// Enum representing different file format viewers
 ///

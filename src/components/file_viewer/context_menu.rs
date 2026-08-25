@@ -1,6 +1,6 @@
 use eframe::egui::Ui;
 
-use crate::file::loaders::FileType;
+use crate::components::file_viewer::viewer_trait::FileViewerLoader;
 use crate::helpers::{LruCache, get_context_menu_shortcuts};
 use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType};
 
@@ -160,7 +160,7 @@ pub trait ContextMenuHandler {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
     ) -> Option<String>;
 
     /// Copy the entire object/array of the selected item
@@ -168,7 +168,7 @@ pub trait ContextMenuHandler {
         &self,
         selected: &Option<String>,
         cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
     ) -> Option<String>;
 
     /// Copy the path of the selected item
@@ -191,7 +191,7 @@ pub fn execute_context_menu_action(
     handler: &impl ContextMenuHandler,
     selected: &Option<String>,
     cache: &mut LruCache<usize, Value>,
-    loader: &mut FileType,
+    loader: &mut dyn FileViewerLoader,
 ) -> Option<String> {
     match action {
         ContextMenuAction::CopyKey => handler.copy_selected_key(selected),

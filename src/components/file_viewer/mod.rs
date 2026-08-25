@@ -13,10 +13,159 @@ use std::sync::Arc;
 
 use self::types::ViewerState;
 use self::viewer_type::ViewerType;
-use crate::file::loaders::{FileKind, FileType, load_file_auto};
+use crate::file::FileKind;
+use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
+use crate::components::file_viewer::viewer_trait::FileViewerLoader;
+use crate::file::loaders::{FileLoader, JsonArrayFile, NdjsonFile, SingleValueFile};
 use crate::helpers::LruCache;
 use crate::plugin::Capability;
+use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
+use crate::plugin::wasm_loader::WasmFileLoader;
 use crate::search::results::{MatchFragment, SearchResults};
+
+/// Wrapper for WasmFileLoader to implement FileViewerLoader
+struct PluginFileLoader {
+    inner: WasmFileLoader,
+}
+
+impl PluginFileLoader {
+    fn new(inner: WasmFileLoader) -> Self {
+        Self { inner }
+    }
+}
+
+impl FileLoader for PluginFileLoader {
+    fn query(&self, _query: &str) -> crate::error::Result<Vec<duckdb::arrow::array::RecordBatch>> {
+        Err(crate::error::ThothError::Unknown {
+            message: "query not supported for plugin loader".to_string(),
+        })
+    }
+
+    fn fetch(
+        &self,
+        _filters: Vec<String>,
+        _offset: Option<usize>,
+        _limit: Option<usize>,
+    ) -> crate::error::Result<Vec<duckdb::arrow::array::RecordBatch>> {
+        Err(crate::error::ThothError::Unknown {
+            message: "fetch not supported for plugin loader".to_string(),
+        })
+    }
+
+    fn size(&self) -> crate::error::Result<u128> {
+        Err(crate::error::ThothError::Unknown {
+            message: "size not supported for plugin loader".to_string(),
+        })
+    }
+
+    fn len(&self) -> crate::error::Result<usize> {
+        Ok(self.inner.len())
+    }
+
+    fn get(&self, _index: usize) -> crate::error::Result<duckdb::arrow::array::RecordBatch> {
+        Err(crate::error::ThothError::Unknown {
+            message: "get not supported for plugin loader".to_string(),
+        })
+    }
+
+    fn open(&self, _path: &str, _alias: &str) -> crate::error::Result<()> {
+        Err(crate::error::ThothError::Unknown {
+            message: "open not supported for plugin loader".to_string(),
+        })
+    }
+
+    fn raw_bytes(&self, index: usize) -> crate::error::Result<Vec<u8>> {
+        self.inner.raw_bytes(index)
+    }
+}
+
+impl FileViewerLoader for PluginFileLoader {
+    fn record_count(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn get_value(&mut self, index: usize) -> crate::error::Result<Value> {
+        self.inner.get(index)
+    }
+}
+
+/// Wrapper for WasmFileViewerLoader to implement FileViewerLoader
+struct PluginFileViewerLoader {
+    inner: WasmFileViewerLoader,
+}
+
+impl PluginFileViewerLoader {
+    fn new(inner: WasmFileViewerLoader) -> Self {
+        Self { inner }
+    }
+}
+
+impl FileLoader for PluginFileViewerLoader {
+    fn query(&self, _query: &str) -> crate::error::Result<Vec<duckdb::arrow::array::RecordBatch>> {
+        Err(crate::error::ThothError::Unknown {
+            message: "query not supported for plugin viewer loader".to_string(),
+        })
+    }
+
+    fn fetch(
+        &self,
+        _filters: Vec<String>,
+        _offset: Option<usize>,
+        _limit: Option<usize>,
+    ) -> crate::error::Result<Vec<duckdb::arrow::array::RecordBatch>> {
+        Err(crate::error::ThothError::Unknown {
+            message: "fetch not supported for plugin viewer loader".to_string(),
+        })
+    }
+
+    fn size(&self) -> crate::error::Result<u128> {
+        Err(crate::error::ThothError::Unknown {
+            message: "size not supported for plugin viewer loader".to_string(),
+        })
+    }
+
+    fn len(&self) -> crate::error::Result<usize> {
+        Ok(self.inner.len())
+    }
+
+    fn get(&self, _index: usize) -> crate::error::Result<duckdb::arrow::array::RecordBatch> {
+        Err(crate::error::ThothError::Unknown {
+            message: "get not supported for plugin viewer loader".to_string(),
+        })
+    }
+
+    fn open(&self, _path: &str, _alias: &str) -> crate::error::Result<()> {
+        Err(crate::error::ThothError::Unknown {
+            message: "open not supported for plugin viewer loader".to_string(),
+        })
+    }
+
+    fn raw_bytes(&self, index: usize) -> crate::error::Result<Vec<u8>> {
+        self.inner.raw_bytes(index)
+    }
+}
+
+impl FileViewerLoader for PluginFileViewerLoader {
+    fn record_count(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn get_value(&mut self, index: usize) -> crate::error::Result<Value> {
+        self.inner.get(index)
+    }
+
+    fn preferred_display(&mut self) -> crate::plugin::wasm_file_viewer_loader::DisplayMode {
+        self.inner.preferred_display()
+    }
+
+    fn column_headers(&mut self) -> Option<Vec<String>> {
+        self.inner.column_headers()
+    }
+
+    fn render_record(&mut self, record_json: &str) -> crate::error::Result<String> {
+        self.inner.render_record(record_json)
+    }
+}
 
 /// Generic file viewer that manages common viewing concerns (loading, caching, selection)
 /// and delegates format-specific rendering to specialized viewers via the ViewerType enum.
@@ -28,7 +177,7 @@ use crate::search::results::{MatchFragment, SearchResults};
 /// 4. That's it! FileViewer will automatically work with the new viewer
 pub struct FileViewer {
     /// File loader for lazy parsing
-    loader: Option<FileType>,
+    loader: Option<Box<dyn FileViewerLoader>>,
 
     /// LRU cache for parsed values
     cache: LruCache<usize, Value>,
@@ -91,13 +240,13 @@ impl FileViewer {
         let plugin_manager = crate::plugin::runtime::active_manager();
         let plugin_result = plugin_manager.as_deref().and_then(|pm| {
             if pm.find_loader_for_extension(ext_str).is_some() {
-                let result: crate::error::Result<(FileType, FileKind)> =
+                let result: crate::error::Result<Box<dyn FileViewerLoader>> =
                     if pm.plugin_has_capability(ext_str, &Capability::FileViewer) {
                         pm.open_file_with_viewer(ext_str, path)
-                            .map(|wfl| (FileType::PluginWithViewer(wfl), FileKind::PluginTable))
+                            .map(|wfl| Box::new(PluginFileViewerLoader::new(wfl)) as Box<dyn FileViewerLoader>)
                     } else {
                         pm.open_file(ext_str, path)
-                            .map(|wfl| (FileType::Plugin(wfl), FileKind::Plugin))
+                            .map(|wfl| Box::new(PluginFileLoader::new(wfl)) as Box<dyn FileViewerLoader>)
                     };
                 Some(result)
             } else {
@@ -106,11 +255,32 @@ impl FileViewer {
         });
 
         let (loader, kind) = match plugin_result {
-            Some(Ok((file_type, file_kind))) => (file_type, file_kind),
+            Some(Ok(file_loader)) => {
+                // We need to check the capability again to determine the kind
+                let plugin_manager = crate::plugin::runtime::active_manager();
+                let kind = plugin_manager.as_deref().and_then(|pm| {
+                    if pm.plugin_has_capability(ext_str, &Capability::FileViewer) {
+                        Some(FileKind::PluginTable)
+                    } else {
+                        Some(FileKind::Plugin)
+                    }
+                }).unwrap_or(FileKind::Plugin);
+                (file_loader, kind)
+            }
             Some(Err(e)) => return Err(e),
             None if JSON_EXTENSIONS.contains(&ext_str) => {
-                let (detected, ft) = load_file_auto(path)?;
-                (ft, detected.into())
+                let detected = sniff_file_type(path)?;
+                let loader: Box<dyn FileViewerLoader> = match detected {
+                    DetectedFileType::Ndjson => Box::new(NdjsonFile::open(path)?),
+                    DetectedFileType::JsonArray => Box::new(JsonArrayFile::open(path)?),
+                    DetectedFileType::JsonObject => Box::new(SingleValueFile::open(path)?),
+                };
+                let kind = match detected {
+                    DetectedFileType::Ndjson => FileKind::Ndjson,
+                    DetectedFileType::JsonArray => FileKind::Json,
+                    DetectedFileType::JsonObject => FileKind::Json,
+                };
+                (loader, kind)
             }
             None => {
                 return Err(crate::error::ThothError::InvalidFileType {
@@ -165,7 +335,7 @@ impl FileViewer {
             let needs_rebuild = viewer.as_viewer_mut().navigate_to_root(root_index);
             if needs_rebuild && let Some(loader) = self.loader.as_mut() {
                 // Rebuild view immediately so rows are ready for scrolling
-                let total_len = loader.len();
+                let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
                     &mut self.cache,
@@ -227,7 +397,7 @@ impl FileViewer {
             return;
         };
 
-        let total_len = loader.len();
+        let total_len = loader.record_count();
         let viewer = viewer_box.as_viewer_mut();
 
         // Rebuild view initially or when visible roots change
@@ -308,7 +478,7 @@ impl FileViewer {
             let result = viewer.as_viewer_mut().expand_selected(&self.state.selected);
             if result && let Some(loader) = self.loader.as_mut() {
                 // Rebuild if needed
-                let total_len = loader.len();
+                let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
                     &mut self.cache,
@@ -330,7 +500,7 @@ impl FileViewer {
                 .collapse_selected(&self.state.selected);
             if result && let Some(loader) = self.loader.as_mut() {
                 // Rebuild if needed
-                let total_len = loader.len();
+                let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
                     &mut self.cache,
@@ -349,7 +519,7 @@ impl FileViewer {
             let result = viewer.as_viewer_mut().expand_all();
             if result && let Some(loader) = self.loader.as_mut() {
                 // Rebuild if needed
-                let total_len = loader.len();
+                let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
                     &mut self.cache,
@@ -368,7 +538,7 @@ impl FileViewer {
             let result = viewer.as_viewer_mut().collapse_all();
             if result && let Some(loader) = self.loader.as_mut() {
                 // Rebuild if needed
-                let total_len = loader.len();
+                let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
                     &mut self.cache,

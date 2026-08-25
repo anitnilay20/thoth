@@ -1,7 +1,7 @@
 // File drop overlay — design `screens.html` §6 “File drop overlay”: a black-alpha
 // scrim over the whole window carrying the prompt and the incoming path.
 
-use crate::{app, file::detect_file_type::sniff_file_type};
+use crate::{app, file::{FileKind, FileType}};
 use eframe::egui::{
     self,
     text::{LayoutJob, TextFormat},
@@ -105,26 +105,34 @@ impl app::ThothApp {
             let nav_capacity = self.core.settings.performance.navigation_history_size;
             for file in dropped_files {
                 if let Some(path) = file.path {
-                    match sniff_file_type(&path) {
-                        Ok(detected) => {
-                            use crate::file::lazy_loader::FileKind;
-                            let ft: FileKind = detected.into();
-                            let id = self.window_state.tab_manager.open_file(path, nav_capacity);
-                            if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
-                                tab.file_type = ft;
-                                tab.error = None;
-                                self.window_state.toolbar.previous_file_type = ft;
-                            }
-                        }
-                        Err(_) => {
-                            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                                tab.error = Some(crate::error::ThothError::InvalidFileType {
-                                    path: path.clone(),
-                                    expected: "JSON or NDJSON".to_string(),
-                                });
-                            }
-                        }
+                    let file_type = FileKind::from(FileType::from_path(&path));
+                    let id = self.window_state.tab_manager.open_file(path, nav_capacity);
+                    if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
+                        tab.file_type = file_type;
+                        tab.error = None;
+                        self.window_state.toolbar.previous_file_type = file_type;
                     }
+                    // TODO: verify once
+                    // match FileType::from_path(&path) {
+                    //     Ok(detected) => {
+                    //         use crate::file::lazy_loader::FileKind;
+                    //         let ft: FileKind = detected.into();
+                    //         let id = self.window_state.tab_manager.open_file(path, nav_capacity);
+                    //         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
+                    //             tab.file_type = ft;
+                    //             tab.error = None;
+                    //             self.window_state.toolbar.previous_file_type = ft;
+                    //         }
+                    //     }
+                    //     Err(_) => {
+                    //         if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                    //             tab.error = Some(crate::error::ThothError::InvalidFileType {
+                    //                 path: path.clone(),
+                    //                 expected: "JSON or NDJSON".to_string(),
+                    //             });
+                    //         }
+                    //     }
+                    // }
                 }
             }
         }

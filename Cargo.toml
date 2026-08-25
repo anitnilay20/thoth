@@ -157,6 +157,7 @@ rmcp = { version = "1.5", features = ["server", "transport-io", "macros"] }
 schemars = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+duckdb = { version = "~1.10505.0", features = ["bundled", "json", "parquet", "vtab-arrow"] }
 
 [dependencies.puffin]
 git = "https://github.com/EmbarkStudios/puffin"

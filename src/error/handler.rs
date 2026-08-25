@@ -106,6 +106,18 @@ impl ErrorHandler {
                     reason
                 )
             }
+            ThothError::DatabaseError { reason } => {
+                format!("Database error:\n{}", reason)
+            }
+            ThothError::DatabaseConversionError { reason } => {
+                format!("Database type conversion error:\n{}", reason)
+            }
+            ThothError::DatabaseQueryError { query, reason } => {
+                format!("Database query error for '{}':\n{}", query, reason)
+            }
+            ThothError::DatabaseParameterError { reason } => {
+                format!("Database parameter error:\n{}", reason)
+            }
             ThothError::Unknown { message } => {
                 format!("An unexpected error occurred:\n{}", message)
             }
@@ -159,6 +171,12 @@ impl ErrorHandler {
             // Download/save errors
             ThothError::DownloadError { .. } => true,
             ThothError::FileSaveError { .. } => false,
+
+            // Database errors - mostly recoverable
+            ThothError::DatabaseError { .. } => true,
+            ThothError::DatabaseConversionError { .. } => true,
+            ThothError::DatabaseQueryError { .. } => true,
+            ThothError::DatabaseParameterError { .. } => true,
 
             // Unknown errors - assume not recoverable
             ThothError::Unknown { .. } => false,

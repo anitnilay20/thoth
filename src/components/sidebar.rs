@@ -16,7 +16,6 @@ use crate::components::traits::StatelessComponent;
 use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
 use crate::plugin::{Plugin, render_node::render_ui_node, wasm_data_source::ConsentRequest};
-use crate::search::SearchMessage;
 use eframe::egui;
 use thoth_plugin_sdk::components::IconButton;
 
@@ -49,7 +48,7 @@ pub struct SidebarProps<'a> {
     /// Whether the search section should receive focus (when just opened)
     pub focus_search: bool,
     /// Current search state with results
-    pub search_state: &'a crate::search::Search,
+    // pub search_state: &'a crate::search::Search,
     /// Search history for the current file
     pub search_history: Option<&'a Vec<String>>,
     /// All registered data-source plugins — one icon button is shown per plugin.
@@ -81,7 +80,7 @@ pub enum SidebarEvent {
     OpenUiComponentTab(String),
     WidthChanged(f32),
     // Search events
-    Search(SearchMessage),
+    // Search(SearchMessage),
     NavigateToSearchResult {
         record_index: usize,
     },
