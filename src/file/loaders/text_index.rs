@@ -353,6 +353,31 @@ mod real_file_tests {
     /// Indexing the 500MB envelope file that motivated this fallback. Ignored
     /// by default because it depends on a local file.
     #[test]
+    #[ignore = "requires ~/Downloads/data_2gb.json"]
+    fn indexes_a_2gb_document() {
+        let path = Path::new(concat!(env!("HOME"), "/Downloads/data_2gb.json"));
+        if !path.exists() {
+            return;
+        }
+        let started = std::time::Instant::now();
+        let index = TextIndex::build(path).unwrap();
+        println!("lines: {}", index.len());
+        println!("build time: {:?}", started.elapsed());
+        println!("index bytes: ~{}", index.len() * 8);
+
+        let started = std::time::Instant::now();
+        let lines = index.read(index.len() / 2, 5).unwrap();
+        println!("mid-file window: {:?}", started.elapsed());
+        println!("sample: {}", &lines[0][..lines[0].len().min(90)]);
+
+        crate::file::index_cache::store(&index).unwrap();
+        let started = std::time::Instant::now();
+        let cached = crate::file::index_cache::load(path).expect("cache hit");
+        println!("cached open: {:?}", started.elapsed());
+        assert_eq!(cached.len(), index.len());
+    }
+
+    #[test]
     #[ignore = "requires ~/Downloads/data_500mb.json"]
     fn indexes_a_500mb_document() {
         let path = Path::new(concat!(env!("HOME"), "/Downloads/data_500mb.json"));
