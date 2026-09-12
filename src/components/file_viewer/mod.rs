@@ -201,7 +201,6 @@ impl FileViewer {
             // engine picks the right DuckDB reader, staging through a
             // file-loader plugin when there is no native one.
             None => {
-                let engine = Arc::new(DuckdbConnection::open_path(path)?);
                 let name = path
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
@@ -211,10 +210,27 @@ impl FileViewer {
                 // is published — and it keys on the *tab*, so re-opening a file
                 // in place replaces its sheet rather than stacking a new one.
                 let instance = format!("core#{tab_id}");
-                self.handle =
-                    crate::papyrus::publish_arrow("core", &instance, name, engine.clone());
-                self.engine = Some(engine);
-                self.default_view = default_view(path);
+
+                match DuckdbConnection::open_path(path) {
+                    Ok(engine) => {
+                        let engine = Arc::new(engine);
+                        self.handle =
+                            crate::papyrus::publish_arrow("core", &instance, name, engine.clone());
+                        self.engine = Some(engine);
+                        self.default_view = default_view(path);
+                    }
+                    // No reader could make sense of it — a format we don't
+                    // know, or one whose structure is too large to model (a
+                    // single multi-hundred-MB JSON object, say). Text is the
+                    // floor: every file is openable, and the line index makes
+                    // that true at any size.
+                    Err(_) => {
+                        let index = crate::file::loaders::TextIndex::build(path)?;
+                        self.handle =
+                            crate::papyrus::publish_text("core", &instance, name, index);
+                        self.default_view = "table";
+                    }
+                }
                 detect_kind(path)
             }
         };

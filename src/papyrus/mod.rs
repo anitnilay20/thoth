@@ -26,7 +26,7 @@ use std::time::Instant;
 use serde_json::Value;
 use thoth_plugin_sdk::dataset::{NodeKind, TreeNode};
 
-use crate::file::loaders::{FileLoader, RecordWindow, arrow_tree};
+use crate::file::loaders::{FileLoader, RecordWindow, TextIndex, arrow_tree};
 
 /// Most datasets kept before LRU eviction of the least-recently-accessed.
 const MAX_DATASETS: usize = 32;
@@ -91,20 +91,23 @@ enum Source {
     Rows(Vec<Vec<String>>),
     /// A live engine, scanned on demand.
     Arrow(Box<ArrowSheet>),
+    /// A file shown as lines of text — the floor under every format. Holds a
+    /// line index, not the text, so a file of any size costs its index.
+    Text(Box<TextIndex>),
 }
 
 impl Source {
     fn rows(&self) -> Option<&Vec<Vec<String>>> {
         match self {
             Source::Rows(rows) => Some(rows),
-            Source::Arrow(_) => None,
+            _ => None,
         }
     }
 
     fn rows_mut(&mut self) -> Option<&mut Vec<Vec<String>>> {
         match self {
             Source::Rows(rows) => Some(rows),
-            Source::Arrow(_) => None,
+            _ => None,
         }
     }
 }
@@ -322,9 +325,38 @@ pub fn publish_arrow(
             .collect()
     };
 
+    Some(insert_sheet(
+        source,
+        instance,
+        name,
+        "file".to_string(),
+        columns.clone(),
+        total,
+        Source::Arrow(Box::new(ArrowSheet {
+            loader,
+            window: RecordWindow::default(),
+            total,
+            columns,
+        })),
+    ))
+}
+
+/// Register a sheet the host owns, replacing any previous one from the same
+/// instance. Host-owned sheets hold an index or a connection rather than rows,
+/// so they carry no weight against the registry's byte budget.
+fn insert_sheet(
+    source: &str,
+    instance: &str,
+    name: String,
+    kind: String,
+    columns: Vec<DatasetColumn>,
+    total: u64,
+    sheet: Source,
+) -> String {
     let registry = registry();
-    let mut reg = registry.lock().ok()?;
-    // Re-publishing from the same instance replaces its previous sheet.
+    let Ok(mut reg) = registry.lock() else {
+        return String::new();
+    };
     let stale: Vec<String> = reg
         .map
         .values()
@@ -338,35 +370,60 @@ pub fn publish_arrow(
     reg.seq += 1;
     let revision = reg.next_rev();
     let id = format!("ds-{}", reg.seq);
-    let meta = DatasetMeta {
-        id: id.clone(),
-        name,
-        source_plugin: source.to_string(),
-        source_instance: instance.to_string(),
-        kind: "file".to_string(),
-        tags: Vec::new(),
-        row_count: total,
-        columns: columns.clone(),
-        revision,
-    };
     reg.map.insert(
         id.clone(),
         Stored {
-            meta,
-            source: Source::Arrow(Box::new(ArrowSheet {
-                loader,
-                window: RecordWindow::default(),
-                total,
+            meta: DatasetMeta {
+                id: id.clone(),
+                name,
+                source_plugin: source.to_string(),
+                source_instance: instance.to_string(),
+                kind,
+                tags: Vec::new(),
+                row_count: total,
                 columns,
-            })),
+                revision,
+            },
+            source: sheet,
             last_access: Instant::now(),
-            // A live sheet holds only a window; it doesn't count against the
-            // registry's byte budget for owned rows.
             size: 0,
         },
     );
     reg.order.push(id.clone());
-    Some(id)
+    id
+}
+
+/// Publish a file as lines of text, returning its handle.
+///
+/// The fallback when no reader can make sense of a file — the index is already
+/// built, so this costs nothing beyond it and the file becomes browsable at any
+/// size.
+pub fn publish_text(
+    source: &str,
+    instance: &str,
+    name: String,
+    index: TextIndex,
+) -> Option<String> {
+    let total = index.len() as u64;
+    let columns = vec![
+        DatasetColumn {
+            name: "line".to_string(),
+            type_hint: "integer".to_string(),
+        },
+        DatasetColumn {
+            name: "text".to_string(),
+            type_hint: "text".to_string(),
+        },
+    ];
+    Some(insert_sheet(
+        source,
+        instance,
+        name,
+        "text".to_string(),
+        columns,
+        total,
+        Source::Text(Box::new(index)),
+    ))
 }
 
 // ── Lazy node access ─────────────────────────────────────────────────────────
@@ -380,6 +437,7 @@ pub fn total(id: &str) -> u64 {
     with_sheet(id, |stored| match &stored.source {
         Source::Rows(rows) => rows.len() as u64,
         Source::Arrow(sheet) => sheet.total,
+        Source::Text(index) => index.len() as u64,
     })
     .unwrap_or(0)
 }
@@ -399,6 +457,8 @@ pub fn children(id: &str, root: u64, rel: &str) -> Vec<TreeNode> {
             Ok((batches, local)) => arrow_tree::children(batches, local, rel),
             Err(_) => Vec::new(),
         },
+        // A line of text has no structure to walk into.
+        Source::Text(_) => Vec::new(),
         // Pushed rows are already flat: a record's children are its cells, and
         // a cell has none.
         Source::Rows(rows) => {
@@ -437,6 +497,11 @@ pub fn node_preview(id: &str, root: u64, rel: &str) -> String {
             Ok((batches, local)) => arrow_tree::node_preview(batches, local, rel),
             Err(_) => "null".to_string(),
         },
+        Source::Text(index) => index
+            .read(root as usize, 1)
+            .ok()
+            .and_then(|l| l.into_iter().next())
+            .unwrap_or_default(),
         Source::Rows(_) => "null".to_string(),
     })
     .unwrap_or_else(|| "null".to_string())
@@ -450,6 +515,11 @@ pub fn node_json(id: &str, root: u64, rel: &str) -> Option<Value> {
             let (batches, local) = sheet.window.locate(&*sheet.loader, root as usize).ok()?;
             arrow_tree::node_to_json(batches, local, rel)
         }
+        Source::Text(index) => index
+            .read(root as usize, 1)
+            .ok()
+            .and_then(|l| l.into_iter().next())
+            .map(Value::String),
         Source::Rows(rows) => {
             let row = rows.get(root as usize)?;
             let mut map = serde_json::Map::new();
@@ -549,6 +619,22 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
                 columns: stored.meta.columns.clone(),
                 rows: rows[start..end].to_vec(),
                 offset: start as u64,
+                total,
+            })
+        }
+        // Seek straight to the visible lines.
+        Source::Text(index) => {
+            let total = index.len() as u64;
+            let start = offset.min(total);
+            let lines = index.read(start as usize, capped as usize).ok()?;
+            Some(Page {
+                columns: stored.meta.columns.clone(),
+                rows: lines
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, text)| vec![(start as usize + i + 1).to_string(), text])
+                    .collect(),
+                offset: start,
                 total,
             })
         }
@@ -1073,5 +1159,33 @@ mod tests {
         let (handle, _file) = publish_file("{\"n\":1}\n", "no-append");
         append("no-append", &handle, vec![vec!["2".to_string()]]);
         assert_eq!(total(&handle), 1);
+    }
+
+    #[test]
+    fn a_file_with_no_reader_still_opens_as_text() {
+        let _guard = reset();
+        // The shape that defeats every structured reader: one enormous JSON
+        // object. It must still be openable, and reads must stay windowed.
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        writeln!(tmp, "{{").unwrap();
+        for i in 0..5000 {
+            writeln!(tmp, "  \"key_{i}\": {i},").unwrap();
+        }
+        writeln!(tmp, "  \"last\": 0\n}}").unwrap();
+        tmp.flush().unwrap();
+
+        let index = TextIndex::build(tmp.path()).unwrap();
+        let handle = publish_text("core", "inst-text", "big.json".to_string(), index)
+            .expect("published");
+
+        assert_eq!(total(&handle), 5003);
+        // A window returns line numbers and their text, and nothing else.
+        let page = read(&handle, 100, 3).unwrap();
+        assert_eq!(page.rows.len(), 3);
+        assert_eq!(page.rows[0][0], "101");
+        assert!(page.rows[0][1].contains("key_99"));
+        assert_eq!(page.total, 5003);
+        // Lines are leaves — there is nothing to expand into.
+        assert!(!records_expandable(&handle) || children(&handle, 0, "").is_empty());
     }
 }

@@ -14,6 +14,7 @@
 pub mod arrow_rows;
 pub mod arrow_tree;
 pub mod duck_db;
+pub mod text_index;
 
 use crate::error::Result;
 use crate::file::FileType;
@@ -23,6 +24,7 @@ use serde_json::Value;
 pub use arrow_rows::{RecordWindow, batch_columns, batch_rows, batches_to_values};
 pub use arrow_tree::{ArrowNode, NodeKind};
 pub use duck_db::DuckdbConnection;
+pub use text_index::TextIndex;
 
 /// Tabular access to an opened file, in Arrow.
 pub trait FileLoader {
