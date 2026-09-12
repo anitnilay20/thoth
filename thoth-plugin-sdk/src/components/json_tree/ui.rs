@@ -60,7 +60,7 @@ struct TreeState {
 // ── Source ───────────────────────────────────────────────────────────────────
 
 /// Where a tree's nodes come from: an inline value, or a dataset read lazily.
-enum Source<'a> {
+enum Kind<'a> {
     Inline(&'a Value),
     Handle {
         handle: &'a str,
@@ -68,63 +68,82 @@ enum Source<'a> {
     },
 }
 
+struct Source<'a> {
+    kind: Kind<'a>,
+    /// Memoized answer for handle sources, where expandability comes from the
+    /// schema and is therefore the same for every record. Without this the
+    /// registry is consulted once per visible row, every frame.
+    uniform_expandable: std::cell::Cell<Option<bool>>,
+}
+
 impl<'a> Source<'a> {
     fn new(tree: &'a JsonTree) -> Self {
-        match (tree.handle.as_deref(), dataset_access()) {
-            (Some(handle), Some(access)) => Source::Handle { handle, access },
-            _ => Source::Inline(&tree.value),
+        let kind = match (tree.handle.as_deref(), dataset_access()) {
+            (Some(handle), Some(access)) => Kind::Handle { handle, access },
+            _ => Kind::Inline(&tree.value),
+        };
+        Self {
+            kind,
+            uniform_expandable: std::cell::Cell::new(None),
         }
     }
 
     /// How many records the tree has. An inline array is a list of records;
     /// any other inline value is a single record.
     fn records(&self) -> u64 {
-        match self {
-            Source::Inline(Value::Array(items)) => items.len() as u64,
-            Source::Inline(_) => 1,
-            Source::Handle { handle, access } => (access.total)(handle),
+        match &self.kind {
+            Kind::Inline(Value::Array(items)) => items.len() as u64,
+            Kind::Inline(_) => 1,
+            Kind::Handle { handle, access } => (access.total)(handle),
         }
     }
 
     /// Whether records can be expanded. Handle-backed sources answer from the
     /// schema, so this costs no read.
     fn record_expandable(&self, root: u64) -> bool {
-        match self {
-            Source::Inline(_) => matches!(
+        match &self.kind {
+            Kind::Inline(_) => matches!(
                 self.record(root),
                 Some(Value::Object(_)) | Some(Value::Array(_))
             ),
-            Source::Handle { handle, access } => (access.records_expandable)(handle),
+            Kind::Handle { handle, access } => match self.uniform_expandable.get() {
+                Some(known) => known,
+                None => {
+                    let answer = (access.records_expandable)(handle);
+                    self.uniform_expandable.set(Some(answer));
+                    answer
+                }
+            },
         }
     }
 
     fn record(&self, root: u64) -> Option<&'a Value> {
-        match self {
-            Source::Inline(Value::Array(items)) => items.get(root as usize),
-            Source::Inline(value) => (root == 0).then_some(*value),
-            Source::Handle { .. } => None,
+        match &self.kind {
+            Kind::Inline(Value::Array(items)) => items.get(root as usize),
+            Kind::Inline(value) => (root == 0).then_some(*value),
+            Kind::Handle { .. } => None,
         }
     }
 
     fn children(&self, root: u64, rel: &str) -> Vec<TreeNode> {
-        match self {
-            Source::Inline(_) => self
+        match &self.kind {
+            Kind::Inline(_) => self
                 .record(root)
                 .and_then(|record| walk(record, rel))
                 .map(value_children)
                 .unwrap_or_default(),
-            Source::Handle { handle, access } => (access.children)(handle, root, rel),
+            Kind::Handle { handle, access } => (access.children)(handle, root, rel),
         }
     }
 
     fn node_preview(&self, root: u64, rel: &str) -> String {
-        match self {
-            Source::Inline(_) => self
+        match &self.kind {
+            Kind::Inline(_) => self
                 .record(root)
                 .and_then(|record| walk(record, rel))
                 .map(scalar_text)
                 .unwrap_or_else(|| "null".to_string()),
-            Source::Handle { handle, access } => (access.node_preview)(handle, root, rel),
+            Kind::Handle { handle, access } => (access.node_preview)(handle, root, rel),
         }
     }
 
@@ -258,22 +277,37 @@ impl RowIndex {
         let count = visible
             .as_ref()
             .map(|v| v.len() as u64)
-            .unwrap_or(records)
-            .min(records.max(visible.as_ref().map(|v| v.len() as u64).unwrap_or(0)));
-        let mut expanded = Vec::new();
+            .unwrap_or(records);
+
+        // Walk the *expanded set*, not the records. It holds a handful of
+        // entries where the file may hold tens of millions, and this runs every
+        // frame -- iterating the records here would allocate a path per record
+        // just to probe a set that almost always says no.
+        let positions: Option<std::collections::HashMap<u64, usize>> = visible
+            .as_ref()
+            .map(|list| list.iter().enumerate().map(|(i, r)| (*r, i)).collect());
+
+        let mut roots: Vec<(usize, u64)> = state
+            .expanded
+            .iter()
+            // Record roots are bare indices; anything else is a path *within* a
+            // record and is materialized by its record, not here.
+            .filter_map(|path| path.parse::<u64>().ok())
+            .filter_map(|root| match &positions {
+                Some(by_root) => by_root.get(&root).map(|pos| (*pos, root)),
+                None => (root < records).then_some((root as usize, root)),
+            })
+            .collect();
+        // Rows are laid out in display order, so offsets accumulate in order.
+        roots.sort_unstable();
+
+        let mut expanded = Vec::with_capacity(roots.len());
         let mut extra = 0usize;
-        for pos in 0..count as usize {
-            let root = visible
-                .as_ref()
-                .map(|v| v[pos])
-                .unwrap_or(pos as u64);
-            let path = root.to_string();
-            if !state.expanded.contains(&path) {
-                continue;
-            }
+        for (pos, root) in roots {
             if !source.record_expandable(root) {
                 continue;
             }
+            let path = root.to_string();
             let mut rows = Vec::new();
             rows.push(record_row(root, true, source));
             build_children(source, state, root, "", &path, 1, &mut rows);
@@ -687,5 +721,122 @@ mod tests {
         assert_eq!(index.row(0, &source).unwrap().text, "[0]: \"hello\"");
         assert!(index.row(0, &source).unwrap().caret.is_none());
         assert_eq!(index.row(1, &source).unwrap().text, "[1]: 42");
+    }
+
+    // ── A dataset far larger than anything that could be iterated ───────────
+    //
+    // Installs a stub access reporting ten million records and counting every
+    // call, so a build that walks the records instead of the expanded set is a
+    // test failure rather than a report of sluggishness.
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static HUGE_RECORDS: u64 = 10_000_000;
+    static EXPANDABLE_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static CHILDREN_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+    fn install_huge_access() {
+        use crate::dataset::{DatasetAccess, set_dataset_access};
+        set_dataset_access(DatasetAccess {
+            total: |_| HUGE_RECORDS,
+            records_expandable: |_| {
+                EXPANDABLE_CALLS.fetch_add(1, Ordering::Relaxed);
+                true
+            },
+            children: |_, _, rel| {
+                CHILDREN_CALLS.fetch_add(1, Ordering::Relaxed);
+                if rel.is_empty() {
+                    vec![TreeNode {
+                        label: "id".into(),
+                        segment: ".id".into(),
+                        kind: NodeKind::Leaf,
+                        preview: "1".into(),
+                        token: TextToken::Number,
+                    }]
+                } else {
+                    Vec::new()
+                }
+            },
+            node_preview: |_, _, _| "x".to_string(),
+            node_json: |_, _, _| None,
+        });
+    }
+
+    /// The call counters are process-wide, so these tests take turns.
+    static HUGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn huge_tree(expanded: &[&str]) -> (JsonTree, TreeState) {
+        install_huge_access();
+        let mut state = TreeState::default();
+        for p in expanded {
+            state.expanded.insert((*p).to_string());
+        }
+        let mut tree = JsonTree::builder().build();
+        tree.handle = Some("huge".to_string());
+        (tree, state)
+    }
+
+    #[test]
+    fn building_ten_million_collapsed_records_touches_none_of_them() {
+        let _guard = HUGE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (tree, state) = huge_tree(&[]);
+        let source = Source::new(&tree);
+        EXPANDABLE_CALLS.store(0, Ordering::Relaxed);
+        CHILDREN_CALLS.store(0, Ordering::Relaxed);
+
+        let index = RowIndex::build(&tree, &source, &state);
+
+        assert_eq!(index.total_rows, HUGE_RECORDS as usize);
+        // The build must scale with what is expanded, not with what exists --
+        // this ran once per record before, allocating a path each time.
+        assert_eq!(EXPANDABLE_CALLS.load(Ordering::Relaxed), 0);
+        assert_eq!(CHILDREN_CALLS.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn expanding_two_records_reads_only_those_two() {
+        let _guard = HUGE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (tree, state) = huge_tree(&["5", "9000000"]);
+        let source = Source::new(&tree);
+        EXPANDABLE_CALLS.store(0, Ordering::Relaxed);
+        CHILDREN_CALLS.store(0, Ordering::Relaxed);
+
+        let index = RowIndex::build(&tree, &source, &state);
+
+        assert_eq!(index.expanded.len(), 2);
+        // Memoized: expandability is a schema property, so the registry is
+        // consulted once no matter how many records are drawn.
+        assert_eq!(EXPANDABLE_CALLS.load(Ordering::Relaxed), 1);
+        // One `children` call per expanded record, plus one per leaf visited.
+        assert!(CHILDREN_CALLS.load(Ordering::Relaxed) <= 4);
+        // Each expanded record adds its field and a closing row.
+        assert_eq!(index.total_rows, HUGE_RECORDS as usize + 4);
+    }
+
+    #[test]
+    fn expanded_records_keep_their_place_however_they_were_inserted() {
+        let _guard = HUGE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // The expanded set is unordered; row offsets must still accumulate in
+        // display order.
+        let (tree, state) = huge_tree(&["9000000", "5", "100"]);
+        let source = Source::new(&tree);
+        let index = RowIndex::build(&tree, &source, &state);
+
+        let starts: Vec<usize> = index.expanded.iter().map(|e| e.start).collect();
+        let mut sorted = starts.clone();
+        sorted.sort_unstable();
+        assert_eq!(starts, sorted, "offsets must be in display order");
+        assert_eq!(index.row(5, &source).unwrap().text, "[5]: {");
+    }
+
+    #[test]
+    fn a_nested_path_in_the_expanded_set_is_not_mistaken_for_a_record() {
+        let _guard = HUGE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // "5.user" belongs to record 5 and is materialized by it -- treating it
+        // as a root would double-count rows.
+        let (tree, state) = huge_tree(&["5", "5.user"]);
+        let source = Source::new(&tree);
+        let index = RowIndex::build(&tree, &source, &state);
+        assert_eq!(index.expanded.len(), 1);
     }
 }
