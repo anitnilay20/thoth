@@ -61,7 +61,14 @@ impl DataView {
         use crate::dataset::{renderers, resolve_dataset};
         use crate::theme::{ThemeColors, with_alpha};
 
-        let Some(page) = resolve_dataset(&self.handle, Self::LIMIT) else {
+        // How many rows exist, without reading any. `total` is a lookup; the
+        // page below is not, so it must not be fetched unless a view needs it.
+        let access = crate::dataset::dataset_access();
+        let total = match access {
+            Some(access) => Some((access.total)(&self.handle)),
+            None => resolve_dataset(&self.handle, 0).map(|p| p.total),
+        };
+        let Some(total) = total else {
             ui.add(
                 Typography::builder()
                     .text("This dataset is no longer available.")
@@ -136,7 +143,7 @@ impl DataView {
                 ui.spacing_mut().item_spacing.x = Self::HEAD_GAP;
                 ui.horizontal(|ui| {
                     ui.set_min_height(Self::HEAD_H);
-                    self.header(ui, events, &page, node_id, view_options, &mut view);
+                    self.header(ui, events, total, node_id, view_options, &mut view);
                 });
             });
         let rule = egui::Stroke::new(
@@ -149,7 +156,7 @@ impl DataView {
             .hline(strip.x_range(), strip.bottom() - 0.5, rule);
         ui.data_mut(|d| d.insert_temp(mem_id, view.clone()));
 
-        self.body(ui, events, &page, node_id, &view);
+        self.body(ui, events, total, node_id, &view);
     }
 
     /// Draw the header strip's controls: the view selector, the row-count label,
@@ -159,7 +166,7 @@ impl DataView {
         &self,
         ui: &mut egui::Ui,
         events: &mut Vec<crate::render_node::UiEvent>,
-        page: &crate::dataset::DatasetPage,
+        total: u64,
         node_id: &str,
         view_options: Vec<crate::components::SelectOption>,
         view: &mut String,
@@ -168,6 +175,7 @@ impl DataView {
             Button, ButtonColor, ButtonType, Select, SelectOption, Size, Typography,
             TypographyVariant,
         };
+        use crate::dataset::resolve_dataset;
         use crate::render_node::UiEvent;
 
         // Design `.viewsel` is a 28px-tall select trigger at 12.5px — exactly
@@ -192,16 +200,13 @@ impl DataView {
         {
             *view = v;
         }
-        // The resolver caps a read at LIMIT, so the fallback count reflects
-        // the rows actually drawn rather than over-reporting a large dataset.
-        let count = self.caption.clone().unwrap_or_else(|| {
-            let shown = page.rows.len() as u64;
-            if page.total > shown {
-                format!("{shown} of {} rows", page.total)
-            } else {
-                format!("{} rows", page.total)
-            }
-        });
+        // The true row count, not the size of a page — the views read windows,
+        // so there is no "shown" figure to report and no reason to fetch rows
+        // just to label them.
+        let count = self
+            .caption
+            .clone()
+            .unwrap_or_else(|| format!("{total} rows"));
         // Design `.rcount` is monospace at 12px in `fg-muted` — the figures line
         // up as the row count changes, which a proportional face won't do.
         ui.add(
@@ -288,8 +293,9 @@ impl DataView {
                         .build(),
                 )
                 .clicked()
+                && let Some(page) = resolve_dataset(&self.handle, Self::LIMIT)
             {
-                ui.ctx().copy_text(records_json(page, true));
+                ui.ctx().copy_text(records_json(&page, true));
             }
         });
     }
@@ -300,14 +306,14 @@ impl DataView {
         &self,
         ui: &mut egui::Ui,
         events: &mut Vec<crate::render_node::UiEvent>,
-        page: &crate::dataset::DatasetPage,
+        total: u64,
         node_id: &str,
         view: &str,
     ) {
         use crate::components::{
             Code, ColumnType, JsonTree, TableView, Typography, TypographyVariant,
         };
-        use crate::dataset::{PluginRenderResult, render_with_plugin};
+        use crate::dataset::{PluginRenderResult, render_with_plugin, resolve_dataset};
         use crate::render_node::RenderNode;
 
         // The grid scrolls itself: `TableView` wraps it in a horizontal scroll area
@@ -318,10 +324,9 @@ impl DataView {
         scrolled(ui, !table_view(view), (node_id, "data_view_scroll"), |ui| {
             match view {
                 "json" => {
-                    // Bound to the handle, not to `page`: the tree reads only
-                    // the nodes it is showing, so this draws a dataset far
-                    // larger than the page limit above. Falls back to the page
-                    // when no lazy access is installed.
+                    // Bound to the handle: the tree reads only the nodes it is
+                    // showing, so this draws a dataset far larger than any page
+                    // and fetches nothing at all until a record is expanded.
                     let mut tree = JsonTree::builder()
                         .id(format!("{node_id}_tree"))
                         // DataView already owns the rounded panel and hairline
@@ -331,18 +336,18 @@ impl DataView {
                         .build();
                     if crate::dataset::dataset_access().is_some() {
                         tree.handle = Some(self.handle.clone());
-                    } else {
-                        tree.value = records_value(page);
+                    } else if let Some(page) = resolve_dataset(&self.handle, Self::LIMIT) {
+                        tree.value = records_value(&page);
                     }
                     tree.show(ui);
                 }
+                // Raw is a text dump, so it is inherently bounded by LIMIT --
+                // and it is the one view that has to materialize to render.
                 "raw" => {
-                    ui.add(
-                        Code::builder()
-                            .value(records_json(page, true))
-                            .language("json")
-                            .build(),
-                    );
+                    let text = resolve_dataset(&self.handle, Self::LIMIT)
+                        .map(|page| records_json(&page, true))
+                        .unwrap_or_default();
+                    ui.add(Code::builder().value(text).language("json").build());
                 }
                 // A renderer plugin: the host reads the rows, gates consent, runs
                 // the plugin, and hands back a RenderNode tree we draw here.
@@ -371,6 +376,10 @@ impl DataView {
                     }
                 }
                 _ => {
+                    let Some(page) = resolve_dataset(&self.handle, Self::LIMIT) else {
+                        return;
+                    };
+                    let _ = total;
                     let headers: Vec<String> =
                         page.columns.iter().map(|c| c.name.clone()).collect();
                     let column_types: Vec<ColumnType> = page

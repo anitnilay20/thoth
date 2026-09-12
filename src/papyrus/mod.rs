@@ -447,7 +447,15 @@ pub fn total(id: &str) -> u64 {
 /// Answered from the schema, never from the data — which is what makes listing
 /// a million collapsed records free.
 pub fn records_expandable(id: &str) -> bool {
-    with_sheet(id, |stored| !stored.meta.columns.is_empty()).unwrap_or(false)
+    with_sheet(id, |stored| match &stored.source {
+        // Answered from the schema, never the data.
+        Source::Arrow(sheet) => !sheet.columns.is_empty(),
+        Source::Rows(_) => !stored.meta.columns.is_empty(),
+        // A line of text is a leaf. Claiming otherwise renders every row with
+        // a caret that opens onto nothing.
+        Source::Text(_) => false,
+    })
+    .unwrap_or(false)
 }
 
 /// Children of the node at `rel` within record `root`.
