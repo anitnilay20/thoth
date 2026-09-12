@@ -4,7 +4,6 @@ use crate::helpers::default_rate_limit;
 use serde::{Deserialize, Serialize};
 
 pub mod dataset_grants;
-pub mod datasets;
 pub mod manager;
 pub mod marketplace;
 pub mod network_policy;

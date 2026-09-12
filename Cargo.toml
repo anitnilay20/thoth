@@ -16,6 +16,9 @@ description = "Thoth is a fast, native desktop workspace for exploring your data
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.92"
+# Benches are declared explicitly below; benches/search.rs is parked with the
+# search engine (#53) and must not be auto-discovered.
+autobenches = false
 
 [package.metadata.release]
 # Don't publish to crates.io (this is a desktop app)
@@ -158,6 +161,9 @@ schemars = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 duckdb = { version = "~1.10505.0", features = ["bundled", "json", "parquet", "vtab-arrow"] }
+# Same arrow build duckdb links against; the `json` feature gives us the
+# Arrow -> JSON writer used at the edges (tree viewer, search, MCP).
+arrow = { version = "58.4", features = ["json"] }
 
 [dependencies.puffin]
 git = "https://github.com/EmbarkStudios/puffin"
@@ -188,9 +194,11 @@ profiling = ["puffin", "dhat"]
 name = "file_loading"
 harness = false
 
-[[bench]]
-name = "search"
-harness = false
+# TODO(#53): restored with the search engine, which is being rebuilt as a
+# DuckDB filter.
+# [[bench]]
+# name = "search"
+# harness = false
 
 [[bench]]
 name = "parsing"

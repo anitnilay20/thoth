@@ -46,7 +46,7 @@ enum Action {
         invocation: CliInvocation,
     },
     Completions(Shell),
-    QueryFile(String, String),
+    QueryFile(Vec<String>, String),
 }
 
 /// Parse and run a CLI invocation without initializing a native window.
@@ -88,7 +88,7 @@ where
             plugin_id,
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
-        Action::QueryFile(raw, sql) => file_viewer::action(&raw, &sql),
+        Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
     }
 }
 
@@ -118,7 +118,7 @@ where
             plugin_id,
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
-        Action::QueryFile(_, _) => todo!(),
+        Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
     }
 }
 
@@ -200,7 +200,7 @@ where
                 .get_one::<Shell>("shell")
                 .expect("shell is required by clap"),
         )),
-        "query-file" => Ok(file_viewer::parse(&matches)),
+        "query-file" => Ok(file_viewer::parse(matches)),
         plugin_id => parse_plugin(plugin_id, matches, schemas),
     }
 }

@@ -1,10 +1,9 @@
 use eframe::egui::Ui;
 
 use crate::components::file_viewer::viewer_trait::FileViewerLoader;
-use crate::helpers::{LruCache, get_context_menu_shortcuts};
+use crate::helpers::get_context_menu_shortcuts;
 use thoth_plugin_sdk::components::{Button, ButtonColor, ButtonType};
 
-use serde_json::Value;
 
 /// Context menu actions that can be performed on selected items
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,7 +158,6 @@ pub trait ContextMenuHandler {
     fn copy_selected_value(
         &self,
         selected: &Option<String>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
     ) -> Option<String>;
 
@@ -167,7 +165,6 @@ pub trait ContextMenuHandler {
     fn copy_selected_object(
         &self,
         selected: &Option<String>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
     ) -> Option<String>;
 
@@ -181,7 +178,6 @@ pub trait ContextMenuHandler {
 /// * `action` - The action to execute
 /// * `handler` - The handler that implements the clipboard operations
 /// * `selected` - The currently selected path
-/// * `cache` - The LRU cache for values
 /// * `loader` - The lazy file loader
 ///
 /// # Returns
@@ -190,13 +186,12 @@ pub fn execute_context_menu_action(
     action: ContextMenuAction,
     handler: &impl ContextMenuHandler,
     selected: &Option<String>,
-    cache: &mut LruCache<usize, Value>,
     loader: &mut dyn FileViewerLoader,
 ) -> Option<String> {
     match action {
         ContextMenuAction::CopyKey => handler.copy_selected_key(selected),
-        ContextMenuAction::CopyValue => handler.copy_selected_value(selected, cache, loader),
-        ContextMenuAction::CopyObject => handler.copy_selected_object(selected, cache, loader),
+        ContextMenuAction::CopyValue => handler.copy_selected_value(selected, loader),
+        ContextMenuAction::CopyObject => handler.copy_selected_object(selected, loader),
         ContextMenuAction::CopyPath => handler.copy_selected_path(selected),
     }
 }

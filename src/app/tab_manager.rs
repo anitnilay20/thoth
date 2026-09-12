@@ -11,7 +11,7 @@ use crate::{
         traits::ContextComponent,
     },
     error::ThothError,
-    file::FileType,
+    file::FileKind,
     plugin::render_node::UiOutput,
     settings::Settings,
     state::{ActivePluginPane, NavigationHistory, SearchEngineState},
@@ -23,7 +23,7 @@ pub type TabId = usize;
 pub struct TabState {
     pub id: TabId,
     pub file_path: Option<PathBuf>,
-    pub file_type: FileType,
+    pub file_type: FileKind,
     pub error: Option<ThothError>,
     pub total_items: usize,
     pub search_engine_state: SearchEngineState,
@@ -42,7 +42,7 @@ impl TabState {
         Self {
             id,
             file_path,
-            file_type: FileType::default(),
+            file_type: FileKind::default(),
             error: None,
             total_items: 0,
             search_engine_state: SearchEngineState::default(),
@@ -91,7 +91,7 @@ pub enum TabEvent {
     FileOpened {
         tab_id: TabId,
         path: PathBuf,
-        file_type: FileType,
+        file_type: FileKind,
         total_items: usize,
     },
     FileOpenError {
@@ -103,7 +103,7 @@ pub enum TabEvent {
     },
     FileTypeChanged {
         tab_id: TabId,
-        file_type: FileType,
+        file_type: FileKind,
     },
     ErrorCleared {
         tab_id: TabId,
@@ -215,6 +215,7 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         let output = tab.central_panel.render(
             ui,
             CentralPanelProps {
+                tab_id: *tab_id,
                 file_path: &tab.file_path,
                 file_type: tab.file_type,
                 error: &tab.error,

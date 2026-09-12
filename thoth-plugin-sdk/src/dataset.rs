@@ -44,6 +44,83 @@ pub fn resolve_dataset(handle: &str, limit: u32) -> Option<DatasetPage> {
     RESOLVER.get().and_then(|r| r(handle, limit))
 }
 
+// ── Tree access ──────────────────────────────────────────────────────────────
+//
+// The page API above is enough for a table: a bounded rectangle of strings.
+// A *tree* needs something else — the ability to ask what a single node's
+// children are without materializing its siblings, so a viewer can draw a
+// screenful of a file that does not fit in memory.
+//
+// These types carry only strings and the SDK's own `TextToken`, so a host can
+// back them with Arrow (typed, nested, lazily scanned) without any Arrow
+// dependency reaching a plugin.
+
+/// What a tree node is, which is all a viewer needs to decide expandability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeKind {
+    /// A keyed container (JSON object / Arrow struct).
+    Struct,
+    /// An indexed container (JSON array / Arrow list).
+    List,
+    /// A scalar.
+    Leaf,
+}
+
+impl NodeKind {
+    /// Whether this node can be expanded to reveal children.
+    pub fn is_expandable(self) -> bool {
+        matches!(self, NodeKind::Struct | NodeKind::List)
+    }
+}
+
+/// One child node, resolved only when its parent is expanded.
+#[derive(Debug, Clone)]
+pub struct TreeNode {
+    /// Field name, or the element index for a list.
+    pub label: String,
+    /// Path segment to append to the parent's path (`.name` or `[i]`).
+    pub segment: String,
+    /// Whether this node is a container, and of which shape.
+    pub kind: NodeKind,
+    /// Formatted leaf text; empty for containers.
+    pub preview: String,
+    /// Syntax token for the value half of the row.
+    pub token: crate::theme::TextToken,
+}
+
+/// Lazy, node-at-a-time access to a dataset's records.
+///
+/// A record is addressed by index; a node *within* a record by a relative path
+/// (`""` is the record, `user.address.city` a nested field, `items[2]` a list
+/// element). Every call reads only what it returns.
+#[derive(Clone, Copy)]
+pub struct DatasetAccess {
+    /// Total records available.
+    pub total: fn(&str) -> u64,
+    /// Whether records have any children at all. Answered from the schema, so
+    /// listing a million collapsed records costs nothing.
+    pub records_expandable: fn(&str) -> bool,
+    /// Children of the node at `rel` within record `root`.
+    pub children: fn(&str, u64, &str) -> Vec<TreeNode>,
+    /// Display text of the leaf at `rel`.
+    pub node_preview: fn(&str, u64, &str) -> String,
+    /// The subtree at `rel` as JSON — the edge conversion, for clipboard and
+    /// export. Drawing a row must not call this.
+    pub node_json: fn(&str, u64, &str) -> Option<serde_json::Value>,
+}
+
+static ACCESS: OnceLock<DatasetAccess> = OnceLock::new();
+
+/// Install the host's lazy dataset access. Call once at startup.
+pub fn set_dataset_access(access: DatasetAccess) {
+    let _ = ACCESS.set(access);
+}
+
+/// The installed lazy access, if any.
+pub fn dataset_access() -> Option<&'static DatasetAccess> {
+    ACCESS.get()
+}
+
 /// An installed exporter plugin the [`DataView`](crate::components::DataView)
 /// offers in its "Export" dropdown.
 #[derive(Clone, Debug)]

@@ -9,6 +9,10 @@ use thoth_plugin_sdk::components::Separator;
 
 /// Props passed down to the CentralPanel (immutable, one-way binding)
 pub struct CentralPanelProps<'a> {
+    /// The owning tab's id. A file tab acts as a dataset producer under a
+    /// stable per-tab marker, so its sheet on the bus survives the frame reaper
+    /// and is dropped when the tab closes.
+    pub tab_id: usize,
     pub file_path: &'a Option<PathBuf>,
     pub file_type: FileKind,
     pub error: &'a Option<ThothError>,
@@ -92,6 +96,8 @@ impl CentralPanel {
         props: CentralPanelProps<'_>,
         events: &mut Vec<CentralPanelEvent>,
     ) {
+        let mut pending_view_events: Vec<thoth_plugin_sdk::render_node::UiEvent> = Vec::new();
+
         // Open / close viewer once on change
         match (props.file_path, self.loaded_path.as_ref(), self.loaded_type) {
             (Some(new_path), Some(curr_path), Some(curr_ty))
@@ -102,7 +108,7 @@ impl CentralPanel {
             (Some(new_path), _, _) => {
                 self.last_open_err = None;
                 let mut file_type = props.file_type;
-                match self.file_viewer.open(new_path, &mut file_type) {
+                match self.file_viewer.open(new_path, props.tab_id, &mut file_type) {
                     Ok(()) => {
                         self.loaded_path = Some(new_path.clone());
                         self.loaded_type = Some(file_type);
@@ -152,7 +158,7 @@ impl CentralPanel {
         }
 
         // React to search messages
-        if let Some(msg) = props.search_message {
+        if let Some(_msg) = props.search_message {
             // TODO: Random value set
             self.searching = false;
 
@@ -264,9 +270,25 @@ impl CentralPanel {
 
                         // Render the viewer (no filtering UI needed - search results shown in sidebar)
                         self.file_viewer.ui(ui);
+                        // A file tab's DataView raises the same reserved actions
+                        // a plugin's does (Export, Open in Charts), so they go
+                        // out on the same channel the app already dispatches.
+                        pending_view_events.extend(self.file_viewer.take_events());
                     }
                 }
             });
+
+        // Reserved actions from the file tab's DataView reuse the plugin event
+        // channel — `dispatch_plugin_event_for` intercepts Export and Charts
+        // before any plugin sees them, and a file tab has no plugin to forward
+        // the rest to.
+        for evt in pending_view_events {
+            events.push(CentralPanelEvent::PluginUiEvent(UiEvent {
+                widget_id: evt.id,
+                kind: evt.kind,
+                value: evt.value,
+            }));
+        }
     }
 
     // ========================================================================

@@ -765,7 +765,7 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
         columns: Vec<thoth::plugin::data_producer::DatasetColumn>,
         rows: Vec<Vec<String>>,
     ) -> String {
-        crate::plugin::datasets::publish(
+        crate::papyrus::publish(
             &self.plugin_id,
             &self.instance_id,
             name,
@@ -783,7 +783,7 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
         rows: Vec<Vec<String>>,
     ) {
         // Scoped to this instance so a plugin can only mutate its own datasets.
-        crate::plugin::datasets::update(
+        crate::papyrus::update(
             &self.instance_id,
             &handle,
             to_registry_columns(columns),
@@ -792,7 +792,7 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
     }
 
     fn append(&mut self, handle: String, rows: Vec<Vec<String>>) {
-        crate::plugin::datasets::append(&self.instance_id, &handle, rows);
+        crate::papyrus::append(&self.instance_id, &handle, rows);
         // The app is reactive; a background stream must nudge egui or the newly
         // appended rows won't show until the next user interaction.
         if let Some(ctx) = crate::EGUI_CTX.get() {
@@ -801,17 +801,17 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
     }
 
     fn release(&mut self, handle: String) {
-        crate::plugin::datasets::release(&self.instance_id, &handle);
+        crate::papyrus::release(&self.instance_id, &handle);
     }
 }
 
 /// Map WIT dataset columns to the host registry's column type.
 fn to_registry_columns(
     columns: Vec<thoth::plugin::data_producer::DatasetColumn>,
-) -> Vec<crate::plugin::datasets::DatasetColumn> {
+) -> Vec<crate::papyrus::DatasetColumn> {
     columns
         .into_iter()
-        .map(|c| crate::plugin::datasets::DatasetColumn {
+        .map(|c| crate::papyrus::DatasetColumn {
             name: c.name,
             type_hint: c.type_hint,
         })

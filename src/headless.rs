@@ -113,7 +113,7 @@ impl HeadlessRuntime {
     ) -> Self {
         let core = ThothCore::init(settings);
         core.plugins.install_as_active();
-        core.datasets.install_as_active();
+        core.papyrus.install_as_active();
         core.plugins.start(
             core.settings.plugins.enabled,
             core.settings.plugins.plugin_settings.clone(),

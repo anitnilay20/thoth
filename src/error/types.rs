@@ -302,6 +302,14 @@ impl From<reqwest::Error> for ThothError {
     }
 }
 
+impl From<arrow::error::ArrowError> for ThothError {
+    fn from(err: arrow::error::ArrowError) -> Self {
+        ThothError::DatabaseConversionError {
+            reason: err.to_string(),
+        }
+    }
+}
+
 impl From<duckdb::Error> for ThothError {
     fn from(value: duckdb::Error) -> Self {
         match value {

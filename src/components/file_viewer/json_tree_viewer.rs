@@ -1,8 +1,6 @@
 use crate::components::file_viewer::viewer_trait::{FileFormatViewer, FileViewerLoader};
-use crate::helpers::{
-    LruCache, format_simple_kv, get_object_string, preview_value, scroll_to_search_target,
-    scroll_to_selection, split_root_rel,
-};
+use crate::file::loaders::NodeKind;
+use crate::helpers::{scroll_to_search_target, scroll_to_selection, split_root_rel};
 use crate::search::results::{FieldComponent, MatchFragment, MatchTarget};
 use crate::theme::{ROW_HEIGHT, row_fill, selected_row_bg};
 use eframe::egui::{self, Ui};
@@ -203,11 +201,15 @@ impl JsonTreeViewer {
         }
     }
 
-    /// Rebuild rows based on visible roots and cache
+    /// Rebuild the flattened row list.
+    ///
+    /// Collapsed records cost nothing to list: whether a record is expandable
+    /// comes from the schema, not from reading it. Only expanded nodes touch
+    /// data, and then only the cells they show. That is what lets this walk a
+    /// million-record file without materializing any of it.
     pub fn rebuild_rows(
         &mut self,
         visible_roots: &Option<Vec<usize>>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
         total_len: usize,
     ) {
@@ -227,33 +229,18 @@ impl JsonTreeViewer {
             let path = i.to_string();
             let highlight_paths = self.record_highlights.get(&i).cloned();
 
-            // Load value to determine its type for correct display
-            let value = if let Some(v) = cache.get(&i) {
-                v.clone()
-            } else {
-                match loader.get_value(i) {
-                    Ok(v) => {
-                        cache.put(i, v.clone());
-                        v
-                    }
-                    Err(_) => continue,
-                }
-            };
-
-            let is_expandable = matches!(value, Value::Object(_) | Value::Array(_));
+            let is_expandable = loader.record_expandable(i);
             let is_expanded = is_expandable && self.expanded.contains(&path);
 
             let display_text = if is_expandable {
                 if is_expanded {
-                    match &value {
-                        Value::Array(_) => format!("[{}]: [", i),
-                        _ => format!("[{}]: {{", i),
-                    }
+                    format!("[{}]: {{", i)
                 } else {
                     format!("[{}]: (…) ", i)
                 }
             } else {
-                format!("[{}]: {}", i, preview_value(&value))
+                // A record with no fields to walk — read just this one node.
+                format!("[{}]: {}", i, loader.node_preview(i, ""))
             };
 
             let row_highlights = compute_row_highlights(
@@ -267,28 +254,20 @@ impl JsonTreeViewer {
                 is_expandable,
                 is_expanded,
                 display_text,
-                text_token: if is_expandable {
-                    (TextToken::Key, Some(TextToken::Bracket))
-                } else {
-                    (TextToken::Key, Some(TextToken::from(&value)))
-                },
+                text_token: (TextToken::Key, Some(TextToken::Bracket)),
                 highlights: row_highlights,
             });
 
             if is_expanded {
-                self.build_rows_from_value(&value, &path, 1, highlight_paths.as_ref());
+                self.build_children(loader, i, "", &path, 1, highlight_paths.as_ref());
 
-                // Closing bracket/brace
-                let close_char = match &value {
-                    Value::Array(_) => "]",
-                    _ => "}",
-                };
+                // Closing brace
                 self.rows.push(JsonRow {
                     path: format!("{}/_close", path),
                     indent: 0,
                     is_expandable: false,
                     is_expanded: false,
-                    display_text: close_char.to_string(),
+                    display_text: "}".to_string(),
                     text_token: (TextToken::Bracket, None),
                     highlights: RowHighlights::default(),
                 });
@@ -296,10 +275,15 @@ impl JsonTreeViewer {
         }
     }
 
-    /// Build rows from a JSON value recursively
-    fn build_rows_from_value(
+    /// Append rows for the children of `rel` within record `root`.
+    ///
+    /// Recurses only into expanded nodes, so an unexpanded subtree is never
+    /// read.
+    fn build_children(
         &mut self,
-        value: &Value,
+        loader: &mut dyn FileViewerLoader,
+        root: usize,
+        rel: &str,
         path: &str,
         indent: usize,
         highlights_map: Option<&HashMap<String, PathHighlightTerms>>,
@@ -307,135 +291,69 @@ impl JsonTreeViewer {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
-        match value {
-            Value::Object(map) => {
-                for (key, val) in map.iter() {
-                    let new_path = format!("{}.{}", path, key);
-                    let is_expandable = matches!(val, Value::Object(_) | Value::Array(_));
-                    let is_expanded = is_expandable && self.expanded.contains(&new_path);
+        for node in loader.children(root, rel) {
+            // The display path keeps the record prefix ("0.user"); the relative
+            // path is record-local and must not start with a separator.
+            let child_rel = if rel.is_empty() {
+                node.segment.trim_start_matches('.').to_string()
+            } else {
+                format!("{rel}{}", node.segment)
+            };
+            let child_path = format!("{path}{}", node.segment);
+            let is_expandable = node.kind.is_expandable();
+            let is_expanded = is_expandable && self.expanded.contains(&child_path);
+            // List elements are labelled by index, struct fields by key.
+            let is_index = node.segment.starts_with('[');
 
-                    // Bracket reflects the VALUE's type, not the container's.
-                    let (open, empty) = if matches!(val, Value::Array(_)) {
-                        ("[", "[]")
-                    } else {
-                        ("{", "{}")
-                    };
-                    let display_text = if is_expandable {
-                        format!("\"{}\": {}", key, if is_expanded { open } else { empty })
-                    } else {
-                        format_simple_kv(key, val)
-                    };
-                    let row_highlights = compute_row_highlights(
-                        &display_text,
-                        highlights_map.and_then(|map| map.get(&new_path)),
-                    );
+            // Bracket reflects the VALUE's type, not the container's.
+            let (open, empty) = if node.kind == NodeKind::List {
+                ("[", "[]")
+            } else {
+                ("{", "{}")
+            };
+            let value_text = if is_expandable {
+                if is_expanded { open } else { empty }
+            } else {
+                node.preview.as_str()
+            };
+            let display_text = if is_index {
+                format!("[{}]: {}", node.label, value_text)
+            } else {
+                format!("\"{}\": {}", node.label, value_text)
+            };
 
-                    self.rows.push(JsonRow {
-                        path: new_path.clone(),
-                        indent,
-                        is_expandable,
-                        is_expanded,
-                        display_text,
-                        text_token: (
-                            TextToken::Key,
-                            Some(if is_expandable {
-                                TextToken::Bracket
-                            } else {
-                                TextToken::from(val)
-                            }),
-                        ),
-                        highlights: row_highlights,
-                    });
+            let row_highlights = compute_row_highlights(
+                &display_text,
+                highlights_map.and_then(|map| map.get(&child_path)),
+            );
 
-                    if is_expanded {
-                        self.build_rows_from_value(val, &new_path, indent + 1, highlights_map);
-                        self.rows.push(JsonRow {
-                            path: format!("{}/_close", new_path),
-                            indent,
-                            is_expandable: false,
-                            is_expanded: false,
-                            display_text: if matches!(val, Value::Array(_)) {
-                                "]"
-                            } else {
-                                "}"
-                            }
-                            .to_string(),
-                            text_token: (TextToken::Bracket, None),
-                            highlights: RowHighlights::default(),
-                        });
-                    }
-                }
-            }
-            Value::Array(arr) => {
-                for (idx, val) in arr.iter().enumerate() {
-                    let new_path = format!("{}[{}]", path, idx);
-                    let is_expandable = matches!(val, Value::Object(_) | Value::Array(_));
-                    let is_expanded = is_expandable && self.expanded.contains(&new_path);
+            self.rows.push(JsonRow {
+                path: child_path.clone(),
+                indent,
+                is_expandable,
+                is_expanded,
+                display_text,
+                text_token: (TextToken::Key, Some(node.token)),
+                highlights: row_highlights,
+            });
 
-                    // Bracket reflects the VALUE's type, not the container's.
-                    let (open, empty) = if matches!(val, Value::Array(_)) {
-                        ("[", "[]")
-                    } else {
-                        ("{", "{}")
-                    };
-                    let display_text = if is_expandable {
-                        format!("[{}]: {}", idx, if is_expanded { open } else { empty })
-                    } else {
-                        format!("[{}]: {}", idx, preview_value(val))
-                    };
-                    let row_highlights = compute_row_highlights(
-                        &display_text,
-                        highlights_map.and_then(|map| map.get(&new_path)),
-                    );
-
-                    self.rows.push(JsonRow {
-                        path: new_path.clone(),
-                        indent,
-                        is_expandable,
-                        is_expanded,
-                        display_text,
-                        text_token: if is_expandable {
-                            (TextToken::Key, Some(TextToken::Bracket))
-                        } else {
-                            (TextToken::Key, Some(TextToken::from(val)))
-                        },
-                        highlights: row_highlights,
-                    });
-
-                    if is_expanded {
-                        self.build_rows_from_value(val, &new_path, indent + 1, highlights_map);
-                        self.rows.push(JsonRow {
-                            path: format!("{}/_close", new_path),
-                            indent,
-                            is_expandable: false,
-                            is_expanded: false,
-                            display_text: if matches!(val, Value::Array(_)) {
-                                "]"
-                            } else {
-                                "}"
-                            }
-                            .to_string(),
-                            text_token: (TextToken::Bracket, None),
-                            highlights: RowHighlights::default(),
-                        });
-                    }
-                }
-            }
-            _ => {
-                // Primitives
-                let display_text = preview_value(value).to_string();
-                let row_highlights = compute_row_highlights(
-                    &display_text,
-                    highlights_map.and_then(|map| map.get(path)),
+            if is_expanded {
+                self.build_children(
+                    loader,
+                    root,
+                    &child_rel,
+                    &child_path,
+                    indent + 1,
+                    highlights_map,
                 );
                 self.rows.push(JsonRow {
-                    path: path.to_string(),
+                    path: format!("{}/_close", child_path),
                     indent,
                     is_expandable: false,
                     is_expanded: false,
-                    display_text,
-                    text_token: (TextToken::from(value), None),
-                    highlights: row_highlights,
+                    display_text: if node.kind == NodeKind::List { "]" } else { "}" }.to_string(),
+                    text_token: (TextToken::Bracket, None),
+                    highlights: RowHighlights::default(),
                 });
             }
         }
@@ -447,7 +365,6 @@ impl JsonTreeViewer {
         &mut self,
         ui: &mut Ui,
         selected: &mut Option<String>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
@@ -588,7 +505,6 @@ impl JsonTreeViewer {
                                 action,
                                 self,
                                 &Some(path.clone()),
-                                cache,
                                 loader,
                             ) {
                                 copy_clipboard = Some(text);
@@ -643,49 +559,36 @@ impl ContextMenuHandler for JsonTreeViewer {
     fn copy_selected_value(
         &self,
         selected: &Option<String>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
-        if let Some(path) = selected {
-            // Find the row to get display text
-            if let Some(row) = self.rows.iter().find(|r| r.path == *path) {
-                // Parse display text to extract value part
-                let parts: Vec<&str> = row.display_text.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    return Some(parts[1].trim().to_string());
-                }
-            }
+        let path = selected.as_ref()?;
+        // The rendered text is truncated for display, so read the node itself
+        // rather than scraping the row.
+        if let Ok((root, rel)) = split_root_rel(path)
+            && let Some(value) = loader.node_json(root, rel)
+        {
+            return Some(match value {
+                Value::String(s) => s,
+                other => other.to_string(),
+            });
         }
-        let _ = (cache, loader); // Suppress unused warnings for now
-        None
+
+        // Fall back to the row text (plugin-rendered rows have no node).
+        let row = self.rows.iter().find(|r| r.path == *path)?;
+        let parts: Vec<&str> = row.display_text.splitn(2, ':').collect();
+        (parts.len() == 2).then(|| parts[1].trim().to_string())
     }
 
     fn copy_selected_object(
         &self,
         selected: &Option<String>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
-        if let Some(path) = selected
-            && let Ok((root_idx, rel)) = split_root_rel(path)
-        {
-            // Try to get from cache first
-            let value = if let Some(v) = cache.get(&root_idx) {
-                v.clone()
-            } else {
-                // Load from file
-                match loader.get_value(root_idx) {
-                    Ok(v) => {
-                        cache.put(root_idx, v.clone());
-                        v
-                    }
-                    Err(_) => return None,
-                }
-            };
-
-            return get_object_string(value, rel).ok();
-        }
-        None
+        let path = selected.as_ref()?;
+        let (root, rel) = split_root_rel(path).ok()?;
+        // One edge conversion, of the selected subtree only.
+        let value = loader.node_json(root, rel)?;
+        serde_json::to_string_pretty(&value).ok()
     }
 
     fn copy_selected_path(&self, selected: &Option<String>) -> Option<String> {
@@ -703,18 +606,16 @@ impl FileFormatViewer for JsonTreeViewer {
     fn rebuild_view(
         &mut self,
         visible_roots: &Option<Vec<usize>>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
         total_len: usize,
     ) {
-        self.rebuild_rows(visible_roots, cache, loader, total_len);
+        self.rebuild_rows(visible_roots, loader, total_len);
     }
 
     fn render(
         &mut self,
         ui: &mut Ui,
         selected: &mut Option<String>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
         should_scroll_to_selection: &mut bool,
         is_search_navigation: bool,
@@ -723,7 +624,6 @@ impl FileFormatViewer for JsonTreeViewer {
         self.render(
             ui,
             selected,
-            cache,
             loader,
             should_scroll_to_selection,
             is_search_navigation,
@@ -849,19 +749,17 @@ impl FileFormatViewer for JsonTreeViewer {
     fn copy_selected_value(
         &self,
         selected: &Option<String>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
-        ContextMenuHandler::copy_selected_value(self, selected, cache, loader)
+        ContextMenuHandler::copy_selected_value(self, selected, loader)
     }
 
     fn copy_selected_object(
         &self,
         selected: &Option<String>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
     ) -> Option<String> {
-        ContextMenuHandler::copy_selected_object(self, selected, cache, loader)
+        ContextMenuHandler::copy_selected_object(self, selected, loader)
     }
 
     fn copy_selected_path(&self, selected: &Option<String>) -> Option<String> {
@@ -883,18 +781,64 @@ impl FileFormatViewer for JsonTreeViewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file::loaders::JsonArrayFile;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
 
-    /// Helper: create a JsonArrayFile from a JSON string
-    fn make_json_array_loader(json: &str) -> (JsonArrayFile, usize) {
-        let mut tmp = NamedTempFile::new().unwrap();
-        tmp.write_all(json.as_bytes()).unwrap();
-        tmp.flush().unwrap();
-        let loader = JsonArrayFile::open(tmp.path()).unwrap();
-        let len = loader.len();
-        (loader, len)
+    /// A loader over records already in memory.
+    ///
+    /// These tests exercise the viewer's tree building, not the file layer, so
+    /// they feed it records directly rather than going through the query
+    /// engine — which also lets them cover shapes (a top-level array of bare
+    /// scalars) that have no tabular equivalent.
+    struct VecLoader(Vec<Value>);
+
+    impl FileViewerLoader for VecLoader {
+        fn record_count(&self) -> usize {
+            self.0.len()
+        }
+
+        fn get_value(&mut self, index: usize) -> crate::error::Result<Value> {
+            self.0
+                .get(index)
+                .cloned()
+                .ok_or_else(|| crate::error::ThothError::InvalidJsonStructure {
+                    reason: format!("No record at index {index}"),
+                })
+        }
+    }
+
+    /// Wraps a loader and counts the reads a rebuild actually performs.
+    struct CountingLoader {
+        inner: VecLoader,
+        children_calls: std::cell::Cell<usize>,
+        json_calls: std::cell::Cell<usize>,
+    }
+
+    impl FileViewerLoader for CountingLoader {
+        fn record_count(&self) -> usize {
+            self.inner.record_count()
+        }
+
+        fn get_value(&mut self, index: usize) -> crate::error::Result<Value> {
+            self.json_calls.set(self.json_calls.get() + 1);
+            self.inner.get_value(index)
+        }
+
+        fn record_expandable(&mut self, root: usize) -> bool {
+            // Stand in for the engine, which answers this from the schema.
+            let _ = root;
+            true
+        }
+
+        fn children(&mut self, root: usize, rel: &str) -> Vec<crate::file::loaders::ArrowNode> {
+            self.children_calls.set(self.children_calls.get() + 1);
+            self.inner.children(root, rel)
+        }
+    }
+
+    /// Helper: build a loader from a JSON array literal
+    fn make_json_array_loader(json: &str) -> (VecLoader, usize) {
+        let records: Vec<Value> = serde_json::from_str(json).expect("test fixture is a JSON array");
+        let len = records.len();
+        (VecLoader(records), len)
     }
 
     /// Helper: get display texts from the viewer's current rows
@@ -919,10 +863,9 @@ mod tests {
     fn test_root_string_element_not_expandable() {
         // A JSON array with a string element at root level should NOT be expandable
         let (mut loader, len) = make_json_array_loader(r#"["hello"]"#);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         let info = row_info(&viewer);
         assert_eq!(info.len(), 1, "Should have exactly 1 row");
@@ -948,10 +891,9 @@ mod tests {
     #[test]
     fn test_root_number_element_not_expandable() {
         let (mut loader, len) = make_json_array_loader(r#"[42]"#);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         let info = row_info(&viewer);
         assert_eq!(info.len(), 1);
@@ -970,10 +912,9 @@ mod tests {
     #[test]
     fn test_root_bool_null_elements_not_expandable() {
         let (mut loader, len) = make_json_array_loader(r#"[true, false, null]"#);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         let info = row_info(&viewer);
         assert_eq!(info.len(), 3);
@@ -990,10 +931,9 @@ mod tests {
     fn test_root_object_element_is_expandable() {
         // Objects at root level SHOULD be expandable — verify we don't break this
         let (mut loader, len) = make_json_array_loader(r#"[{"name": "Alice"}]"#);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         let info = row_info(&viewer);
         assert_eq!(info.len(), 1);
@@ -1009,10 +949,9 @@ mod tests {
         // Mix of primitives and objects — only objects/arrays should be expandable
         let json = r#"["hello", 42, {"key": "val"}, [1, 2], true, null]"#;
         let (mut loader, len) = make_json_array_loader(json);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         let info = row_info(&viewer);
         assert_eq!(info.len(), 6);
@@ -1041,13 +980,12 @@ mod tests {
         // Expanding a primitive (string in array) should NOT add it to expanded set
         let json = r#"[{"values": ["Talisman"]}]"#;
         let (mut loader, len) = make_json_array_loader(json);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
         // First build with root expanded
         viewer.expanded.insert("0".to_string());
         viewer.expanded.insert("0.values".to_string());
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         // The string element "Talisman" at path "0.values[0]" should be displayed
         let info = row_info(&viewer);
@@ -1075,13 +1013,12 @@ mod tests {
         // it should NOT produce duplicate child rows
         let json = r#"[{"values": ["Talisman"]}]"#;
         let (mut loader, len) = make_json_array_loader(json);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
         // Expand root and values
         viewer.expanded.insert("0".to_string());
         viewer.expanded.insert("0.values".to_string());
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         // Count rows containing "Talisman"
         let texts = row_display_texts(&viewer);
@@ -1099,14 +1036,13 @@ mod tests {
         // rebuild should not produce duplicate rows
         let json = r#"[{"items": ["hello", "world"]}]"#;
         let (mut loader, len) = make_json_array_loader(json);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
         // Expand root, items, AND force-expand the primitive "hello"
         viewer.expanded.insert("0".to_string());
         viewer.expanded.insert("0.items".to_string());
         viewer.expanded.insert("0.items[0]".to_string()); // Force-expand primitive!
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         let texts = row_display_texts(&viewer);
         let hello_count = texts.iter().filter(|t| t.contains("hello")).count();
@@ -1122,17 +1058,16 @@ mod tests {
         // expand_all should only expand objects/arrays, not primitives
         let json = r#"[{"name": "Alice", "scores": [100, 200]}]"#;
         let (mut loader, len) = make_json_array_loader(json);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
         // Initial build
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         // Expand all repeatedly until stable
         for _ in 0..5 {
             let changed = viewer.expand_all();
             if changed {
-                viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+                viewer.rebuild_rows(&None, &mut loader, len);
             }
         }
 
@@ -1165,12 +1100,11 @@ mod tests {
         // Simulates the PoE gemSkill URL from Screenshot 1
         let json = r#"[{"gemSkill": "https://web.poecdn.com/gen/image/WzIxLDE0"}]"#;
         let (mut loader, len) = make_json_array_loader(json);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
         // Expand root object
         viewer.expanded.insert("0".to_string());
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         // Try to expand the string field via expand_selected (simulates right arrow)
         let selected = Some("0.gemSkill".to_string());
@@ -1182,7 +1116,7 @@ mod tests {
 
         // Even if we force the path into expanded set, rebuild should not duplicate
         viewer.expanded.insert("0.gemSkill".to_string());
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         let texts = row_display_texts(&viewer);
         let url_count = texts.iter().filter(|t| t.contains("poecdn.com")).count();
@@ -1198,13 +1132,12 @@ mod tests {
         // String value containing embedded quotes — the original Screenshot 1 scenario
         let json = r#"[{"url": "https://example.com/q=\"test\""}]"#;
         let (mut loader, len) = make_json_array_loader(json);
-        let mut cache = LruCache::new(16);
         let mut viewer = JsonTreeViewer::new();
 
         // Expand root and force-expand the string field
         viewer.expanded.insert("0".to_string());
         viewer.expanded.insert("0.url".to_string());
-        viewer.rebuild_rows(&None, &mut cache, &mut loader, len);
+        viewer.rebuild_rows(&None, &mut loader, len);
 
         let texts = row_display_texts(&viewer);
         let example_count = texts.iter().filter(|t| t.contains("example.com")).count();
@@ -1212,6 +1145,52 @@ mod tests {
             example_count, 1,
             "URL with quotes should appear exactly once, got {} in: {:?}",
             example_count, texts
+        );
+    }
+
+    #[test]
+    fn collapsed_records_are_listed_without_reading_them() {
+        // The point of rendering from Arrow: a rebuild over collapsed records
+        // must not touch their data. Expandability comes from the schema.
+        let records: Vec<Value> = (0..500).map(|i| serde_json::json!({ "n": i })).collect();
+        let len = records.len();
+        let mut loader = CountingLoader {
+            inner: VecLoader(records),
+            children_calls: std::cell::Cell::new(0),
+            json_calls: std::cell::Cell::new(0),
+        };
+
+        let mut viewer = JsonTreeViewer::new();
+        viewer.rebuild_rows(&None, &mut loader, len);
+
+        assert_eq!(viewer.rows.len(), len, "every record gets a row");
+        assert_eq!(
+            loader.children_calls.get(),
+            0,
+            "no collapsed record should have been read"
+        );
+        assert_eq!(loader.json_calls.get(), 0, "no record should be serialized");
+    }
+
+    #[test]
+    fn expanding_one_record_reads_only_that_record() {
+        let records: Vec<Value> = (0..500).map(|i| serde_json::json!({ "n": i })).collect();
+        let len = records.len();
+        let mut loader = CountingLoader {
+            inner: VecLoader(records),
+            children_calls: std::cell::Cell::new(0),
+            json_calls: std::cell::Cell::new(0),
+        };
+
+        let mut viewer = JsonTreeViewer::new();
+        viewer.expanded.insert("7".to_string());
+        viewer.rebuild_rows(&None, &mut loader, len);
+
+        // Exactly one record was walked, not the other 499.
+        assert_eq!(loader.children_calls.get(), 1);
+        assert!(
+            viewer.rows.iter().any(|r| r.display_text.contains("\"n\": 7")),
+            "the expanded record's field is rendered"
         );
     }
 }

@@ -6,7 +6,7 @@ use crate::{
     app::{file_picker, pick_file, tab_manager::TabEvent},
     components::{self, traits::ContextComponent},
     core::{CoreAction, CoreEvent, ThothCore},
-    file::FileType,
+    file::FileKind,
     plugin::plugin_ui_host::PluginCore,
     settings, state,
     theme::ThemeColorsExt,
@@ -379,7 +379,7 @@ impl App for ThothApp {
             ctx.copy_text(text);
         }
 
-        let sidebar_msg = self.render_sidebar(ui);
+        let _sidebar_msg = self.render_sidebar(ui);
 
         // TODO: Older search functions.
         // Handle search messages from sidebar against the active tab.
@@ -1242,7 +1242,7 @@ impl ThothApp {
                 (tab.file_type, tab.file_path.clone(), back, fwd)
             } else {
                 // TODO: Check if this needs fixing
-                (FileType::default(), None, false, false)
+                (FileKind::default(), None, false, false)
             };
 
         let output = self.window_state.toolbar.render(
@@ -1574,19 +1574,21 @@ impl ThothApp {
             .tab_manager
             .tabs
             .iter()
-            .filter_map(|(id, t)| match t.active_plugin_pane.as_ref() {
+            .map(|(id, t)| match t.active_plugin_pane.as_ref() {
                 // Plugin producer/consumer instances.
-                Some(p) => Some(p.loader.instance_id().to_string()),
+                Some(p) => p.loader.instance_id().to_string(),
                 // Core file tabs act as dataset producers under a stable marker.
-                None if t.file_path.is_some() => Some(format!("core#{id}")),
-                None => None,
+                // Keyed on the tab existing, not on `file_path` — that is set an
+                // event later than the sheet is published, so testing it here
+                // would reap a freshly-opened file on its very first frame.
+                None => format!("core#{id}"),
             })
             .collect();
         crate::plugin::signals::retain_instances(&open_instances);
         // Datasets are cleared when their producing instance closes too.
-        crate::plugin::datasets::retain_instances(&open_instances);
+        crate::papyrus::retain_instances(&open_instances);
         // Release cached plugin renders whose dataset is gone (producer closed).
-        let live_handles: std::collections::HashSet<String> = crate::plugin::datasets::list()
+        let live_handles: std::collections::HashSet<String> = crate::papyrus::list()
             .into_iter()
             .map(|m| m.id)
             .collect();
@@ -1603,7 +1605,7 @@ impl ThothApp {
             selected_path,
             active_plugin_id,
         ) = if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-            let search = &tab.search_engine_state.search;
+            let _search = &tab.search_engine_state.search;
             // TODO: Default random value set here
             let scanning = false;
             let results_len = 0;
@@ -1634,7 +1636,7 @@ impl ThothApp {
         } else {
             (
                 None,
-                FileType::default(),
+                FileKind::default(),
                 0,
                 false,
                 false,
@@ -1875,7 +1877,7 @@ impl ThothApp {
             .unwrap_or_default();
 
         // Snapshot per-tab data we need for SidebarProps (avoids complex lifetime issues).
-        let (current_file_path, search_state_clone) =
+        let (current_file_path, _search_state_clone) =
             if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                 (
                     tab.file_path.clone(),
@@ -2386,7 +2388,7 @@ impl ThothApp {
             return;
         };
 
-        let Some(meta) = crate::plugin::datasets::meta(handle) else {
+        let Some(meta) = crate::papyrus::meta(handle) else {
             Self::notify_dataset_unavailable();
             return;
         };
@@ -2427,7 +2429,7 @@ impl ThothApp {
     fn drain_pending_exports(&mut self) {
         for (handle, exporter_id) in drain_queued_exports() {
             // The dataset may have been dropped between approval and now.
-            let Some(meta) = crate::plugin::datasets::meta(&handle) else {
+            let Some(meta) = crate::papyrus::meta(&handle) else {
                 Self::notify_dataset_unavailable();
                 continue;
             };
@@ -2714,7 +2716,7 @@ fn dataset_records_json(handle: &str) -> String {
     let mut rows: Vec<Vec<String>> = Vec::new();
     let mut offset: u64 = 0;
     while let Some(page) =
-        crate::plugin::datasets::read(handle, offset, crate::plugin::datasets::MAX_READ_LIMIT)
+        crate::papyrus::read(handle, offset, crate::papyrus::MAX_READ_LIMIT)
     {
         if columns.is_empty() {
             columns = page.columns.iter().map(|c| c.name.clone()).collect();
@@ -2762,7 +2764,7 @@ pub fn render_dataset_with_plugin(
     use crate::notification::{Notification, NotificationManager};
     use thoth_plugin_sdk::dataset::PluginRenderResult;
 
-    let Some(meta) = crate::plugin::datasets::meta(handle) else {
+    let Some(meta) = crate::papyrus::meta(handle) else {
         return PluginRenderResult::Unavailable;
     };
     let source = meta.source_plugin.clone();
@@ -2856,7 +2858,7 @@ pub fn resolve_dataset_for_view(
     handle: &str,
     limit: u32,
 ) -> Option<thoth_plugin_sdk::dataset::DatasetPage> {
-    let page = crate::plugin::datasets::read(handle, 0, limit)?;
+    let page = crate::papyrus::read(handle, 0, limit)?;
     Some(thoth_plugin_sdk::dataset::DatasetPage {
         columns: page
             .columns

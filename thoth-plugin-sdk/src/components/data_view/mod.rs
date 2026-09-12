@@ -24,6 +24,13 @@ pub struct DataView {
     /// lets the producer surface a richer line (e.g. `"100 rows (capped) · SELECT 101"`).
     #[serde(default)]
     pub caption: Option<String>,
+    /// View to open in the first time this node is shown — `"table"`, `"json"`,
+    /// `"raw"`, or `"plugin:<id>"`. Defaults to `"table"`.
+    ///
+    /// Only the *initial* view: once the user picks one it is remembered per
+    /// node, and this is ignored.
+    #[serde(default)]
+    pub default_view: Option<String>,
 }
 
 #[cfg(feature = "egui")]
@@ -100,10 +107,15 @@ impl DataView {
         // Current view, remembered across frames; falls back to Table if a
         // previously-selected renderer plugin is no longer installed.
         let mem_id = ui.make_persistent_id((node_id, "data_view_view"));
+        let fallback = self
+            .default_view
+            .clone()
+            .filter(|v| view_options.iter().any(|o| &o.value == v))
+            .unwrap_or_else(|| "table".to_string());
         let mut view: String = ui
             .data(|d| d.get_temp::<String>(mem_id))
             .filter(|v| view_options.iter().any(|o| &o.value == v))
-            .unwrap_or_else(|| "table".to_string());
+            .unwrap_or(fallback);
 
         let colors = ThemeColors::from_ctx(ui.ctx());
         // No outer frame, corners or edge of its own. `DataView` always fills a
@@ -306,15 +318,23 @@ impl DataView {
         scrolled(ui, !table_view(view), (node_id, "data_view_scroll"), |ui| {
             match view {
                 "json" => {
-                    JsonTree::builder()
+                    // Bound to the handle, not to `page`: the tree reads only
+                    // the nodes it is showing, so this draws a dataset far
+                    // larger than the page limit above. Falls back to the page
+                    // when no lazy access is installed.
+                    let mut tree = JsonTree::builder()
                         .id(format!("{node_id}_tree"))
-                        .value(records_value(page))
                         // DataView already owns the rounded panel and hairline
                         // edge, so the tree must not draw a second one inside it
                         // (same reason `TableView` is unframed here).
                         .framed(false)
-                        .build()
-                        .show(ui);
+                        .build();
+                    if crate::dataset::dataset_access().is_some() {
+                        tree.handle = Some(self.handle.clone());
+                    } else {
+                        tree.value = records_value(page);
+                    }
+                    tree.show(ui);
                 }
                 "raw" => {
                     ui.add(
@@ -479,4 +499,39 @@ fn records_json(page: &crate::dataset::DatasetPage, pretty: bool) -> String {
         serde_json::to_string(&value)
     }
     .unwrap_or_default()
+}
+
+#[cfg(all(test, feature = "egui"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_view_is_carried_on_the_node() {
+        let dv = DataView::builder()
+            .handle("h")
+            .default_view("json")
+            .build();
+        assert_eq!(dv.default_view.as_deref(), Some("json"));
+
+        // Absent means the built-in fallback (Table) applies.
+        let plain = DataView::builder().handle("h").build();
+        assert!(plain.default_view.is_none());
+    }
+
+    #[test]
+    fn default_view_survives_serialization() {
+        // The node crosses the plugin boundary as JSON, so the field has to
+        // round-trip or a producer's chosen view would be silently dropped.
+        let dv = DataView::builder()
+            .handle("h")
+            .default_view("raw")
+            .build();
+        let wire = serde_json::to_string(&dv).unwrap();
+        let back: DataView = serde_json::from_str(&wire).unwrap();
+        assert_eq!(back.default_view.as_deref(), Some("raw"));
+
+        // An older node without the field still deserializes.
+        let legacy: DataView = serde_json::from_str(r#"{"handle":"h"}"#).unwrap();
+        assert!(legacy.default_view.is_none());
+    }
 }

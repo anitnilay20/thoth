@@ -1,21 +1,32 @@
-//! Host-side registry for the plugin **datasets** channel — the host's single
-//! owned copy of tabular data (part of the plugin data ecosystem, #118).
+//! Papyrus — the data bus. The host's single owned view of tabular data, read
+//! by handle in *pages*.
 //!
-//! A producer publishes a dataset (typed columns + string cells for v1) via the
-//! `dataset-bus` WIT import and gets back a handle; it embeds that handle in a
-//! `data-view` render node, and the host draws the data itself (#114) — reading
-//! rows here by handle so they never re-enter the plugin. The registry
-//! LRU-evicts old datasets, replaces an instance's dataset on re-`publish`, and
-//! drops a producer's datasets when its instance closes (reconciled each frame,
-//! like signals).
+//! Everything that displays data goes through here. A `data-view` render node
+//! holds only a handle and asks Papyrus for the rows it is currently showing,
+//! so the data never has to be resident anywhere else.
 //!
-//! The row payload is intentionally a `Vec<Vec<String>>` (row-major strings) so
-//! v1 stays simple; the seam is designed to swap to Apache Arrow IPC later
-//! without changing the public shape.
+//! Two kinds of sheet sit behind a handle:
+//!
+//! - [`Source::Rows`] — pushed by a producer over the `dataset-bus` WIT import
+//!   (a plugin publishing results). Owned, bounded, stringly-typed. The
+//!   registry LRU-evicts these, replaces an instance's sheet on re-`publish`,
+//!   and drops a producer's sheets when its instance closes.
+//! - [`Source::Arrow`] — a live query engine, scanned on demand. Nothing is
+//!   materialized: a read fetches exactly the window asked for, so an open file
+//!   of any size costs a window. This is the path DuckDB writes into.
+//!
+//! The two differ in fidelity as well as size. Arrow carries real types, nulls
+//! and nesting; pushed rows are strings with a per-column type hint, so nested
+//! values arrive already flattened.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
 use std::time::Instant;
+
+use serde_json::Value;
+use thoth_plugin_sdk::dataset::{NodeKind, TreeNode};
+
+use crate::file::loaders::{FileLoader, RecordWindow, arrow_tree};
 
 /// Most datasets kept before LRU eviction of the least-recently-accessed.
 const MAX_DATASETS: usize = 32;
@@ -63,12 +74,48 @@ pub struct Page {
     pub total: u64,
 }
 
+/// A live query engine behind a handle, plus the Arrow window currently held.
+///
+/// The window is what makes a read cheap: consecutive reads of nearby rows are
+/// served from Arrow already in hand, and only a jump outside it costs a query.
+struct ArrowSheet {
+    loader: Arc<dyn FileLoader + Send + Sync>,
+    window: RecordWindow,
+    total: u64,
+    columns: Vec<DatasetColumn>,
+}
+
+/// What backs a handle.
+enum Source {
+    /// Rows pushed by a producer — owned by the registry.
+    Rows(Vec<Vec<String>>),
+    /// A live engine, scanned on demand.
+    Arrow(Box<ArrowSheet>),
+}
+
+impl Source {
+    fn rows(&self) -> Option<&Vec<Vec<String>>> {
+        match self {
+            Source::Rows(rows) => Some(rows),
+            Source::Arrow(_) => None,
+        }
+    }
+
+    fn rows_mut(&mut self) -> Option<&mut Vec<Vec<String>>> {
+        match self {
+            Source::Rows(rows) => Some(rows),
+            Source::Arrow(_) => None,
+        }
+    }
+}
+
 struct Stored {
     meta: DatasetMeta,
-    rows: Vec<Vec<String>>,
+    source: Source,
     last_access: Instant,
     /// Estimated heap footprint of this dataset, tracked so the registry can
-    /// enforce [`MAX_BYTES`] without re-summing every entry.
+    /// enforce [`MAX_BYTES`] without re-summing every entry. An Arrow sheet
+    /// holds only a window, so it contributes ~nothing.
     size: usize,
 }
 
@@ -148,11 +195,11 @@ fn dataset_bytes(meta: &DatasetMeta, rows: &[Vec<String>]) -> usize {
 type SharedRegistry = Arc<Mutex<Registry>>;
 
 /// Core-owned dataset store.
-pub struct DatasetStore {
+pub struct PapyrusStore {
     registry: SharedRegistry,
 }
 
-impl DatasetStore {
+impl PapyrusStore {
     /// Create an empty dataset store.
     pub fn new() -> Self {
         Self {
@@ -168,7 +215,7 @@ impl DatasetStore {
     }
 }
 
-impl Default for DatasetStore {
+impl Default for PapyrusStore {
     fn default() -> Self {
         Self::new()
     }
@@ -237,7 +284,7 @@ pub fn publish(
         id.clone(),
         Stored {
             meta,
-            rows,
+            source: Source::Rows(rows),
             last_access: Instant::now(),
             size,
         },
@@ -248,6 +295,219 @@ pub fn publish(
     // it's the most recently accessed).
     reg.enforce_budget();
     id
+}
+
+/// Publish a live query engine as a sheet, returning its handle.
+///
+/// Nothing is copied. The engine stays the owner of the data and Papyrus reads
+/// windows out of it on demand, so a file of any size costs one window — this
+/// is the path an open file takes to reach a `data-view`.
+pub fn publish_arrow(
+    source: &str,
+    instance: &str,
+    name: String,
+    loader: Arc<dyn FileLoader + Send + Sync>,
+) -> Option<String> {
+    let total = loader.len().ok()? as u64;
+    let columns: Vec<DatasetColumn> = {
+        use crate::file::loaders::RecordSource;
+        loader
+            .column_names()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|name| DatasetColumn {
+                name,
+                type_hint: String::new(),
+            })
+            .collect()
+    };
+
+    let registry = registry();
+    let mut reg = registry.lock().ok()?;
+    // Re-publishing from the same instance replaces its previous sheet.
+    let stale: Vec<String> = reg
+        .map
+        .values()
+        .filter(|s| s.meta.source_instance == instance)
+        .map(|s| s.meta.id.clone())
+        .collect();
+    for id in stale {
+        reg.drop_dataset(&id);
+    }
+
+    reg.seq += 1;
+    let revision = reg.next_rev();
+    let id = format!("ds-{}", reg.seq);
+    let meta = DatasetMeta {
+        id: id.clone(),
+        name,
+        source_plugin: source.to_string(),
+        source_instance: instance.to_string(),
+        kind: "file".to_string(),
+        tags: Vec::new(),
+        row_count: total,
+        columns: columns.clone(),
+        revision,
+    };
+    reg.map.insert(
+        id.clone(),
+        Stored {
+            meta,
+            source: Source::Arrow(Box::new(ArrowSheet {
+                loader,
+                window: RecordWindow::default(),
+                total,
+                columns,
+            })),
+            last_access: Instant::now(),
+            // A live sheet holds only a window; it doesn't count against the
+            // registry's byte budget for owned rows.
+            size: 0,
+        },
+    );
+    reg.order.push(id.clone());
+    Some(id)
+}
+
+// ── Lazy node access ─────────────────────────────────────────────────────────
+//
+// A page is enough to draw a table. A *tree* needs to ask what one node's
+// children are without materializing its siblings — that is what lets the
+// viewer draw a screenful of a file that does not fit in memory.
+
+/// Total records behind a handle.
+pub fn total(id: &str) -> u64 {
+    with_sheet(id, |stored| match &stored.source {
+        Source::Rows(rows) => rows.len() as u64,
+        Source::Arrow(sheet) => sheet.total,
+    })
+    .unwrap_or(0)
+}
+
+/// Whether records have any children to expand.
+///
+/// Answered from the schema, never from the data — which is what makes listing
+/// a million collapsed records free.
+pub fn records_expandable(id: &str) -> bool {
+    with_sheet(id, |stored| !stored.meta.columns.is_empty()).unwrap_or(false)
+}
+
+/// Children of the node at `rel` within record `root`.
+pub fn children(id: &str, root: u64, rel: &str) -> Vec<TreeNode> {
+    with_sheet(id, |stored| match &mut stored.source {
+        Source::Arrow(sheet) => match sheet.window.locate(&*sheet.loader, root as usize) {
+            Ok((batches, local)) => arrow_tree::children(batches, local, rel),
+            Err(_) => Vec::new(),
+        },
+        // Pushed rows are already flat: a record's children are its cells, and
+        // a cell has none.
+        Source::Rows(rows) => {
+            if !rel.is_empty() {
+                return Vec::new();
+            }
+            let Some(row) = rows.get(root as usize) else {
+                return Vec::new();
+            };
+            stored
+                .meta
+                .columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| {
+                    let cell = row.get(i).map(String::as_str).unwrap_or("");
+                    let (preview, token) = cell_preview(cell, &col.type_hint);
+                    TreeNode {
+                        label: col.name.clone(),
+                        segment: format!(".{}", col.name),
+                        kind: NodeKind::Leaf,
+                        preview,
+                        token,
+                    }
+                })
+                .collect()
+        }
+    })
+    .unwrap_or_default()
+}
+
+/// Display text of the leaf at `rel`.
+pub fn node_preview(id: &str, root: u64, rel: &str) -> String {
+    with_sheet(id, |stored| match &mut stored.source {
+        Source::Arrow(sheet) => match sheet.window.locate(&*sheet.loader, root as usize) {
+            Ok((batches, local)) => arrow_tree::node_preview(batches, local, rel),
+            Err(_) => "null".to_string(),
+        },
+        Source::Rows(_) => "null".to_string(),
+    })
+    .unwrap_or_else(|| "null".to_string())
+}
+
+/// The subtree at `rel` as JSON — the edge conversion, for clipboard and
+/// export. Drawing a row must not call this.
+pub fn node_json(id: &str, root: u64, rel: &str) -> Option<Value> {
+    with_sheet(id, |stored| match &mut stored.source {
+        Source::Arrow(sheet) => {
+            let (batches, local) = sheet.window.locate(&*sheet.loader, root as usize).ok()?;
+            arrow_tree::node_to_json(batches, local, rel)
+        }
+        Source::Rows(rows) => {
+            let row = rows.get(root as usize)?;
+            let mut map = serde_json::Map::new();
+            for (i, col) in stored.meta.columns.iter().enumerate() {
+                let cell = row.get(i).map(String::as_str).unwrap_or("");
+                map.insert(col.name.clone(), typed_cell(cell, &col.type_hint));
+            }
+            Some(Value::Object(map))
+        }
+    })
+    .flatten()
+}
+
+fn with_sheet<T>(id: &str, f: impl FnOnce(&mut Stored) -> T) -> Option<T> {
+    let registry = registry();
+    let mut reg = registry.lock().ok()?;
+    let stored = reg.map.get_mut(id)?;
+    stored.last_access = Instant::now();
+    Some(f(stored))
+}
+
+/// Recover a pushed cell's JSON value from its column's type hint. Pushed rows
+/// are strings, so this is the best fidelity available on that path.
+fn typed_cell(cell: &str, type_hint: &str) -> Value {
+    if cell.is_empty() {
+        return Value::String(String::new());
+    }
+    match type_hint {
+        "integer" => cell
+            .parse::<i64>()
+            .map(Value::from)
+            .unwrap_or_else(|_| Value::String(cell.to_string())),
+        "float" => cell
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map(Value::Number)
+            .unwrap_or_else(|| Value::String(cell.to_string())),
+        "boolean" => match cell.to_ascii_lowercase().as_str() {
+            "true" | "t" | "1" => Value::Bool(true),
+            "false" | "f" | "0" => Value::Bool(false),
+            _ => Value::String(cell.to_string()),
+        },
+        _ => Value::String(cell.to_string()),
+    }
+}
+
+/// Row text and syntax token for a pushed cell.
+fn cell_preview(cell: &str, type_hint: &str) -> (String, thoth_plugin_sdk::theme::TextToken) {
+    use thoth_plugin_sdk::theme::TextToken;
+    match typed_cell(cell, type_hint) {
+        Value::Number(n) => (n.to_string(), TextToken::Number),
+        Value::Bool(b) => (b.to_string(), TextToken::Boolean),
+        other => (
+            format!("\"{}\"", other.as_str().unwrap_or_default()),
+            TextToken::Str,
+        ),
+    }
 }
 
 /// Metadata (no rows) for a single dataset by id; `None` if unknown.
@@ -278,16 +538,38 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
     };
     let stored = reg.map.get_mut(id)?;
     stored.last_access = Instant::now();
-    let total = stored.rows.len() as u64;
-    let start = offset.min(total) as usize;
-    let capped = limit.min(MAX_READ_LIMIT) as u64;
-    let end = (offset.saturating_add(capped)).min(total) as usize;
-    Some(Page {
-        columns: stored.meta.columns.clone(),
-        rows: stored.rows[start..end].to_vec(),
-        offset: start as u64,
-        total,
-    })
+    let capped = limit.min(MAX_READ_LIMIT);
+
+    match &mut stored.source {
+        Source::Rows(rows) => {
+            let total = rows.len() as u64;
+            let start = offset.min(total) as usize;
+            let end = (offset.saturating_add(capped as u64)).min(total) as usize;
+            Some(Page {
+                columns: stored.meta.columns.clone(),
+                rows: rows[start..end].to_vec(),
+                offset: start as u64,
+                total,
+            })
+        }
+        // Scanned on demand — only the requested window crosses.
+        Source::Arrow(sheet) => {
+            let total = sheet.total;
+            let start = offset.min(total);
+            let batches = sheet
+                .loader
+                .fetch(Vec::new(), Some(start as usize), Some(capped as usize))
+                .ok()?;
+            Some(Page {
+                columns: sheet.columns.clone(),
+                rows: crate::file::to_dataset::batches_to_dataset(&batches)
+                    .map(|(_, rows)| rows)
+                    .unwrap_or_default(),
+                offset: start,
+                total,
+            })
+        }
+    }
 }
 
 /// Replace the columns + rows behind an existing handle in place (keeping its
@@ -314,9 +596,11 @@ pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<V
         };
         let size = dataset_bytes(&meta, &rows);
         let old_size = stored.size;
-        if let Some(stored) = reg.map.get_mut(id) {
+        if let Some(stored) = reg.map.get_mut(id)
+            && stored.source.rows().is_some()
+        {
             stored.meta = meta;
-            stored.rows = rows;
+            stored.source = Source::Rows(rows);
             stored.size = size;
             stored.last_access = Instant::now();
         }
@@ -349,17 +633,23 @@ pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
         // re-summing every retained row — an append-heavy stream would otherwise
         // be O(rows) per call.
         let added: usize = rows.iter().map(|r| row_bytes(r)).sum();
-        stored.rows.extend(rows);
+        // Streaming only applies to pushed sheets; a live engine has nothing to
+        // append to.
+        let Some(stored_rows) = stored.source.rows_mut() else {
+            return;
+        };
+        stored_rows.extend(rows);
         // Ring-buffer: drop the oldest rows past the cap.
-        let overflow = stored.rows.len().saturating_sub(MAX_STREAM_ROWS);
+        let overflow = stored_rows.len().saturating_sub(MAX_STREAM_ROWS);
         let evicted: usize = if overflow > 0 {
-            let e = stored.rows[..overflow].iter().map(|r| row_bytes(r)).sum();
-            stored.rows.drain(..overflow);
+            let e = stored_rows[..overflow].iter().map(|r| row_bytes(r)).sum();
+            stored_rows.drain(..overflow);
             e
         } else {
             0
         };
-        stored.meta.row_count = stored.rows.len() as u64;
+        let retained = stored_rows.len() as u64;
+        stored.meta.row_count = retained;
         stored.meta.revision = revision;
         let old_size = stored.size;
         stored.size = old_size.saturating_add(added).saturating_sub(evicted);
@@ -658,5 +948,130 @@ mod tests {
         let metas = list();
         assert_eq!(metas.len(), 1, "over budget → only the survivor remains");
         assert_eq!(metas[0].name, "second");
+    }
+
+    use crate::file::loaders::DuckdbConnection;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn ndjson(lines: &str) -> NamedTempFile {
+        let mut tmp = tempfile::Builder::new()
+            .suffix(".ndjson")
+            .tempfile()
+            .unwrap();
+        tmp.write_all(lines.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+        tmp
+    }
+
+    fn publish_file(lines: &str, instance: &str) -> (String, NamedTempFile) {
+        let file = ndjson(lines);
+        let engine = DuckdbConnection::open_path(file.path()).unwrap();
+        let handle = publish_arrow("core", instance, "test".to_string(), Arc::new(engine))
+            .expect("published");
+        (handle, file)
+    }
+
+    #[test]
+    fn an_engine_publishes_without_copying_its_rows() {
+        let _guard = reset();
+        let rows: String = (0..50_000).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        let (handle, _file) = publish_file(&rows, "big");
+
+        // Every row is addressable...
+        assert_eq!(total(&handle), 50_000);
+        // ...but nothing was materialized into the registry's byte budget.
+        let registry = registry();
+        let reg = registry.lock().unwrap();
+        assert_eq!(reg.map.get(&handle).unwrap().size, 0);
+    }
+
+    #[test]
+    fn a_read_returns_only_the_window_asked_for() {
+        let _guard = reset();
+        let rows: String = (0..10_000).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        let (handle, _file) = publish_file(&rows, "window");
+
+        let page = read(&handle, 500, 10).expect("page");
+        assert_eq!(page.rows.len(), 10, "only the requested rows cross");
+        assert_eq!(page.offset, 500);
+        assert_eq!(page.total, 10_000, "the total still reflects the whole file");
+        assert_eq!(page.rows[0][0], "500");
+    }
+
+    #[test]
+    fn records_expand_from_the_schema_alone() {
+        let _guard = reset();
+        let (handle, _file) = publish_file("{\"a\":1,\"b\":\"x\"}\n", "schema");
+        assert!(records_expandable(&handle));
+
+        let kids = children(&handle, 0, "");
+        assert_eq!(
+            kids.iter().map(|n| n.label.as_str()).collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+        assert_eq!(kids[0].preview, "1");
+    }
+
+    #[test]
+    fn nesting_survives_the_bus() {
+        let _guard = reset();
+        // The whole point of the Arrow path: a nested value stays a subtree
+        // rather than collapsing to a string.
+        let (handle, _file) =
+            publish_file("{\"user\":{\"name\":\"ada\"},\"tags\":[\"x\",\"y\"]}\n", "nested");
+
+        let kids = children(&handle, 0, "");
+        assert_eq!(kids[0].kind, NodeKind::Struct);
+        assert_eq!(kids[1].kind, NodeKind::List);
+        assert_eq!(children(&handle, 0, "user")[0].preview, "\"ada\"");
+        assert_eq!(children(&handle, 0, "tags").len(), 2);
+
+        let json = node_json(&handle, 0, "user").unwrap();
+        assert_eq!(json["name"], "ada");
+    }
+
+    #[test]
+    fn pushed_rows_still_work_and_stay_flat() {
+        let _guard = reset();
+        let columns = vec![
+            DatasetColumn {
+                name: "n".to_string(),
+                type_hint: "integer".to_string(),
+            },
+            DatasetColumn {
+                name: "s".to_string(),
+                type_hint: "text".to_string(),
+            },
+        ];
+        let handle = publish(
+            "plug",
+            "inst-rows",
+            "pushed".to_string(),
+            "table".to_string(),
+            vec![],
+            columns,
+            vec![vec!["1".to_string(), "x".to_string()]],
+        );
+
+        assert_eq!(total(&handle), 1);
+        let kids = children(&handle, 0, "");
+        assert_eq!(kids.len(), 2);
+        assert_eq!(kids[0].preview, "1");
+        assert_eq!(kids[0].kind, NodeKind::Leaf);
+        // A pushed cell has no children — that path is flat by construction.
+        assert!(children(&handle, 0, ".n").is_empty());
+
+        let json = node_json(&handle, 0, "").unwrap();
+        assert_eq!(json["n"], 1);
+        assert_eq!(json["s"], "x");
+    }
+
+    #[test]
+    fn appending_to_a_live_sheet_is_a_no_op() {
+        let _guard = reset();
+        let (handle, _file) = publish_file("{\"n\":1}\n", "no-append");
+        append("no-append", &handle, vec![vec!["2".to_string()]]);
+        assert_eq!(total(&handle), 1);
     }
 }

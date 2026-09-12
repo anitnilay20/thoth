@@ -13,81 +13,14 @@ use std::sync::Arc;
 
 use self::types::ViewerState;
 use self::viewer_type::ViewerType;
-use crate::file::FileKind;
-use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
 use crate::components::file_viewer::viewer_trait::FileViewerLoader;
-use crate::file::loaders::{FileLoader, JsonArrayFile, NdjsonFile, SingleValueFile};
-use crate::helpers::LruCache;
+use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
+use crate::file::loaders::DuckdbConnection;
+use thoth_plugin_sdk::components::DataView;
+use crate::file::{FileKind, FileType};
 use crate::plugin::Capability;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
-use crate::plugin::wasm_loader::WasmFileLoader;
 use crate::search::results::{MatchFragment, SearchResults};
-
-/// Wrapper for WasmFileLoader to implement FileViewerLoader
-struct PluginFileLoader {
-    inner: WasmFileLoader,
-}
-
-impl PluginFileLoader {
-    fn new(inner: WasmFileLoader) -> Self {
-        Self { inner }
-    }
-}
-
-impl FileLoader for PluginFileLoader {
-    fn query(&self, _query: &str) -> crate::error::Result<Vec<duckdb::arrow::array::RecordBatch>> {
-        Err(crate::error::ThothError::Unknown {
-            message: "query not supported for plugin loader".to_string(),
-        })
-    }
-
-    fn fetch(
-        &self,
-        _filters: Vec<String>,
-        _offset: Option<usize>,
-        _limit: Option<usize>,
-    ) -> crate::error::Result<Vec<duckdb::arrow::array::RecordBatch>> {
-        Err(crate::error::ThothError::Unknown {
-            message: "fetch not supported for plugin loader".to_string(),
-        })
-    }
-
-    fn size(&self) -> crate::error::Result<u128> {
-        Err(crate::error::ThothError::Unknown {
-            message: "size not supported for plugin loader".to_string(),
-        })
-    }
-
-    fn len(&self) -> crate::error::Result<usize> {
-        Ok(self.inner.len())
-    }
-
-    fn get(&self, _index: usize) -> crate::error::Result<duckdb::arrow::array::RecordBatch> {
-        Err(crate::error::ThothError::Unknown {
-            message: "get not supported for plugin loader".to_string(),
-        })
-    }
-
-    fn open(&self, _path: &str, _alias: &str) -> crate::error::Result<()> {
-        Err(crate::error::ThothError::Unknown {
-            message: "open not supported for plugin loader".to_string(),
-        })
-    }
-
-    fn raw_bytes(&self, index: usize) -> crate::error::Result<Vec<u8>> {
-        self.inner.raw_bytes(index)
-    }
-}
-
-impl FileViewerLoader for PluginFileLoader {
-    fn record_count(&self) -> usize {
-        self.inner.len()
-    }
-
-    fn get_value(&mut self, index: usize) -> crate::error::Result<Value> {
-        self.inner.get(index)
-    }
-}
 
 /// Wrapper for WasmFileViewerLoader to implement FileViewerLoader
 struct PluginFileViewerLoader {
@@ -97,51 +30,6 @@ struct PluginFileViewerLoader {
 impl PluginFileViewerLoader {
     fn new(inner: WasmFileViewerLoader) -> Self {
         Self { inner }
-    }
-}
-
-impl FileLoader for PluginFileViewerLoader {
-    fn query(&self, _query: &str) -> crate::error::Result<Vec<duckdb::arrow::array::RecordBatch>> {
-        Err(crate::error::ThothError::Unknown {
-            message: "query not supported for plugin viewer loader".to_string(),
-        })
-    }
-
-    fn fetch(
-        &self,
-        _filters: Vec<String>,
-        _offset: Option<usize>,
-        _limit: Option<usize>,
-    ) -> crate::error::Result<Vec<duckdb::arrow::array::RecordBatch>> {
-        Err(crate::error::ThothError::Unknown {
-            message: "fetch not supported for plugin viewer loader".to_string(),
-        })
-    }
-
-    fn size(&self) -> crate::error::Result<u128> {
-        Err(crate::error::ThothError::Unknown {
-            message: "size not supported for plugin viewer loader".to_string(),
-        })
-    }
-
-    fn len(&self) -> crate::error::Result<usize> {
-        Ok(self.inner.len())
-    }
-
-    fn get(&self, _index: usize) -> crate::error::Result<duckdb::arrow::array::RecordBatch> {
-        Err(crate::error::ThothError::Unknown {
-            message: "get not supported for plugin viewer loader".to_string(),
-        })
-    }
-
-    fn open(&self, _path: &str, _alias: &str) -> crate::error::Result<()> {
-        Err(crate::error::ThothError::Unknown {
-            message: "open not supported for plugin viewer loader".to_string(),
-        })
-    }
-
-    fn raw_bytes(&self, index: usize) -> crate::error::Result<Vec<u8>> {
-        self.inner.raw_bytes(index)
     }
 }
 
@@ -167,6 +55,40 @@ impl FileViewerLoader for PluginFileViewerLoader {
     }
 }
 
+/// Rows crossed into a dataset from a plugin-rendered file (#113). Bounded so
+/// a huge file never fully crosses the WASM boundary.
+const DATASET_CAP: usize = 5000;
+
+/// The view a file opens in, before the user picks one.
+///
+/// Chosen by format rather than fixed, because the right first look differs:
+/// records read best as a tree, tabular formats as a grid, and anything we have
+/// no structure for is most honestly shown as text.
+fn default_view(path: &Path) -> &'static str {
+    match FileType::from_path(path) {
+        // Records — the tree is the point.
+        FileType::Json => "json",
+        // Already rectangular.
+        FileType::Csv | FileType::Parquet | FileType::DB => "table",
+        // No schema we can trust; show it as it is.
+        FileType::Plugin | FileType::Unknown => "raw",
+    }
+}
+
+/// The lightweight tag a tab carries for a file the engine opened.
+///
+/// [`FileType`] already knows the format; NDJSON vs a JSON array is a
+/// distinction only the sniffer makes, and only the status bar cares.
+fn detect_kind(path: &Path) -> FileKind {
+    match FileType::from_path(path) {
+        FileType::Json => match sniff_file_type(path) {
+            Ok(DetectedFileType::Ndjson) => FileKind::Ndjson,
+            _ => FileKind::Json,
+        },
+        other => FileKind::from(other),
+    }
+}
+
 /// Generic file viewer that manages common viewing concerns (loading, caching, selection)
 /// and delegates format-specific rendering to specialized viewers via the ViewerType enum.
 ///
@@ -176,14 +98,20 @@ impl FileViewerLoader for PluginFileViewerLoader {
 /// 3. Add the viewer to `ViewerType` enum
 /// 4. That's it! FileViewer will automatically work with the new viewer
 pub struct FileViewer {
-    /// File loader for lazy parsing
+    /// Papyrus handle for an engine-backed file. The `DataView` reads its rows
+    /// from the bus, so the viewer itself holds no data.
+    handle: Option<String>,
+
+    /// The engine behind that handle, kept so the tab can still publish itself
+    /// as a dataset (#113).
+    engine: Option<Arc<DuckdbConnection>>,
+
+    /// View the file opens in, by format.
+    default_view: &'static str,
+
+    /// Set only for files a plugin renders itself — those keep their own loader
+    /// and viewer, since the host cannot draw a plugin's custom nodes.
     loader: Option<Box<dyn FileViewerLoader>>,
-
-    /// LRU cache for parsed values
-    cache: LruCache<usize, Value>,
-
-    /// Cache capacity
-    cache_size: usize,
 
     /// Format-specific viewer (handles different file types)
     viewer: Option<ViewerType>,
@@ -199,25 +127,32 @@ pub struct FileViewer {
 
     /// Enable syntax highlighting
     syntax_highlighting: bool,
+
+    /// Events raised by the embedded `DataView`, drained by the app.
+    pending_events: Vec<thoth_plugin_sdk::render_node::UiEvent>,
 }
 
 impl FileViewer {
-    /// Create a new FileViewer with default cache size
+    /// Create a new FileViewer
     pub fn new() -> Self {
-        Self::with_cache_size(100)
+        Self::with_cache_size(0)
     }
 
-    /// Create a new FileViewer with custom cache size
-    pub fn with_cache_size(cache_size: usize) -> Self {
+    /// Retained for call-site compatibility — the viewer no longer caches
+    /// records, because it renders straight from Arrow. Any record cache now
+    /// belongs to the viewer that needs one (see `PluginTableViewer`).
+    pub fn with_cache_size(_cache_size: usize) -> Self {
         Self {
+            handle: None,
+            engine: None,
+            default_view: "table",
             loader: None,
-            cache: LruCache::new(cache_size),
-            cache_size,
             viewer: None,
             state: ViewerState::default(),
             file_path: None,
             highlights: HashMap::new(),
             syntax_highlighting: true, // Default to enabled
+            pending_events: Vec::new(),
         }
     }
 
@@ -226,83 +161,67 @@ impl FileViewer {
         self.syntax_highlighting = enabled;
     }
 
-    /// Open a file for viewing (compatible with old JsonViewer API)
-    pub fn open(&mut self, path: &Path, file_type: &mut FileKind) -> crate::error::Result<()> {
-        // Built-in extensions handled without plugins.
-        const JSON_EXTENSIONS: &[&str] = &["json", "ndjson", "jsonl", "geojson"];
-
+    /// Open a file for viewing.
+    ///
+    /// Everything goes through the DuckDB engine except files claimed by a
+    /// plugin that supplies its own renderer — those keep rendering through
+    /// the plugin, since the host has no way to draw their custom nodes.
+    pub fn open(
+        &mut self,
+        path: &Path,
+        tab_id: usize,
+        file_type: &mut FileKind,
+    ) -> crate::error::Result<()> {
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
         let ext_str = ext.as_deref().unwrap_or("");
 
-        // Check if a plugin is registered for this extension.
-        // If one is registered, its result (success or error) is used — we do NOT
-        // silently fall through to JSON parsing when a plugin claims the format.
+        // A plugin that declares FileViewer owns rendering as well as loading.
+        // If one claims this extension its result is used as-is — we do NOT
+        // silently fall through to the engine when a plugin claims the format.
         let plugin_manager = crate::plugin::runtime::active_manager();
-        let plugin_result = plugin_manager.as_deref().and_then(|pm| {
-            if pm.find_loader_for_extension(ext_str).is_some() {
-                let result: crate::error::Result<Box<dyn FileViewerLoader>> =
-                    if pm.plugin_has_capability(ext_str, &Capability::FileViewer) {
-                        pm.open_file_with_viewer(ext_str, path)
-                            .map(|wfl| Box::new(PluginFileViewerLoader::new(wfl)) as Box<dyn FileViewerLoader>)
-                    } else {
-                        pm.open_file(ext_str, path)
-                            .map(|wfl| Box::new(PluginFileLoader::new(wfl)) as Box<dyn FileViewerLoader>)
-                    };
-                Some(result)
+        let plugin_rendered = plugin_manager.as_deref().and_then(|pm| {
+            if pm.plugin_has_capability(ext_str, &Capability::FileViewer) {
+                Some(pm.open_file_with_viewer(ext_str, path))
             } else {
                 None
             }
         });
 
-        let (loader, kind) = match plugin_result {
-            Some(Ok(file_loader)) => {
-                // We need to check the capability again to determine the kind
-                let plugin_manager = crate::plugin::runtime::active_manager();
-                let kind = plugin_manager.as_deref().and_then(|pm| {
-                    if pm.plugin_has_capability(ext_str, &Capability::FileViewer) {
-                        Some(FileKind::PluginTable)
-                    } else {
-                        Some(FileKind::Plugin)
-                    }
-                }).unwrap_or(FileKind::Plugin);
-                (file_loader, kind)
+        self.handle = None;
+        self.engine = None;
+        self.loader = None;
+
+        let kind = match plugin_rendered {
+            Some(Ok(wfl)) => {
+                self.loader = Some(Box::new(PluginFileViewerLoader::new(wfl)));
+                FileKind::PluginTable
             }
             Some(Err(e)) => return Err(e),
-            None if JSON_EXTENSIONS.contains(&ext_str) => {
-                let detected = sniff_file_type(path)?;
-                let loader: Box<dyn FileViewerLoader> = match detected {
-                    DetectedFileType::Ndjson => Box::new(NdjsonFile::open(path)?),
-                    DetectedFileType::JsonArray => Box::new(JsonArrayFile::open(path)?),
-                    DetectedFileType::JsonObject => Box::new(SingleValueFile::open(path)?),
-                };
-                let kind = match detected {
-                    DetectedFileType::Ndjson => FileKind::Ndjson,
-                    DetectedFileType::JsonArray => FileKind::Json,
-                    DetectedFileType::JsonObject => FileKind::Json,
-                };
-                (loader, kind)
-            }
+            // Everything else goes through the engine and onto the bus. The
+            // engine picks the right DuckDB reader, staging through a
+            // file-loader plugin when there is no native one.
             None => {
-                return Err(crate::error::ThothError::InvalidFileType {
-                    path: path.to_path_buf(),
-                    expected: format!(
-                        "a supported format ({}) or an installed plugin for .{ext_str} files",
-                        JSON_EXTENSIONS
-                            .iter()
-                            .map(|e| format!(".{e}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                });
+                let engine = Arc::new(DuckdbConnection::open_path(path)?);
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "file".to_string());
+                // The producer marker the app reserves for core file tabs. It
+                // must match, or the frame reaper drops the sheet as soon as it
+                // is published — and it keys on the *tab*, so re-opening a file
+                // in place replaces its sheet rather than stacking a new one.
+                let instance = format!("core#{tab_id}");
+                self.handle =
+                    crate::papyrus::publish_arrow("core", &instance, name, engine.clone());
+                self.engine = Some(engine);
+                self.default_view = default_view(path);
+                detect_kind(path)
             }
         };
 
         *file_type = kind;
-        self.loader = Some(loader);
         self.file_path = Some(path.to_path_buf());
 
-        // Clear cache and reset state (recreate cache since LruCache doesn't have clear)
-        self.cache = LruCache::new(self.cache_size);
         self.state = ViewerState::default();
         self.highlights.clear();
 
@@ -338,7 +257,6 @@ impl FileViewer {
                 let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
-                    &mut self.cache,
                     loader,
                     total_len,
                 );
@@ -390,6 +308,21 @@ impl FileViewer {
 
     /// Render the file viewer UI
     pub fn ui(&mut self, ui: &mut Ui) {
+        // Engine-backed files are drawn by `DataView`, reading their rows from
+        // Papyrus. That is what gives the file tab table / JSON / raw views,
+        // export and Chart Studio for free.
+        if let Some(handle) = self.handle.clone() {
+            let mut events = Vec::new();
+            DataView::builder()
+                .id(format!("file_view_{handle}"))
+                .handle(handle)
+                .default_view(self.default_view)
+                .build()
+                .show(ui, &mut events);
+            self.pending_events.extend(events);
+            return;
+        }
+
         let (Some(loader), Some(viewer_box)) = (self.loader.as_mut(), self.viewer.as_mut()) else {
             ui.centered_and_justified(|ui| {
                 ui.label("No file loaded");
@@ -400,39 +333,30 @@ impl FileViewer {
         let total_len = loader.record_count();
         let viewer = viewer_box.as_viewer_mut();
 
-        // Rebuild view initially or when visible roots change
-        viewer.rebuild_view(
-            &self.state.visible_roots,
-            &mut self.cache,
-            loader,
-            total_len,
-        );
+        viewer.rebuild_view(&self.state.visible_roots, loader, total_len);
 
-        // Render the viewer and check if rebuild is needed (due to user interaction)
         let needs_rebuild = viewer.render(
             ui,
             &mut self.state.selected,
-            &mut self.cache,
             loader,
             &mut self.state.should_scroll_to_selection,
             self.state.is_search_navigation,
             self.syntax_highlighting,
         );
 
-        // Reset the search navigation flag after rendering
         if self.state.is_search_navigation {
             self.state.is_search_navigation = false;
         }
 
-        // Rebuild if needed (e.g., user toggled expansion)
         if needs_rebuild {
-            viewer.rebuild_view(
-                &self.state.visible_roots,
-                &mut self.cache,
-                loader,
-                total_len,
-            );
+            viewer.rebuild_view(&self.state.visible_roots, loader, total_len);
         }
+    }
+
+    /// Drain UI events raised by the embedded `DataView` (export picks, the
+    /// Charts shortcut) for the app to act on.
+    pub fn take_events(&mut self) -> Vec<thoth_plugin_sdk::render_node::UiEvent> {
+        std::mem::take(&mut self.pending_events)
     }
 
     /// Update highlight metadata from search results
@@ -457,14 +381,27 @@ impl FileViewer {
 
     /// Get the total number of root items in the loaded file
     pub fn total_item_count(&self) -> usize {
-        self.loader.as_ref().map(|l| l.len()).unwrap_or(0)
+        if let Some(handle) = self.handle.as_deref() {
+            return crate::papyrus::total(handle) as usize;
+        }
+        self.loader.as_ref().map(|l| l.record_count()).unwrap_or(0)
     }
 
     /// Read this tab's live loader into a tabular dataset for the data bus
-    /// (#113). Works for any backing loader — JSON, NDJSON, or a file-loader
-    /// plugin (csv-loader, …) — so every file tab is a producer by default.
+    /// (#113). Works for any backing loader — JSON, NDJSON, CSV, Parquet, a
+    /// database, or a file-loader plugin — so every file tab is a producer by
+    /// default.
     pub fn to_dataset(&mut self) -> Option<crate::file::to_dataset::DatasetTable> {
-        crate::file::to_dataset::loader_to_dataset(self.loader.as_mut()?)
+        // Engine-backed files convert straight from Arrow.
+        if let Some(engine) = self.engine.as_ref() {
+            return crate::file::to_dataset::loader_to_dataset(engine.as_ref());
+        }
+
+        // Plugin-rendered files have no Arrow side; read their records instead.
+        let loader = self.loader.as_mut()?;
+        let count = loader.record_count().min(DATASET_CAP);
+        let records: Vec<Value> = (0..count).filter_map(|i| loader.get_value(i).ok()).collect();
+        crate::file::to_dataset::records_to_dataset(&records)
     }
 
     // ========================================================================
@@ -481,7 +418,6 @@ impl FileViewer {
                 let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
-                    &mut self.cache,
                     loader,
                     total_len,
                 );
@@ -503,7 +439,6 @@ impl FileViewer {
                 let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
-                    &mut self.cache,
                     loader,
                     total_len,
                 );
@@ -522,7 +457,6 @@ impl FileViewer {
                 let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
-                    &mut self.cache,
                     loader,
                     total_len,
                 );
@@ -541,7 +475,6 @@ impl FileViewer {
                 let total_len = loader.record_count();
                 viewer.as_viewer_mut().rebuild_view(
                     &self.state.visible_roots,
-                    &mut self.cache,
                     loader,
                     total_len,
                 );
@@ -594,7 +527,6 @@ impl FileViewer {
         if let (Some(viewer), Some(loader)) = (self.viewer.as_mut(), self.loader.as_mut()) {
             return viewer.as_viewer_mut().copy_selected_value(
                 &self.state.selected,
-                &mut self.cache,
                 loader,
             );
         }
@@ -607,7 +539,6 @@ impl FileViewer {
         if let (Some(viewer), Some(loader)) = (self.viewer.as_mut(), self.loader.as_mut()) {
             return viewer.as_viewer_mut().copy_selected_object(
                 &self.state.selected,
-                &mut self.cache,
                 loader,
             );
         }
@@ -627,5 +558,45 @@ impl FileViewer {
 impl Default for FileViewer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn files_open_in_the_view_that_suits_their_shape() {
+        // Records read as a tree...
+        assert_eq!(default_view(Path::new("/tmp/a.json")), "json");
+        assert_eq!(default_view(Path::new("/tmp/a.ndjson")), "json");
+        assert_eq!(default_view(Path::new("/tmp/a.jsonl")), "json");
+        // ...rectangles as a grid...
+        assert_eq!(default_view(Path::new("/tmp/a.csv")), "table");
+        assert_eq!(default_view(Path::new("/tmp/a.tsv")), "table");
+        assert_eq!(default_view(Path::new("/tmp/a.parquet")), "table");
+        assert_eq!(default_view(Path::new("/tmp/a.duckdb")), "table");
+        assert_eq!(default_view(Path::new("/tmp/a.sqlite")), "table");
+        // ...and anything we can't infer a shape for, as text.
+        assert_eq!(default_view(Path::new("/tmp/a.weird")), "raw");
+        assert_eq!(default_view(Path::new("/tmp/noext")), "raw");
+    }
+
+    #[test]
+    fn the_default_view_is_one_dataview_offers() {
+        // A value DataView doesn't know falls back to Table, silently — so the
+        // mapping must only ever produce views that exist.
+        for path in [
+            "/tmp/a.json",
+            "/tmp/a.csv",
+            "/tmp/a.parquet",
+            "/tmp/a.weird",
+        ] {
+            let view = default_view(Path::new(path));
+            assert!(
+                matches!(view, "table" | "json" | "raw"),
+                "{path} → {view} is not a built-in view"
+            );
+        }
     }
 }

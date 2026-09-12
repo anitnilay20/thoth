@@ -9,11 +9,20 @@ use crate::plugin::wasm_file_viewer_loader::DisplayMode;
 use thoth_plugin_sdk::components::TableView;
 use thoth_plugin_sdk::render_node::RenderNode;
 
+/// Records held for plugin rendering.
+///
+/// Plugin viewers render through `render_record`, a WIT call that takes a JSON
+/// string, so this path genuinely needs records as `Value` — unlike the tree
+/// viewer, which reads Arrow directly. The cache is owned here rather than
+/// shared, so that cost stays on the path that incurs it.
+const RECORD_CACHE: usize = 200;
+
 pub struct PluginTableViewer {
     headers: Vec<String>,
     visible_indices: Vec<usize>,
     display_mode: DisplayMode,
     render_cache: HashMap<usize, String>,
+    records: LruCache<usize, Value>,
 }
 
 impl PluginTableViewer {
@@ -23,6 +32,7 @@ impl PluginTableViewer {
             visible_indices: Vec::new(),
             display_mode: DisplayMode::Table,
             render_cache: HashMap::new(),
+            records: LruCache::new(RECORD_CACHE),
         }
     }
 }
@@ -39,12 +49,12 @@ impl FileFormatViewer for PluginTableViewer {
         self.visible_indices.clear();
         self.display_mode = DisplayMode::Table;
         self.render_cache.clear();
+        self.records = LruCache::new(RECORD_CACHE);
     }
 
     fn rebuild_view(
         &mut self,
         visible_roots: &Option<Vec<usize>>,
-        _cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
         total_len: usize,
     ) {
@@ -80,7 +90,6 @@ impl FileFormatViewer for PluginTableViewer {
         &mut self,
         ui: &mut egui::Ui,
         _selected: &mut Option<String>,
-        cache: &mut LruCache<usize, Value>,
         loader: &mut dyn FileViewerLoader,
         _should_scroll_to_selection: &mut bool,
         _is_search_navigation: bool,
@@ -92,6 +101,7 @@ impl FileFormatViewer for PluginTableViewer {
         let indices = self.visible_indices.clone();
         let num_rows = indices.len();
         let render_cache = &mut self.render_cache;
+        let cache = &mut self.records;
 
         // Standalone grid — it owns its container fill, edge and corners.
         TableView::show_rows(
@@ -136,7 +146,7 @@ impl FileFormatViewer for PluginTableViewer {
                             };
                             if let Some(r) = record {
                                 let json = serde_json::to_string(&r).unwrap_or_default();
-                                if let Some(node_json) = loader.render_record(&json) {
+                                if let Ok(node_json) = loader.render_record(&json) {
                                     e.insert(node_json);
                                 }
                             }

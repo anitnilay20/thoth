@@ -2,27 +2,27 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
-use crate::error::Result;
-use crate::file::loaders::{FileLoader, duck_db::DuckdbConnection};
-
-// pub mod lazy_loader;
+pub mod detect_file_type;
 pub mod loaders;
 pub mod to_dataset;
 
-#[derive(PartialEq, Eq, Copy, Clone)]
+pub use loaders::FileKind;
+pub use loaders::duck_db::DuckdbConnection;
+
+/// How a file is read — decided by magic bytes, then extension.
+///
+/// This is *detection only*. The loader that acts on it is
+/// [`DuckdbConnection`], which maps each variant to the right DuckDB reader
+/// (or to the plugin staging path for [`FileType::Plugin`]).
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Default)]
 pub enum FileType {
     Json,
     Csv,
     Parquet,
     DB,
     Plugin,
+    #[default]
     Unknown,
-}
-
-impl Default for FileType {
-    fn default() -> Self {
-        FileType::Unknown
-    }
 }
 
 impl FileType {
@@ -97,77 +97,4 @@ fn has_trailing_par1(file: &mut File) -> bool {
     }
     let mut tail = [0u8; 4];
     file.read_exact(&mut tail).is_ok() && &tail == b"PAR1"
-}
-
-impl FileLoader for FileType {
-    fn query(&self, query: &str) -> Result<Vec<duckdb::arrow::array::RecordBatch>> {
-        match self {
-            FileType::Json | FileType::Csv | FileType::Parquet | FileType::DB => {
-                let db = DuckdbConnection::new()?;
-                db.query(query)
-            }
-            FileType::Plugin => todo!(),
-            FileType::Unknown => todo!(),
-        }
-    }
-
-    fn fetch(
-        &self,
-        filters: Vec<String>,
-        offset: Option<usize>,
-        limit: Option<usize>,
-    ) -> Result<Vec<duckdb::arrow::array::RecordBatch>> {
-        match self {
-            FileType::Json | FileType::Csv | FileType::Parquet | FileType::DB => {
-                let db = DuckdbConnection::new()?;
-                db.fetch(filters, offset, limit)
-            }
-            FileType::Plugin => todo!(),
-            FileType::Unknown => todo!(),
-        }
-    }
-
-    fn size(&self) -> Result<u128> {
-        match self {
-            FileType::Json | FileType::Csv | FileType::Parquet | FileType::DB => {
-                let db = DuckdbConnection::new()?;
-                db.size()
-            }
-            FileType::Plugin => todo!(),
-            FileType::Unknown => todo!(),
-        }
-    }
-
-    fn len(&self) -> Result<usize> {
-        match self {
-            FileType::Json | FileType::Csv | FileType::Parquet | FileType::DB => {
-                let db = DuckdbConnection::new()?;
-                db.len()
-            }
-            FileType::Plugin => todo!(),
-            FileType::Unknown => todo!(),
-        }
-    }
-
-    fn get(&self, index: usize) -> Result<duckdb::arrow::array::RecordBatch> {
-        match self {
-            FileType::Json | FileType::Csv | FileType::Parquet | FileType::DB => {
-                let db = DuckdbConnection::new()?;
-                db.get(index)
-            }
-            FileType::Plugin => todo!(),
-            FileType::Unknown => todo!(),
-        }
-    }
-
-    fn open(&self, path: &str, alias: &str) -> Result<()> {
-        match self {
-            FileType::Json | FileType::Csv | FileType::Parquet | FileType::DB => {
-                let db = DuckdbConnection::new()?;
-                db.open(path, alias)
-            }
-            FileType::Plugin => todo!(),
-            FileType::Unknown => todo!(),
-        }
-    }
 }

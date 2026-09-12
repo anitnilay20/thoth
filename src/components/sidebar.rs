@@ -11,7 +11,8 @@ use crate::components::data_source_panel::{
 };
 use crate::components::marketplace::{Marketplace, MarketplaceProps};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
-use crate::components::search::{Search, SearchEvent, SearchProps};
+// TODO(#53): restored with the DuckDB-backed filter.
+// use crate::components::search::{Search, SearchEvent, SearchProps};
 use crate::components::traits::StatelessComponent;
 use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
@@ -126,7 +127,6 @@ pub struct SidebarOutput {
 pub struct Sidebar {
     // Child components that Sidebar fully controls
     recent_files: RecentFiles,
-    search: Search,
     bookmarks: Bookmarks,
 
     data_source_panel: HashMap<String, DataSourcePanel>,
@@ -137,7 +137,6 @@ impl Default for Sidebar {
     fn default() -> Self {
         Self {
             recent_files: RecentFiles,
-            search: Search::default(),
             bookmarks: Bookmarks::default(),
             data_source_panel: HashMap::new(),
             chart_studio: ChartStudio::default(),
@@ -235,7 +234,8 @@ impl Sidebar {
                 }
             }
             Some(SidebarSection::Search) => {
-                self.render_search_section(ui, props, events);
+                // Search is parked while it is rebuilt as a DuckDB filter (#53).
+                ui.label("Search is being rebuilt on the query engine.");
             }
             Some(SidebarSection::Bookmarks) => {
                 let output = self.bookmarks.render(
@@ -486,34 +486,6 @@ impl Sidebar {
         }
     }
 
-    fn render_search_section(
-        &mut self,
-        ui: &mut egui::Ui,
-        props: &SidebarProps<'_>,
-        events: &mut Vec<SidebarEvent>,
-    ) {
-        // Render the Search component using the trait method
-        // Parent determines when to focus via props.focus_search
-        let search_output = self.search.render(
-            ui,
-            SearchProps {
-                just_opened: props.focus_search,
-                search_state: props.search_state,
-                search_history: props.search_history,
-            },
-        );
-
-        // Convert SearchEvent to SidebarEvent
-        for event in search_output.events {
-            match event {
-                SearchEvent::Search(msg) => events.push(SidebarEvent::Search(msg)),
-                SearchEvent::NavigateToResult { record_index } => {
-                    events.push(SidebarEvent::NavigateToSearchResult { record_index })
-                }
-                SearchEvent::ClearHistory => events.push(SidebarEvent::ClearSearchHistory),
-            }
-        }
-    }
 }
 
 impl ContextComponent for Sidebar {
