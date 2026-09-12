@@ -48,6 +48,10 @@ pub struct StatusBarProps<'a> {
     /// Set when the active tab is a Chart Studio chart: a short summary line
     /// (e.g. "Bar · 12 rows · 2 series") shown in place of file/plugin info.
     pub chart_summary: Option<&'a str>,
+
+    /// Progress of a background index build for this tab, 0.0-1.0. Shown ahead
+    /// of the file details, because until it finishes they are provisional.
+    pub indexing: Option<f32>,
 }
 
 /// Status indicator for the status bar
@@ -328,7 +332,12 @@ impl ContextComponent for StatusBar {
                     ui.set_min_height(ui.available_height());
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
 
-                    if let Some(summary) = props.chart_summary {
+                    if let Some(fraction) = props.indexing {
+                        // A file is openable while this runs, so this reports
+                        // rather than blocks.
+                        ui.label(icon_rich_text(egui_phosphor::regular::SPINNER, 12.0));
+                        ui.label(format!("Indexing… {:.0}%", fraction * 100.0));
+                    } else if let Some(summary) = props.chart_summary {
                         // Chart tab: show a compact chart summary.
                         ui.label(icon_rich_text(egui_phosphor::regular::CHART_LINE, 12.0));
                         ui.label(summary);

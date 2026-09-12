@@ -13,10 +13,12 @@
 //! the cost of showing a long line as several.
 
 use std::fs::File;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read};
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Result, ThothError};
+use crate::platform::FileIO;
 
 /// Longest run of bytes shown as a single line. Beyond this a synthetic break
 /// is inserted, which bounds both the index and the width of any one row.
@@ -28,6 +30,9 @@ const SCAN_CHUNK: usize = 1 << 20;
 /// Line starts for a file, and the reads that use them.
 pub struct TextIndex {
     path: PathBuf,
+    /// Held open so a read is one positional syscall rather than an open, a
+    /// seek and a read. `read_at` takes `&self`, so reads stay concurrent.
+    file: File,
     /// Byte offset of each line's first byte. Always starts with 0 for a
     /// non-empty file.
     line_starts: Vec<u64>,
@@ -38,6 +43,24 @@ pub struct TextIndex {
 impl TextIndex {
     /// Scan `path` once, recording where each line begins.
     pub fn build(path: &Path) -> Result<Self> {
+        match Self::build_observed(path, |_| ControlFlow::Continue(())) {
+            Ok(Some(index)) => Ok(index),
+            // The observer never asks to stop, so cancellation is unreachable.
+            Ok(None) => unreachable!("uncancellable build reported cancellation"),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Scan `path`, reporting bytes consumed and honouring a request to stop.
+    ///
+    /// `on_progress` is called every [`SCAN_CHUNK`] bytes with the running
+    /// total; returning [`ControlFlow::Break`] abandons the scan and yields
+    /// `Ok(None)`. This is what lets an index build run in the background and
+    /// be cancelled when its tab closes.
+    pub fn build_observed(
+        path: &Path,
+        mut on_progress: impl FnMut(u64) -> ControlFlow<()>,
+    ) -> Result<Option<Self>> {
         let file = File::open(path).map_err(|e| ThothError::FileReadError {
             path: path.to_path_buf(),
             reason: e.to_string(),
@@ -105,13 +128,43 @@ impl TextIndex {
                 }
             }
             offset += read as u64;
+            if on_progress(offset).is_break() {
+                return Ok(None);
+            }
         }
 
+        Ok(Some(Self {
+            path: path.to_path_buf(),
+            file: File::open(path).map_err(|e| ThothError::FileReadError {
+                path: path.to_path_buf(),
+                reason: e.to_string(),
+            })?,
+            line_starts,
+            size,
+        }))
+    }
+
+    /// Rebuild from line starts already on disk, skipping the scan.
+    pub(crate) fn from_parts(path: &Path, line_starts: Vec<u64>, size: u64) -> Result<Self> {
         Ok(Self {
             path: path.to_path_buf(),
+            file: File::open(path).map_err(|e| ThothError::FileReadError {
+                path: path.to_path_buf(),
+                reason: e.to_string(),
+            })?,
             line_starts,
             size,
         })
+    }
+
+    /// The recorded line starts, for persisting the index.
+    pub(crate) fn line_starts(&self) -> &[u64] {
+        &self.line_starts
+    }
+
+    /// The file this index describes.
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// Number of indexed lines.
@@ -157,26 +210,24 @@ impl TextIndex {
             return Ok(Vec::new());
         }
 
-        let mut file = File::open(&self.path).map_err(|e| ThothError::FileReadError {
-            path: self.path.clone(),
-            reason: e.to_string(),
-        })?;
-        file.seek(SeekFrom::Start(from))
-            .map_err(|e| ThothError::FileReadError {
-                path: self.path.clone(),
-                reason: e.to_string(),
-            })?;
         let mut buf = vec![0u8; (to - from) as usize];
-        file.read_exact(&mut buf)
+        let read = self
+            .file
+            .read_at(&mut buf, from)
             .map_err(|e| ThothError::FileReadError {
                 path: self.path.clone(),
                 reason: e.to_string(),
             })?;
+        buf.truncate(read);
 
         Ok((start..end_line)
             .map(|line| {
                 let (s, e) = self.range(line).unwrap_or((from, from));
-                let slice = &buf[(s - from) as usize..(e - from) as usize];
+                let (lo, hi) = (
+                    ((s - from) as usize).min(buf.len()),
+                    ((e - from) as usize).min(buf.len()),
+                );
+                let slice = &buf[lo..hi];
                 let text = String::from_utf8_lossy(slice);
                 text.trim_end_matches('\n').trim_end_matches('\r').to_string()
             })
@@ -321,5 +372,13 @@ mod real_file_tests {
         let lines = index.read(index.len() / 2, 20).unwrap();
         println!("mid-file window: {:?}", started.elapsed());
         assert_eq!(lines.len(), 20);
+
+        // And the second open should come from cache, not another scan.
+        crate::file::index_cache::store(&index).unwrap();
+        let started = std::time::Instant::now();
+        let cached = crate::file::index_cache::load(path).expect("cache hit");
+        println!("cached open: {:?}", started.elapsed());
+        println!("cache entry bytes: {}", crate::file::index_cache::size_on_disk());
+        assert_eq!(cached.len(), index.len());
     }
 }

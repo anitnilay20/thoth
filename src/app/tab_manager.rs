@@ -305,6 +305,10 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         {
             pane.loader.on_tab_closed();
         }
+        // A scan whose tab is gone has nobody to deliver to.
+        if let Some(tab) = self.tabs.get_mut(tab_id) {
+            tab.central_panel.cancel_indexing();
+        }
         self.tabs.remove(tab_id);
         self.events.push(TabEvent::TabClosed(*tab_id));
         OnCloseResponse::Close
@@ -423,6 +427,9 @@ impl TabManager {
         // Remove from the dock tree first.
         if let Some(path) = self.dock_state.find_tab(&id) {
             self.dock_state.remove_tab(path);
+        }
+        if let Some(tab) = self.tabs.get_mut(&id) {
+            tab.central_panel.cancel_indexing();
         }
         self.tabs.remove(&id);
         was_empty

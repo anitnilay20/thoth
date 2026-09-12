@@ -3,6 +3,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 pub mod detect_file_type;
+pub mod index_cache;
+pub mod indexing;
 pub mod loaders;
 pub mod to_dataset;
 

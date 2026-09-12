@@ -291,6 +291,21 @@ impl CentralPanel {
         }
     }
 
+    /// Progress of this tab's background index build, if one is running.
+    pub fn index_progress(&self) -> Option<crate::file::indexing::Progress> {
+        self.file_viewer.index_progress()
+    }
+
+    /// Adopt a finished index, returning the file's name the frame it lands.
+    pub fn poll_index(&mut self, tab_id: usize) -> Option<String> {
+        self.file_viewer.poll_index(tab_id)
+    }
+
+    /// Abandon a running index build — the tab is going away.
+    pub fn cancel_indexing(&mut self) {
+        self.file_viewer.cancel_indexing();
+    }
+
     // ========================================================================
     // Keyboard Shortcut Support - Wrapper methods
     // ========================================================================

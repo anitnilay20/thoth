@@ -1657,7 +1657,33 @@ impl ThothApp {
             components::status_bar::StatusBarStatus::Ready
         };
 
+        // Adopt any finished index and announce it, then report the progress of
+        // whatever is still running on the active tab.
+        let finished: Vec<(crate::app::tab_manager::TabId, String)> = self
+            .window_state
+            .tab_manager
+            .tabs
+            .iter_mut()
+            .filter_map(|(id, tab)| tab.central_panel.poll_index(*id).map(|name| (*id, name)))
+            .collect();
+        for (_, name) in finished {
+            crate::notification::NotificationManager::notify(
+                crate::notification::Notification::new(
+                    "File indexed",
+                    &format!("{name} is ready to browse."),
+                )
+                .with_kind(crate::notification::NotificationKind::Success),
+            );
+        }
+
         let active_id = self.window_state.tab_manager.active_tab_id();
+        let indexing_progress: Option<f32> = active_id
+            .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
+            .and_then(|t| match t.central_panel.index_progress() {
+                Some(crate::file::indexing::Progress::Running { fraction }) => Some(fraction),
+                _ => None,
+            });
+
         let chart_summary: Option<String> = active_id
             .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
             .and_then(|t| t.chart.as_ref().map(|c| c.status_summary()));
@@ -1675,6 +1701,7 @@ impl ThothApp {
                     .as_ref()
                     .map(|(p, i)| (p.as_str(), i.as_str())),
                 chart_summary: chart_summary.as_deref(),
+                indexing: indexing_progress,
             },
         );
 

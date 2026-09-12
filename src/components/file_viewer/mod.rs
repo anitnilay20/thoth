@@ -109,6 +109,14 @@ pub struct FileViewer {
     /// View the file opens in, by format.
     default_view: &'static str,
 
+    /// A running text-index build, for files with no structured reader. The
+    /// tab is usable while it runs; the sheet is published when it finishes.
+    index_job: Option<crate::file::indexing::IndexJob>,
+
+    /// Set once the finished index has been announced, so the notification
+    /// fires exactly once per file.
+    index_announced: bool,
+
     /// Set only for files a plugin renders itself — those keep their own loader
     /// and viewer, since the host cannot draw a plugin's custom nodes.
     loader: Option<Box<dyn FileViewerLoader>>,
@@ -146,6 +154,8 @@ impl FileViewer {
             handle: None,
             engine: None,
             default_view: "table",
+            index_job: None,
+            index_announced: false,
             loader: None,
             viewer: None,
             state: ViewerState::default(),
@@ -153,6 +163,13 @@ impl FileViewer {
             highlights: HashMap::new(),
             syntax_highlighting: true, // Default to enabled
             pending_events: Vec::new(),
+        }
+    }
+
+    /// Abandon any running index build — the tab no longer wants it.
+    pub fn cancel_indexing(&mut self) {
+        if let Some(job) = self.index_job.take() {
+            job.cancel();
         }
     }
 
@@ -224,10 +241,11 @@ impl FileViewer {
                     // single multi-hundred-MB JSON object, say). Text is the
                     // floor: every file is openable, and the line index makes
                     // that true at any size.
+                    //
+                    // Indexing runs in the background so the tab opens now; a
+                    // cached index from a previous open is adopted instantly.
                     Err(_) => {
-                        let index = crate::file::loaders::TextIndex::build(path)?;
-                        self.handle =
-                            crate::papyrus::publish_text("core", &instance, name, index);
+                        self.index_job = Some(crate::file::indexing::IndexJob::spawn(path));
                         self.default_view = "table";
                     }
                 }
@@ -339,6 +357,15 @@ impl FileViewer {
             return;
         }
 
+        if let Some(job) = self.index_job.as_ref()
+            && !job.progress().is_finished()
+        {
+            ui.centered_and_justified(|ui| {
+                ui.label("Indexing…");
+            });
+            return;
+        }
+
         let (Some(loader), Some(viewer_box)) = (self.loader.as_mut(), self.viewer.as_mut()) else {
             ui.centered_and_justified(|ui| {
                 ui.label("No file loaded");
@@ -367,6 +394,37 @@ impl FileViewer {
         if needs_rebuild {
             viewer.rebuild_view(&self.state.visible_roots, loader, total_len);
         }
+    }
+
+    /// Progress of a background index build, if one is running for this tab.
+    pub fn index_progress(&self) -> Option<crate::file::indexing::Progress> {
+        self.index_job.as_ref().map(|job| job.progress())
+    }
+
+    /// Adopt a finished index, publishing it to the bus.
+    ///
+    /// Returns the file's name once, the frame the index becomes available, so
+    /// the caller can announce it. Called every frame while a job is running.
+    pub fn poll_index(&mut self, tab_id: usize) -> Option<String> {
+        let job = self.index_job.as_ref()?;
+        if !job.progress().is_finished() || self.index_announced {
+            return None;
+        }
+        self.index_announced = true;
+
+        let index = job.take()?;
+        let name = job
+            .path()
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "file".to_string());
+        self.handle = crate::papyrus::publish_text(
+            "core",
+            &format!("core#{tab_id}"),
+            name.clone(),
+            index,
+        );
+        Some(name)
     }
 
     /// Drain UI events raised by the embedded `DataView` (export picks, the
