@@ -246,7 +246,10 @@ impl FileViewer {
                     // cached index from a previous open is adopted instantly.
                     Err(_) => {
                         self.index_job = Some(crate::file::indexing::IndexJob::spawn(path));
-                        self.default_view = "table";
+                        // The format still decides the view. A JSON document we
+                        // could not read structurally is still JSON, and opens
+                        // as JSON.
+                        self.default_view = default_view(path);
                     }
                 }
                 detect_kind(path)

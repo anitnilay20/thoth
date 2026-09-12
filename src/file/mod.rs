@@ -5,6 +5,7 @@ use std::path::Path;
 pub mod detect_file_type;
 pub mod index_cache;
 pub mod indexing;
+pub mod json_envelope;
 pub mod loaders;
 pub mod to_dataset;
 
