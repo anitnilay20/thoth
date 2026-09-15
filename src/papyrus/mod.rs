@@ -311,7 +311,21 @@ pub fn publish_arrow(
     name: String,
     loader: Arc<dyn FileLoader + Send + Sync>,
 ) -> Option<String> {
-    let total = loader.len().ok()? as u64;
+    let total = loader.len().ok()?;
+    publish_arrow_with_total(source, instance, name, loader, total as u64)
+}
+
+/// Publish a live engine whose row count is already known.
+///
+/// `count(*)` over a JSON file is a full scan, so a caller that computed it off
+/// the UI thread must not be made to pay for it again here.
+pub fn publish_arrow_with_total(
+    source: &str,
+    instance: &str,
+    name: String,
+    loader: Arc<dyn FileLoader + Send + Sync>,
+    total: u64,
+) -> Option<String> {
     let columns: Vec<DatasetColumn> = {
         use crate::file::loaders::RecordSource;
         loader

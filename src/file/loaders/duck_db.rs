@@ -131,7 +131,11 @@ impl DuckdbConnection {
         let literal = quote_literal(&scan_path.to_string_lossy());
         let reader = match file_type {
             FileType::Json | FileType::Plugin | FileType::Unknown => {
-                format!("read_json_auto({literal}, maximum_object_size=1073741824)")
+                // DuckDB's default object limit is left alone deliberately. A
+                // document too large to read as one value is an envelope, and
+                // raising the limit only buys a multi-gigabyte parse before the
+                // same failure -- see `json_envelope`.
+                format!("read_json_auto({literal})")
             }
             FileType::Csv => format!("read_csv_auto({literal})"),
             FileType::Parquet => format!("read_parquet({literal})"),

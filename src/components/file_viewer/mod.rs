@@ -186,7 +186,7 @@ impl FileViewer {
     pub fn open(
         &mut self,
         path: &Path,
-        tab_id: usize,
+        _tab_id: usize,
         file_type: &mut FileKind,
     ) -> crate::error::Result<()> {
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
@@ -217,41 +217,13 @@ impl FileViewer {
             // Everything else goes through the engine and onto the bus. The
             // engine picks the right DuckDB reader, staging through a
             // file-loader plugin when there is no native one.
+            // Opening is deferred to a worker. Deciding how to read a file
+            // means asking DuckDB, and for a large document that question is
+            // answered by parsing it — which would freeze the UI for as long as
+            // that takes. The tab appears now and upgrades in place.
             None => {
-                let name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "file".to_string());
-                // The producer marker the app reserves for core file tabs. It
-                // must match, or the frame reaper drops the sheet as soon as it
-                // is published — and it keys on the *tab*, so re-opening a file
-                // in place replaces its sheet rather than stacking a new one.
-                let instance = format!("core#{tab_id}");
-
-                match DuckdbConnection::open_path(path) {
-                    Ok(engine) => {
-                        let engine = Arc::new(engine);
-                        self.handle =
-                            crate::papyrus::publish_arrow("core", &instance, name, engine.clone());
-                        self.engine = Some(engine);
-                        self.default_view = default_view(path);
-                    }
-                    // No reader could make sense of it — a format we don't
-                    // know, or one whose structure is too large to model (a
-                    // single multi-hundred-MB JSON object, say). Text is the
-                    // floor: every file is openable, and the line index makes
-                    // that true at any size.
-                    //
-                    // Indexing runs in the background so the tab opens now; a
-                    // cached index from a previous open is adopted instantly.
-                    Err(_) => {
-                        self.index_job = Some(crate::file::indexing::IndexJob::spawn(path));
-                        // The format still decides the view. A JSON document we
-                        // could not read structurally is still JSON, and opens
-                        // as JSON.
-                        self.default_view = default_view(path);
-                    }
-                }
+                self.index_job = Some(crate::file::indexing::IndexJob::spawn(path));
+                self.default_view = default_view(path);
                 detect_kind(path)
             }
         };
@@ -424,14 +396,18 @@ impl FileViewer {
         let instance = format!("core#{tab_id}");
 
         self.handle = match indexed {
-            // The document turned out to be an envelope: its collections are
-            // now tables, so the tab behaves like any other queryable file.
-            crate::file::indexing::Indexed::Envelope { engine, .. } => {
+            // Read natively, or an envelope whose collections are now tables —
+            // either way the tab is queryable.
+            crate::file::indexing::Indexed::Engine { engine, total, .. } => {
                 let engine = Arc::new(engine);
-                let handle =
-                    crate::papyrus::publish_arrow("core", &instance, name.clone(), engine.clone());
+                let handle = crate::papyrus::publish_arrow_with_total(
+                    "core",
+                    &instance,
+                    name.clone(),
+                    engine.clone(),
+                    total as u64,
+                );
                 self.engine = Some(engine);
-                self.default_view = "table";
                 handle
             }
             crate::file::indexing::Indexed::Text(index) => {

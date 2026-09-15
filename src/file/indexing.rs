@@ -17,16 +17,21 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use crate::error::Result;
 use crate::file::index_cache;
 use crate::file::json_envelope::JsonEnvelope;
-use crate::file::loaders::{DuckdbConnection, TextIndex};
+use crate::file::loaders::{DuckdbConnection, FileLoader, TextIndex};
 
 /// What indexing a file produced.
 #[allow(clippy::large_enum_variant)]
 pub enum Indexed {
-    /// The document is an envelope, and its collections are now tables. This
-    /// is the good outcome: `users JOIN transactions` is ordinary SQL.
-    Envelope {
+    /// A queryable engine. Either the file was read natively, or it was an
+    /// envelope whose collections were staged as tables — in both cases the
+    /// tab gets SQL, and `collections` names what an envelope yielded.
+    Engine {
         engine: DuckdbConnection,
-        /// Aliases the collections are queryable by.
+        /// Rows in the primary relation, counted off the UI thread because
+        /// `count(*)` over a JSON file is a full scan.
+        total: usize,
+        /// Aliases an envelope's collections are queryable by; empty for a
+        /// natively-read file.
         collections: Vec<String>,
     },
     /// No structure we could use — browsable as text, at any size.
@@ -38,14 +43,14 @@ impl Indexed {
     pub fn as_text(&self) -> Option<&TextIndex> {
         match self {
             Indexed::Text(index) => Some(index),
-            Indexed::Envelope { .. } => None,
+            Indexed::Engine { .. } => None,
         }
     }
 
     /// Collections staged as tables, when the document was an envelope.
     pub fn collections(&self) -> &[String] {
         match self {
-            Indexed::Envelope { collections, .. } => collections,
+            Indexed::Engine { collections, .. } => collections,
             Indexed::Text(_) => &[],
         }
     }
@@ -109,7 +114,12 @@ impl IndexJob {
         });
         let result = Arc::new(std::sync::Mutex::new(None));
 
-        if let Some(cached) = index_cache::load(path) {
+        // A document that is one top-level object may yield tables, and that is
+        // strictly better than text. A cached text index from a previous open
+        // must not shadow it.
+        if !is_single_object(path)
+            && let Some(cached) = index_cache::load(path)
+        {
             *result.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(Indexed::Text(Box::new(cached)));
             shared.scanned.store(total, Ordering::Relaxed);
@@ -137,8 +147,30 @@ impl IndexJob {
                 }
             };
 
-            // An envelope is the better outcome, so it is tried first: its
-            // collections become real tables, where text is only browsable.
+            // Reading the file natively is the best outcome, and the cheapest
+            // to try — but not for a document that is one top-level object,
+            // where finding out costs a parse of the whole thing.
+            if !is_single_object(&worker_path)
+                && let Ok(engine) = DuckdbConnection::open_path(&worker_path)
+            {
+                // Counted here rather than on the UI thread: `count(*)` over a
+                // JSON file is a full scan.
+                let total = engine.len().unwrap_or(0);
+                *worker_result.lock().unwrap_or_else(|e| e.into_inner()) = Some(Indexed::Engine {
+                    engine,
+                    total,
+                    collections: Vec::new(),
+                });
+                worker_shared.scanned.store(worker_shared.total, Ordering::Relaxed);
+                worker_shared.finished.store(true, Ordering::Release);
+                if let Some(ctx) = crate::EGUI_CTX.get() {
+                    ctx.request_repaint();
+                }
+                return;
+            }
+
+            // An envelope is the next best outcome: its collections become real
+            // tables, where text is only browsable.
             match stage_envelope(&worker_path, progress(&worker_shared)) {
                 Ok(Some(Some(indexed))) => {
                     *worker_result.lock().unwrap_or_else(|e| e.into_inner()) = Some(indexed);
@@ -257,10 +289,32 @@ fn stage_envelope(
     if collections.is_empty() {
         return Ok(Some(None));
     }
-    Ok(Some(Some(Indexed::Envelope {
+    let total = engine.len().unwrap_or(0);
+    Ok(Some(Some(Indexed::Engine {
         engine,
+        total,
         collections,
     })))
+}
+
+/// Whether the document's root is a single object.
+///
+/// Cheap: reads the first non-whitespace byte. Worth knowing before handing a
+/// file to DuckDB, because an object it cannot read is only discovered by
+/// parsing all of it.
+fn is_single_object(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut head = [0u8; 64];
+    let Ok(read) = file.read(&mut head) else {
+        return false;
+    };
+    head[..read]
+        .iter()
+        .find(|b| !b.is_ascii_whitespace())
+        .is_some_and(|b| *b == b'{')
 }
 
 /// Index `path` on this thread, using the cache when it is current.
@@ -410,7 +464,7 @@ mod tests {
             "an envelope must not degrade to text"
         );
 
-        let Indexed::Envelope { engine, .. } = indexed else {
+        let Indexed::Engine { engine, .. } = indexed else {
             panic!("expected an envelope");
         };
         use crate::file::loaders::FileLoader as _;
@@ -451,5 +505,68 @@ mod tests {
         let job = IndexJob::spawn(file.path());
         assert_eq!(settle(&job), Progress::Ready);
         assert_eq!(job.take().unwrap().as_text().unwrap().len(), 40);
+    }
+}
+
+#[cfg(test)]
+mod real_file {
+    use super::*;
+
+    /// Open the downloaded envelope document the way the app does, and report
+    /// what the user would actually get. Ignored: depends on a local file.
+    #[test]
+    #[ignore = "requires ~/Downloads/data_500mb.json"]
+    fn opens_the_downloaded_document() {
+        let path = Path::new(concat!(env!("HOME"), "/Downloads/data_500mb.json"));
+        if !path.exists() {
+            println!("absent; skipping");
+            return;
+        }
+        let started = std::time::Instant::now();
+        let job = IndexJob::spawn(path);
+        while !job.progress().is_finished() {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        println!("indexing took {:?} -> {:?}", started.elapsed(), job.progress());
+
+        let indexed = job.take().expect("indexed");
+        match &indexed {
+            Indexed::Engine { engine, collections, .. } => {
+                use crate::file::loaders::{FileLoader as _, batches_to_values};
+                println!("collections: {collections:?}");
+                for name in collections {
+                    let started = std::time::Instant::now();
+                    let rows = batches_to_values(
+                        &engine
+                            .query(&format!("SELECT count(*) AS n FROM \"{name}\""))
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    println!("  {name}: {} rows ({:?})", rows[0]["n"], started.elapsed());
+                }
+            }
+            Indexed::Text(index) => println!("fell back to text: {} lines", index.len()),
+        }
+        // And the capability that motivated all of this: a join across two
+        // collections of a document DuckDB cannot read as a table at all.
+        if let Indexed::Engine { engine, .. } = &indexed {
+            use crate::file::loaders::{FileLoader as _, RecordSource as _, batches_to_values};
+            println!("users columns:    {:?}", engine.column_names().ok());
+            for sql in [
+                "SELECT count(*) AS users, (SELECT count(*) FROM logs) AS logs FROM users",
+                "SELECT level, count(*) AS n FROM logs GROUP BY level ORDER BY n DESC LIMIT 3",
+            ] {
+                let started = std::time::Instant::now();
+                match engine.query(sql) {
+                    Ok(b) => println!(
+                        "  {:?} -> {:?}  ({:?})",
+                        sql,
+                        batches_to_values(&b).unwrap(),
+                        started.elapsed()
+                    ),
+                    Err(e) => println!("  {sql:?} -> ERROR {e}"),
+                }
+            }
+        }
     }
 }
