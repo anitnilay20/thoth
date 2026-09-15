@@ -52,6 +52,9 @@ pub struct StatusBarProps<'a> {
     /// Progress of a background index build for this tab, 0.0-1.0. Shown ahead
     /// of the file details, because until it finishes they are provisional.
     pub indexing: Option<f32>,
+
+    /// The tab is showing a prefix of the file while that index builds.
+    pub preview: bool,
 }
 
 /// Status indicator for the status bar
@@ -333,10 +336,15 @@ impl ContextComponent for StatusBar {
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 0.0);
 
                     if let Some(fraction) = props.indexing {
-                        // A file is openable while this runs, so this reports
-                        // rather than blocks.
+                        // The tab is usable while this runs -- it shows the
+                        // head of the file -- so this reports rather than
+                        // blocks, and says which it is showing.
                         ui.label(icon_rich_text(egui_phosphor::regular::SPINNER, 12.0));
-                        ui.label(format!("Indexing… {:.0}%", fraction * 100.0));
+                        ui.label(format!(
+                            "Indexing… {:.0}%{}",
+                            fraction * 100.0,
+                            if props.preview { " · showing start of file" } else { "" }
+                        ));
                     } else if let Some(summary) = props.chart_summary {
                         // Chart tab: show a compact chart summary.
                         ui.label(icon_rich_text(egui_phosphor::regular::CHART_LINE, 12.0));

@@ -291,6 +291,11 @@ impl CentralPanel {
         }
     }
 
+    /// Whether this tab is showing a prefix of the file while it indexes.
+    pub fn showing_preview(&self) -> bool {
+        self.file_viewer.showing_preview()
+    }
+
     /// Progress of this tab's background index build, if one is running.
     pub fn index_progress(&self) -> Option<crate::file::indexing::Progress> {
         self.file_viewer.index_progress()

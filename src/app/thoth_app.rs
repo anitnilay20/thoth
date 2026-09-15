@@ -1684,6 +1684,10 @@ impl ThothApp {
                 _ => None,
             });
 
+        let showing_preview = active_id
+            .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
+            .is_some_and(|t| t.central_panel.showing_preview());
+
         let chart_summary: Option<String> = active_id
             .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
             .and_then(|t| t.chart.as_ref().map(|c| c.status_summary()));
@@ -1702,6 +1706,7 @@ impl ThothApp {
                     .map(|(p, i)| (p.as_str(), i.as_str())),
                 chart_summary: chart_summary.as_deref(),
                 indexing: indexing_progress,
+                preview: showing_preview,
             },
         );
 

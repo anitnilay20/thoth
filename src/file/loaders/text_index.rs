@@ -59,6 +59,28 @@ impl TextIndex {
     /// be cancelled when its tab closes.
     pub fn build_observed(
         path: &Path,
+        on_progress: impl FnMut(u64) -> ControlFlow<()>,
+    ) -> Result<Option<Self>> {
+        Self::build_limited(path, u64::MAX, on_progress)
+    }
+
+    /// Index only the first `max_bytes`, for showing a file *now* while its
+    /// real index builds behind it.
+    ///
+    /// The result describes a prefix and nothing more: reads past it return
+    /// nothing rather than reading uncharted bytes. A megabyte is thousands of
+    /// lines, which is far more than a screen, and costs a single read.
+    pub fn preview(path: &Path, max_bytes: u64) -> Result<Self> {
+        Self::build_limited(path, max_bytes, |_| ControlFlow::Continue(()))?
+            .ok_or_else(|| ThothError::FileReadError {
+                path: path.to_path_buf(),
+                reason: "preview was cancelled".to_string(),
+            })
+    }
+
+    fn build_limited(
+        path: &Path,
+        max_bytes: u64,
         mut on_progress: impl FnMut(u64) -> ControlFlow<()>,
     ) -> Result<Option<Self>> {
         let file = File::open(path).map_err(|e| ThothError::FileReadError {
@@ -128,10 +150,17 @@ impl TextIndex {
                 }
             }
             offset += read as u64;
+            if offset >= max_bytes {
+                break;
+            }
             if on_progress(offset).is_break() {
                 return Ok(None);
             }
         }
+
+        // A full scan ends at EOF, so `offset == size`; a preview stops short,
+        // and must describe only what it read.
+        let size = size.min(offset);
 
         Ok(Some(Self {
             path: path.to_path_buf(),
@@ -301,6 +330,30 @@ mod tests {
         let index = TextIndex::build(file.path()).unwrap();
         assert_eq!(index.len(), 4);
         assert_eq!(index.read(0, 4).unwrap(), ["a", "", "", "b"]);
+    }
+
+    #[test]
+    fn a_preview_indexes_only_a_prefix() {
+        let body: String = (0..200_000).map(|i| format!("line-{i}\n")).collect();
+        let file = write(body.as_bytes());
+
+        let preview = TextIndex::preview(file.path(), 64 * 1024).unwrap();
+        let full = TextIndex::build(file.path()).unwrap();
+
+        assert!(preview.len() > 100, "enough to fill a screen");
+        assert!(preview.len() < full.len(), "and not the whole file");
+        // What it does have reads correctly...
+        assert_eq!(preview.read(0, 2).unwrap(), ["line-0", "line-1"]);
+        // ...and it never reads past what it charted.
+        assert!(preview.read(preview.len(), 10).unwrap().is_empty());
+        assert!(preview.size() <= full.size());
+    }
+
+    #[test]
+    fn a_preview_of_a_small_file_is_the_whole_file() {
+        let file = write(b"a\nb\nc\n");
+        let preview = TextIndex::preview(file.path(), 1 << 20).unwrap();
+        assert_eq!(preview.read(0, 3).unwrap(), ["a", "b", "c"]);
     }
 
     #[test]

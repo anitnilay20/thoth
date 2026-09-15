@@ -59,6 +59,10 @@ impl FileViewerLoader for PluginFileViewerLoader {
 /// a huge file never fully crosses the WASM boundary.
 const DATASET_CAP: usize = 5000;
 
+/// Bytes indexed up front so a tab has content before its real index exists.
+/// Thousands of lines — far more than a screen — for a single read.
+const PREVIEW_BYTES: u64 = 1 << 20;
+
 /// The view a file opens in, before the user picks one.
 ///
 /// Chosen by format rather than fixed, because the right first look differs:
@@ -117,6 +121,11 @@ pub struct FileViewer {
     /// fires exactly once per file.
     index_announced: bool,
 
+    /// The handle currently points at a prefix of the file, shown while the
+    /// real index builds. The status bar says so, because the tab would
+    /// otherwise look complete.
+    showing_preview: bool,
+
     /// Set only for files a plugin renders itself — those keep their own loader
     /// and viewer, since the host cannot draw a plugin's custom nodes.
     loader: Option<Box<dyn FileViewerLoader>>,
@@ -156,6 +165,7 @@ impl FileViewer {
             default_view: "table",
             index_job: None,
             index_announced: false,
+            showing_preview: false,
             loader: None,
             viewer: None,
             state: ViewerState::default(),
@@ -186,7 +196,7 @@ impl FileViewer {
     pub fn open(
         &mut self,
         path: &Path,
-        _tab_id: usize,
+        tab_id: usize,
         file_type: &mut FileKind,
     ) -> crate::error::Result<()> {
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
@@ -222,6 +232,21 @@ impl FileViewer {
             // answered by parsing it — which would freeze the UI for as long as
             // that takes. The tab appears now and upgrades in place.
             None => {
+                // Show the file straight away. A prefix index costs one read
+                // and gives the tab real content — the alternative is staring
+                // at a spinner for as long as the scan takes, which on a large
+                // document is most of a minute.
+                if let Ok(preview) = crate::file::loaders::TextIndex::preview(path, PREVIEW_BYTES) {
+                    self.handle = crate::papyrus::publish_text(
+                        "core",
+                        &format!("core#{tab_id}"),
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "file".to_string()),
+                        preview,
+                    );
+                    self.showing_preview = true;
+                }
                 self.index_job = Some(crate::file::indexing::IndexJob::spawn(path));
                 self.default_view = default_view(path);
                 detect_kind(path)
@@ -332,15 +357,6 @@ impl FileViewer {
             return;
         }
 
-        if let Some(job) = self.index_job.as_ref()
-            && !job.progress().is_finished()
-        {
-            ui.centered_and_justified(|ui| {
-                ui.label("Indexing…");
-            });
-            return;
-        }
-
         let (Some(loader), Some(viewer_box)) = (self.loader.as_mut(), self.viewer.as_mut()) else {
             ui.centered_and_justified(|ui| {
                 ui.label("No file loaded");
@@ -371,6 +387,11 @@ impl FileViewer {
         }
     }
 
+    /// Whether the tab is showing a prefix of the file rather than all of it.
+    pub fn showing_preview(&self) -> bool {
+        self.showing_preview
+    }
+
     /// Progress of a background index build, if one is running for this tab.
     pub fn index_progress(&self) -> Option<crate::file::indexing::Progress> {
         self.index_job.as_ref().map(|job| job.progress())
@@ -386,6 +407,7 @@ impl FileViewer {
             return None;
         }
         self.index_announced = true;
+        self.showing_preview = false;
 
         let indexed = job.take()?;
         let name = job
