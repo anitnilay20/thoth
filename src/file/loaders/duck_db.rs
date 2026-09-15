@@ -11,6 +11,8 @@
 //! that DuckDB then reads like any other JSON source. That makes plugin
 //! formats queryable with the same SQL as everything else.
 
+use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -19,6 +21,7 @@ use tempfile::NamedTempFile;
 
 use crate::error::{Result, ThothError};
 use crate::file::FileType;
+use crate::file::json_envelope::Collection;
 use crate::file::loaders::FileLoader;
 
 /// Records pulled per `get_range` call when staging a plugin-loaded file.
@@ -51,6 +54,9 @@ pub struct DuckdbConnection {
     sources: Mutex<Vec<Source>>,
     /// `len()` is a `count(*)` over the whole file — worth caching.
     row_count: Mutex<Option<usize>>,
+    /// Collections extracted from an envelope document, held so their files
+    /// outlive the views reading them.
+    staged: Mutex<HashMap<String, NamedTempFile>>,
 }
 
 impl DuckdbConnection {
@@ -59,6 +65,7 @@ impl DuckdbConnection {
             conn: Mutex::new(Connection::open_in_memory()?),
             sources: Mutex::new(Vec::new()),
             row_count: Mutex::new(None),
+            staged: Mutex::new(HashMap::new()),
         })
     }
 
@@ -170,6 +177,127 @@ impl DuckdbConnection {
             quote_ident(&db_alias),
             quote_ident(&table)
         ))
+    }
+
+    /// Register one collection of an envelope document as a queryable table.
+    ///
+    /// The collection's bytes are copied out to their own file and handed to
+    /// DuckDB's JSON reader. That copy is the price of making a nested array
+    /// queryable at all — DuckDB cannot read a byte range of a file, and
+    /// parsing the enclosing document would cost the whole 2GB rather than this
+    /// collection's share.
+    ///
+    /// Idempotent: a collection already staged is left alone, so this can be
+    /// called freely before a query.
+    pub fn stage_collection(&self, path: &Path, collection: &Collection) -> Result<()> {
+        let alias = alias_for_name(&collection.name);
+        {
+            let staged = self.staged.lock().unwrap_or_else(|e| e.into_inner());
+            if staged.contains_key(&alias) {
+                return Ok(());
+            }
+        }
+
+        let extracted = extract_range(path, collection.start, collection.end)?;
+        // The value is a JSON array of records, which is exactly what the
+        // `array` reader expects.
+        self.execute(&format!(
+            "CREATE OR REPLACE VIEW {} AS SELECT * FROM read_json_auto({}, format='array')",
+            quote_ident(&alias),
+            quote_literal(&extracted.path().to_string_lossy())
+        ))?;
+
+        self.staged
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(alias.clone(), extracted);
+
+        // The first collection staged becomes the primary one, so `fetch` and
+        // `len` address it without the caller naming it.
+        let mut sources = self.sources.lock().unwrap_or_else(|e| e.into_inner());
+        if sources.is_empty() {
+            sources.push(Source {
+                alias,
+                path: path.to_path_buf(),
+                staged: None,
+            });
+            *self.row_count.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
+        Ok(())
+    }
+
+    /// Collections already staged, by the alias SQL refers to them by.
+    pub fn staged_collections(&self) -> Vec<String> {
+        let staged = self.staged.lock().unwrap_or_else(|e| e.into_inner());
+        let mut names: Vec<String> = staged.keys().cloned().collect();
+        names.sort();
+        names
+    }
+}
+
+/// Copy `[start, end)` of `path` into a file of its own.
+///
+/// Streamed rather than read whole: a collection can be hundreds of megabytes,
+/// and there is no reason for it to be resident.
+fn extract_range(path: &Path, start: u64, end: u64) -> Result<NamedTempFile> {
+    let mut source = std::fs::File::open(path).map_err(|e| ThothError::FileReadError {
+        path: path.to_path_buf(),
+        reason: e.to_string(),
+    })?;
+    source
+        .seek(SeekFrom::Start(start))
+        .map_err(|e| ThothError::FileReadError {
+            path: path.to_path_buf(),
+            reason: e.to_string(),
+        })?;
+
+    let mut out = tempfile::Builder::new()
+        .suffix(".json")
+        .tempfile()
+        .map_err(|e| ThothError::FileWriteError {
+            path: path.to_path_buf(),
+            reason: e.to_string(),
+        })?;
+
+    let mut remaining = end.saturating_sub(start);
+    let mut buf = vec![0u8; 1 << 20];
+    while remaining > 0 {
+        let want = (buf.len() as u64).min(remaining) as usize;
+        let read = source
+            .read(&mut buf[..want])
+            .map_err(|e| ThothError::FileReadError {
+                path: path.to_path_buf(),
+                reason: e.to_string(),
+            })?;
+        if read == 0 {
+            break;
+        }
+        out.write_all(&buf[..read])
+            .map_err(|e| ThothError::FileWriteError {
+                path: out.path().to_path_buf(),
+                reason: e.to_string(),
+            })?;
+        remaining -= read as u64;
+    }
+    out.flush().map_err(|e| ThothError::FileWriteError {
+        path: out.path().to_path_buf(),
+        reason: e.to_string(),
+    })?;
+    Ok(out)
+}
+
+/// A collection's key as an SQL-safe identifier.
+fn alias_for_name(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    if sanitized.is_empty() {
+        "collection".to_string()
+    } else if sanitized.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("_{sanitized}")
+    } else {
+        sanitized
     }
 }
 
@@ -508,5 +636,103 @@ mod tests {
             db.open("/definitely/not/here.json", "x"),
             Err(ThothError::FileNotFound { .. })
         ));
+    }
+
+    // ── Envelope collections ────────────────────────────────────────────────
+
+    fn envelope_doc(body: &str) -> NamedTempFile {
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        tmp.write_all(body.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+        tmp
+    }
+
+    #[test]
+    fn a_collection_inside_an_envelope_becomes_a_table() {
+        use crate::file::json_envelope::JsonEnvelope;
+
+        let file = envelope_doc(
+            r#"{"meta":{"v":1},"users":[{"id":1,"name":"ada"},{"id":2,"name":"linus"}]}"#,
+        );
+        let env = JsonEnvelope::scan(file.path()).unwrap().unwrap();
+        let users = env.get("users").unwrap();
+
+        let db = DuckdbConnection::new().unwrap();
+        db.stage_collection(file.path(), users).unwrap();
+
+        assert_eq!(db.staged_collections(), ["users"]);
+        // It is a real table: the enclosing document is not involved.
+        let rows = batch_rows_of(&db.query("SELECT name FROM users ORDER BY id").unwrap());
+        assert_eq!(rows, 2);
+        assert_eq!(db.len().unwrap(), 2, "the first staged collection is primary");
+    }
+
+    #[test]
+    fn collections_from_one_document_can_be_joined() {
+        // The whole point: `users JOIN transactions` as ordinary SQL, over a
+        // document DuckDB cannot read as a table at all.
+        use crate::file::json_envelope::JsonEnvelope;
+
+        let file = envelope_doc(
+            r#"{"users":[{"id":1,"name":"ada"},{"id":2,"name":"linus"}],
+                "transactions":[{"user_id":1,"amount":10},{"user_id":1,"amount":5},
+                                {"user_id":2,"amount":7}]}"#,
+        );
+        let env = JsonEnvelope::scan(file.path()).unwrap().unwrap();
+
+        let db = DuckdbConnection::new().unwrap();
+        for c in env.queryable() {
+            db.stage_collection(file.path(), c).unwrap();
+        }
+        assert_eq!(db.staged_collections(), ["transactions", "users"]);
+
+        let batches = db
+            .query(
+                "SELECT u.name, sum(t.amount) AS total \
+                 FROM users u JOIN transactions t ON t.user_id = u.id \
+                 GROUP BY u.name ORDER BY total DESC",
+            )
+            .unwrap();
+        let rows = crate::file::loaders::batches_to_values(&batches).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["name"], "ada");
+        assert_eq!(rows[0]["total"], 15);
+        assert_eq!(rows[1]["name"], "linus");
+        assert_eq!(rows[1]["total"], 7);
+    }
+
+    #[test]
+    fn staging_the_same_collection_twice_is_a_no_op() {
+        use crate::file::json_envelope::JsonEnvelope;
+
+        let file = envelope_doc(r#"{"rows":[{"a":1}]}"#);
+        let env = JsonEnvelope::scan(file.path()).unwrap().unwrap();
+        let rows = env.get("rows").unwrap();
+
+        let db = DuckdbConnection::new().unwrap();
+        db.stage_collection(file.path(), rows).unwrap();
+        db.stage_collection(file.path(), rows).unwrap();
+        assert_eq!(db.staged_collections().len(), 1);
+    }
+
+    #[test]
+    fn a_key_that_is_not_an_identifier_still_gets_a_usable_alias() {
+        use crate::file::json_envelope::JsonEnvelope;
+
+        let file = envelope_doc(r#"{"user events-2024":[{"a":1}]}"#);
+        let env = JsonEnvelope::scan(file.path()).unwrap().unwrap();
+        let c = env.get("user events-2024").unwrap();
+
+        let db = DuckdbConnection::new().unwrap();
+        db.stage_collection(file.path(), c).unwrap();
+        assert_eq!(db.staged_collections(), ["user_events_2024"]);
+        assert_eq!(
+            batch_rows_of(&db.query("SELECT * FROM user_events_2024").unwrap()),
+            1
+        );
+    }
+
+    fn batch_rows_of(batches: &[RecordBatch]) -> usize {
+        batches.iter().map(|b| b.num_rows()).sum()
     }
 }

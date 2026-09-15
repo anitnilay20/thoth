@@ -415,18 +415,29 @@ impl FileViewer {
         }
         self.index_announced = true;
 
-        let index = job.take()?;
+        let indexed = job.take()?;
         let name = job
             .path()
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "file".to_string());
-        self.handle = crate::papyrus::publish_text(
-            "core",
-            &format!("core#{tab_id}"),
-            name.clone(),
-            index,
-        );
+        let instance = format!("core#{tab_id}");
+
+        self.handle = match indexed {
+            // The document turned out to be an envelope: its collections are
+            // now tables, so the tab behaves like any other queryable file.
+            crate::file::indexing::Indexed::Envelope { engine, .. } => {
+                let engine = Arc::new(engine);
+                let handle =
+                    crate::papyrus::publish_arrow("core", &instance, name.clone(), engine.clone());
+                self.engine = Some(engine);
+                self.default_view = "table";
+                handle
+            }
+            crate::file::indexing::Indexed::Text(index) => {
+                crate::papyrus::publish_text("core", &instance, name.clone(), *index)
+            }
+        };
         Some(name)
     }
 

@@ -16,7 +16,40 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::error::Result;
 use crate::file::index_cache;
-use crate::file::loaders::TextIndex;
+use crate::file::json_envelope::JsonEnvelope;
+use crate::file::loaders::{DuckdbConnection, TextIndex};
+
+/// What indexing a file produced.
+#[allow(clippy::large_enum_variant)]
+pub enum Indexed {
+    /// The document is an envelope, and its collections are now tables. This
+    /// is the good outcome: `users JOIN transactions` is ordinary SQL.
+    Envelope {
+        engine: DuckdbConnection,
+        /// Aliases the collections are queryable by.
+        collections: Vec<String>,
+    },
+    /// No structure we could use — browsable as text, at any size.
+    Text(Box<TextIndex>),
+}
+
+impl Indexed {
+    /// The text index, when that is what indexing produced.
+    pub fn as_text(&self) -> Option<&TextIndex> {
+        match self {
+            Indexed::Text(index) => Some(index),
+            Indexed::Envelope { .. } => None,
+        }
+    }
+
+    /// Collections staged as tables, when the document was an envelope.
+    pub fn collections(&self) -> &[String] {
+        match self {
+            Indexed::Envelope { collections, .. } => collections,
+            Indexed::Text(_) => &[],
+        }
+    }
+}
 
 /// How far along an index build is.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -57,7 +90,7 @@ pub struct IndexJob {
     path: PathBuf,
     shared: Arc<Shared>,
     /// Taken by whoever collects the finished index.
-    result: Arc<std::sync::Mutex<Option<TextIndex>>>,
+    result: Arc<std::sync::Mutex<Option<Indexed>>>,
 }
 
 impl IndexJob {
@@ -77,7 +110,8 @@ impl IndexJob {
         let result = Arc::new(std::sync::Mutex::new(None));
 
         if let Some(cached) = index_cache::load(path) {
-            *result.lock().unwrap_or_else(|e| e.into_inner()) = Some(cached);
+            *result.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(Indexed::Text(Box::new(cached)));
             shared.scanned.store(total, Ordering::Relaxed);
             shared.finished.store(true, Ordering::Release);
             return Self {
@@ -91,21 +125,46 @@ impl IndexJob {
         let worker_shared = Arc::clone(&shared);
         let worker_result = Arc::clone(&result);
         std::thread::spawn(move || {
-            let outcome = TextIndex::build_observed(&worker_path, |scanned| {
-                worker_shared.scanned.store(scanned, Ordering::Relaxed);
-                if worker_shared.cancelled.load(Ordering::Acquire) {
-                    std::ops::ControlFlow::Break(())
-                } else {
-                    std::ops::ControlFlow::Continue(())
+            let progress = |shared: &Arc<Shared>| {
+                let shared = Arc::clone(shared);
+                move |scanned: u64| {
+                    shared.scanned.store(scanned, Ordering::Relaxed);
+                    if shared.cancelled.load(Ordering::Acquire) {
+                        std::ops::ControlFlow::Break(())
+                    } else {
+                        std::ops::ControlFlow::Continue(())
+                    }
                 }
-            });
+            };
 
-            match outcome {
+            // An envelope is the better outcome, so it is tried first: its
+            // collections become real tables, where text is only browsable.
+            match stage_envelope(&worker_path, progress(&worker_shared)) {
+                Ok(Some(Some(indexed))) => {
+                    *worker_result.lock().unwrap_or_else(|e| e.into_inner()) = Some(indexed);
+                    worker_shared.finished.store(true, Ordering::Release);
+                    if let Some(ctx) = crate::EGUI_CTX.get() {
+                        ctx.request_repaint();
+                    }
+                    return;
+                }
+                // Cancelled mid-scan.
+                Ok(None) => {
+                    worker_shared.finished.store(true, Ordering::Release);
+                    return;
+                }
+                // No envelope, or staging failed — fall through to text.
+                _ => {}
+            }
+            worker_shared.scanned.store(0, Ordering::Relaxed);
+
+            match TextIndex::build_observed(&worker_path, progress(&worker_shared)) {
                 Ok(Some(index)) => {
                     // Best effort: a cache that fails to write costs a rescan
                     // next time, nothing more.
                     let _ = index_cache::store(&index);
-                    *worker_result.lock().unwrap_or_else(|e| e.into_inner()) = Some(index);
+                    *worker_result.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(Indexed::Text(Box::new(index)));
                 }
                 // Cancelled — leave no result and store nothing.
                 Ok(None) => {}
@@ -157,7 +216,7 @@ impl IndexJob {
 
     /// Take the finished index, leaving the job empty. `None` while running,
     /// or if the job was cancelled or failed.
-    pub fn take(&self) -> Option<TextIndex> {
+    pub fn take(&self) -> Option<Indexed> {
         self.shared
             .finished
             .load(Ordering::Acquire)
@@ -169,6 +228,39 @@ impl IndexJob {
             })
             .flatten()
     }
+}
+
+/// Scan a document for an envelope and stage its collections as tables.
+///
+/// The outer `Option` is cancellation; the inner one distinguishes "no
+/// envelope here" from a document whose collections are now queryable.
+fn stage_envelope(
+    path: &Path,
+    on_progress: impl FnMut(u64) -> std::ops::ControlFlow<()>,
+) -> Result<Option<Option<Indexed>>> {
+    let Some(scanned) = JsonEnvelope::scan_observed(path, on_progress)? else {
+        return Ok(None); // cancelled
+    };
+    let Some(envelope) = scanned else {
+        return Ok(Some(None)); // root is not an object
+    };
+    if envelope.queryable().next().is_none() {
+        return Ok(Some(None)); // an object, but nothing tabular inside
+    }
+
+    let engine = DuckdbConnection::new()?;
+    for collection in envelope.queryable() {
+        // One bad collection should not cost the rest of the document.
+        let _ = engine.stage_collection(path, collection);
+    }
+    let collections = engine.staged_collections();
+    if collections.is_empty() {
+        return Ok(Some(None));
+    }
+    Ok(Some(Some(Indexed::Envelope {
+        engine,
+        collections,
+    })))
 }
 
 /// Index `path` on this thread, using the cache when it is current.
@@ -217,8 +309,8 @@ mod tests {
         let job = IndexJob::spawn(file.path());
 
         assert_eq!(settle(&job), Progress::Ready);
-        let index = job.take().expect("index");
-        assert_eq!(index.len(), 500);
+        let indexed = job.take().expect("index");
+        assert_eq!(indexed.as_text().expect("a text index").len(), 500);
         // Taking twice yields nothing the second time.
         assert!(job.take().is_none());
 
@@ -274,7 +366,10 @@ mod tests {
         // Already cached: ready without touching a worker thread.
         let second = IndexJob::spawn(file.path());
         assert_eq!(second.progress(), Progress::Ready);
-        assert_eq!(second.take().expect("cached index").len(), 300);
+        assert_eq!(
+            second.take().expect("cached index").as_text().unwrap().len(),
+            300
+        );
 
     }
 
@@ -288,5 +383,73 @@ mod tests {
         let job = IndexJob::spawn(file.path());
         assert_eq!(job.progress(), Progress::Ready);
 
+    }
+
+    #[test]
+    fn an_envelope_document_comes_back_as_queryable_tables() {
+        crate::file::index_cache::tests::isolate();
+        // The shape DuckDB cannot read at all: one top-level object. Indexing
+        // it must yield tables, not text -- that is the whole point.
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(
+            tmp,
+            r#"{{"meta":{{"v":1}},
+                "users":[{{"id":1,"name":"ada"}},{{"id":2,"name":"linus"}}],
+                "transactions":[{{"user_id":1,"amount":10}},{{"user_id":2,"amount":7}}]}}"#
+        )
+        .unwrap();
+        tmp.flush().unwrap();
+
+        let job = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&job), Progress::Ready);
+        let indexed = job.take().expect("indexed");
+
+        assert_eq!(indexed.collections(), ["transactions", "users"]);
+        assert!(
+            indexed.as_text().is_none(),
+            "an envelope must not degrade to text"
+        );
+
+        let Indexed::Envelope { engine, .. } = indexed else {
+            panic!("expected an envelope");
+        };
+        use crate::file::loaders::FileLoader as _;
+        // And they join, over a document that has no tabular form of its own.
+        let rows = crate::file::loaders::batches_to_values(
+            &engine
+                .query(
+                    "SELECT u.name, t.amount FROM users u \
+                     JOIN transactions t ON t.user_id = u.id ORDER BY t.amount DESC",
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["name"], "ada");
+        assert_eq!(rows[0]["amount"], 10);
+    }
+
+    #[test]
+    fn an_object_with_nothing_tabular_falls_back_to_text() {
+        crate::file::index_cache::tests::isolate();
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(tmp, r#"{{"a":1,"b":"x","c":{{"d":2}}}}"#).unwrap();
+        tmp.flush().unwrap();
+
+        let job = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&job), Progress::Ready);
+        let indexed = job.take().expect("indexed");
+
+        assert!(indexed.collections().is_empty());
+        assert!(indexed.as_text().is_some(), "still openable, as text");
+    }
+
+    #[test]
+    fn a_plain_log_file_is_indexed_as_text() {
+        crate::file::index_cache::tests::isolate();
+        let file = source(40);
+        let job = IndexJob::spawn(file.path());
+        assert_eq!(settle(&job), Progress::Ready);
+        assert_eq!(job.take().unwrap().as_text().unwrap().len(), 40);
     }
 }
