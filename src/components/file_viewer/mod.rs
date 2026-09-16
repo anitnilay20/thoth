@@ -1,9 +1,6 @@
-pub mod context_menu;
-pub mod json_tree_viewer;
 pub mod plugin_table_viewer;
 pub mod types;
 pub mod viewer_trait;
-pub mod viewer_type;
 
 use eframe::egui::{self, Ui};
 use serde_json::Value;
@@ -12,12 +9,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use self::types::ViewerState;
-use self::viewer_type::ViewerType;
-use crate::components::file_viewer::viewer_trait::FileViewerLoader;
+use crate::components::file_viewer::plugin_table_viewer::PluginTableViewer;
+use crate::components::file_viewer::viewer_trait::{FileFormatViewer, FileViewerLoader};
 use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
 use crate::file::loaders::DuckdbConnection;
 use crate::file::loaders::duck_db::alias_for_name as alias_of;
-use thoth_plugin_sdk::components::DataView;
+use thoth_plugin_sdk::components::{DataView, TreeAction};
 use crate::file::{FileKind, FileType};
 use crate::plugin::Capability;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
@@ -119,14 +116,13 @@ fn detect_kind(path: &Path) -> FileKind {
     }
 }
 
-/// Generic file viewer that manages common viewing concerns (loading, caching, selection)
-/// and delegates format-specific rendering to specialized viewers via the ViewerType enum.
+/// A file tab's contents.
 ///
-/// This architecture makes it easy to add new file format viewers:
-/// 1. Create a new viewer struct (e.g., `CsvTableViewer`)
-/// 2. Implement `FileFormatViewer` trait for it
-/// 3. Add the viewer to `ViewerType` enum
-/// 4. That's it! FileViewer will automatically work with the new viewer
+/// Almost every file is drawn by `DataView` reading from Papyrus, which brings
+/// the table / JSON / raw views, keyboard navigation, the context menu, export
+/// and Chart Studio with it. The exception is a file claimed by a plugin that
+/// supplies its own renderer — the host cannot draw a plugin's custom nodes, so
+/// those keep their own loader and viewer.
 pub struct FileViewer {
     /// Papyrus handle for an engine-backed file. The `DataView` reads its rows
     /// from the bus, so the viewer itself holds no data.
@@ -177,7 +173,7 @@ pub struct FileViewer {
     loader: Option<Box<dyn FileViewerLoader>>,
 
     /// Format-specific viewer (handles different file types)
-    viewer: Option<ViewerType>,
+    viewer: Option<PluginTableViewer>,
 
     /// Common viewer state
     state: ViewerState,
@@ -193,6 +189,11 @@ pub struct FileViewer {
 
     /// Events raised by the embedded `DataView`, drained by the app.
     pending_events: Vec<thoth_plugin_sdk::render_node::UiEvent>,
+
+    /// A command from the app's configurable shortcuts, handed to the tree on
+    /// the next frame. The binding is the host's; the behaviour is the
+    /// component's.
+    tree_action: Option<thoth_plugin_sdk::components::TreeAction>,
 }
 
 impl FileViewer {
@@ -221,6 +222,7 @@ impl FileViewer {
             highlights: HashMap::new(),
             syntax_highlighting: true, // Default to enabled
             pending_events: Vec::new(),
+            tree_action: None,
         }
     }
 
@@ -313,8 +315,7 @@ impl FileViewer {
         self.highlights.clear();
 
         // Create appropriate viewer for file type
-        self.viewer = Some(ViewerType::from_file_type(*file_type));
-        self.apply_highlights_to_viewer();
+        self.viewer = (kind == FileKind::PluginTable).then(PluginTableViewer::new);
 
         Ok(())
     }
@@ -338,11 +339,11 @@ impl FileViewer {
 
         // Delegate to the viewer's navigate_to_root implementation and rebuild if needed
         if let Some(viewer) = self.viewer.as_mut() {
-            let needs_rebuild = viewer.as_viewer_mut().navigate_to_root(root_index);
+            let needs_rebuild = viewer.navigate_to_root(root_index);
             if needs_rebuild && let Some(loader) = self.loader.as_mut() {
                 // Rebuild view immediately so rows are ready for scrolling
                 let total_len = loader.record_count();
-                viewer.as_viewer_mut().rebuild_view(
+                viewer.rebuild_view(
                     &self.state.visible_roots,
                     loader,
                     total_len,
@@ -373,7 +374,7 @@ impl FileViewer {
                 // Expand this node (except the leaf)
                 if i < path_parts.len() - 1 {
                     viewer
-                        .as_viewer_mut()
+                        
                         .expand_selected(&Some(current_path.clone()));
                 }
             }
@@ -448,7 +449,7 @@ impl FileViewer {
         };
 
         let total_len = loader.record_count();
-        let viewer = viewer_box.as_viewer_mut();
+        let viewer = viewer_box;
 
         viewer.rebuild_view(&self.state.visible_roots, loader, total_len);
 
@@ -680,14 +681,17 @@ impl FileViewer {
 
     fn draw_data_view(&mut self, ui: &mut Ui, handle: &str) {
         let mut events = Vec::new();
-        DataView::builder()
+        let mut view = DataView::builder()
             // Keyed on the tab, not the handle, so switching collections keeps
             // the chosen view instead of resetting it.
             .id(format!("file_view_{}", self.tab_id))
             .handle(handle.to_string())
             .default_view(self.default_view)
-            .build()
-            .show(ui, &mut events);
+            .build();
+        // Consumed, so a shortcut fires once rather than every frame until the
+        // next one replaces it.
+        view.tree_action = self.tree_action.take();
+        view.show(ui, &mut events);
         self.pending_events.extend(events);
     }
 
@@ -707,13 +711,6 @@ impl FileViewer {
                         .insert(hit.record_index, Arc::new(hit.fragments.clone()));
                 }
             }
-        }
-        self.apply_highlights_to_viewer();
-    }
-
-    fn apply_highlights_to_viewer(&mut self) {
-        if let Some(ViewerType::Json(json)) = self.viewer.as_mut() {
-            json.set_highlights(&self.highlights);
         }
     }
 
@@ -743,153 +740,54 @@ impl FileViewer {
     }
 
     // ========================================================================
-    // Keyboard Shortcut Support - Navigation & Tree Operations
+    // Keyboard Shortcut Support
     // ========================================================================
+    //
+    // The app owns these bindings because they are user-configurable; the tree
+    // owns what they do. Each just queues a command for the next frame.
 
-    /// Expand the currently selected node (for keyboard shortcuts)
-    /// Returns true if view needs to be rebuilt
-    pub fn expand_selected_node(&mut self) -> bool {
-        if let Some(viewer) = self.viewer.as_mut() {
-            let result = viewer.as_viewer_mut().expand_selected(&self.state.selected);
-            if result && let Some(loader) = self.loader.as_mut() {
-                // Rebuild if needed
-                let total_len = loader.record_count();
-                viewer.as_viewer_mut().rebuild_view(
-                    &self.state.visible_roots,
-                    loader,
-                    total_len,
-                );
-            }
-            return result;
-        }
-        false
+    pub fn expand_selected_node(&mut self) {
+        self.queue(TreeAction::ExpandNode);
     }
 
-    /// Collapse the currently selected node (for keyboard shortcuts)
-    /// Returns true if view needs to be rebuilt
-    pub fn collapse_selected_node(&mut self) -> bool {
-        if let Some(viewer) = self.viewer.as_mut() {
-            let result = viewer
-                .as_viewer_mut()
-                .collapse_selected(&self.state.selected);
-            if result && let Some(loader) = self.loader.as_mut() {
-                // Rebuild if needed
-                let total_len = loader.record_count();
-                viewer.as_viewer_mut().rebuild_view(
-                    &self.state.visible_roots,
-                    loader,
-                    total_len,
-                );
-            }
-            return result;
-        }
-        false
+    pub fn collapse_selected_node(&mut self) {
+        self.queue(TreeAction::CollapseNode);
     }
 
-    /// Expand all nodes in the tree (for keyboard shortcuts)
-    pub fn expand_all_nodes(&mut self) -> bool {
-        if let Some(viewer) = self.viewer.as_mut() {
-            let result = viewer.as_viewer_mut().expand_all();
-            if result && let Some(loader) = self.loader.as_mut() {
-                // Rebuild if needed
-                let total_len = loader.record_count();
-                viewer.as_viewer_mut().rebuild_view(
-                    &self.state.visible_roots,
-                    loader,
-                    total_len,
-                );
-            }
-            return result;
-        }
-        false
+    pub fn expand_all_nodes(&mut self) {
+        self.queue(TreeAction::ExpandAll);
     }
 
-    /// Collapse all nodes in the tree (for keyboard shortcuts)
-    pub fn collapse_all_nodes(&mut self) -> bool {
-        if let Some(viewer) = self.viewer.as_mut() {
-            let result = viewer.as_viewer_mut().collapse_all();
-            if result && let Some(loader) = self.loader.as_mut() {
-                // Rebuild if needed
-                let total_len = loader.record_count();
-                viewer.as_viewer_mut().rebuild_view(
-                    &self.state.visible_roots,
-                    loader,
-                    total_len,
-                );
-            }
-            return result;
-        }
-        false
+    pub fn collapse_all_nodes(&mut self) {
+        self.queue(TreeAction::CollapseAll);
     }
 
-    /// Move selection up to previous item (for keyboard shortcuts)
     pub fn move_selection_up(&mut self) {
-        if let Some(viewer) = self.viewer.as_mut()
-            && let Some(new_selection) = viewer
-                .as_viewer_mut()
-                .move_selection_up(&self.state.selected)
-        {
-            self.state.selected = Some(new_selection);
-            self.state.should_scroll_to_selection = true;
-        }
+        self.queue(TreeAction::MoveUp);
     }
 
-    /// Move selection down to next item (for keyboard shortcuts)
     pub fn move_selection_down(&mut self) {
-        if let Some(viewer) = self.viewer.as_mut()
-            && let Some(new_selection) = viewer
-                .as_viewer_mut()
-                .move_selection_down(&self.state.selected)
-        {
-            self.state.selected = Some(new_selection);
-            self.state.should_scroll_to_selection = true;
-        }
+        self.queue(TreeAction::MoveDown);
     }
 
-    // ========================================================================
-    // Keyboard Shortcut Support - Clipboard Operations
-    // ========================================================================
-
-    /// Copy the key of the currently selected item (for keyboard shortcuts)
-    /// Returns the text to copy, or None
-    pub fn copy_selected_key(&mut self) -> Option<String> {
-        self.viewer
-            .as_mut()?
-            .as_viewer_mut()
-            .copy_selected_key(&self.state.selected)
+    pub fn copy_selected_key(&mut self) {
+        self.queue(TreeAction::CopyKey);
     }
 
-    /// Copy the value of the currently selected item (for keyboard shortcuts)
-    /// Returns the text to copy, or None
-    pub fn copy_selected_value(&mut self) -> Option<String> {
-        if let (Some(viewer), Some(loader)) = (self.viewer.as_mut(), self.loader.as_mut()) {
-            return viewer.as_viewer_mut().copy_selected_value(
-                &self.state.selected,
-                loader,
-            );
-        }
-        None
+    pub fn copy_selected_value(&mut self) {
+        self.queue(TreeAction::CopyValue);
     }
 
-    /// Copy the entire object of the currently selected item (for keyboard shortcuts)
-    /// Returns the text to copy (formatted JSON), or None
-    pub fn copy_selected_object(&mut self) -> Option<String> {
-        if let (Some(viewer), Some(loader)) = (self.viewer.as_mut(), self.loader.as_mut()) {
-            return viewer.as_viewer_mut().copy_selected_object(
-                &self.state.selected,
-                loader,
-            );
-        }
-        None
+    pub fn copy_selected_object(&mut self) {
+        self.queue(TreeAction::CopyObject);
     }
 
-    /// Copy the path of the currently selected item (for keyboard shortcuts)
-    /// Returns the text to copy, or None
-    pub fn copy_selected_path(&mut self) -> Option<String> {
-        self.viewer
-            .as_mut()?
-            .as_viewer_mut()
-            .copy_selected_path(&self.state.selected)
+    pub fn copy_selected_path(&mut self) {
+        self.queue(TreeAction::CopyPath);
+    }
+
+    fn queue(&mut self, action: TreeAction) {
+        self.tree_action = Some(action);
     }
 }
 

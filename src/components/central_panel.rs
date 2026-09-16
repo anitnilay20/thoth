@@ -344,24 +344,27 @@ impl CentralPanel {
         self.file_viewer.move_selection_down();
     }
 
+    // The tree performs the copy itself, so these no longer return text — it
+    // reads the node rather than the rendered row, which is truncated.
+
     /// Copy the key of the currently selected item (for keyboard shortcuts)
-    pub fn copy_selected_key(&mut self) -> Option<String> {
-        self.file_viewer.copy_selected_key()
+    pub fn copy_selected_key(&mut self) {
+        self.file_viewer.copy_selected_key();
     }
 
     /// Copy the value of the currently selected item (for keyboard shortcuts)
-    pub fn copy_selected_value(&mut self) -> Option<String> {
-        self.file_viewer.copy_selected_value()
+    pub fn copy_selected_value(&mut self) {
+        self.file_viewer.copy_selected_value();
     }
 
     /// Copy the entire object of the currently selected item (for keyboard shortcuts)
-    pub fn copy_selected_object(&mut self) -> Option<String> {
-        self.file_viewer.copy_selected_object()
+    pub fn copy_selected_object(&mut self) {
+        self.file_viewer.copy_selected_object();
     }
 
     /// Copy the path of the currently selected item (for keyboard shortcuts)
-    pub fn copy_selected_path(&mut self) -> Option<String> {
-        self.file_viewer.copy_selected_path()
+    pub fn copy_selected_path(&mut self) {
+        self.file_viewer.copy_selected_path();
     }
 
     /// Navigate to a specific root record (for search result navigation)
