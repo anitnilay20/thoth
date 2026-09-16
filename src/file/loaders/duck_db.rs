@@ -27,6 +27,12 @@ use crate::file::loaders::FileLoader;
 /// Records pulled per `get_range` call when staging a plugin-loaded file.
 const STAGE_CHUNK: usize = 2048;
 
+/// Alias the on-disk collection cache is attached under.
+const CACHE_DB: &str = "thoth_cache";
+
+/// Table inside that cache recording which file version it describes.
+const STAMP_TABLE: &str = "__thoth_identity";
+
 /// A file registered on the connection.
 struct Source {
     alias: String,
@@ -181,6 +187,118 @@ impl DuckdbConnection {
             quote_ident(&db_alias),
             quote_ident(&table)
         ))
+    }
+
+    /// Attach a cache database, so a document's collections become tables
+    /// without re-reading the document.
+    ///
+    /// Marker table aside, every table found is exposed as a plain view, so
+    /// `SELECT * FROM users` works whether the collections were just ingested
+    /// or restored from a previous session.
+    pub fn attach_cache(&self, db_path: &Path) -> Result<Vec<String>> {
+        self.execute(&format!(
+            "ATTACH IF NOT EXISTS {} AS {}",
+            quote_literal(&db_path.to_string_lossy()),
+            quote_ident(CACHE_DB)
+        ))?;
+
+        let tables: Vec<String> = {
+            let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+            let mut stmt = conn
+                .prepare(
+                    "SELECT table_name FROM duckdb_tables() \
+                     WHERE database_name = ? ORDER BY table_name",
+                )
+                .map_err(|e| ThothError::DatabaseError {
+                    reason: e.to_string(),
+                })?;
+            let rows = stmt
+                .query_map([CACHE_DB], |row| row.get::<_, String>(0))
+                .map_err(|e| ThothError::DatabaseError {
+                    reason: e.to_string(),
+                })?;
+            rows.flatten().filter(|t| t != STAMP_TABLE).collect()
+        };
+
+        for table in &tables {
+            self.execute(&format!(
+                "CREATE OR REPLACE VIEW {} AS SELECT * FROM {}.{}",
+                quote_ident(table),
+                quote_ident(CACHE_DB),
+                quote_ident(table)
+            ))?;
+        }
+        let mut sources = self.sources.lock().unwrap_or_else(|e| e.into_inner());
+        if sources.is_empty()
+            && let Some(first) = tables.first()
+        {
+            sources.push(Source {
+                alias: first.clone(),
+                path: db_path.to_path_buf(),
+                staged: None,
+            });
+        }
+        Ok(tables)
+    }
+
+    /// The identity recorded in an attached cache, if it has one.
+    pub fn cached_identity(&self) -> Option<(u64, i64, String)> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.query_row(
+            &format!(
+                "SELECT size, mtime, fingerprint FROM {}.{}",
+                quote_ident(CACHE_DB),
+                quote_ident(STAMP_TABLE)
+            ),
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .ok()
+    }
+
+    /// Record which file version an attached cache describes.
+    pub fn record_identity(&self, size: u64, mtime: i64, fingerprint: &str) -> Result<()> {
+        self.execute(&format!(
+            "CREATE OR REPLACE TABLE {}.{} AS SELECT {} AS size, {} AS mtime, {} AS fingerprint",
+            quote_ident(CACHE_DB),
+            quote_ident(STAMP_TABLE),
+            size,
+            mtime,
+            quote_literal(fingerprint)
+        ))
+    }
+
+    /// Ingest one collection into the attached cache as a real table.
+    ///
+    /// The extracted JSON is temporary; what persists is columnar storage,
+    /// which is both smaller than the text and far quicker to query, since a
+    /// later read is a table scan rather than a re-parse.
+    pub fn ingest_collection(&self, path: &Path, collection: &Collection) -> Result<()> {
+        let alias = alias_for_name(&collection.name);
+        let extracted = extract_range(path, collection.start, collection.end)?;
+        self.execute(&format!(
+            "CREATE OR REPLACE TABLE {}.{} AS SELECT * FROM read_json_auto({}, format='array')",
+            quote_ident(CACHE_DB),
+            quote_ident(&alias),
+            quote_literal(&extracted.path().to_string_lossy())
+        ))?;
+        self.execute(&format!(
+            "CREATE OR REPLACE VIEW {} AS SELECT * FROM {}.{}",
+            quote_ident(&alias),
+            quote_ident(CACHE_DB),
+            quote_ident(&alias)
+        ))?;
+
+        let mut sources = self.sources.lock().unwrap_or_else(|e| e.into_inner());
+        if sources.is_empty() {
+            sources.push(Source {
+                alias,
+                path: path.to_path_buf(),
+                staged: None,
+            });
+            *self.row_count.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        }
+        Ok(())
     }
 
     /// Register one collection of an envelope document as a queryable table.
