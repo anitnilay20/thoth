@@ -5,7 +5,7 @@ pub mod types;
 pub mod viewer_trait;
 pub mod viewer_type;
 
-use eframe::egui::Ui;
+use eframe::egui::{self, Ui};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -58,6 +58,9 @@ impl FileViewerLoader for PluginFileViewerLoader {
 /// Rows crossed into a dataset from a plugin-rendered file (#113). Bounded so
 /// a huge file never fully crosses the WASM boundary.
 const DATASET_CAP: usize = 5000;
+
+/// Width of the collection list beside a multi-table document.
+const COLLECTIONS_WIDTH: f32 = 180.0;
 
 /// Bytes indexed up front so a tab has content before its real index exists.
 /// Thousands of lines — far more than a screen — for a single read.
@@ -126,6 +129,18 @@ pub struct FileViewer {
     /// otherwise look complete.
     showing_preview: bool,
 
+    /// Collections this document yielded, with their row counts. A document
+    /// that is an envelope holds several tables, and all of them should be
+    /// reachable — not just whichever happened to be staged first.
+    collections: Vec<(String, usize)>,
+
+    /// Which collection the tab is showing.
+    selected_collection: usize,
+
+    /// The owning tab, so the sheet keeps a stable producer identity when the
+    /// selected collection changes.
+    tab_id: usize,
+
     /// Set only for files a plugin renders itself — those keep their own loader
     /// and viewer, since the host cannot draw a plugin's custom nodes.
     loader: Option<Box<dyn FileViewerLoader>>,
@@ -166,6 +181,9 @@ impl FileViewer {
             index_job: None,
             index_announced: false,
             showing_preview: false,
+            collections: Vec::new(),
+            selected_collection: 0,
+            tab_id: 0,
             loader: None,
             viewer: None,
             state: ViewerState::default(),
@@ -217,6 +235,9 @@ impl FileViewer {
         self.handle = None;
         self.engine = None;
         self.loader = None;
+        self.collections.clear();
+        self.selected_collection = 0;
+        self.tab_id = tab_id;
 
         let kind = match plugin_rendered {
             Some(Ok(wfl)) => {
@@ -346,14 +367,36 @@ impl FileViewer {
         // Papyrus. That is what gives the file tab table / JSON / raw views,
         // export and Chart Studio for free.
         if let Some(handle) = self.handle.clone() {
-            let mut events = Vec::new();
-            DataView::builder()
-                .id(format!("file_view_{handle}"))
-                .handle(handle)
-                .default_view(self.default_view)
-                .build()
-                .show(ui, &mut events);
-            self.pending_events.extend(events);
+            // A document that yielded several tables shows what is inside it.
+            // Without this the other collections exist only if the user knows
+            // to write SQL for them, which is not a viewer.
+            if self.collections.len() > 1 {
+                let available = ui.available_rect_before_wrap();
+                let mut switch_to: Option<usize> = None;
+
+                ui.horizontal_top(|ui| {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(COLLECTIONS_WIDTH, available.height()),
+                        egui::Layout::top_down_justified(egui::Align::Min),
+                        |ui| {
+                            switch_to = self.collections_list(ui);
+                        },
+                    );
+                    ui.separator();
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), available.height()),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| self.draw_data_view(ui, &handle),
+                    );
+                });
+
+                if let Some(index) = switch_to {
+                    self.select_collection(index);
+                }
+                return;
+            }
+
+            self.draw_data_view(ui, &handle);
             return;
         }
 
@@ -420,8 +463,20 @@ impl FileViewer {
         self.handle = match indexed {
             // Read natively, or an envelope whose collections are now tables —
             // either way the tab is queryable.
-            crate::file::indexing::Indexed::Engine { engine, total, .. } => {
+            crate::file::indexing::Indexed::Engine {
+                engine,
+                total,
+                collections,
+            } => {
                 let engine = Arc::new(engine);
+                // Row counts are a table scan on cached storage, so this is
+                // cheap and makes the list informative rather than a bare
+                // index of names.
+                self.collections = collections
+                    .iter()
+                    .map(|name| (name.clone(), engine.row_count_of(name).unwrap_or(0)))
+                    .collect();
+                self.selected_collection = 0;
                 let handle = crate::papyrus::publish_arrow_with_total(
                     "core",
                     &instance,
@@ -437,6 +492,74 @@ impl FileViewer {
             }
         };
         Some(name)
+    }
+
+    /// Draw the collection list, returning the index the user picked.
+    fn collections_list(&self, ui: &mut Ui) -> Option<usize> {
+        use thoth_plugin_sdk::components::{Typography, TypographyVariant};
+
+        let mut picked = None;
+        ui.add(
+            Typography::builder()
+                .text(format!("{} collections", self.collections.len()))
+                .variant(TypographyVariant::BodyMuted)
+                .build(),
+        );
+        ui.add_space(4.0);
+
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .id_salt("file_collections")
+            .show(ui, |ui| {
+                for (index, (name, rows)) in self.collections.iter().enumerate() {
+                    let selected = index == self.selected_collection;
+                    // The row count is what makes this a map of the document
+                    // rather than a list of names.
+                    if ui
+                        .selectable_label(selected, format!("{name}\n{rows} rows"))
+                        .clicked()
+                    {
+                        picked = Some(index);
+                    }
+                }
+            });
+        picked
+    }
+
+    /// Point the tab at another collection.
+    fn select_collection(&mut self, index: usize) {
+        let Some((name, rows)) = self.collections.get(index).cloned() else {
+            return;
+        };
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        if engine.set_primary(&name).is_err() {
+            return;
+        }
+        self.selected_collection = index;
+        // Republished rather than mutated: the sheet's row count and window
+        // both describe the relation it points at.
+        self.handle = crate::papyrus::publish_arrow_with_total(
+            "core",
+            &format!("core#{}", self.tab_id),
+            name,
+            engine,
+            rows as u64,
+        );
+    }
+
+    fn draw_data_view(&mut self, ui: &mut Ui, handle: &str) {
+        let mut events = Vec::new();
+        DataView::builder()
+            // Keyed on the tab, not the handle, so switching collections keeps
+            // the chosen view instead of resetting it.
+            .id(format!("file_view_{}", self.tab_id))
+            .handle(handle.to_string())
+            .default_view(self.default_view)
+            .build()
+            .show(ui, &mut events);
+        self.pending_events.extend(events);
     }
 
     /// Drain UI events raised by the embedded `DataView` (export picks, the
