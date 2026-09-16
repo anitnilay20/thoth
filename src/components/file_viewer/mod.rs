@@ -402,7 +402,12 @@ impl FileViewer {
 
         let (Some(loader), Some(viewer_box)) = (self.loader.as_mut(), self.viewer.as_mut()) else {
             ui.centered_and_justified(|ui| {
-                ui.label("No file loaded");
+                ui.add(
+                    thoth_plugin_sdk::components::Typography::builder()
+                        .text("No file loaded")
+                        .variant(thoth_plugin_sdk::components::TypographyVariant::BodyMuted)
+                        .build(),
+                );
             });
             return;
         };
@@ -496,9 +501,10 @@ impl FileViewer {
 
     /// Draw the collection list, returning the index the user picked.
     fn collections_list(&self, ui: &mut Ui) -> Option<usize> {
-        use thoth_plugin_sdk::components::{Typography, TypographyVariant};
+        use thoth_plugin_sdk::components::{
+            List, ListEvent, ListItem, Typography, TypographyVariant,
+        };
 
-        let mut picked = None;
         ui.add(
             Typography::builder()
                 .text(format!("{} collections", self.collections.len()))
@@ -507,23 +513,30 @@ impl FileViewer {
         );
         ui.add_space(4.0);
 
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .id_salt("file_collections")
-            .show(ui, |ui| {
-                for (index, (name, rows)) in self.collections.iter().enumerate() {
-                    let selected = index == self.selected_collection;
-                    // The row count is what makes this a map of the document
-                    // rather than a list of names.
-                    if ui
-                        .selectable_label(selected, format!("{name}\n{rows} rows"))
-                        .clicked()
-                    {
-                        picked = Some(index);
-                    }
-                }
-            });
-        picked
+        // The row count is what makes this a map of the document rather than a
+        // list of names.
+        let items: Vec<ListItem> = self
+            .collections
+            .iter()
+            .enumerate()
+            .map(|(index, (name, rows))| {
+                ListItem::builder()
+                    .title(name.clone())
+                    .description(format!("{rows} rows"))
+                    .selected(index == self.selected_collection)
+                    .build()
+            })
+            .collect();
+
+        match List::builder()
+            .id("file_collections")
+            .items(items)
+            .build()
+            .show(ui)
+        {
+            Some(ListEvent::ItemClicked(index)) => Some(index),
+            _ => None,
+        }
     }
 
     /// Point the tab at another collection.
