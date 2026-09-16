@@ -348,6 +348,42 @@ impl DuckdbConnection {
         Ok(())
     }
 
+    /// Point `fetch` / `len` / `get` at a different registered relation.
+    ///
+    /// A document with several collections has several tables on one
+    /// connection; this chooses which one the tab is currently showing without
+    /// disturbing the others, so a query can still join across them.
+    pub fn set_primary(&self, alias: &str) -> Result<()> {
+        let rows = self.row_count_of(alias)?;
+        let mut sources = self.sources.lock().unwrap_or_else(|e| e.into_inner());
+        let entry = Source {
+            alias: alias.to_string(),
+            path: sources
+                .first()
+                .map(|s| s.path.clone())
+                .unwrap_or_else(|| PathBuf::from(alias)),
+            staged: None,
+        };
+        if sources.is_empty() {
+            sources.push(entry);
+        } else {
+            sources[0] = entry;
+        }
+        *self.row_count.lock().unwrap_or_else(|e| e.into_inner()) = Some(rows);
+        Ok(())
+    }
+
+    /// Rows in a named relation.
+    pub fn row_count_of(&self, alias: &str) -> Result<usize> {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let count: i64 = conn.query_row(
+            &format!("SELECT count(*) FROM {}", quote_ident(alias)),
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count.max(0) as usize)
+    }
+
     /// Collections already staged, by the alias SQL refers to them by.
     pub fn staged_collections(&self) -> Vec<String> {
         let staged = self.staged.lock().unwrap_or_else(|e| e.into_inner());
@@ -856,5 +892,48 @@ mod tests {
 
     fn batch_rows_of(batches: &[RecordBatch]) -> usize {
         batches.iter().map(|b| b.num_rows()).sum()
+    }
+
+    #[test]
+    fn switching_the_primary_relation_changes_what_is_read() {
+        use crate::file::json_envelope::JsonEnvelope;
+
+        let file = envelope_doc(
+            r#"{"users":[{"id":1},{"id":2},{"id":3}],"logs":[{"level":"INFO"}]}"#,
+        );
+        let env = JsonEnvelope::scan(file.path()).unwrap().unwrap();
+        let db = DuckdbConnection::new().unwrap();
+        for c in env.queryable() {
+            db.stage_collection(file.path(), c).unwrap();
+        }
+
+        // Whichever was staged first is primary; selecting another re-points
+        // `len` and `fetch` without disturbing the rest.
+        db.set_primary("users").unwrap();
+        assert_eq!(db.primary_alias().as_deref(), Some("users"));
+        assert_eq!(db.len().unwrap(), 3);
+
+        db.set_primary("logs").unwrap();
+        assert_eq!(db.len().unwrap(), 1, "row count follows the selection");
+
+        // And both remain queryable together.
+        assert_eq!(db.row_count_of("users").unwrap(), 3);
+        assert_eq!(
+            batch_rows_of(&db.query("SELECT * FROM users, logs").unwrap()),
+            3
+        );
+    }
+
+    #[test]
+    fn selecting_an_unknown_relation_is_an_error_not_a_silent_switch() {
+        let file = envelope_doc(r#"{"rows":[{"a":1}]}"#);
+        use crate::file::json_envelope::JsonEnvelope;
+        let env = JsonEnvelope::scan(file.path()).unwrap().unwrap();
+        let db = DuckdbConnection::new().unwrap();
+        db.stage_collection(file.path(), env.get("rows").unwrap())
+            .unwrap();
+
+        assert!(db.set_primary("nope").is_err());
+        assert_eq!(db.primary_alias().as_deref(), Some("rows"));
     }
 }
