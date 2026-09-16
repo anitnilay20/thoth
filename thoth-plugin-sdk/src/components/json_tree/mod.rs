@@ -62,21 +62,54 @@ pub struct JsonTree {
     #[builder(default)]
     #[serde(default)]
     pub expand_all_initially: bool,
+    /// A command to carry out this frame, from the host's shortcut handling.
+    #[serde(default)]
+    pub action: Option<TreeAction>,
 }
 
 fn default_true() -> bool {
     true
 }
 
-/// What the user did in a [`JsonTree`], reported back to the host so it can
-/// drive scrolling, clipboard and the rest.
+/// A command the host asks a [`JsonTree`] to carry out.
+///
+/// Arrow keys and the context menu are handled inside the tree, but the app's
+/// tree and clipboard shortcuts are user-configurable, so the host owns the
+/// binding and the tree owns the behaviour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TreeAction {
+    /// Open the selected container.
+    ExpandNode,
+    /// Close the selected container.
+    CollapseNode,
+    /// Open every record. Costly on a large document, by nature.
+    ExpandAll,
+    /// Close everything, returning to a list of records.
+    CollapseAll,
+    /// Select the row above.
+    MoveUp,
+    /// Select the row below.
+    MoveDown,
+    /// Copy the selected node's key.
+    CopyKey,
+    /// Copy the selected node's value.
+    CopyValue,
+    /// Copy the selected node and everything under it.
+    CopyObject,
+    /// Copy the selected node's path.
+    CopyPath,
+}
+
+/// What the user did in a [`JsonTree`], reported back to the host.
 #[cfg(feature = "egui")]
 #[derive(Clone, Debug, Default)]
 pub struct JsonTreeOutput {
     /// Path of the currently selected node, if any.
     pub selected: Option<String>,
-    /// The selected node was right-clicked — the host raises its context menu.
-    pub context_menu_at: Option<String>,
+    /// Text the user asked to copy. The tree resolves it itself — reading the
+    /// node rather than scraping the rendered row, which is truncated.
+    pub copied: Option<String>,
     /// Total rows currently displayed.
     pub row_count: usize,
 }

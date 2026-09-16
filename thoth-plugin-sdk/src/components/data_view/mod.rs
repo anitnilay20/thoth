@@ -24,6 +24,10 @@ pub struct DataView {
     /// lets the producer surface a richer line (e.g. `"100 rows (capped) · SELECT 101"`).
     #[serde(default)]
     pub caption: Option<String>,
+    /// A command for the JSON view's tree, from the host's shortcut handling.
+    /// Ignored by the other views, which have no tree to act on.
+    #[serde(default)]
+    pub tree_action: Option<crate::components::TreeAction>,
     /// View to open in the first time this node is shown — `"table"`, `"json"`,
     /// `"raw"`, or `"plugin:<id>"`. Defaults to `"table"`.
     ///
@@ -334,6 +338,7 @@ impl DataView {
                         // (same reason `TableView` is unframed here).
                         .framed(false)
                         .build();
+                    tree.action = self.tree_action;
                     if crate::dataset::dataset_access().is_some() {
                         tree.handle = Some(self.handle.clone());
                     } else if let Some(page) = resolve_dataset(&self.handle, Self::LIMIT) {

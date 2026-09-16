@@ -715,31 +715,31 @@ impl ThothApp {
                     }
                 }
                 ShortcutAction::CopyKey => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_key()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_key();
                     }
                 }
                 ShortcutAction::CopyValue => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_value()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_value();
                     }
                 }
                 ShortcutAction::CopyObject => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_object()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_object();
                     }
                 }
                 ShortcutAction::CopyPath => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_path()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_path();
                     }
                 }
                 ShortcutAction::CloseTab => {
