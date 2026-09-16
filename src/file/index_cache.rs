@@ -107,6 +107,28 @@ impl Stamp {
 /// clear — the user's real cache, and usable operationally to relocate it.
 pub const CACHE_DIR_ENV: &str = "THOTH_INDEX_CACHE_DIR";
 
+/// A file's identity, as the envelope cache records it: `(size, mtime, hex
+/// fingerprint)`. Shared with the DuckDB-backed cache so both judge staleness
+/// the same way.
+pub fn identity(path: &Path) -> Result<(u64, i64, String)> {
+    let stamp = Stamp::of(path)?;
+    Ok((
+        stamp.size,
+        stamp.mtime_secs,
+        stamp.fingerprint.iter().map(|b| format!("{b:02x}")).collect(),
+    ))
+}
+
+/// Where a document's collections are cached as a DuckDB database.
+///
+/// Storing them as tables rather than extracted JSON means a second open
+/// attaches instead of re-parsing, and queries run against columnar storage
+/// instead of re-reading text every time.
+pub fn database_path(path: &Path) -> Result<PathBuf> {
+    let entry = entry_path(path)?;
+    Ok(entry.with_extension("duckdb"))
+}
+
 /// Directory holding cached indexes, created on first use.
 pub fn cache_dir() -> Result<PathBuf> {
     let dir = match std::env::var_os(CACHE_DIR_ENV) {

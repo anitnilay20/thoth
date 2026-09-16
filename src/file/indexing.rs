@@ -270,6 +270,13 @@ fn stage_envelope(
     path: &Path,
     on_progress: impl FnMut(u64) -> std::ops::ControlFlow<()>,
 ) -> Result<Option<Option<Indexed>>> {
+    // A cache from a previous open is attached rather than rebuilt. Collections
+    // live there as tables, so this is an attach and a handful of view
+    // definitions -- no scan, no extraction, no re-parse.
+    if let Some(indexed) = attach_cached_collections(path) {
+        return Ok(Some(Some(indexed)));
+    }
+
     let Some(scanned) = JsonEnvelope::scan_observed(path, on_progress)? else {
         return Ok(None); // cancelled
     };
@@ -281,20 +288,78 @@ fn stage_envelope(
     }
 
     let engine = DuckdbConnection::new()?;
+    let cached = index_cache::database_path(path).ok();
+
+    // Ingest into the cache when there is one, so the next open skips all of
+    // this; fall back to in-memory staging if the cache is unavailable.
+    let ingest_to_cache = cached
+        .as_ref()
+        .is_some_and(|db| engine.attach_cache(db).is_ok());
+
     for collection in envelope.queryable() {
         // One bad collection should not cost the rest of the document.
-        let _ = engine.stage_collection(path, collection);
+        let _ = if ingest_to_cache {
+            engine.ingest_collection(path, collection)
+        } else {
+            engine.stage_collection(path, collection)
+        };
     }
     let collections = engine.staged_collections();
+    let collections = if collections.is_empty() && ingest_to_cache {
+        engine
+            .attach_cache(cached.as_ref().expect("checked above"))
+            .unwrap_or_default()
+    } else {
+        collections
+    };
     if collections.is_empty() {
         return Ok(Some(None));
     }
+
+    if ingest_to_cache
+        && let Ok((size, mtime, fingerprint)) = index_cache::identity(path)
+    {
+        let _ = engine.record_identity(size, mtime, &fingerprint);
+    }
+
     let total = engine.len().unwrap_or(0);
     Ok(Some(Some(Indexed::Engine {
         engine,
         total,
         collections,
     })))
+}
+
+/// Attach a current cache for `path`, if one exists.
+///
+/// A cache describing a different version of the file is discarded rather than
+/// trusted: stale tables would answer queries with old data, which is worse
+/// than rebuilding.
+fn attach_cached_collections(path: &Path) -> Option<Indexed> {
+    let db_path = index_cache::database_path(path).ok()?;
+    if !db_path.exists() {
+        return None;
+    }
+    let engine = DuckdbConnection::new().ok()?;
+    let collections = engine.attach_cache(&db_path).ok()?;
+    if collections.is_empty() {
+        return None;
+    }
+
+    let current = index_cache::identity(path).ok()?;
+    if engine.cached_identity()? != current {
+        // The file changed under the cache; rebuild rather than serve stale rows.
+        drop(engine);
+        let _ = std::fs::remove_file(&db_path);
+        return None;
+    }
+
+    let total = engine.len().unwrap_or(0);
+    Some(Indexed::Engine {
+        engine,
+        total,
+        collections,
+    })
 }
 
 /// Whether the document's root is a single object.
@@ -506,6 +571,68 @@ mod tests {
         assert_eq!(settle(&job), Progress::Ready);
         assert_eq!(job.take().unwrap().as_text().unwrap().len(), 40);
     }
+    #[test]
+    fn a_second_open_of_an_envelope_attaches_its_cache() {
+        crate::file::index_cache::tests::isolate();
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(
+            tmp,
+            r#"{{"users":[{{"id":1,"name":"ada"}}],"logs":[{{"level":"INFO"}}]}}"#
+        )
+        .unwrap();
+        tmp.flush().unwrap();
+
+        let first = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&first), Progress::Ready);
+        assert_eq!(first.take().unwrap().collections(), ["logs", "users"]);
+
+        // The cache now exists, so a second open skips the scan entirely and
+        // still yields the same tables.
+        let db = crate::file::index_cache::database_path(tmp.path()).unwrap();
+        assert!(db.exists(), "collections were cached as a database");
+
+        let second = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&second), Progress::Ready);
+        let indexed = second.take().expect("indexed");
+        assert_eq!(indexed.collections(), ["logs", "users"]);
+
+        let Indexed::Engine { engine, .. } = indexed else {
+            panic!("expected tables");
+        };
+        use crate::file::loaders::FileLoader as _;
+        let rows = crate::file::loaders::batches_to_values(
+            &engine.query("SELECT name FROM users").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(rows[0]["name"], "ada");
+    }
+
+    #[test]
+    fn a_changed_document_is_not_served_from_a_stale_cache() {
+        crate::file::index_cache::tests::isolate();
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(tmp, r#"{{"users":[{{"id":1,"name":"ada"}}]}}"#).unwrap();
+        tmp.flush().unwrap();
+
+        let first = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&first), Progress::Ready);
+        assert_eq!(first.take().unwrap().collections(), ["users"]);
+
+        // Same length, different contents -- the case size and mtime miss.
+        std::fs::write(tmp.path(), r#"{"users":[{"id":9,"name":"bob"}]}"#).unwrap();
+
+        let second = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&second), Progress::Ready);
+        let Indexed::Engine { engine, .. } = second.take().expect("indexed") else {
+            panic!("expected tables");
+        };
+        use crate::file::loaders::FileLoader as _;
+        let rows = crate::file::loaders::batches_to_values(
+            &engine.query("SELECT name FROM users").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(rows[0]["name"], "bob", "stale rows must not be served");
+    }
 }
 
 #[cfg(test)]
@@ -514,6 +641,48 @@ mod real_file {
 
     /// Open the downloaded envelope document the way the app does, and report
     /// what the user would actually get. Ignored: depends on a local file.
+    /// First open versus second, on the real document -- the number that says
+    /// whether caching collections as tables was worth it.
+    #[test]
+    #[ignore = "requires ~/Downloads/data_500mb.json"]
+    fn cached_reopen_is_faster() {
+        let path = Path::new(concat!(env!("HOME"), "/Downloads/data_500mb.json"));
+        if !path.exists() {
+            return;
+        }
+        let db = crate::file::index_cache::database_path(path).unwrap();
+        let _ = std::fs::remove_file(&db);
+
+        for label in ["first (builds cache)", "second (attaches cache)"] {
+            let t = std::time::Instant::now();
+            let job = IndexJob::spawn(path);
+            while !job.progress().is_finished() {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            let indexed = job.take().expect("indexed");
+            let elapsed = t.elapsed();
+
+            use crate::file::loaders::{FileLoader as _, batches_to_values};
+            let Indexed::Engine { engine, .. } = &indexed else {
+                panic!("expected tables, got text");
+            };
+            let q = std::time::Instant::now();
+            let rows = batches_to_values(
+                &engine
+                    .query("SELECT level, count(*) AS n FROM logs GROUP BY level ORDER BY n DESC LIMIT 1")
+                    .unwrap(),
+            )
+            .unwrap();
+            println!(
+                "{label}: open {elapsed:?}, {} collections, query {:?} -> {:?}",
+                indexed.collections().len(),
+                q.elapsed(),
+                rows
+            );
+        }
+        println!("cache size: {} MB", std::fs::metadata(&db).map(|m| m.len() / 1024 / 1024).unwrap_or(0));
+    }
+
     #[test]
     #[ignore = "requires ~/Downloads/data_500mb.json"]
     fn opens_the_downloaded_document() {

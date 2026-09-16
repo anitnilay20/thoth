@@ -529,3 +529,34 @@ mod tests {
     }
 }
 
+
+#[cfg(test)]
+mod phase_timing {
+    use super::*;
+
+    /// Split the cost of opening an envelope document into its two phases, so
+    /// caching effort goes where the time actually is.
+    #[test]
+    #[ignore = "requires ~/Downloads/data_500mb.json"]
+    fn scan_versus_stage() {
+        let path = std::path::Path::new(concat!(env!("HOME"), "/Downloads/data_500mb.json"));
+        if !path.exists() {
+            return;
+        }
+        let t = std::time::Instant::now();
+        let env = JsonEnvelope::scan(path).unwrap().expect("envelope");
+        println!("SCAN:  {:?}", t.elapsed());
+
+        let engine = crate::file::loaders::DuckdbConnection::new().unwrap();
+        let t = std::time::Instant::now();
+        for c in env.queryable() {
+            engine.stage_collection(path, c).unwrap();
+        }
+        println!("STAGE: {:?} for {} collections", t.elapsed(), env.queryable().count());
+
+        use crate::file::loaders::FileLoader as _;
+        let t = std::time::Instant::now();
+        let n = engine.len().unwrap();
+        println!("COUNT: {:?} ({n} rows in the primary)", t.elapsed());
+    }
+}
