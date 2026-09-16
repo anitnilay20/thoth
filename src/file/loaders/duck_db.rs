@@ -33,6 +33,11 @@ const CACHE_DB: &str = "thoth_cache";
 /// Table inside that cache recording which file version it describes.
 const STAMP_TABLE: &str = "__thoth_identity";
 
+/// Table inside that cache recording the document's top-level layout, so a
+/// later open knows what the document contains without rescanning it — and
+/// knows about keys that were never ingested.
+const LAYOUT_TABLE: &str = "__thoth_layout";
+
 /// A file registered on the connection.
 struct Source {
     alias: String,
@@ -63,6 +68,9 @@ pub struct DuckdbConnection {
     /// Collections extracted from an envelope document, held so their files
     /// outlive the views reading them.
     staged: Mutex<HashMap<String, NamedTempFile>>,
+    /// The envelope document behind a cache, so a query naming a collection
+    /// that was never staged can stage it and carry on.
+    document: Mutex<Option<PathBuf>>,
 }
 
 impl DuckdbConnection {
@@ -72,6 +80,7 @@ impl DuckdbConnection {
             sources: Mutex::new(Vec::new()),
             row_count: Mutex::new(None),
             staged: Mutex::new(HashMap::new()),
+            document: Mutex::new(None),
         })
     }
 
@@ -268,6 +277,121 @@ impl DuckdbConnection {
         ))
     }
 
+    /// Record a document's top-level layout in the attached cache.
+    ///
+    /// Every key is stored, not just the queryable ones: a document's objects
+    /// and scalars are part of what it contains, and a viewer that silently
+    /// omits them misrepresents the file.
+    pub fn record_layout(&self, document: &Path, collections: &[Collection]) -> Result<()> {
+        self.execute(&format!(
+            "CREATE OR REPLACE TABLE {}.{} \
+             (name VARCHAR, kind VARCHAR, byte_start BIGINT, byte_end BIGINT, source VARCHAR)",
+            quote_ident(CACHE_DB),
+            quote_ident(LAYOUT_TABLE)
+        ))?;
+        let source = quote_literal(&document.to_string_lossy());
+        for c in collections {
+            self.execute(&format!(
+                "INSERT INTO {}.{} VALUES ({}, {}, {}, {}, {source})",
+                quote_ident(CACHE_DB),
+                quote_ident(LAYOUT_TABLE),
+                quote_literal(&c.name),
+                quote_literal(c.kind.as_str()),
+                c.start,
+                c.end
+            ))?;
+        }
+        *self.document.lock().unwrap_or_else(|e| e.into_inner()) = Some(document.to_path_buf());
+        Ok(())
+    }
+
+    /// The layout recorded in an attached cache.
+    pub fn cached_layout(&self) -> Vec<Collection> {
+        {
+            // Remember where the document lives, so an unstaged collection can
+            // still be reached.
+            let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+            if let Ok(source) = conn.query_row(
+                &format!(
+                    "SELECT source FROM {}.{} LIMIT 1",
+                    quote_ident(CACHE_DB),
+                    quote_ident(LAYOUT_TABLE)
+                ),
+                [],
+                |row| row.get::<_, String>(0),
+            ) {
+                drop(conn);
+                *self.document.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some(PathBuf::from(source));
+            }
+        }
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let sql = format!(
+            "SELECT name, kind, byte_start, byte_end FROM {}.{} ORDER BY byte_start",
+            quote_ident(CACHE_DB),
+            quote_ident(LAYOUT_TABLE)
+        );
+        let Ok(mut stmt) = conn.prepare(&sql) else {
+            return Vec::new();
+        };
+        let Ok(rows) = stmt.query_map([], |row| {
+            Ok(Collection {
+                name: row.get::<_, String>(0)?,
+                kind: crate::file::json_envelope::ValueKind::parse(&row.get::<_, String>(1)?),
+                start: row.get::<_, i64>(2)? as u64,
+                end: row.get::<_, i64>(3)? as u64,
+            })
+        }) else {
+            return Vec::new();
+        };
+        rows.flatten().collect()
+    }
+
+    /// Stage whichever collection an error says is missing.
+    ///
+    /// Returns whether anything was staged, so the caller knows to retry.
+    fn stage_missing(&self, error: &str) -> bool {
+        let Some(document) = self
+            .document
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        else {
+            return false;
+        };
+        let layout = self.cached_layout();
+        if layout.is_empty() {
+            return false;
+        }
+
+        // The error names the table it could not find; match it against the
+        // layout rather than trying to parse SQL.
+        for collection in layout.iter().filter(|c| c.is_queryable()) {
+            let alias = alias_for_name(&collection.name);
+            if !error.contains(&alias) || self.has_relation(&alias) {
+                continue;
+            }
+            if self.ingest_collection(&document, collection).is_ok() {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether a relation of this name is registered.
+    pub fn has_relation(&self, alias: &str) -> bool {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        conn.query_row(
+            &format!("SELECT 1 FROM {} LIMIT 0", quote_ident(alias)),
+            [],
+            |_| Ok(()),
+        )
+        .is_ok()
+            || conn
+                .prepare(&format!("SELECT * FROM {} LIMIT 0", quote_ident(alias)))
+                .is_ok()
+    }
+
     /// Ingest one collection into the attached cache as a real table.
     ///
     /// The extracted JSON is temporary; what persists is columnar storage,
@@ -445,7 +569,7 @@ fn extract_range(path: &Path, start: u64, end: u64) -> Result<NamedTempFile> {
 }
 
 /// A collection's key as an SQL-safe identifier.
-fn alias_for_name(name: &str) -> String {
+pub fn alias_for_name(name: &str) -> String {
     let sanitized: String = name
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
@@ -500,7 +624,17 @@ impl FileLoader for DuckdbConnection {
     }
 
     fn query(&self, query: &str) -> Result<Vec<RecordBatch>> {
-        self.collect(query)
+        match self.collect(query) {
+            Ok(batches) => Ok(batches),
+            // A collection this document holds but has not staged yet reads as
+            // a missing table. Staging it and retrying keeps lazy ingest an
+            // implementation detail rather than something SQL has to know
+            // about.
+            Err(error) => match self.stage_missing(&error.to_string()) {
+                true => self.collect(query),
+                false => Err(error),
+            },
+        }
     }
 
     fn fetch(

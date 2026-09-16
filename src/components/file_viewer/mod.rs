@@ -16,6 +16,7 @@ use self::viewer_type::ViewerType;
 use crate::components::file_viewer::viewer_trait::FileViewerLoader;
 use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
 use crate::file::loaders::DuckdbConnection;
+use crate::file::loaders::duck_db::alias_for_name as alias_of;
 use thoth_plugin_sdk::components::DataView;
 use crate::file::{FileKind, FileType};
 use crate::plugin::Capability;
@@ -58,6 +59,28 @@ impl FileViewerLoader for PluginFileViewerLoader {
 /// Rows crossed into a dataset from a plugin-rendered file (#113). Bounded so
 /// a huge file never fully crosses the WASM boundary.
 const DATASET_CAP: usize = 5000;
+
+/// "1 collection" / "N collections", so the header reads as a sentence.
+fn plural(count: usize) -> String {
+    if count == 1 {
+        "1 collection".to_string()
+    } else {
+        format!("{count} collections")
+    }
+}
+
+/// A byte count at the coarsest unit that still reads precisely.
+fn human_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    match bytes {
+        b if b >= GB => format!("{:.1} GB", b as f64 / GB as f64),
+        b if b >= MB => format!("{:.1} MB", b as f64 / MB as f64),
+        b if b >= KB => format!("{} KB", b / KB),
+        b => format!("{b} B"),
+    }
+}
 
 /// Width of the collection list beside a multi-table document.
 const COLLECTIONS_WIDTH: f32 = 180.0;
@@ -129,10 +152,18 @@ pub struct FileViewer {
     /// otherwise look complete.
     showing_preview: bool,
 
-    /// Collections this document yielded, with their row counts. A document
-    /// that is an envelope holds several tables, and all of them should be
-    /// reachable — not just whichever happened to be staged first.
-    collections: Vec<(String, usize)>,
+    /// Everything the document contains — tables, and the objects and scalars
+    /// that have no row shape. All of it is listed: a viewer that shows only
+    /// the queryable parts misrepresents the file.
+    collections: Vec<crate::file::json_envelope::Collection>,
+
+    /// Row counts for collections already ingested, by name. Absent means "not
+    /// staged yet", which is the normal state — only the collection being read
+    /// is built.
+    collection_rows: HashMap<String, usize>,
+
+    /// A collection being ingested after the user chose it.
+    staging: Option<crate::file::indexing::StageJob>,
 
     /// Which collection the tab is showing.
     selected_collection: usize,
@@ -179,6 +210,8 @@ impl FileViewer {
             index_announced: false,
             showing_preview: false,
             collections: Vec::new(),
+            collection_rows: HashMap::new(),
+            staging: None,
             selected_collection: 0,
             tab_id: 0,
             loader: None,
@@ -233,6 +266,8 @@ impl FileViewer {
         self.engine = None;
         self.loader = None;
         self.collections.clear();
+        self.collection_rows.clear();
+        self.staging = None;
         self.selected_collection = 0;
         self.tab_id = tab_id;
 
@@ -363,6 +398,9 @@ impl FileViewer {
         // Engine-backed files are drawn by `DataView`, reading their rows from
         // Papyrus. That is what gives the file tab table / JSON / raw views,
         // export and Chart Studio for free.
+        // A staging job may have landed since the last frame.
+        self.poll_staging();
+
         if let Some(handle) = self.handle.clone() {
             // A document that yielded several tables shows what is inside it.
             // Without this the other collections exist only if the user knows
@@ -471,14 +509,18 @@ impl FileViewer {
                 collections,
             } => {
                 let engine = Arc::new(engine);
-                // Row counts are a table scan on cached storage, so this is
-                // cheap and makes the list informative rather than a bare
-                // index of names.
-                self.collections = collections
-                    .iter()
-                    .map(|name| (name.clone(), engine.row_count_of(name).unwrap_or(0)))
-                    .collect();
-                self.selected_collection = 0;
+                self.collections = collections;
+                self.collection_rows.clear();
+                // Only what is actually staged has a count; the rest report
+                // their size until they are.
+                if let Some(primary) = engine.primary_alias() {
+                    self.collection_rows.insert(primary.clone(), total);
+                    self.selected_collection = self
+                        .collections
+                        .iter()
+                        .position(|c| alias_of(&c.name) == primary)
+                        .unwrap_or(0);
+                }
                 let handle = crate::papyrus::publish_arrow_with_total(
                     "core",
                     &instance,
@@ -498,28 +540,42 @@ impl FileViewer {
 
     /// Draw the collection list, returning the index the user picked.
     fn collections_list(&self, ui: &mut Ui) -> Option<usize> {
+        use crate::file::json_envelope::ValueKind;
         use thoth_plugin_sdk::components::{
             List, ListEvent, ListItem, Typography, TypographyVariant,
         };
 
         ui.add(
             Typography::builder()
-                .text(format!("{} collections", self.collections.len()))
+                .text(format!("{} in this file", plural(self.collections.len())))
                 .variant(TypographyVariant::BodyMuted)
                 .build(),
         );
         ui.add_space(4.0);
 
-        // The row count is what makes this a map of the document rather than a
-        // list of names.
+        let staging = self.staging.as_ref().map(|job| job.name());
         let items: Vec<ListItem> = self
             .collections
             .iter()
             .enumerate()
-            .map(|(index, (name, rows))| {
+            .map(|(index, c)| {
+                let alias = alias_of(&c.name);
+                // What a row says depends on what is known: a staged table
+                // reports rows, an unstaged one its size, and a key with no row
+                // shape says so rather than pretending to be a table.
+                let description = if staging == Some(alias.as_str()) {
+                    "staging…".to_string()
+                } else if let Some(rows) = self.collection_rows.get(&alias) {
+                    format!("{rows} rows")
+                } else if c.kind == ValueKind::Array {
+                    format!("{} · not loaded", human_size(c.len()))
+                } else {
+                    format!("{} · {}", human_size(c.len()), c.kind.as_str())
+                };
+
                 ListItem::builder()
-                    .title(name.clone())
-                    .description(format!("{rows} rows"))
+                    .title(c.name.clone())
+                    .description(description)
                     .selected(index == self.selected_collection)
                     .build()
             })
@@ -536,27 +592,90 @@ impl FileViewer {
         }
     }
 
-    /// Point the tab at another collection.
+    /// Point the tab at another collection, staging it first if it has never
+    /// been read.
     fn select_collection(&mut self, index: usize) {
-        let Some((name, rows)) = self.collections.get(index).cloned() else {
+        use crate::file::json_envelope::ValueKind;
+
+        let Some(collection) = self.collections.get(index).cloned() else {
             return;
         };
         let Some(engine) = self.engine.clone() else {
             return;
         };
-        if engine.set_primary(&name).is_err() {
+        // Objects and scalars are listed so the file is honestly represented,
+        // but there is no table to point at.
+        if collection.kind != ValueKind::Array {
             return;
         }
+        let alias = alias_of(&collection.name);
+
+        if !self.collection_rows.contains_key(&alias) {
+            // Never staged. Ingesting is measured in seconds, so it runs on a
+            // worker and the tab keeps showing what it has.
+            if self.staging.is_none()
+                && let Some(path) = self.file_path.clone()
+            {
+                self.staging = Some(crate::file::indexing::StageJob::spawn(
+                    engine,
+                    &path,
+                    &collection,
+                ));
+                self.selected_collection = index;
+            }
+            return;
+        }
+
+        self.show_collection(index);
+    }
+
+    /// Re-point the view at a collection already present as a table.
+    fn show_collection(&mut self, index: usize) {
+        let Some(collection) = self.collections.get(index).cloned() else {
+            return;
+        };
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let alias = alias_of(&collection.name);
+        if engine.set_primary(&alias).is_err() {
+            return;
+        }
+        let rows = engine.row_count_of(&alias).unwrap_or(0);
+        self.collection_rows.insert(alias.clone(), rows);
         self.selected_collection = index;
         // Republished rather than mutated: the sheet's row count and window
         // both describe the relation it points at.
         self.handle = crate::papyrus::publish_arrow_with_total(
             "core",
             &format!("core#{}", self.tab_id),
-            name,
+            collection.name,
             engine,
             rows as u64,
         );
+    }
+
+    /// Adopt a finished collection staging, if one just landed.
+    fn poll_staging(&mut self) {
+        let Some(job) = self.staging.as_ref() else {
+            return;
+        };
+        if !job.is_finished() {
+            return;
+        }
+        let failed = job.failed();
+        let name = job.name().to_string();
+        self.staging = None;
+        if failed {
+            return;
+        }
+        if let Some(index) = self
+            .collections
+            .iter()
+            .position(|c| alias_of(&c.name) == name)
+        {
+            self.show_collection(index);
+        }
     }
 
     fn draw_data_view(&mut self, ui: &mut Ui, handle: &str) {

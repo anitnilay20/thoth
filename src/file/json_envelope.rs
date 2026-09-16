@@ -51,6 +51,27 @@ pub struct Collection {
     pub end: u64,
 }
 
+impl ValueKind {
+    /// Stable name, for persisting a layout.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ValueKind::Array => "array",
+            ValueKind::Object => "object",
+            ValueKind::Scalar => "scalar",
+        }
+    }
+
+    /// Parse a persisted name; anything unrecognised reads as a scalar, which
+    /// is the harmless case — it is listed but not queried.
+    pub fn parse(text: &str) -> Self {
+        match text {
+            "array" => ValueKind::Array,
+            "object" => ValueKind::Object,
+            _ => ValueKind::Scalar,
+        }
+    }
+}
+
 impl Collection {
     /// Size of the value in bytes.
     pub fn len(&self) -> u64 {

@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::error::Result;
 use crate::file::index_cache;
-use crate::file::json_envelope::JsonEnvelope;
+use crate::file::json_envelope::{Collection, JsonEnvelope};
 use crate::file::loaders::{DuckdbConnection, FileLoader, TextIndex};
 
 /// What indexing a file produced.
@@ -30,9 +30,10 @@ pub enum Indexed {
         /// Rows in the primary relation, counted off the UI thread because
         /// `count(*)` over a JSON file is a full scan.
         total: usize,
-        /// Aliases an envelope's collections are queryable by; empty for a
-        /// natively-read file.
-        collections: Vec<String>,
+        /// Everything the document contains, queryable or not; empty for a
+        /// natively-read file. Objects and scalars are listed too — a viewer
+        /// that omits them misrepresents the file.
+        collections: Vec<Collection>,
     },
     /// No structure we could use — browsable as text, at any size.
     Text(Box<TextIndex>),
@@ -47,8 +48,8 @@ impl Indexed {
         }
     }
 
-    /// Collections staged as tables, when the document was an envelope.
-    pub fn collections(&self) -> &[String] {
+    /// Everything the document contains, when it was an envelope.
+    pub fn collections(&self) -> &[Collection] {
         match self {
             Indexed::Engine { collections, .. } => collections,
             Indexed::Text(_) => &[],
@@ -262,6 +263,63 @@ impl IndexJob {
     }
 }
 
+/// Staging one collection of an already-open document, off the UI thread.
+///
+/// Selecting a table should not freeze the app while hundreds of megabytes are
+/// ingested, so the click starts this and the tab switches when it lands.
+pub struct StageJob {
+    name: String,
+    done: Arc<AtomicBool>,
+    failed: Arc<AtomicBool>,
+}
+
+impl StageJob {
+    /// Ingest `collection` into `engine` on a worker thread.
+    pub fn spawn(
+        engine: Arc<DuckdbConnection>,
+        path: &Path,
+        collection: &Collection,
+    ) -> Self {
+        let done = Arc::new(AtomicBool::new(false));
+        let failed = Arc::new(AtomicBool::new(false));
+        let (worker_done, worker_failed) = (Arc::clone(&done), Arc::clone(&failed));
+        let worker_path = path.to_path_buf();
+        let worker_collection = collection.clone();
+
+        std::thread::spawn(move || {
+            if engine
+                .ingest_collection(&worker_path, &worker_collection)
+                .is_err()
+            {
+                worker_failed.store(true, Ordering::Relaxed);
+            }
+            worker_done.store(true, Ordering::Release);
+            if let Some(ctx) = crate::EGUI_CTX.get() {
+                ctx.request_repaint();
+            }
+        });
+
+        Self {
+            name: collection.name.clone(),
+            done,
+            failed,
+        }
+    }
+
+    /// The collection being staged.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.done.load(Ordering::Acquire)
+    }
+
+    pub fn failed(&self) -> bool {
+        self.failed.load(Ordering::Relaxed)
+    }
+}
+
 /// Scan a document for an envelope and stage its collections as tables.
 ///
 /// The outer `Option` is cancellation; the inner one distinguishes "no
@@ -289,36 +347,39 @@ fn stage_envelope(
 
     let engine = DuckdbConnection::new()?;
     let cached = index_cache::database_path(path).ok();
-
-    // Ingest into the cache when there is one, so the next open skips all of
-    // this; fall back to in-memory staging if the cache is unavailable.
-    let ingest_to_cache = cached
-        .as_ref()
-        .is_some_and(|db| engine.attach_cache(db).is_ok());
-
-    for collection in envelope.queryable() {
-        // One bad collection should not cost the rest of the document.
-        let _ = if ingest_to_cache {
-            engine.ingest_collection(path, collection)
-        } else {
-            engine.stage_collection(path, collection)
-        };
-    }
-    let collections = engine.staged_collections();
-    let collections = if collections.is_empty() && ingest_to_cache {
-        engine
-            .attach_cache(cached.as_ref().expect("checked above"))
-            .unwrap_or_default()
-    } else {
-        collections
+    let Some(db_path) = cached else {
+        // No cache to write to — fall back to staging everything in memory.
+        for collection in envelope.queryable() {
+            let _ = engine.stage_collection(path, collection);
+        }
+        if engine.staged_collections().is_empty() {
+            return Ok(Some(None));
+        }
+        let total = engine.len().unwrap_or(0);
+        return Ok(Some(Some(Indexed::Engine {
+            engine,
+            total,
+            collections: envelope.collections,
+        })));
     };
-    if collections.is_empty() {
+
+    if engine.attach_cache(&db_path).is_err() {
+        return Ok(Some(None));
+    }
+    // The layout is what a later open reads to know what the document holds,
+    // including the keys that were never ingested.
+    let _ = engine.record_layout(path, &envelope.collections);
+
+    // Only the first collection is ingested. Reading one table should not cost
+    // the time to build all of them -- the rest are staged when chosen.
+    let Some(first) = envelope.queryable().next() else {
+        return Ok(Some(None));
+    };
+    if engine.ingest_collection(path, first).is_err() {
         return Ok(Some(None));
     }
 
-    if ingest_to_cache
-        && let Ok((size, mtime, fingerprint)) = index_cache::identity(path)
-    {
+    if let Ok((size, mtime, fingerprint)) = index_cache::identity(path) {
         let _ = engine.record_identity(size, mtime, &fingerprint);
     }
 
@@ -326,7 +387,7 @@ fn stage_envelope(
     Ok(Some(Some(Indexed::Engine {
         engine,
         total,
-        collections,
+        collections: envelope.collections,
     })))
 }
 
@@ -341,7 +402,13 @@ fn attach_cached_collections(path: &Path) -> Option<Indexed> {
         return None;
     }
     let engine = DuckdbConnection::new().ok()?;
-    let collections = engine.attach_cache(&db_path).ok()?;
+    let tables = engine.attach_cache(&db_path).ok()?;
+    if tables.is_empty() {
+        return None;
+    }
+    // The recorded layout, not just the tables present: collections ingested
+    // lazily are still part of the document.
+    let collections = engine.cached_layout();
     if collections.is_empty() {
         return None;
     }
@@ -410,6 +477,11 @@ mod tests {
         }
         tmp.flush().unwrap();
         tmp
+    }
+
+    /// Collection names, for assertions — the layout carries byte ranges too.
+    fn names(collections: &[Collection]) -> Vec<&str> {
+        collections.iter().map(|c| c.name.as_str()).collect()
     }
 
     /// Block until the job stops, so tests don't race the worker.
@@ -526,17 +598,37 @@ mod tests {
         assert_eq!(settle(&job), Progress::Ready);
         let indexed = job.take().expect("indexed");
 
-        assert_eq!(indexed.collections(), ["transactions", "users"]);
+        // Everything the document holds, including the object that has no row
+        // shape -- omitting it would misrepresent the file.
+        assert_eq!(names(indexed.collections()), ["meta", "users", "transactions"]);
+        assert_eq!(
+            indexed.collections()[0].kind,
+            crate::file::json_envelope::ValueKind::Object,
+            "a non-tabular key is listed, and marked as what it is"
+        );
         assert!(
             indexed.as_text().is_none(),
             "an envelope must not degrade to text"
         );
 
-        let Indexed::Engine { engine, .. } = indexed else {
+        let Indexed::Engine {
+            engine,
+            collections,
+            ..
+        } = indexed
+        else {
             panic!("expected an envelope");
         };
         use crate::file::loaders::FileLoader as _;
-        // And they join, over a document that has no tabular form of its own.
+
+        // Only the collection being read is built at open -- that is what keeps
+        // opening fast. But SQL should not have to know that: naming an
+        // unstaged collection stages it and carries on.
+        assert!(
+            collections.iter().any(|c| c.name == "transactions"),
+            "known from the layout even though it was never staged"
+        );
+
         let rows = crate::file::loaders::batches_to_values(
             &engine
                 .query(
@@ -587,7 +679,7 @@ mod tests {
 
         let first = IndexJob::spawn(tmp.path());
         assert_eq!(settle(&first), Progress::Ready);
-        assert_eq!(first.take().unwrap().collections(), ["logs", "users"]);
+        assert_eq!(names(first.take().unwrap().collections()), ["users", "logs"]);
 
         // The cache now exists, so a second open skips the scan entirely and
         // still yields the same tables.
@@ -597,7 +689,7 @@ mod tests {
         let second = IndexJob::spawn(tmp.path());
         assert_eq!(settle(&second), Progress::Ready);
         let indexed = second.take().expect("indexed");
-        assert_eq!(indexed.collections(), ["logs", "users"]);
+        assert_eq!(names(indexed.collections()), ["users", "logs"]);
 
         let Indexed::Engine { engine, .. } = indexed else {
             panic!("expected tables");
@@ -619,7 +711,7 @@ mod tests {
 
         let first = IndexJob::spawn(tmp.path());
         assert_eq!(settle(&first), Progress::Ready);
-        assert_eq!(first.take().unwrap().collections(), ["users"]);
+        assert_eq!(names(first.take().unwrap().collections()), ["users"]);
 
         // Same length, different contents -- the case size and mtime miss.
         std::fs::write(tmp.path(), r#"{"users":[{"id":9,"name":"bob"}]}"#).unwrap();
@@ -705,16 +797,28 @@ mod real_file {
         match &indexed {
             Indexed::Engine { engine, collections, .. } => {
                 use crate::file::loaders::{FileLoader as _, batches_to_values};
-                println!("collections: {collections:?}");
-                for name in collections {
-                    let started = std::time::Instant::now();
-                    let rows = batches_to_values(
-                        &engine
-                            .query(&format!("SELECT count(*) AS n FROM \"{name}\""))
-                            .unwrap(),
-                    )
-                    .unwrap();
-                    println!("  {name}: {} rows ({:?})", rows[0]["n"], started.elapsed());
+                println!(
+                    "collections: {:?}",
+                    collections.iter().map(|c| c.name.as_str()).collect::<Vec<_>>()
+                );
+                // Only the first is staged now; the rest report their size and
+                // are built when chosen.
+                for c in collections {
+                    let alias = crate::file::loaders::duck_db::alias_for_name(&c.name);
+                    match engine.query(&format!("SELECT count(*) AS n FROM \"{alias}\"")) {
+                        Ok(b) => println!(
+                            "  {:<16} {:?} {} rows",
+                            c.name,
+                            c.kind,
+                            batches_to_values(&b).unwrap()[0]["n"]
+                        ),
+                        Err(_) => println!(
+                            "  {:<16} {:?} {} (not staged)",
+                            c.name,
+                            c.kind,
+                            c.len()
+                        ),
+                    }
                 }
             }
             Indexed::Text(index) => println!("fell back to text: {} lines", index.len()),
