@@ -354,6 +354,9 @@ fn attach_cached_collections(path: &Path) -> Option<Indexed> {
         return None;
     }
 
+    // Record the hit, so eviction treats a cache in active use as recent.
+    index_cache::touch(&db_path);
+
     let total = engine.len().unwrap_or(0);
     Some(Indexed::Engine {
         engine,

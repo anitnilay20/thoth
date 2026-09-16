@@ -203,7 +203,6 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         let previous_path = tab.central_panel.get_selected_path().cloned();
 
         // Copy primitive settings values before the mutable borrow of tab.
-        let cache_size = self.settings.performance.cache_size;
         let syntax_highlighting = self.settings.viewer.syntax_highlighting;
         let plugin_ui = tab.active_plugin_pane.as_ref().map(|p| &p.ui_output);
 
@@ -220,7 +219,6 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
                 file_type: tab.file_type,
                 error: &tab.error,
                 search_message: search_msg,
-                cache_size,
                 syntax_highlighting,
                 plugin_ui,
                 recent_files: &recent_files,

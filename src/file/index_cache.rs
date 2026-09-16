@@ -185,6 +185,7 @@ pub fn load(path: &Path) -> Option<TextIndex> {
         line_starts.push(u64::from_le_bytes(offset_buf));
     }
 
+    touch(&entry);
     TextIndex::from_parts(path, line_starts, current.size).ok()
 }
 
@@ -217,6 +218,16 @@ pub fn store(index: &TextIndex) -> Result<()> {
     std::fs::rename(&temporary, &entry).map_err(|e| write_error(&entry, e))
 }
 
+/// Mark an entry as just used, so eviction sees it as recent.
+///
+/// Access times cannot be relied on — many systems disable or defer them — so a
+/// hit records itself by moving the entry's modification time forward.
+pub fn touch(path: &Path) {
+    if let Ok(file) = File::options().write(true).open(path) {
+        let _ = file.set_modified(std::time::SystemTime::now());
+    }
+}
+
 /// Total bytes held by cached indexes.
 pub fn size_on_disk() -> u64 {
     let Ok(dir) = cache_dir() else {
@@ -234,7 +245,10 @@ pub fn size_on_disk() -> u64 {
 }
 
 /// Drop least-recently-used entries until the cache fits `budget_bytes`.
-pub fn enforce_budget(budget_bytes: u64) {
+///
+/// `in_use` names entries that must survive regardless of age: a cache
+/// database an open tab is reading from would take its tab down with it.
+pub fn enforce_budget(budget_bytes: u64, in_use: &std::collections::HashSet<PathBuf>) {
     let Ok(dir) = cache_dir() else {
         return;
     };
@@ -249,15 +263,22 @@ pub fn enforce_budget(budget_bytes: u64) {
             if !meta.is_file() {
                 return None;
             }
-            let touched = meta.accessed().or_else(|_| meta.modified()).ok()?;
+            // Ordered by modification, not access: atime is unreliable (and
+            // often disabled) on the platforms this runs on, so entries record
+            // their own use by being touched on a hit.
+            let touched = meta.modified().ok()?;
             Some((e.path(), meta.len(), touched))
         })
         .collect();
 
-    let mut total: u64 = files.iter().map(|(_, len, _)| len).sum();
-    if total <= budget_bytes {
+    // Everything counts toward the budget; only unused entries can be dropped.
+    let total_all: u64 = files.iter().map(|(_, len, _)| len).sum();
+    files.retain(|(path, _, _)| !in_use.contains(path));
+    if total_all <= budget_bytes {
         return;
     }
+
+    let mut total = total_all;
 
     // Oldest access first — those are the ones worth losing.
     files.sort_by_key(|(_, _, at)| *at);
@@ -304,6 +325,14 @@ pub(crate) mod tests {
     use super::*;
     use tempfile::NamedTempFile;
 
+    /// These tests share one scratch directory, and some of them act on all of
+    /// it (`clear`, `enforce_budget`), so they take turns.
+    static DIR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    pub(crate) fn exclusive() -> std::sync::MutexGuard<'static, ()> {
+        DIR_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Point the cache at a scratch directory for the whole test binary, so a
     /// test run can never disturb the user's cache.
     pub(crate) fn isolate() {
@@ -324,6 +353,7 @@ pub(crate) mod tests {
 
     #[test]
     fn an_index_round_trips_through_the_cache() {
+        let _guard = exclusive();
         isolate();
         let file = source(b"alpha\nbeta\ngamma\n");
         let built = TextIndex::build(file.path()).unwrap();
@@ -337,6 +367,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_rewritten_file_of_the_same_length_misses() {
+        let _guard = exclusive();
         isolate();
         // The case size and mtime can both miss: an in-place edit of identical
         // length. The fingerprint is what catches it.
@@ -354,6 +385,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_changed_length_misses() {
+        let _guard = exclusive();
         isolate();
         let file = source(b"one\ntwo\n");
         store(&TextIndex::build(file.path()).unwrap()).unwrap();
@@ -365,6 +397,7 @@ pub(crate) mod tests {
 
     #[test]
     fn an_uncached_file_misses_without_erroring() {
+        let _guard = exclusive();
         isolate();
         let file = source(b"x\n");
         assert!(load(file.path()).is_none());
@@ -372,6 +405,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_corrupt_entry_is_a_miss_not_a_failure() {
+        let _guard = exclusive();
         isolate();
         let file = source(b"x\ny\n");
         let entry = entry_path(file.path()).unwrap();
@@ -383,6 +417,7 @@ pub(crate) mod tests {
 
     #[test]
     fn entries_are_keyed_per_file() {
+        let _guard = exclusive();
         isolate();
         let a = source(b"a\n");
         let b = source(b"b\n");
@@ -394,10 +429,93 @@ pub(crate) mod tests {
 
     #[test]
     fn storing_leaves_no_partial_file_behind() {
+        let _guard = exclusive();
         isolate();
         let file = source(b"q\nr\n");
         store(&TextIndex::build(file.path()).unwrap()).unwrap();
         let entry = entry_path(file.path()).unwrap();
         assert!(!entry.with_extension("idx.partial").exists());
+    }
+
+    #[test]
+    fn the_budget_evicts_least_recently_used_entries() {
+        let _guard = exclusive();
+        isolate();
+        let _ = clear();
+        let dir = cache_dir().unwrap();
+        // Three entries with explicit ages, so the ordering under test is the
+        // eviction policy rather than the filesystem's clock resolution.
+        let now = std::time::SystemTime::now();
+        for (age_secs, name) in [(300u64, "a.idx"), (200, "b.idx"), (100, "c.idx")] {
+            std::fs::write(dir.join(name), vec![0u8; 4096]).unwrap();
+            let file = File::options().write(true).open(dir.join(name)).unwrap();
+            file.set_modified(now - std::time::Duration::from_secs(age_secs))
+                .unwrap();
+        }
+        assert!(size_on_disk() >= 12288);
+
+        // Room for roughly one entry.
+        enforce_budget(5000, &std::collections::HashSet::new());
+
+        assert!(size_on_disk() <= 5000, "trimmed to the budget");
+        assert!(dir.join("c.idx").exists(), "the newest entry survives");
+        assert!(!dir.join("a.idx").exists(), "the oldest went first");
+    }
+
+    #[test]
+    fn an_entry_in_use_is_never_evicted() {
+        let _guard = exclusive();
+        isolate();
+        let _ = clear();
+        let dir = cache_dir().unwrap();
+        let now = std::time::SystemTime::now();
+        for (age_secs, name) in [(300u64, "old.idx"), (100, "new.idx")] {
+            std::fs::write(dir.join(name), vec![0u8; 8192]).unwrap();
+            let file = File::options().write(true).open(dir.join(name)).unwrap();
+            file.set_modified(now - std::time::Duration::from_secs(age_secs))
+                .unwrap();
+        }
+
+        // The oldest is open in a tab, so age must not decide its fate --
+        // evicting it would take that tab down.
+        let in_use = std::collections::HashSet::from([dir.join("old.idx")]);
+        enforce_budget(1, &in_use);
+
+        assert!(dir.join("old.idx").exists(), "an open cache survives");
+        assert!(!dir.join("new.idx").exists(), "the rest still goes");
+    }
+
+    #[test]
+    fn touching_an_entry_saves_it_from_the_next_eviction() {
+        let _guard = exclusive();
+        isolate();
+        let _ = clear();
+        let dir = cache_dir().unwrap();
+        let now = std::time::SystemTime::now();
+        for (age_secs, name) in [(300u64, "stale.idx"), (100, "fresh.idx")] {
+            std::fs::write(dir.join(name), vec![0u8; 8192]).unwrap();
+            let file = File::options().write(true).open(dir.join(name)).unwrap();
+            file.set_modified(now - std::time::Duration::from_secs(age_secs))
+                .unwrap();
+        }
+
+        // Using the older entry makes it the newer one.
+        touch(&dir.join("stale.idx"));
+        enforce_budget(8192, &std::collections::HashSet::new());
+
+        assert!(dir.join("stale.idx").exists(), "a used entry is kept");
+        assert!(!dir.join("fresh.idx").exists());
+    }
+
+    #[test]
+    fn a_cache_within_budget_is_left_alone() {
+        let _guard = exclusive();
+        isolate();
+        let _ = clear();
+        let dir = cache_dir().unwrap();
+        std::fs::write(dir.join("small.idx"), vec![0u8; 512]).unwrap();
+
+        enforce_budget(1024 * 1024, &std::collections::HashSet::new());
+        assert!(dir.join("small.idx").exists());
     }
 }

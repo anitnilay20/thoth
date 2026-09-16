@@ -17,7 +17,7 @@ pub struct PerformanceTabProps<'a> {
 #[derive(Debug, Clone)]
 #[allow(clippy::enum_variant_names)]
 pub enum PerformanceTabEvent {
-    CacheSizeChanged(usize),
+    IndexCacheBudgetChanged(usize),
     MaxRecentFilesChanged(usize),
     NavigationHistorySizeChanged(usize),
 }
@@ -50,19 +50,26 @@ impl StatelessComponent for PerformanceTab {
                 group_rows(ui, "CACHE", |ui| {
                     setting_row(
                         ui,
-                        "Cache size",
-                        Some("LRU cache for parsed JSON nodes. Range: 1–10 000."),
-                        s.cache_size != def.cache_size,
+                        "Index cache",
+                        Some(
+                            "Disk kept for file indexes, so a large file reopens instantly. \
+                             Least recently used are dropped first. Range: 128 MB – 16 GB.",
+                        ),
+                        s.index_cache_mb != def.index_cache_mb,
                         None,
                         colors,
                         |ui| {
-                            if let Some(val) =
-                                slider_control(ui, s.cache_size as f64, 1.0, 10000.0, "nodes")
-                            {
-                                // Keep the old 50-node granularity.
-                                let snapped = ((val / 50.0).round() * 50.0).max(1.0);
-                                events
-                                    .push(PerformanceTabEvent::CacheSizeChanged(snapped as usize));
+                            if let Some(val) = slider_control(
+                                ui,
+                                s.index_cache_mb as f64,
+                                128.0,
+                                16384.0,
+                                "MB",
+                            ) {
+                                let snapped = ((val / 128.0).round() * 128.0).max(128.0);
+                                events.push(PerformanceTabEvent::IndexCacheBudgetChanged(
+                                    snapped as usize,
+                                ));
                             }
                         },
                     );

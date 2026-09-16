@@ -1666,6 +1666,24 @@ impl ThothApp {
             .iter_mut()
             .filter_map(|(id, tab)| tab.central_panel.poll_index(*id).map(|name| (*id, name)))
             .collect();
+        if !finished.is_empty() {
+            // A finished index just added to the cache, so this is the moment
+            // to bring it back under budget. Doing it here rather than on a
+            // timer means the cache is only trimmed when it actually grew, and
+            // never while a file is mid-index.
+            let budget = self.core.settings.performance.index_cache_mb as u64 * 1024 * 1024;
+            // Caches an open tab is reading from are off limits, whatever their
+            // age -- evicting one would take its tab down with it.
+            let in_use: std::collections::HashSet<std::path::PathBuf> = self
+                .window_state
+                .tab_manager
+                .tabs
+                .values()
+                .filter_map(|t| t.file_path.as_ref())
+                .filter_map(|p| crate::file::index_cache::database_path(p).ok())
+                .collect();
+            crate::file::index_cache::enforce_budget(budget, &in_use);
+        }
         for (_, name) in finished {
             crate::notification::NotificationManager::notify(
                 crate::notification::Notification::new(

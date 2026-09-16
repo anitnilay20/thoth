@@ -165,15 +165,12 @@ pub struct FileViewer {
 }
 
 impl FileViewer {
-    /// Create a new FileViewer
+    /// Create a new FileViewer.
+    ///
+    /// The viewer holds no records of its own — it renders straight from Arrow,
+    /// and any record cache belongs to the viewer that needs one (see
+    /// `PluginTableViewer`).
     pub fn new() -> Self {
-        Self::with_cache_size(0)
-    }
-
-    /// Retained for call-site compatibility — the viewer no longer caches
-    /// records, because it renders straight from Arrow. Any record cache now
-    /// belongs to the viewer that needs one (see `PluginTableViewer`).
-    pub fn with_cache_size(_cache_size: usize) -> Self {
         Self {
             handle: None,
             engine: None,

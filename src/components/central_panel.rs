@@ -17,7 +17,6 @@ pub struct CentralPanelProps<'a> {
     pub file_type: FileKind,
     pub error: &'a Option<ThothError>,
     pub search_message: Option<String>,
-    pub cache_size: usize,
     pub syntax_highlighting: bool,
     /// When `Some`, render this interactive `UiNode` tree from the plugin instead of the file viewer.
     pub plugin_ui: Option<&'a UiOutput>,
@@ -148,7 +147,7 @@ impl CentralPanel {
                 }
             }
             (None, Some(_), _) => {
-                self.file_viewer = FileViewer::with_cache_size(props.cache_size);
+                self.file_viewer = FileViewer::new();
                 self.loaded_path = None;
                 self.loaded_type = None;
                 self.last_open_err = None;
