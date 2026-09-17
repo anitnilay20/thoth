@@ -332,16 +332,16 @@ impl ThothMcpServer {
         description = "Retrieve a single JSON record by its zero-based index from an open file."
     )]
     fn get_record(&self, Parameters(params): Parameters<GetRecordParams>) -> Json<GetRecordResult> {
-        let result = self.state.with_file(&params.handle, |file| {
-            match file.record(params.index) {
+        let result = self
+            .state
+            .with_file(&params.handle, |file| match file.record(params.index) {
                 Ok(value) => {
                     let record =
                         serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
                     Ok(record)
                 }
                 Err(e) => Err(format!("{}", e)),
-            }
-        });
+            });
 
         match result {
             Some(Ok(record)) => Json(GetRecordResult {

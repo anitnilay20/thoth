@@ -4,9 +4,7 @@ use eframe::egui;
 
 use thoth_plugin_sdk::components::IconButton;
 
-use crate::{
-    components::traits::ContextComponent, file::FileKind, shortcuts::KeyboardShortcuts,
-};
+use crate::{components::traits::ContextComponent, file::FileKind, shortcuts::KeyboardShortcuts};
 
 // pick_file is only used by the Linux in-window menu bar.
 #[cfg(target_os = "linux")]

@@ -485,7 +485,6 @@ impl Sidebar {
             events.push(SidebarEvent::OpenSettings);
         }
     }
-
 }
 
 impl ContextComponent for Sidebar {

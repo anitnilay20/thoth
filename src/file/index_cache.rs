@@ -115,7 +115,11 @@ pub fn identity(path: &Path) -> Result<(u64, i64, String)> {
     Ok((
         stamp.size,
         stamp.mtime_secs,
-        stamp.fingerprint.iter().map(|b| format!("{b:02x}")).collect(),
+        stamp
+            .fingerprint
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect(),
     ))
 }
 
@@ -202,8 +206,11 @@ pub fn store(index: &TextIndex) -> Result<()> {
     {
         let file = File::create(&temporary).map_err(|e| write_error(&temporary, e))?;
         let mut out = BufWriter::new(file);
-        out.write_all(MAGIC).map_err(|e| write_error(&temporary, e))?;
-        stamp.write(&mut out).map_err(|e| write_error(&temporary, e))?;
+        out.write_all(MAGIC)
+            .map_err(|e| write_error(&temporary, e))?;
+        stamp
+            .write(&mut out)
+            .map_err(|e| write_error(&temporary, e))?;
 
         let starts = index.line_starts();
         out.write_all(&(starts.len() as u64).to_le_bytes())
@@ -362,7 +369,6 @@ pub(crate) mod tests {
         let cached = load(file.path()).expect("cache hit");
         assert_eq!(cached.len(), built.len());
         assert_eq!(cached.read(0, 3).unwrap(), ["alpha", "beta", "gamma"]);
-
     }
 
     #[test]
@@ -380,7 +386,6 @@ pub(crate) mod tests {
             load(file.path()).is_none(),
             "a same-length rewrite must invalidate the cache"
         );
-
     }
 
     #[test]
@@ -392,7 +397,6 @@ pub(crate) mod tests {
 
         std::fs::write(file.path(), b"one\ntwo\nthree\n").unwrap();
         assert!(load(file.path()).is_none());
-
     }
 
     #[test]
@@ -421,10 +425,7 @@ pub(crate) mod tests {
         isolate();
         let a = source(b"a\n");
         let b = source(b"b\n");
-        assert_ne!(
-            entry_path(a.path()).unwrap(),
-            entry_path(b.path()).unwrap()
-        );
+        assert_ne!(entry_path(a.path()).unwrap(), entry_path(b.path()).unwrap());
     }
 
     #[test]

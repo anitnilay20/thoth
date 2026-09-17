@@ -7,7 +7,6 @@ use std::sync::{OnceLock, atomic::AtomicBool};
 
 pub mod app;
 pub mod cli;
-pub mod papyrus;
 pub mod components;
 pub mod consent;
 pub mod constants;
@@ -18,6 +17,7 @@ pub mod headless;
 pub mod helpers;
 pub mod mcp;
 pub mod notification;
+pub mod papyrus;
 pub mod platform;
 pub mod plugin;
 pub mod search;

@@ -1103,7 +1103,10 @@ mod tests {
         let page = read(&handle, 500, 10).expect("page");
         assert_eq!(page.rows.len(), 10, "only the requested rows cross");
         assert_eq!(page.offset, 500);
-        assert_eq!(page.total, 10_000, "the total still reflects the whole file");
+        assert_eq!(
+            page.total, 10_000,
+            "the total still reflects the whole file"
+        );
         assert_eq!(page.rows[0][0], "500");
     }
 
@@ -1126,8 +1129,10 @@ mod tests {
         let _guard = reset();
         // The whole point of the Arrow path: a nested value stays a subtree
         // rather than collapsing to a string.
-        let (handle, _file) =
-            publish_file("{\"user\":{\"name\":\"ada\"},\"tags\":[\"x\",\"y\"]}\n", "nested");
+        let (handle, _file) = publish_file(
+            "{\"user\":{\"name\":\"ada\"},\"tags\":[\"x\",\"y\"]}\n",
+            "nested",
+        );
 
         let kids = children(&handle, 0, "");
         assert_eq!(kids[0].kind, NodeKind::Struct);
@@ -1197,8 +1202,8 @@ mod tests {
         tmp.flush().unwrap();
 
         let index = TextIndex::build(tmp.path()).unwrap();
-        let handle = publish_text("core", "inst-text", "big.json".to_string(), index)
-            .expect("published");
+        let handle =
+            publish_text("core", "inst-text", "big.json".to_string(), index).expect("published");
 
         assert_eq!(total(&handle), 5003);
         // A window returns line numbers and their text, and nothing else.

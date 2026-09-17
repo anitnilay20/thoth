@@ -1,7 +1,10 @@
 // File drop overlay — design `screens.html` §6 “File drop overlay”: a black-alpha
 // scrim over the whole window carrying the prompt and the incoming path.
 
-use crate::{app, file::{FileKind, FileType}};
+use crate::{
+    app,
+    file::{FileKind, FileType},
+};
 use eframe::egui::{
     self,
     text::{LayoutJob, TextFormat},

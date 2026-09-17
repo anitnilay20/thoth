@@ -125,10 +125,12 @@ impl JsonEnvelope {
         let mut offset: u64 = 0;
 
         loop {
-            let read = reader.read(&mut buf).map_err(|e| ThothError::FileReadError {
-                path: path.to_path_buf(),
-                reason: e.to_string(),
-            })?;
+            let read = reader
+                .read(&mut buf)
+                .map_err(|e| ThothError::FileReadError {
+                    path: path.to_path_buf(),
+                    reason: e.to_string(),
+                })?;
             if read == 0 {
                 break;
             }
@@ -369,10 +371,7 @@ mod tests {
     use tempfile::NamedTempFile;
 
     fn doc(contents: &str) -> NamedTempFile {
-        let mut tmp = tempfile::Builder::new()
-            .suffix(".json")
-            .tempfile()
-            .unwrap();
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         tmp.write_all(contents.as_bytes()).unwrap();
         tmp.flush().unwrap();
         tmp
@@ -550,7 +549,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod phase_timing {
     use super::*;
@@ -573,7 +571,11 @@ mod phase_timing {
         for c in env.queryable() {
             engine.stage_collection(path, c).unwrap();
         }
-        println!("STAGE: {:?} for {} collections", t.elapsed(), env.queryable().count());
+        println!(
+            "STAGE: {:?} for {} collections",
+            t.elapsed(),
+            env.queryable().count()
+        );
 
         use crate::file::loaders::FileLoader as _;
         let t = std::time::Instant::now();

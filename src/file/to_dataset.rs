@@ -60,7 +60,12 @@ pub fn batches_to_dataset(batches: &[RecordBatch]) -> Option<DatasetTable> {
             Err(_) => continue,
         };
         for row in 0..batch.num_rows() {
-            rows.push(formatters.iter().map(|f| f.value(row).to_string()).collect());
+            rows.push(
+                formatters
+                    .iter()
+                    .map(|f| f.value(row).to_string())
+                    .collect(),
+            );
             if rows.len() >= CAP {
                 return Some((cols, rows));
             }
