@@ -10,7 +10,7 @@
 use egui::{Align, Layout, Margin, vec2};
 
 use crate::components::{
-    Badge, Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonType, Code, ColumnType,
+    Badge, Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonType, CodeEditor, ColumnType,
     IconButton, Input, NumberInput, Select, SelectOption, Size, Typography, TypographyVariant,
 };
 use crate::theme::{
@@ -45,9 +45,10 @@ const FOOT_GAP: f32 = 10.0;
 /// SQL box inset — design `.sqlbox{margin:0 12px 10px}`.
 const SQL_MARGIN: i8 = 12;
 const SQL_MARGIN_BOTTOM: i8 = 10;
-/// SQL box padding — design `.sqlhl{padding:9px 11px}`.
-const SQL_PAD_X: i8 = 11;
-const SQL_PAD_Y: i8 = 9;
+/// SQL text size — design `.sqlhl{font-size:12.5px}`.
+const SQL_FONT: f32 = 12.5;
+/// Tallest the SQL preview grows before it scrolls.
+const SQL_MAX_ROWS: usize = 12;
 
 /// Chrome a [`Select`] trigger adds around its label: padding, the gap before
 /// the caret, and the caret itself (design `.trigger{padding:0 10px;gap:7px}`
@@ -116,7 +117,7 @@ impl QueryBuilder {
                 add_filter |= self.lanes(ui, &colors, &mut changed);
                 run |= self.foot(ui, &colors, &compiled, &mut sql_open, &mut changed);
                 if sql_open {
-                    sql_box(ui, &colors, &compiled);
+                    sql_box(ui, &self.id, &compiled);
                 }
             }
         });
@@ -639,6 +640,21 @@ impl QueryBuilder {
                         *sql_open = !*sql_open;
                     }
 
+                    // Beside the toggle that revealed it, rather than floating
+                    // over the statement it copies.
+                    if *sql_open && let Ok(sql) = compiled {
+                        ui.add(
+                            Button::builder()
+                                .label("Copy")
+                                .icon(egui_phosphor::regular::COPY)
+                                .button_type(ButtonType::Text)
+                                .button_size(Size::Small)
+                                .copy(sql.clone())
+                                .hover_text("Copy the generated SQL")
+                                .build(),
+                        );
+                    }
+
                     // Right-to-left so Run sits on the edge; added rightmost
                     // first, the strip reads Limit · Reset · Run on screen.
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -701,32 +717,19 @@ impl QueryBuilder {
                         );
 
                         // Whatever is left of the strip belongs to the status
-                        // line, which is why it is added last.
+                        // line, which is why it is added last. It carries the
+                        // compile error and nothing else — the head already
+                        // reports what the last run returned, and saying it
+                        // twice on one screen is noise, not emphasis.
                         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                            match compiled {
-                                // An unfinished lane is named here, where the
-                                // Run button it disables can be seen.
-                                Err(error) => {
-                                    ui.add(
-                                        Typography::builder()
-                                            .text(error.message.clone())
-                                            .variant(TypographyVariant::Caption)
-                                            .color("error")
-                                            .build(),
-                                    );
-                                }
-                                Ok(_) => {
-                                    if let Some(status) = self.status.as_deref() {
-                                        ui.add(
-                                            Typography::builder()
-                                                .text(status)
-                                                .variant(TypographyVariant::Mono)
-                                                .color("muted")
-                                                .size(FONT_CAPTION)
-                                                .build(),
-                                        );
-                                    }
-                                }
+                            if let Err(error) = compiled {
+                                ui.add(
+                                    Typography::builder()
+                                        .text(error.message.clone())
+                                        .variant(TypographyVariant::Caption)
+                                        .color("error")
+                                        .build(),
+                                );
                             }
                         });
                     });
@@ -784,11 +787,15 @@ fn lane(ui: &mut egui::Ui, add: AddButton, items: impl FnOnce(&mut egui::Ui)) ->
                 // what is left: laid out right-to-left it lands on the edge, and
                 // the wrapping row then fills the space before it.
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    // Quiet by design: four solid buttons stacked down the
+                    // right edge outweigh the query they are there to build.
                     clicked = ui
                         .add(
                             Button::builder()
                                 .label(add.label)
                                 .icon(add.icon)
+                                .button_type(ButtonType::Text)
+                                .button_size(Size::Small)
                                 .enabled(add.enabled)
                                 .hover_text(add.tooltip)
                                 .build(),
@@ -962,7 +969,11 @@ fn lane_hint(ui: &mut egui::Ui, text: &str) {
 
 /// The generated SQL — design `.sqlbox`. Read-only: it renders the lanes, so
 /// making it editable would put two copies of the query on screen.
-fn sql_box(ui: &mut egui::Ui, colors: &ThemeColors, compiled: &Result<String, QueryError>) {
+///
+/// Drawn by the SDK's code editor rather than as plain text, so the statement
+/// arrives highlighted and in the same face as the SQL a person writes by hand
+/// elsewhere in the app.
+fn sql_box(ui: &mut egui::Ui, id: &str, compiled: &Result<String, QueryError>) {
     // Nothing to show when the lanes do not compile — the foot has already said
     // why, and a stale statement beside that message would contradict it.
     let Ok(sql) = compiled else {
@@ -975,28 +986,20 @@ fn sql_box(ui: &mut egui::Ui, colors: &ThemeColors, compiled: &Result<String, Qu
             top: 0,
             bottom: SQL_MARGIN_BOTTOM,
         })
-        .inner_margin(Margin::symmetric(SQL_PAD_X, SQL_PAD_Y))
-        .fill(colors.bg)
-        .corner_radius(RADIUS_CONTROL)
-        .stroke(edge_stroke(colors))
         .show(ui, |ui| {
-            ui.horizontal_top(|ui| {
-                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                    ui.add(
-                        Button::builder()
-                            .label("Copy SQL")
-                            .icon(egui_phosphor::regular::COPY)
-                            .button_type(ButtonType::Text)
-                            .button_size(Size::Small)
-                            .copy(sql.clone())
-                            .hover_text("Copy the generated SQL")
-                            .build(),
-                    );
-                    ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                        ui.add(Code::builder().value(sql.clone()).language("sql").build());
-                    });
-                });
-            });
+            CodeEditor::builder()
+                .id(format!("{id}_sql"))
+                .value(sql.clone())
+                .syntax("sql")
+                .font_size(SQL_FONT)
+                // As tall as the statement, within reason: a four-line query
+                // should not reserve room for a twenty-line one.
+                .rows(sql.lines().count().clamp(1, SQL_MAX_ROWS))
+                // Read-only rather than disabled: the statement is there to be
+                // read, and dimming it would say the opposite.
+                .read_only(true)
+                .build()
+                .show(ui);
         });
 }
 
