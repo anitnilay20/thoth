@@ -1070,4 +1070,117 @@ mod tests {
         assert!(db.set_primary("nope").is_err());
         assert_eq!(db.primary_alias().as_deref(), Some("rows"));
     }
+
+    // ── Compiled queries actually run ───────────────────────────────────────
+    //
+    // The builder's compiler is tested against its own output in the SDK; these
+    // check the output is SQL DuckDB accepts and answers correctly, which a
+    // string comparison cannot.
+
+    fn query_rows(db: &DuckdbConnection, sql: &str) -> Vec<serde_json::Value> {
+        crate::file::loaders::batches_to_values(&db.query(sql).unwrap()).unwrap()
+    }
+
+    fn logs_table() -> (DuckdbConnection, NamedTempFile) {
+        let file = ndjson_file(
+            "{\"level\":\"ERROR\",\"service\":\"api\",\"ms\":120}\n\
+             {\"level\":\"INFO\",\"service\":\"api\",\"ms\":8}\n\
+             {\"level\":\"ERROR\",\"service\":\"web\",\"ms\":300}\n\
+             {\"level\":\"WARN\",\"service\":\"web\",\"ms\":45}\n",
+        );
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        (db, file)
+    }
+
+    #[test]
+    fn a_compiled_filter_runs_and_selects_the_right_rows() {
+        use thoth_plugin_sdk::components::{Filter, Operator, QuerySpec};
+        use thoth_plugin_sdk::components::ColumnType;
+
+        let (db, file) = logs_table();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+
+        let spec = QuerySpec {
+            filters: vec![Filter {
+                field: "level".into(),
+                operator: Operator::Equals,
+                values: vec!["ERROR".into()],
+                column: ColumnType::Text,
+            }],
+            ..Default::default()
+        };
+        let rows = query_rows(&db, &spec.compile(&alias).unwrap());
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|r| r["level"] == "ERROR"));
+    }
+
+    #[test]
+    fn a_compiled_grouping_runs_and_aggregates() {
+        use thoth_plugin_sdk::components::{Aggregate, AggregateFn, QuerySpec, Sort};
+
+        let (db, file) = logs_table();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+
+        let spec = QuerySpec {
+            group_by: vec!["service".into()],
+            aggregates: vec![
+                Aggregate { function: AggregateFn::Count, field: String::new() },
+                Aggregate { function: AggregateFn::Sum, field: "ms".into() },
+            ],
+            sort: vec![Sort { field: "service".into(), descending: false }],
+            ..Default::default()
+        };
+        let rows = query_rows(&db, &spec.compile(&alias).unwrap());
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["service"], "api");
+        assert_eq!(rows[0]["count"], 2);
+        assert_eq!(rows[0]["sum_ms"], 128);
+        assert_eq!(rows[1]["sum_ms"], 345);
+    }
+
+    #[test]
+    fn a_hostile_value_is_data_not_syntax_when_it_reaches_duckdb() {
+        use thoth_plugin_sdk::components::{ColumnType, Filter, Operator, QuerySpec};
+
+        let (db, file) = logs_table();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+
+        let spec = QuerySpec {
+            filters: vec![Filter {
+                field: "level".into(),
+                operator: Operator::Equals,
+                // If this were interpolated rather than escaped, the table
+                // would be gone rather than the result empty.
+                values: vec!["'; DROP TABLE logs; --".into()],
+                column: ColumnType::Text,
+            }],
+            ..Default::default()
+        };
+        let rows = query_rows(&db, &spec.compile(&alias).unwrap());
+        assert!(rows.is_empty(), "matched nothing, and harmed nothing");
+        // The relation is still there and still complete.
+        assert_eq!(db.row_count_of(&alias).unwrap(), 4);
+    }
+
+    #[test]
+    fn a_contains_filter_matches_a_literal_percent() {
+        use thoth_plugin_sdk::components::{ColumnType, Filter, Operator, QuerySpec};
+
+        let file = ndjson_file("{\"note\":\"50% off\"}\n{\"note\":\"50 percent\"}\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+
+        let spec = QuerySpec {
+            filters: vec![Filter {
+                field: "note".into(),
+                operator: Operator::Contains,
+                values: vec!["50%".into()],
+                column: ColumnType::Text,
+            }],
+            ..Default::default()
+        };
+        let rows = query_rows(&db, &spec.compile(&alias).unwrap());
+        assert_eq!(rows.len(), 1, "the wildcard is the user's text, not a pattern");
+        assert_eq!(rows[0]["note"], "50% off");
+    }
 }
