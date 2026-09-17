@@ -31,6 +31,7 @@ mod modal;
 mod multi_select;
 mod number_input;
 mod progress;
+mod query_builder;
 mod radio;
 mod select;
 mod separator;
@@ -57,6 +58,9 @@ pub use code_editor::{CodeEditor, CodeEditorOutput, CustomSyntax, RunRequest};
 pub use data_row::DataRowOutput;
 pub use data_row::{DataRow, DataRowIcon, RowHighlights};
 pub use context_menu::{ContextMenu, ContextMenuItem};
+pub use query_builder::{
+    Aggregate, AggregateFn, Combine, Filter, Operator, QueryError, QuerySpec, Sort,
+};
 pub use data_view::DataView;
 pub use icon::Icon;
 pub use icon_button::{IconButton, IconButtonSelectedStyle};
