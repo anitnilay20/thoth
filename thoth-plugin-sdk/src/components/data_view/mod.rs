@@ -521,10 +521,7 @@ mod tests {
 
     #[test]
     fn default_view_is_carried_on_the_node() {
-        let dv = DataView::builder()
-            .handle("h")
-            .default_view("json")
-            .build();
+        let dv = DataView::builder().handle("h").default_view("json").build();
         assert_eq!(dv.default_view.as_deref(), Some("json"));
 
         // Absent means the built-in fallback (Table) applies.
@@ -536,10 +533,7 @@ mod tests {
     fn default_view_survives_serialization() {
         // The node crosses the plugin boundary as JSON, so the field has to
         // round-trip or a producer's chosen view would be silently dropped.
-        let dv = DataView::builder()
-            .handle("h")
-            .default_view("raw")
-            .build();
+        let dv = DataView::builder().handle("h").default_view("raw").build();
         let wire = serde_json::to_string(&dv).unwrap();
         let back: DataView = serde_json::from_str(&wire).unwrap();
         assert_eq!(back.default_view.as_deref(), Some("raw"));

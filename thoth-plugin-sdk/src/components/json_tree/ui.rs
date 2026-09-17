@@ -163,7 +163,6 @@ impl<'a> Source<'a> {
             Kind::Handle { handle, access } => (access.node_preview)(handle, root, rel),
         }
     }
-
 }
 
 /// Resolve a record-relative path inside an inline value.
@@ -294,10 +293,7 @@ impl RowIndex {
     fn build(tree: &JsonTree, source: &Source<'_>, state: &TreeState) -> Self {
         let records = source.records();
         let visible = tree.visible_roots.clone();
-        let count = visible
-            .as_ref()
-            .map(|v| v.len() as u64)
-            .unwrap_or(records);
+        let count = visible.as_ref().map(|v| v.len() as u64).unwrap_or(records);
 
         // Walk the *expanded set*, not the records. It holds a handful of
         // entries where the file may hold tens of millions, and this runs every
@@ -396,12 +392,15 @@ impl RowIndex {
             }
         }
         // Otherwise a collapsed record: subtract the rows expanded ones added.
-        let consumed: usize = self.expanded[..hit]
-            .iter()
-            .map(|e| e.rows.len() - 1)
-            .sum();
+        let consumed: usize = self.expanded[..hit].iter().map(|e| e.rows.len() - 1).sum();
         let pos = index.checked_sub(consumed)?;
-        if pos as u64 >= self.visible.as_ref().map(|v| v.len() as u64).unwrap_or(self.records) {
+        if pos as u64
+            >= self
+                .visible
+                .as_ref()
+                .map(|v| v.len() as u64)
+                .unwrap_or(self.records)
+        {
             return None;
         }
         Some(record_row(self.record_at(pos), false, source))
@@ -520,7 +519,11 @@ fn build_children(
                 root,
                 &child_path,
                 indent,
-                if node.kind == NodeKind::List { "]" } else { "}" },
+                if node.kind == NodeKind::List {
+                    "]"
+                } else {
+                    "}"
+                },
             ));
         }
     }
@@ -566,11 +569,9 @@ impl JsonTree {
 
         container(ui, self.framed, &colors, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            egui::ScrollArea::both().auto_shrink([false, false]).show_rows(
-                ui,
-                ROW_HEIGHT,
-                index.total_rows,
-                |ui, range| {
+            egui::ScrollArea::both()
+                .auto_shrink([false, false])
+                .show_rows(ui, ROW_HEIGHT, index.total_rows, |ui, range| {
                     for idx in range {
                         let Some(row) = index.row(idx, &source) else {
                             continue;
@@ -636,8 +637,7 @@ impl JsonTree {
                             state.selected = Some(row.path.clone());
                         }
                     }
-                },
-            );
+                });
         });
 
         if let Some(path) = toggle
@@ -703,6 +703,214 @@ fn container<R>(
         .inner_margin(TREE_PAD)
         .show(ui, content)
         .inner
+}
+
+impl JsonTree {
+    /// Carry out a host command, reporting whether rows changed and any text
+    /// to copy.
+    fn apply(
+        &self,
+        action: TreeAction,
+        state: &mut TreeState,
+        index: &RowIndex,
+        source: &Source<'_>,
+    ) -> (bool, Option<String>) {
+        let current = state
+            .selected
+            .as_ref()
+            .and_then(|path| index.position_of(path));
+        let row = current.and_then(|r| index.row(r, source));
+
+        match action {
+            TreeAction::ExpandNode => {
+                if let Some(path) = state.selected.clone()
+                    && row.as_ref().is_some_and(|r| r.caret == Some(false))
+                {
+                    state.expanded.insert(path);
+                    return (true, None);
+                }
+            }
+            TreeAction::CollapseNode => {
+                if let Some(path) = state.selected.clone() {
+                    return (state.expanded.remove(&path), None);
+                }
+            }
+            TreeAction::ExpandAll => {
+                // Records only: expanding every node of every record would read
+                // the whole document, which is what lazy reading exists to
+                // avoid.
+                for root in 0..source.records() {
+                    state.expanded.insert(root.to_string());
+                }
+                return (true, None);
+            }
+            TreeAction::CollapseAll => {
+                let had = !state.expanded.is_empty();
+                state.expanded.clear();
+                return (had, None);
+            }
+            TreeAction::MoveUp => {
+                select_row(state, index, source, current.unwrap_or(0).saturating_sub(1));
+            }
+            TreeAction::MoveDown => {
+                select_row(state, index, source, current.map(|r| r + 1).unwrap_or(0));
+            }
+            TreeAction::CopyKey => return (false, row.map(|r| r.label)),
+            TreeAction::CopyPath => return (false, row.map(|r| r.path)),
+            TreeAction::CopyValue | TreeAction::CopyObject => {
+                return (
+                    false,
+                    row.and_then(|r| source.node_json(r.root, &r.rel))
+                        .map(json_to_clipboard),
+                );
+            }
+        }
+        (false, None)
+    }
+}
+
+/// How a node reads on the clipboard: a string pastes as its own text, and
+/// anything else as JSON.
+fn json_to_clipboard(value: Value) -> String {
+    match value {
+        Value::String(text) => text,
+        other => serde_json::to_string_pretty(&other).unwrap_or_else(|_| other.to_string()),
+    }
+}
+
+// ── Context menu ─────────────────────────────────────────────────────────────
+
+/// The menu for one row, returning the text to copy.
+///
+/// Entries are offered by what the row actually is: a container has an object
+/// to copy, a leaf has a value, and a closing bracket has neither.
+fn node_menu(ui: &mut egui::Ui, row: &TreeRow, source: &Source<'_>) -> Option<String> {
+    use crate::components::{ContextMenu, ContextMenuItem};
+
+    let is_container = row.caret.is_some();
+    let is_closer = row.label.is_empty() && row.caret.is_none();
+    if is_closer {
+        return None;
+    }
+
+    let items = vec![
+        ContextMenuItem::builder()
+            .label(if is_container {
+                "Copy object"
+            } else {
+                "Copy value"
+            })
+            .shortcut("⌘C")
+            .build(),
+        ContextMenuItem::builder().label("Copy key").build(),
+        ContextMenuItem::builder().label("Copy path").build(),
+    ];
+
+    let picked = ContextMenu::builder().items(items).build().show(ui)?;
+    match picked {
+        // Read the node, not the row -- the rendered value is truncated.
+        0 => source.node_json(row.root, &row.rel).map(json_to_clipboard),
+        1 => Some(row.label.clone()),
+        2 => Some(row.path.clone()),
+        _ => None,
+    }
+}
+
+// ── Keyboard navigation ──────────────────────────────────────────────────────
+
+/// Handle arrow-key movement and expansion.
+///
+/// Returns whether the row list needs rebuilding, which expansion changes do.
+/// Left and right follow the tree rather than the list: right opens a closed
+/// container and otherwise descends, left closes an open one and otherwise
+/// climbs to its parent — which is what makes a keyboard walk feel like a tree
+/// and not a table.
+fn navigate(
+    ui: &mut egui::Ui,
+    state: &mut TreeState,
+    index: &RowIndex,
+    source: &Source<'_>,
+) -> bool {
+    use egui::Key;
+
+    let keys: Vec<Key> = ui.input(|i| {
+        [
+            Key::ArrowUp,
+            Key::ArrowDown,
+            Key::ArrowLeft,
+            Key::ArrowRight,
+            Key::Home,
+            Key::End,
+        ]
+        .into_iter()
+        .filter(|k| i.key_pressed(*k))
+        .collect()
+    });
+    if keys.is_empty() {
+        return false;
+    }
+
+    let current = state
+        .selected
+        .as_ref()
+        .and_then(|path| index.position_of(path));
+
+    let mut rebuild = false;
+    for key in keys {
+        match key {
+            Key::ArrowDown => {
+                let next = current.map(|row| row + 1).unwrap_or(0);
+                select_row(state, index, source, next);
+            }
+            Key::ArrowUp => {
+                let previous = current.unwrap_or(0).saturating_sub(1);
+                select_row(state, index, source, previous);
+            }
+            Key::Home => select_row(state, index, source, 0),
+            Key::End => select_row(state, index, source, index.total_rows.saturating_sub(1)),
+            Key::ArrowRight => {
+                if let Some(path) = state.selected.clone()
+                    && let Some(row) = current.and_then(|r| index.row(r, source))
+                    && row.caret == Some(false)
+                {
+                    state.expanded.insert(path);
+                    rebuild = true;
+                } else if let Some(row) = current {
+                    select_row(state, index, source, row + 1);
+                }
+            }
+            Key::ArrowLeft => {
+                if let Some(path) = state.selected.clone()
+                    && state.expanded.remove(&path)
+                {
+                    rebuild = true;
+                } else if let Some(parent) = state.selected.as_deref().and_then(parent_path) {
+                    state.selected = Some(parent);
+                }
+            }
+            _ => {}
+        }
+    }
+    rebuild
+}
+
+fn select_row(state: &mut TreeState, index: &RowIndex, source: &Source<'_>, row: usize) {
+    if let Some(row) = index.row(row.min(index.total_rows.saturating_sub(1)), source) {
+        state.selected = Some(row.path);
+    }
+}
+
+/// The path of a node's parent: `3.user.name` -> `3.user`, `3.tags[2]` -> `3.tags`.
+fn parent_path(path: &str) -> Option<String> {
+    let dot = path.rfind('.');
+    let bracket = path.rfind('[');
+    match (dot, bracket) {
+        (None, None) => None,
+        (a, b) => {
+            let cut = a.into_iter().chain(b).max()?;
+            (cut > 0).then(|| path[..cut].to_string())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -970,210 +1178,5 @@ mod tests {
         assert_eq!(parent_path("3.user").as_deref(), Some("3"));
         // A record is already the root; there is nowhere further up.
         assert_eq!(parent_path("3"), None);
-    }
-
-}
-
-impl JsonTree {
-    /// Carry out a host command, reporting whether rows changed and any text
-    /// to copy.
-    fn apply(
-        &self,
-        action: TreeAction,
-        state: &mut TreeState,
-        index: &RowIndex,
-        source: &Source<'_>,
-    ) -> (bool, Option<String>) {
-        let current = state
-            .selected
-            .as_ref()
-            .and_then(|path| index.position_of(path));
-        let row = current.and_then(|r| index.row(r, source));
-
-        match action {
-            TreeAction::ExpandNode => {
-                if let Some(path) = state.selected.clone()
-                    && row.as_ref().is_some_and(|r| r.caret == Some(false))
-                {
-                    state.expanded.insert(path);
-                    return (true, None);
-                }
-            }
-            TreeAction::CollapseNode => {
-                if let Some(path) = state.selected.clone() {
-                    return (state.expanded.remove(&path), None);
-                }
-            }
-            TreeAction::ExpandAll => {
-                // Records only: expanding every node of every record would read
-                // the whole document, which is what lazy reading exists to
-                // avoid.
-                for root in 0..source.records() {
-                    state.expanded.insert(root.to_string());
-                }
-                return (true, None);
-            }
-            TreeAction::CollapseAll => {
-                let had = !state.expanded.is_empty();
-                state.expanded.clear();
-                return (had, None);
-            }
-            TreeAction::MoveUp => {
-                select_row(state, index, source, current.unwrap_or(0).saturating_sub(1));
-            }
-            TreeAction::MoveDown => {
-                select_row(state, index, source, current.map(|r| r + 1).unwrap_or(0));
-            }
-            TreeAction::CopyKey => return (false, row.map(|r| r.label)),
-            TreeAction::CopyPath => return (false, row.map(|r| r.path)),
-            TreeAction::CopyValue | TreeAction::CopyObject => {
-                return (
-                    false,
-                    row.and_then(|r| source.node_json(r.root, &r.rel))
-                        .map(json_to_clipboard),
-                );
-            }
-        }
-        (false, None)
-    }
-}
-
-/// How a node reads on the clipboard: a string pastes as its own text, and
-/// anything else as JSON.
-fn json_to_clipboard(value: Value) -> String {
-    match value {
-        Value::String(text) => text,
-        other => serde_json::to_string_pretty(&other).unwrap_or_else(|_| other.to_string()),
-    }
-}
-
-// ── Context menu ─────────────────────────────────────────────────────────────
-
-/// The menu for one row, returning the text to copy.
-///
-/// Entries are offered by what the row actually is: a container has an object
-/// to copy, a leaf has a value, and a closing bracket has neither.
-fn node_menu(ui: &mut egui::Ui, row: &TreeRow, source: &Source<'_>) -> Option<String> {
-    use crate::components::{ContextMenu, ContextMenuItem};
-
-    let is_container = row.caret.is_some();
-    let is_closer = row.label.is_empty() && row.caret.is_none();
-    if is_closer {
-        return None;
-    }
-
-    let items = vec![
-        ContextMenuItem::builder()
-            .label(if is_container { "Copy object" } else { "Copy value" })
-            .shortcut("⌘C")
-            .build(),
-        ContextMenuItem::builder().label("Copy key").build(),
-        ContextMenuItem::builder().label("Copy path").build(),
-    ];
-
-    let picked = ContextMenu::builder().items(items).build().show(ui)?;
-    match picked {
-        // Read the node, not the row -- the rendered value is truncated.
-        0 => source.node_json(row.root, &row.rel).map(json_to_clipboard),
-        1 => Some(row.label.clone()),
-        2 => Some(row.path.clone()),
-        _ => None,
-    }
-}
-
-// ── Keyboard navigation ──────────────────────────────────────────────────────
-
-/// Handle arrow-key movement and expansion.
-///
-/// Returns whether the row list needs rebuilding, which expansion changes do.
-/// Left and right follow the tree rather than the list: right opens a closed
-/// container and otherwise descends, left closes an open one and otherwise
-/// climbs to its parent — which is what makes a keyboard walk feel like a tree
-/// and not a table.
-fn navigate(
-    ui: &mut egui::Ui,
-    state: &mut TreeState,
-    index: &RowIndex,
-    source: &Source<'_>,
-) -> bool {
-    use egui::Key;
-
-    let keys: Vec<Key> = ui.input(|i| {
-        [
-            Key::ArrowUp,
-            Key::ArrowDown,
-            Key::ArrowLeft,
-            Key::ArrowRight,
-            Key::Home,
-            Key::End,
-        ]
-        .into_iter()
-        .filter(|k| i.key_pressed(*k))
-        .collect()
-    });
-    if keys.is_empty() {
-        return false;
-    }
-
-    let current = state
-        .selected
-        .as_ref()
-        .and_then(|path| index.position_of(path));
-
-    let mut rebuild = false;
-    for key in keys {
-        match key {
-            Key::ArrowDown => {
-                let next = current.map(|row| row + 1).unwrap_or(0);
-                select_row(state, index, source, next);
-            }
-            Key::ArrowUp => {
-                let previous = current.unwrap_or(0).saturating_sub(1);
-                select_row(state, index, source, previous);
-            }
-            Key::Home => select_row(state, index, source, 0),
-            Key::End => select_row(state, index, source, index.total_rows.saturating_sub(1)),
-            Key::ArrowRight => {
-                if let Some(path) = state.selected.clone()
-                    && let Some(row) = current.and_then(|r| index.row(r, source))
-                    && row.caret == Some(false)
-                {
-                    state.expanded.insert(path);
-                    rebuild = true;
-                } else if let Some(row) = current {
-                    select_row(state, index, source, row + 1);
-                }
-            }
-            Key::ArrowLeft => {
-                if let Some(path) = state.selected.clone()
-                    && state.expanded.remove(&path)
-                {
-                    rebuild = true;
-                } else if let Some(parent) = state.selected.as_deref().and_then(parent_path) {
-                    state.selected = Some(parent);
-                }
-            }
-            _ => {}
-        }
-    }
-    rebuild
-}
-
-fn select_row(state: &mut TreeState, index: &RowIndex, source: &Source<'_>, row: usize) {
-    if let Some(row) = index.row(row.min(index.total_rows.saturating_sub(1)), source) {
-        state.selected = Some(row.path);
-    }
-}
-
-/// The path of a node's parent: `3.user.name` -> `3.user`, `3.tags[2]` -> `3.tags`.
-fn parent_path(path: &str) -> Option<String> {
-    let dot = path.rfind('.');
-    let bracket = path.rfind('[');
-    match (dot, bracket) {
-        (None, None) => None,
-        (a, b) => {
-            let cut = a.into_iter().chain(b).max()?;
-            (cut > 0).then(|| path[..cut].to_string())
-        }
     }
 }

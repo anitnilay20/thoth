@@ -408,6 +408,13 @@ fn move_selection(ui: &egui::Ui, selected: &mut Option<usize>, row_count: usize)
 /// accent fill, so cell text stays readable on top of it.
 const SELECTED_ROW_ALPHA: u8 = 36;
 
+// The row highlight has to sit under cell text and stay readable, so it is a
+// data-bar weight rather than an accent fill.
+const _: () = assert!(
+    SELECTED_ROW_ALPHA < 64,
+    "an opaque selected row would bury its own contents"
+);
+
 /// Rows a page key moves by.
 const PAGE_ROWS: usize = 20;
 
@@ -714,15 +721,5 @@ mod tests {
         assert_eq!(5usize.saturating_add(PAGE_ROWS).min(last), 9);
         // And a page before the start lands on the first.
         assert_eq!(3usize.saturating_sub(PAGE_ROWS), 0);
-    }
-
-    #[test]
-    fn a_selected_row_is_washed_not_filled() {
-        // The row highlight has to sit under cell text and stay readable, so
-        // it is a data-bar weight rather than an accent fill.
-        assert!(
-            SELECTED_ROW_ALPHA < 64,
-            "an opaque row would bury its own contents"
-        );
     }
 }
