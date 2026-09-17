@@ -129,6 +129,24 @@ pub struct Filter {
     pub column: ColumnType,
 }
 
+impl Filter {
+    /// The condition read back as words, e.g. `status is error`.
+    ///
+    /// Shared by the collapsed head's chips and by [`QuerySpec::summary`], so
+    /// the two can never describe the same filter differently.
+    pub fn phrase(&self) -> String {
+        match self.operator.arity() {
+            0 => format!("{} {}", self.field, self.operator.label()),
+            _ => format!(
+                "{} {} {}",
+                self.field,
+                self.operator.label(),
+                self.values.join(" and ")
+            ),
+        }
+    }
+}
+
 /// Whether every filter must match, or any.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -305,15 +323,7 @@ impl QuerySpec {
             parts.push(
                 self.filters
                     .iter()
-                    .map(|f| match f.operator.arity() {
-                        0 => format!("{} {}", f.field, f.operator.label()),
-                        _ => format!(
-                            "{} {} {}",
-                            f.field,
-                            f.operator.label(),
-                            f.values.join(" and ")
-                        ),
-                    })
+                    .map(Filter::phrase)
                     .collect::<Vec<_>>()
                     .join(joiner),
             );
@@ -326,7 +336,11 @@ impl QuerySpec {
                 .sort
                 .iter()
                 .map(|s| {
-                    format!("{}{}", s.field, if s.descending { " descending" } else { "" })
+                    format!(
+                        "{}{}",
+                        s.field,
+                        if s.descending { " descending" } else { "" }
+                    )
                 })
                 .collect();
             parts.push(format!("sorted by {}", keys.join(", ")));
@@ -382,7 +396,13 @@ impl QuerySpec {
             let keys: Vec<String> = self
                 .sort
                 .iter()
-                .map(|s| format!("{} {}", ident(&s.field), if s.descending { "DESC" } else { "ASC" }))
+                .map(|s| {
+                    format!(
+                        "{} {}",
+                        ident(&s.field),
+                        if s.descending { "DESC" } else { "ASC" }
+                    )
+                })
                 .collect();
             sql.push_str(&format!("\nORDER BY {}", keys.join(", ")));
         }
@@ -671,7 +691,9 @@ mod tests {
             ..Default::default()
         };
         let sql = spec.compile("logs").unwrap();
-        assert!(sql.starts_with("SELECT \"level\", count(*) AS \"count\", sum(\"amount\") AS \"sum_amount\""));
+        assert!(sql.starts_with(
+            "SELECT \"level\", count(*) AS \"count\", sum(\"amount\") AS \"sum_amount\""
+        ));
         assert!(sql.contains("GROUP BY \"level\""));
     }
 
@@ -692,8 +714,14 @@ mod tests {
     fn sorting_applies_keys_in_order() {
         let spec = QuerySpec {
             sort: vec![
-                Sort { field: "level".into(), descending: false },
-                Sort { field: "ts".into(), descending: true },
+                Sort {
+                    field: "level".into(),
+                    descending: false,
+                },
+                Sort {
+                    field: "ts".into(),
+                    descending: true,
+                },
             ],
             ..Default::default()
         };
@@ -761,7 +789,10 @@ mod tests {
 
     #[test]
     fn a_limit_is_always_present_and_never_zero() {
-        let spec = QuerySpec { limit: 0, ..Default::default() };
+        let spec = QuerySpec {
+            limit: 0,
+            ..Default::default()
+        };
         assert!(spec.compile("t").unwrap().ends_with("LIMIT 1"));
     }
 
@@ -783,11 +814,19 @@ mod tests {
     #[test]
     fn an_aggregate_names_its_own_output_column() {
         assert_eq!(
-            Aggregate { function: AggregateFn::Count, field: String::new() }.output_name(),
+            Aggregate {
+                function: AggregateFn::Count,
+                field: String::new()
+            }
+            .output_name(),
             "count"
         );
         assert_eq!(
-            Aggregate { function: AggregateFn::Sum, field: "total amount".into() }.output_name(),
+            Aggregate {
+                function: AggregateFn::Sum,
+                field: "total amount".into()
+            }
+            .output_name(),
             "sum_total_amount"
         );
     }
@@ -799,7 +838,10 @@ mod tests {
         let spec = QuerySpec {
             filters: vec![text("level", Operator::Equals, &["error"])],
             group_by: vec!["service".to_string()],
-            sort: vec![Sort { field: "count".into(), descending: true }],
+            sort: vec![Sort {
+                field: "count".into(),
+                descending: true,
+            }],
             ..Default::default()
         };
         assert_eq!(
@@ -815,13 +857,18 @@ mod tests {
         let spec = QuerySpec {
             filters: vec![number("id", Operator::Between, &["1", "9"])],
             combine: Combine::Any,
-            aggregates: vec![Aggregate { function: AggregateFn::Average, field: "x".into() }],
-            sort: vec![Sort { field: "id".into(), descending: true }],
+            aggregates: vec![Aggregate {
+                function: AggregateFn::Average,
+                field: "x".into(),
+            }],
+            sort: vec![Sort {
+                field: "id".into(),
+                descending: true,
+            }],
             group_by: vec!["g".into()],
             limit: 25,
         };
-        let back: QuerySpec =
-            serde_json::from_str(&serde_json::to_string(&spec).unwrap()).unwrap();
+        let back: QuerySpec = serde_json::from_str(&serde_json::to_string(&spec).unwrap()).unwrap();
         assert_eq!(back, spec);
     }
 }

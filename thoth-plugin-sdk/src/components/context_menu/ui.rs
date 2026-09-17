@@ -58,8 +58,7 @@ impl ContextMenu {
         );
 
         if response.hovered() && !item.disabled {
-            ui.painter()
-                .rect_filled(rect, RADIUS_CHIP, colors.surface);
+            ui.painter().rect_filled(rect, RADIUS_CHIP, colors.surface);
         }
 
         // A checked entry takes the accent, matching the view switcher's

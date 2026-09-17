@@ -12,8 +12,8 @@ mod button_group;
 mod card;
 mod checkbox;
 mod code;
-mod context_menu;
 mod code_editor;
+mod context_menu;
 mod data_row;
 mod data_view;
 #[cfg(feature = "egui")]
@@ -54,13 +54,10 @@ pub use card::{Card, CardAction, CardIcon};
 pub use checkbox::Checkbox;
 pub use code::Code;
 pub use code_editor::{CodeEditor, CodeEditorOutput, CustomSyntax, RunRequest};
+pub use context_menu::{ContextMenu, ContextMenuItem};
 #[cfg(feature = "egui")]
 pub use data_row::DataRowOutput;
 pub use data_row::{DataRow, DataRowIcon, RowHighlights};
-pub use context_menu::{ContextMenu, ContextMenuItem};
-pub use query_builder::{
-    Aggregate, AggregateFn, Combine, Filter, Operator, QueryError, QuerySpec, Sort,
-};
 pub use data_view::DataView;
 pub use icon::Icon;
 pub use icon_button::{IconButton, IconButtonSelectedStyle};
@@ -83,6 +80,12 @@ pub use modal::Modal;
 pub use multi_select::MultiSelect;
 pub use number_input::NumberInput;
 pub use progress::Progress;
+#[cfg(feature = "egui")]
+pub use query_builder::QueryBuilderOutput;
+pub use query_builder::{
+    Aggregate, AggregateFn, Combine, Filter, Operator, QueryBuilder, QueryError, QueryField,
+    QuerySpec, Sort,
+};
 pub use radio::Radio;
 pub use select::{Select, SelectOption, SelectResponse};
 pub use separator::Separator;

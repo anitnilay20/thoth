@@ -120,7 +120,8 @@ mod tests {
             ])
             .build();
 
-        let back: ContextMenu = serde_json::from_str(&serde_json::to_string(&menu).unwrap()).unwrap();
+        let back: ContextMenu =
+            serde_json::from_str(&serde_json::to_string(&menu).unwrap()).unwrap();
         assert_eq!(back.items.len(), 3);
         assert_eq!(back.items[0].shortcut.as_deref(), Some("⌘C"));
         assert!(back.items[1].separator);
