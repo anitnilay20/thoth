@@ -300,8 +300,9 @@ impl CentralPanel {
         self.file_viewer.index_progress()
     }
 
-    /// Adopt a finished index, returning the file's name the frame it lands.
-    pub fn poll_index(&mut self, tab_id: usize) -> Option<String> {
+    /// Adopt a finished index, returning the file's name and row count the
+    /// frame it lands.
+    pub fn poll_index(&mut self, tab_id: usize) -> Option<(String, usize)> {
         self.file_viewer.poll_index(tab_id)
     }
 

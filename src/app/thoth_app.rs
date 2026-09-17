@@ -1659,12 +1659,16 @@ impl ThothApp {
 
         // Adopt any finished index and announce it, then report the progress of
         // whatever is still running on the active tab.
-        let finished: Vec<(crate::app::tab_manager::TabId, String)> = self
+        let finished: Vec<(crate::app::tab_manager::TabId, String, usize)> = self
             .window_state
             .tab_manager
             .tabs
             .iter_mut()
-            .filter_map(|(id, tab)| tab.central_panel.poll_index(*id).map(|name| (*id, name)))
+            .filter_map(|(id, tab)| {
+                tab.central_panel
+                    .poll_index(*id)
+                    .map(|(name, total)| (*id, name, total))
+            })
             .collect();
         if !finished.is_empty() {
             // A finished index just added to the cache, so this is the moment
@@ -1684,7 +1688,13 @@ impl ThothApp {
                 .collect();
             crate::file::index_cache::enforce_budget(budget, &in_use);
         }
-        for (_, name) in finished {
+        // The tab was reporting its preview's size; now it knows the real one.
+        for (id, _, total) in &finished {
+            if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(id) {
+                tab.total_items = *total;
+            }
+        }
+        for (_, name, _) in finished {
             crate::notification::NotificationManager::notify(
                 crate::notification::Notification::new(
                     "File indexed",
