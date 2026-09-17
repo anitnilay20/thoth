@@ -483,9 +483,10 @@ impl FileViewer {
 
     /// Adopt a finished index, publishing it to the bus.
     ///
-    /// Returns the file's name once, the frame the index becomes available, so
-    /// the caller can announce it. Called every frame while a job is running.
-    pub fn poll_index(&mut self, tab_id: usize) -> Option<String> {
+    /// Returns the file's name and its true row count once, the frame the index
+    /// becomes available. The count matters: until then the tab is showing a
+    /// prefix, and reporting the preview's size as the file's would be wrong.
+    pub fn poll_index(&mut self, tab_id: usize) -> Option<(String, usize)> {
         let job = self.index_job.as_ref()?;
         if !job.progress().is_finished() || self.index_announced {
             return None;
@@ -536,7 +537,12 @@ impl FileViewer {
                 crate::papyrus::publish_text("core", &instance, name.clone(), *index)
             }
         };
-        Some(name)
+        let total = self
+            .handle
+            .as_deref()
+            .map(|handle| crate::papyrus::total(handle) as usize)
+            .unwrap_or(0);
+        Some((name, total))
     }
 
     /// Draw the collection list, returning the index the user picked.
