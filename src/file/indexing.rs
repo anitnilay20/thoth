@@ -11,8 +11,8 @@
 //! between chunks — and a cancelled job stores nothing.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::error::Result;
 use crate::file::index_cache;
@@ -162,7 +162,9 @@ impl IndexJob {
                     total,
                     collections: Vec::new(),
                 });
-                worker_shared.scanned.store(worker_shared.total, Ordering::Relaxed);
+                worker_shared
+                    .scanned
+                    .store(worker_shared.total, Ordering::Relaxed);
                 worker_shared.finished.store(true, Ordering::Release);
                 if let Some(ctx) = crate::EGUI_CTX.get() {
                     ctx.request_repaint();
@@ -253,12 +255,7 @@ impl IndexJob {
         self.shared
             .finished
             .load(Ordering::Acquire)
-            .then(|| {
-                self.result
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .take()
-            })
+            .then(|| self.result.lock().unwrap_or_else(|e| e.into_inner()).take())
             .flatten()
     }
 }
@@ -275,11 +272,7 @@ pub struct StageJob {
 
 impl StageJob {
     /// Ingest `collection` into `engine` on a worker thread.
-    pub fn spawn(
-        engine: Arc<DuckdbConnection>,
-        path: &Path,
-        collection: &Collection,
-    ) -> Self {
+    pub fn spawn(engine: Arc<DuckdbConnection>, path: &Path, collection: &Collection) -> Self {
         let done = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
         let (worker_done, worker_failed) = (Arc::clone(&done), Arc::clone(&failed));
@@ -317,6 +310,80 @@ impl StageJob {
 
     pub fn failed(&self) -> bool {
         self.failed.load(Ordering::Relaxed)
+    }
+}
+
+/// A query running on a worker thread.
+///
+/// A query over a file-sized table is measured in the same units as indexing
+/// it, so it cannot run on the UI thread. What comes back is a *view*, not a
+/// result set: the grid then pages through it exactly as it pages through a
+/// table.
+pub struct QueryJob {
+    view: String,
+    done: Arc<AtomicBool>,
+    outcome: Arc<Mutex<Option<std::result::Result<QueryOutcome, String>>>>,
+}
+
+/// What a finished [`QueryJob`] produced.
+pub struct QueryOutcome {
+    /// The view the result can be read from.
+    pub view: String,
+    /// Rows the query selected.
+    pub rows: usize,
+    /// How long the engine took, for the builder's status line.
+    pub elapsed: std::time::Duration,
+}
+
+impl QueryJob {
+    /// Run `sql` on a worker, defining `view` over it.
+    pub fn spawn(engine: Arc<DuckdbConnection>, view: String, sql: String) -> Self {
+        let done = Arc::new(AtomicBool::new(false));
+        let outcome = Arc::new(Mutex::new(None));
+        let (worker_done, worker_outcome) = (Arc::clone(&done), Arc::clone(&outcome));
+        let worker_view = view.clone();
+
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let result = engine
+                .define_view(&worker_view, &sql)
+                .map(|rows| QueryOutcome {
+                    view: worker_view,
+                    rows,
+                    elapsed: started.elapsed(),
+                })
+                // The engine's message is the useful part — it names the column
+                // or the type that did not work out.
+                .map_err(|error| error.to_string());
+            *worker_outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
+            worker_done.store(true, Ordering::Release);
+            if let Some(ctx) = crate::EGUI_CTX.get() {
+                ctx.request_repaint();
+            }
+        });
+
+        Self {
+            view,
+            done,
+            outcome,
+        }
+    }
+
+    /// The view this job is defining.
+    pub fn view(&self) -> &str {
+        &self.view
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.done.load(Ordering::Acquire)
+    }
+
+    /// Take the result, once. `None` until the job finishes.
+    pub fn take(&self) -> Option<std::result::Result<QueryOutcome, String>> {
+        self.outcome
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
     }
 }
 
@@ -507,7 +574,6 @@ mod tests {
         assert_eq!(indexed.as_text().expect("a text index").len(), 500);
         // Taking twice yields nothing the second time.
         assert!(job.take().is_none());
-
     }
 
     #[test]
@@ -561,10 +627,14 @@ mod tests {
         let second = IndexJob::spawn(file.path());
         assert_eq!(second.progress(), Progress::Ready);
         assert_eq!(
-            second.take().expect("cached index").as_text().unwrap().len(),
+            second
+                .take()
+                .expect("cached index")
+                .as_text()
+                .unwrap()
+                .len(),
             300
         );
-
     }
 
     #[test]
@@ -576,7 +646,6 @@ mod tests {
         // The next open finds it without scanning.
         let job = IndexJob::spawn(file.path());
         assert_eq!(job.progress(), Progress::Ready);
-
     }
 
     #[test]
@@ -600,7 +669,10 @@ mod tests {
 
         // Everything the document holds, including the object that has no row
         // shape -- omitting it would misrepresent the file.
-        assert_eq!(names(indexed.collections()), ["meta", "users", "transactions"]);
+        assert_eq!(
+            names(indexed.collections()),
+            ["meta", "users", "transactions"]
+        );
         assert_eq!(
             indexed.collections()[0].kind,
             crate::file::json_envelope::ValueKind::Object,
@@ -679,7 +751,10 @@ mod tests {
 
         let first = IndexJob::spawn(tmp.path());
         assert_eq!(settle(&first), Progress::Ready);
-        assert_eq!(names(first.take().unwrap().collections()), ["users", "logs"]);
+        assert_eq!(
+            names(first.take().unwrap().collections()),
+            ["users", "logs"]
+        );
 
         // The cache now exists, so a second open skips the scan entirely and
         // still yields the same tables.
@@ -775,7 +850,12 @@ mod real_file {
                 rows
             );
         }
-        println!("cache size: {} MB", std::fs::metadata(&db).map(|m| m.len() / 1024 / 1024).unwrap_or(0));
+        println!(
+            "cache size: {} MB",
+            std::fs::metadata(&db)
+                .map(|m| m.len() / 1024 / 1024)
+                .unwrap_or(0)
+        );
     }
 
     #[test]
@@ -791,15 +871,26 @@ mod real_file {
         while !job.progress().is_finished() {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        println!("indexing took {:?} -> {:?}", started.elapsed(), job.progress());
+        println!(
+            "indexing took {:?} -> {:?}",
+            started.elapsed(),
+            job.progress()
+        );
 
         let indexed = job.take().expect("indexed");
         match &indexed {
-            Indexed::Engine { engine, collections, .. } => {
+            Indexed::Engine {
+                engine,
+                collections,
+                ..
+            } => {
                 use crate::file::loaders::{FileLoader as _, batches_to_values};
                 println!(
                     "collections: {:?}",
-                    collections.iter().map(|c| c.name.as_str()).collect::<Vec<_>>()
+                    collections
+                        .iter()
+                        .map(|c| c.name.as_str())
+                        .collect::<Vec<_>>()
                 );
                 // Only the first is staged now; the rest report their size and
                 // are built when chosen.
@@ -812,12 +903,9 @@ mod real_file {
                             c.kind,
                             batches_to_values(&b).unwrap()[0]["n"]
                         ),
-                        Err(_) => println!(
-                            "  {:<16} {:?} {} (not staged)",
-                            c.name,
-                            c.kind,
-                            c.len()
-                        ),
+                        Err(_) => {
+                            println!("  {:<16} {:?} {} (not staged)", c.name, c.kind, c.len())
+                        }
                     }
                 }
             }

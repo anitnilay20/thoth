@@ -14,11 +14,11 @@ use crate::components::file_viewer::viewer_trait::{FileFormatViewer, FileViewerL
 use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
 use crate::file::loaders::DuckdbConnection;
 use crate::file::loaders::duck_db::alias_for_name as alias_of;
-use thoth_plugin_sdk::components::{DataView, TreeAction};
 use crate::file::{FileKind, FileType};
 use crate::plugin::Capability;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
 use crate::search::results::{MatchFragment, SearchResults};
+use thoth_plugin_sdk::components::{ColumnType, DataView, QueryBuilder, QueryField, TreeAction};
 
 /// Wrapper for WasmFileViewerLoader to implement FileViewerLoader
 struct PluginFileViewerLoader {
@@ -101,6 +101,10 @@ fn default_view(path: &Path) -> &'static str {
         FileType::Plugin | FileType::Unknown => "raw",
     }
 }
+
+/// Prefix of the temporary view a tab's query result is defined as. Per-tab,
+/// so two tabs querying the same file never overwrite each other's result.
+const QUERY_VIEW_PREFIX: &str = "__thoth_result_";
 
 /// The lightweight tag a tab carries for a file the engine opened.
 ///
@@ -194,6 +198,15 @@ pub struct FileViewer {
     /// the next frame. The binding is the host's; the behaviour is the
     /// component's.
     tree_action: Option<thoth_plugin_sdk::components::TreeAction>,
+
+    /// The query builder above the grid, for engine-backed files. It owns the
+    /// query; the tab only runs it.
+    query: QueryBuilder,
+
+    /// A query running on a worker. Until it lands the grid keeps showing what
+    /// it has, because a query that clears the screen to say "working" is worse
+    /// than one that takes a moment.
+    query_job: Option<crate::file::indexing::QueryJob>,
 }
 
 impl FileViewer {
@@ -223,6 +236,8 @@ impl FileViewer {
             syntax_highlighting: true, // Default to enabled
             pending_events: Vec::new(),
             tree_action: None,
+            query: QueryBuilder::default(),
+            query_job: None,
         }
     }
 
@@ -343,11 +358,7 @@ impl FileViewer {
             if needs_rebuild && let Some(loader) = self.loader.as_mut() {
                 // Rebuild view immediately so rows are ready for scrolling
                 let total_len = loader.record_count();
-                viewer.rebuild_view(
-                    &self.state.visible_roots,
-                    loader,
-                    total_len,
-                );
+                viewer.rebuild_view(&self.state.visible_roots, loader, total_len);
             }
             return needs_rebuild;
         }
@@ -373,9 +384,7 @@ impl FileViewer {
 
                 // Expand this node (except the leaf)
                 if i < path_parts.len() - 1 {
-                    viewer
-                        
-                        .expand_selected(&Some(current_path.clone()));
+                    viewer.expand_selected(&Some(current_path.clone()));
                 }
             }
         }
@@ -399,8 +408,9 @@ impl FileViewer {
         // Engine-backed files are drawn by `DataView`, reading their rows from
         // Papyrus. That is what gives the file tab table / JSON / raw views,
         // export and Chart Studio for free.
-        // A staging job may have landed since the last frame.
+        // A staging job or a query may have landed since the last frame.
         self.poll_staging();
+        self.poll_query();
 
         if let Some(handle) = self.handle.clone() {
             // A document that yielded several tables shows what is inside it.
@@ -531,6 +541,13 @@ impl FileViewer {
                     total as u64,
                 );
                 self.engine = Some(engine);
+                if let Some(alias) = self
+                    .engine
+                    .as_ref()
+                    .and_then(|engine| engine.primary_alias())
+                {
+                    self.aim_query_at(&alias);
+                }
                 handle
             }
             crate::file::indexing::Indexed::Text(index) => {
@@ -660,6 +677,103 @@ impl FileViewer {
             engine,
             rows as u64,
         );
+        self.aim_query_at(&alias);
+    }
+
+    /// Point the builder at `alias`, reading its columns from the engine.
+    ///
+    /// The lanes name the columns of the relation they were built against, so a
+    /// change of relation clears them rather than carrying a filter over to a
+    /// table that has no such column.
+    fn aim_query_at(&mut self, alias: &str) {
+        let Some(engine) = self.engine.as_ref() else {
+            return;
+        };
+        self.query = QueryBuilder::builder()
+            .id(format!("file_query_{}", self.tab_id))
+            .relation(alias.to_string())
+            .fields(
+                engine
+                    .column_types(alias)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(name, sql_type)| {
+                        QueryField::builder()
+                            .name(name)
+                            .column_type(ColumnType::from_sql(&sql_type))
+                            .build()
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .build();
+    }
+
+    /// Run the query the lanes describe, on a worker thread.
+    fn run_query(&mut self) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        // One query at a time per tab: the second would race the first for the
+        // same view name, and the grid can only show one result anyway.
+        if self.query_job.is_some() {
+            return;
+        }
+        let sql = match self.query.spec.compile(&self.query.relation) {
+            Ok(sql) => sql,
+            // The foot already names an incomplete lane; Run is disabled while
+            // it does, so reaching here means the shortcut fired instead.
+            Err(error) => {
+                self.query.status = Some(error.message);
+                return;
+            }
+        };
+        self.query.status = Some("running…".to_string());
+        self.query_job = Some(crate::file::indexing::QueryJob::spawn(
+            engine,
+            format!("{QUERY_VIEW_PREFIX}{}", self.tab_id),
+            sql,
+        ));
+    }
+
+    /// Adopt a finished query, if one just landed.
+    fn poll_query(&mut self) {
+        let Some(job) = self.query_job.as_ref() else {
+            return;
+        };
+        if !job.is_finished() {
+            return;
+        }
+        let outcome = job.take();
+        self.query_job = None;
+
+        let Some(outcome) = outcome else {
+            return;
+        };
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        match outcome {
+            Ok(result) => {
+                if engine.set_primary(&result.view).is_err() {
+                    self.query.status = Some("the result could not be read".to_string());
+                    return;
+                }
+                self.query.status = Some(format!(
+                    "{} {} · {} ms",
+                    result.rows,
+                    if result.rows == 1 { "row" } else { "rows" },
+                    result.elapsed.as_millis()
+                ));
+                self.handle = crate::papyrus::publish_arrow_with_total(
+                    "core",
+                    &format!("core#{}", self.tab_id),
+                    self.query.relation.clone(),
+                    engine,
+                    result.rows as u64,
+                );
+            }
+            Err(message) => self.query.status = Some(message),
+        }
     }
 
     /// Adopt a finished collection staging, if one just landed.
@@ -686,6 +800,15 @@ impl FileViewer {
     }
 
     fn draw_data_view(&mut self, ui: &mut Ui, handle: &str) {
+        // Only an engine-backed file has a relation to query; a text index has
+        // lines, and offering SQL over them would be a promise nothing keeps.
+        if self.engine.is_some() {
+            let out = self.query.show(ui);
+            if out.run {
+                self.run_query();
+            }
+        }
+
         let mut events = Vec::new();
         let mut view = DataView::builder()
             // Keyed on the tab, not the handle, so switching collections keeps
@@ -741,7 +864,9 @@ impl FileViewer {
         // Plugin-rendered files have no Arrow side; read their records instead.
         let loader = self.loader.as_mut()?;
         let count = loader.record_count().min(DATASET_CAP);
-        let records: Vec<Value> = (0..count).filter_map(|i| loader.get_value(i).ok()).collect();
+        let records: Vec<Value> = (0..count)
+            .filter_map(|i| loader.get_value(i).ok())
+            .collect();
         crate::file::to_dataset::records_to_dataset(&records)
     }
 

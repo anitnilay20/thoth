@@ -118,10 +118,12 @@ impl DuckdbConnection {
     /// Run `sql` and collect every Arrow batch it produces.
     fn collect(&self, sql: &str) -> Result<Vec<RecordBatch>> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stmt = conn.prepare(sql).map_err(|e| ThothError::DatabaseQueryError {
-            query: sql.to_string(),
-            reason: e.to_string(),
-        })?;
+        let mut stmt = conn
+            .prepare(sql)
+            .map_err(|e| ThothError::DatabaseQueryError {
+                query: sql.to_string(),
+                reason: e.to_string(),
+            })?;
         let batches = stmt
             .stream_arrow([])
             .map_err(|e| ThothError::DatabaseQueryError {
@@ -508,6 +510,64 @@ impl DuckdbConnection {
         Ok(count.max(0) as usize)
     }
 
+    /// Define `alias` as a view over `sql`, and report how many rows it has.
+    ///
+    /// A query result is a relation, not a copy: the view is what
+    /// [`set_primary`](Self::set_primary) is then pointed at, so the grid pages
+    /// through the result the same way it pages through a table and a query
+    /// over a large file costs one window rather than the whole result set.
+    ///
+    /// The view is temporary — it belongs to this session, not to the cache
+    /// database, which holds the file's collections and nothing derived.
+    pub fn define_view(&self, alias: &str, sql: &str) -> Result<usize> {
+        let statement = format!(
+            "CREATE OR REPLACE TEMP VIEW {} AS {sql}",
+            quote_ident(alias)
+        );
+        // A query may be the first thing to name a collection, so an unknown
+        // table is staged and the definition retried — the same courtesy
+        // `query` extends, for the same reason.
+        if let Err(error) = self.execute(&statement) {
+            if !self.stage_missing(&error.to_string()) {
+                return Err(error);
+            }
+            self.execute(&statement)?;
+        }
+        self.row_count_of(alias)
+    }
+
+    /// The columns of a relation and the SQL type of each, in order.
+    ///
+    /// The query builder offers operators by type — ordering comparisons on
+    /// numbers and dates, substring ones on text — so it needs the schema, not
+    /// just the names.
+    pub fn column_types(&self, alias: &str) -> Result<Vec<(String, String)>> {
+        let sql = format!("DESCRIBE {}", quote_ident(alias));
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| ThothError::DatabaseQueryError {
+                query: sql.clone(),
+                reason: e.to_string(),
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| ThothError::DatabaseQueryError {
+                query: sql.clone(),
+                reason: e.to_string(),
+            })?;
+        let mut columns = Vec::new();
+        for row in rows {
+            columns.push(row.map_err(|e| ThothError::DatabaseQueryError {
+                query: sql.clone(),
+                reason: e.to_string(),
+            })?);
+        }
+        Ok(columns)
+    }
+
     /// Collections already staged, by the alias SQL refers to them by.
     pub fn staged_collections(&self) -> Vec<String> {
         let staged = self.staged.lock().unwrap_or_else(|e| e.into_inner());
@@ -806,7 +866,10 @@ mod tests {
     use std::io::Write;
 
     fn ndjson_file(lines: &str) -> NamedTempFile {
-        let mut tmp = tempfile::Builder::new().suffix(".ndjson").tempfile().unwrap();
+        let mut tmp = tempfile::Builder::new()
+            .suffix(".ndjson")
+            .tempfile()
+            .unwrap();
         tmp.write_all(lines.as_bytes()).unwrap();
         tmp.flush().unwrap();
         tmp
@@ -917,7 +980,10 @@ mod tests {
 
     #[test]
     fn alias_defaults_to_a_sql_safe_stem() {
-        assert_eq!(alias_for(Path::new("/tmp/sales-2024.parquet")), "sales_2024");
+        assert_eq!(
+            alias_for(Path::new("/tmp/sales-2024.parquet")),
+            "sales_2024"
+        );
         assert_eq!(alias_for(Path::new("/tmp/2024.csv")), "_2024");
     }
 
@@ -956,7 +1022,11 @@ mod tests {
         // It is a real table: the enclosing document is not involved.
         let rows = batch_rows_of(&db.query("SELECT name FROM users ORDER BY id").unwrap());
         assert_eq!(rows, 2);
-        assert_eq!(db.len().unwrap(), 2, "the first staged collection is primary");
+        assert_eq!(
+            db.len().unwrap(),
+            2,
+            "the first staged collection is primary"
+        );
     }
 
     #[test]
@@ -1032,9 +1102,8 @@ mod tests {
     fn switching_the_primary_relation_changes_what_is_read() {
         use crate::file::json_envelope::JsonEnvelope;
 
-        let file = envelope_doc(
-            r#"{"users":[{"id":1},{"id":2},{"id":3}],"logs":[{"level":"INFO"}]}"#,
-        );
+        let file =
+            envelope_doc(r#"{"users":[{"id":1},{"id":2},{"id":3}],"logs":[{"level":"INFO"}]}"#);
         let env = JsonEnvelope::scan(file.path()).unwrap().unwrap();
         let db = DuckdbConnection::new().unwrap();
         for c in env.queryable() {
@@ -1094,8 +1163,8 @@ mod tests {
 
     #[test]
     fn a_compiled_filter_runs_and_selects_the_right_rows() {
-        use thoth_plugin_sdk::components::{Filter, Operator, QuerySpec};
         use thoth_plugin_sdk::components::ColumnType;
+        use thoth_plugin_sdk::components::{Filter, Operator, QuerySpec};
 
         let (db, file) = logs_table();
         let alias = crate::file::loaders::duck_db::alias_for(file.path());
@@ -1124,10 +1193,19 @@ mod tests {
         let spec = QuerySpec {
             group_by: vec!["service".into()],
             aggregates: vec![
-                Aggregate { function: AggregateFn::Count, field: String::new() },
-                Aggregate { function: AggregateFn::Sum, field: "ms".into() },
+                Aggregate {
+                    function: AggregateFn::Count,
+                    field: String::new(),
+                },
+                Aggregate {
+                    function: AggregateFn::Sum,
+                    field: "ms".into(),
+                },
             ],
-            sort: vec![Sort { field: "service".into(), descending: false }],
+            sort: vec![Sort {
+                field: "service".into(),
+                descending: false,
+            }],
             ..Default::default()
         };
         let rows = query_rows(&db, &spec.compile(&alias).unwrap());
@@ -1136,6 +1214,90 @@ mod tests {
         assert_eq!(rows[0]["count"], 2);
         assert_eq!(rows[0]["sum_ms"], 128);
         assert_eq!(rows[1]["sum_ms"], 345);
+    }
+
+    #[test]
+    fn a_query_result_is_a_view_the_grid_can_page_through() {
+        // The point of defining a view rather than collecting the result: the
+        // grid reads windows out of it, so a query over a large file costs one
+        // window and not the whole result set.
+        use thoth_plugin_sdk::components::{ColumnType, Filter, Operator, QuerySpec};
+
+        let (db, file) = logs_table();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+        let spec = QuerySpec {
+            filters: vec![Filter {
+                field: "level".into(),
+                operator: Operator::Equals,
+                values: vec!["ERROR".into()],
+                column: ColumnType::Text,
+            }],
+            ..Default::default()
+        };
+
+        let rows = db
+            .define_view("__result", &spec.compile(&alias).unwrap())
+            .unwrap();
+        assert_eq!(rows, 2);
+
+        // Pointed at the view, the ordinary read path returns the result.
+        db.set_primary("__result").unwrap();
+        assert_eq!(db.len().unwrap(), 2);
+        let page: usize = db
+            .fetch(Vec::new(), Some(1), Some(1))
+            .unwrap()
+            .iter()
+            .map(|b| b.num_rows())
+            .sum();
+        assert_eq!(page, 1, "a window of the result, not all of it");
+
+        // And the source relation is untouched, so running a second query does
+        // not compound on the first.
+        assert_eq!(db.row_count_of(&alias).unwrap(), 4);
+    }
+
+    #[test]
+    fn a_second_query_replaces_the_first_result() {
+        let (db, file) = logs_table();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+        let quoted = quote_ident(&alias);
+
+        assert_eq!(
+            db.define_view("__result", &format!("SELECT * FROM {quoted}"))
+                .unwrap(),
+            4
+        );
+        // A tab runs query after query under one view name; the definition has
+        // to give way rather than fail as "already exists".
+        assert_eq!(
+            db.define_view(
+                "__result",
+                &format!("SELECT * FROM {quoted} WHERE level = 'WARN'")
+            )
+            .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn column_types_carry_the_schema_the_builder_offers_operators_by() {
+        use thoth_plugin_sdk::components::ColumnType;
+
+        let (db, file) = logs_table();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+        let columns = db.column_types(&alias).unwrap();
+
+        let named: Vec<&str> = columns.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(named, ["level", "service", "ms"]);
+
+        let classified: Vec<ColumnType> = columns
+            .iter()
+            .map(|(_, sql)| ColumnType::from_sql(sql))
+            .collect();
+        // Ordering comparisons belong on `ms` and substring ones on `level`,
+        // which is the whole reason the types are read.
+        assert_eq!(classified[0], ColumnType::Text);
+        assert_eq!(classified[2], ColumnType::Integer);
     }
 
     #[test]
@@ -1180,7 +1342,11 @@ mod tests {
             ..Default::default()
         };
         let rows = query_rows(&db, &spec.compile(&alias).unwrap());
-        assert_eq!(rows.len(), 1, "the wildcard is the user's text, not a pattern");
+        assert_eq!(
+            rows.len(),
+            1,
+            "the wildcard is the user's text, not a pattern"
+        );
         assert_eq!(rows[0]["note"], "50% off");
     }
 }
