@@ -81,12 +81,13 @@ pub trait RecordSource: FileLoader {
 
     /// The row at `index` as a JSON value.
     fn record(&self, index: usize) -> Result<Value> {
-        self.record_range(index, 1)?.into_iter().next().ok_or_else(|| {
-            crate::error::ThothError::DatabaseQueryError {
+        self.record_range(index, 1)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| crate::error::ThothError::DatabaseQueryError {
                 query: format!("row {index}"),
                 reason: format!("No record at index {index}"),
-            }
-        })
+            })
     }
 
     /// The row at `index` serialized to JSON bytes. Used by the search engine,

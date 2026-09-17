@@ -1588,10 +1588,8 @@ impl ThothApp {
         // Datasets are cleared when their producing instance closes too.
         crate::papyrus::retain_instances(&open_instances);
         // Release cached plugin renders whose dataset is gone (producer closed).
-        let live_handles: std::collections::HashSet<String> = crate::papyrus::list()
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
+        let live_handles: std::collections::HashSet<String> =
+            crate::papyrus::list().into_iter().map(|m| m.id).collect();
         prune_render_cache(&live_handles);
 
         let (
@@ -2775,9 +2773,7 @@ fn dataset_records_json(handle: &str) -> String {
     let mut columns: Vec<String> = Vec::new();
     let mut rows: Vec<Vec<String>> = Vec::new();
     let mut offset: u64 = 0;
-    while let Some(page) =
-        crate::papyrus::read(handle, offset, crate::papyrus::MAX_READ_LIMIT)
-    {
+    while let Some(page) = crate::papyrus::read(handle, offset, crate::papyrus::MAX_READ_LIMIT) {
         if columns.is_empty() {
             columns = page.columns.iter().map(|c| c.name.clone()).collect();
         }

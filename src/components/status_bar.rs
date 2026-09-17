@@ -343,7 +343,11 @@ impl ContextComponent for StatusBar {
                         ui.label(format!(
                             "Indexing… {:.0}%{}",
                             fraction * 100.0,
-                            if props.preview { " · showing start of file" } else { "" }
+                            if props.preview {
+                                " · showing start of file"
+                            } else {
+                                ""
+                            }
                         ));
                     } else if let Some(summary) = props.chart_summary {
                         // Chart tab: show a compact chart summary.

@@ -314,5 +314,3 @@ mod tests {
         assert!(window.record(&db, 9).unwrap().is_none());
     }
 }
-
-

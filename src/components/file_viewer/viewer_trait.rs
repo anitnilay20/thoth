@@ -78,12 +78,12 @@ pub trait FileViewerLoader {
     fn preferred_display(&mut self) -> crate::plugin::wasm_file_viewer_loader::DisplayMode {
         crate::plugin::wasm_file_viewer_loader::DisplayMode::Table
     }
-    
+
     /// Get column headers (for plugin viewers)
     fn column_headers(&mut self) -> Option<Vec<String>> {
         None
     }
-    
+
     /// Render a record using a plugin viewer
     fn render_record(&mut self, _record_json: &str) -> crate::error::Result<String> {
         Err(crate::error::ThothError::Unknown {
@@ -139,7 +139,6 @@ impl FileViewerLoader for Box<dyn FileViewerLoader> {
         (**self).render_record(record_json)
     }
 }
-
 
 /// Build tree nodes from a JSON value — the fallback for loaders that have no
 /// Arrow behind them (plugin-rendered files).

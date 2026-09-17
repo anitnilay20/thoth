@@ -59,13 +59,9 @@ impl StatelessComponent for PerformanceTab {
                         None,
                         colors,
                         |ui| {
-                            if let Some(val) = slider_control(
-                                ui,
-                                s.index_cache_mb as f64,
-                                128.0,
-                                16384.0,
-                                "MB",
-                            ) {
+                            if let Some(val) =
+                                slider_control(ui, s.index_cache_mb as f64, 128.0, 16384.0, "MB")
+                            {
                                 let snapped = ((val / 128.0).round() * 128.0).max(128.0);
                                 events.push(PerformanceTabEvent::IndexCacheBudgetChanged(
                                     snapped as usize,

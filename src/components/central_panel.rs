@@ -107,7 +107,10 @@ impl CentralPanel {
             (Some(new_path), _, _) => {
                 self.last_open_err = None;
                 let mut file_type = props.file_type;
-                match self.file_viewer.open(new_path, props.tab_id, &mut file_type) {
+                match self
+                    .file_viewer
+                    .open(new_path, props.tab_id, &mut file_type)
+                {
                     Ok(()) => {
                         self.loaded_path = Some(new_path.clone());
                         self.loaded_type = Some(file_type);

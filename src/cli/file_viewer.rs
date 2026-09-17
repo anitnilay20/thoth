@@ -4,7 +4,7 @@ use clap::{Arg, ArgAction, ArgMatches, Command, value_parser};
 
 use crate::{
     cli::{Action, CliOutput},
-    file::loaders::{FileLoader, duck_db::alias_for, duck_db::DuckdbConnection},
+    file::loaders::{FileLoader, duck_db::DuckdbConnection, duck_db::alias_for},
 };
 
 pub fn command() -> Command {

@@ -71,11 +71,12 @@ impl TextIndex {
     /// nothing rather than reading uncharted bytes. A megabyte is thousands of
     /// lines, which is far more than a screen, and costs a single read.
     pub fn preview(path: &Path, max_bytes: u64) -> Result<Self> {
-        Self::build_limited(path, max_bytes, |_| ControlFlow::Continue(()))?
-            .ok_or_else(|| ThothError::FileReadError {
+        Self::build_limited(path, max_bytes, |_| ControlFlow::Continue(()))?.ok_or_else(|| {
+            ThothError::FileReadError {
                 path: path.to_path_buf(),
                 reason: "preview was cancelled".to_string(),
-            })
+            }
+        })
     }
 
     fn build_limited(
@@ -107,10 +108,12 @@ impl TextIndex {
         }
 
         loop {
-            let read = reader.read(&mut buf).map_err(|e| ThothError::FileReadError {
-                path: path.to_path_buf(),
-                reason: e.to_string(),
-            })?;
+            let read = reader
+                .read(&mut buf)
+                .map_err(|e| ThothError::FileReadError {
+                    path: path.to_path_buf(),
+                    reason: e.to_string(),
+                })?;
             if read == 0 {
                 break;
             }
@@ -232,9 +235,7 @@ impl TextIndex {
         }
         let end_line = (start + count).min(self.len());
         let (from, _) = self.range(start).unwrap_or((0, 0));
-        let (_, to) = self
-            .range(end_line - 1)
-            .unwrap_or((from, from));
+        let (_, to) = self.range(end_line - 1).unwrap_or((from, from));
         if to <= from {
             return Ok(Vec::new());
         }
@@ -258,7 +259,9 @@ impl TextIndex {
                 );
                 let slice = &buf[lo..hi];
                 let text = String::from_utf8_lossy(slice);
-                text.trim_end_matches('\n').trim_end_matches('\r').to_string()
+                text.trim_end_matches('\n')
+                    .trim_end_matches('\r')
+                    .to_string()
             })
             .collect())
     }
@@ -294,7 +297,10 @@ mod tests {
 
         assert_eq!(index.len(), 1000);
         // Seeks straight there — no need to touch the preceding lines.
-        assert_eq!(index.read(500, 3).unwrap(), ["line-500", "line-501", "line-502"]);
+        assert_eq!(
+            index.read(500, 3).unwrap(),
+            ["line-500", "line-501", "line-502"]
+        );
         assert_eq!(index.read(999, 5).unwrap(), ["line-999"]);
         assert!(index.read(1000, 5).unwrap().is_empty());
     }
@@ -456,7 +462,10 @@ mod real_file_tests {
         let started = std::time::Instant::now();
         let cached = crate::file::index_cache::load(path).expect("cache hit");
         println!("cached open: {:?}", started.elapsed());
-        println!("cache entry bytes: {}", crate::file::index_cache::size_on_disk());
+        println!(
+            "cache entry bytes: {}",
+            crate::file::index_cache::size_on_disk()
+        );
         assert_eq!(cached.len(), index.len());
     }
 }

@@ -28,9 +28,7 @@
 
 use std::sync::Arc;
 
-use duckdb::arrow::array::{
-    Array, ArrayRef, LargeListArray, ListArray, RecordBatch, StructArray,
-};
+use duckdb::arrow::array::{Array, ArrayRef, LargeListArray, ListArray, RecordBatch, StructArray};
 use duckdb::arrow::datatypes::DataType;
 use duckdb::arrow::util::display::{ArrayFormatter, FormatOptions};
 use serde_json::{Map, Value};
@@ -147,7 +145,12 @@ pub fn children(batches: &[RecordBatch], row: usize, rel: &str) -> Vec<ArrowNode
                 if child.is_null(index) {
                     return None; // absent key for this record
                 }
-                Some(node(field.name().clone(), format!(".{}", field.name()), child, index))
+                Some(node(
+                    field.name().clone(),
+                    format!(".{}", field.name()),
+                    child,
+                    index,
+                ))
             })
             .collect();
     }

@@ -250,9 +250,10 @@ fn test_sql_runs_against_the_file() {
     let alias = loader.primary_alias().unwrap();
 
     let batches = loader
-        .query(&format!("SELECT count(*) AS n FROM \"{alias}\" WHERE id <= 4"))
+        .query(&format!(
+            "SELECT count(*) AS n FROM \"{alias}\" WHERE id <= 4"
+        ))
         .unwrap();
     let rows = thoth::file::loaders::batches_to_values(&batches).unwrap();
     assert_eq!(rows[0]["n"], 4);
 }
-
