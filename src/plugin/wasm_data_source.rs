@@ -2278,22 +2278,3 @@ mod live_db_tests {
         parse(&seeded.node_json, "seeded editor view");
     }
 }
-
-#[cfg(test)]
-mod scratch_keychain {
-    #[test]
-    fn probe_read() {
-        // Never prints the secret — only whether it could be reached, and the
-        // error kind when it could not.
-        const SERVICE: &str = "com.thoth.app";
-        let account = "com.thoth.seshat:conn:cr-prod";
-        match keyring::Entry::new(SERVICE, account) {
-            Err(e) => eprintln!("[kc] Entry::new failed: {e:?}"),
-            Ok(entry) => match entry.get_password() {
-                Ok(p) => eprintln!("[kc] READABLE ({} chars)", p.len()),
-                Err(keyring::Error::NoEntry) => eprintln!("[kc] NoEntry — nothing stored"),
-                Err(e) => eprintln!("[kc] DENIED: {e:?}"),
-            },
-        }
-    }
-}
