@@ -792,6 +792,8 @@ impl FileViewer {
         let Some(engine) = self.engine.as_ref() else {
             return;
         };
+        // A change of relation clears the lanes, and must clear typed SQL for
+        // the same reason: it names a relation that is no longer on screen.
         self.query = QueryBuilder::builder()
             .id(format!("file_query_{}", self.tab_id))
             .relation(alias.to_string())
@@ -821,7 +823,10 @@ impl FileViewer {
         if self.query_job.is_some() {
             return;
         }
-        let sql = match self.query.spec.compile(&self.query.relation) {
+        // What the user typed if they have typed anything, else what the lanes
+        // compile to — `sql()` is the one place that decides, so the pane, the
+        // Run button and this can never disagree about which query is running.
+        let sql = match self.query.sql() {
             Ok(sql) => sql,
             // The foot already names an incomplete lane; Run is disabled while
             // it does, so reaching here means the shortcut fired instead.

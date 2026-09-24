@@ -53,6 +53,44 @@ pub struct QueryBuilder {
     /// foot. An error from the compiler is shown in its place.
     #[serde(default)]
     pub status: Option<String>,
+    /// SQL the user typed, which then owns the query instead of the lanes.
+    ///
+    /// `None` — the ordinary case — means the lanes are the query and the SQL
+    /// pane mirrors them. Typing in the pane fills this, and from then on it
+    /// is what runs: the lanes cannot express `HAVING`, a percentile or a
+    /// window function, and a builder that silently dropped them would be
+    /// worse than one that admits it is no longer driving.
+    ///
+    /// While it is set the lanes are shown but not editable. The design's rule
+    /// is that the query is never in two places at once; letting both be
+    /// edited would be exactly that, and the last one touched would win
+    /// invisibly. [`revert`](QueryBuilder::revert) hands it back to the lanes.
+    #[serde(default, rename = "sql-override")]
+    pub sql_override: Option<String>,
+}
+
+impl QueryBuilder {
+    /// The SQL that should run: what the user typed, or what the lanes compile
+    /// to.
+    ///
+    /// One place decides, so the pane, the Run button and the host can never
+    /// disagree about which query is the query.
+    pub fn sql(&self) -> Result<String, QueryError> {
+        match &self.sql_override {
+            Some(typed) => Ok(typed.clone()),
+            None => self.spec.compile(&self.relation),
+        }
+    }
+
+    /// Whether the user has taken the query over by typing SQL.
+    pub fn is_overridden(&self) -> bool {
+        self.sql_override.is_some()
+    }
+
+    /// Give the query back to the lanes, discarding the typed SQL.
+    pub fn revert(&mut self) {
+        self.sql_override = None;
+    }
 }
 
 /// What the user did in a [`QueryBuilder`] this frame.
@@ -62,8 +100,12 @@ pub struct QueryBuilder {
 #[cfg(feature = "egui")]
 #[derive(Clone, Debug, Default)]
 pub struct QueryBuilderOutput {
-    /// An edit landed in one of the lanes.
+    /// An edit landed in one of the lanes, or in the SQL pane.
     pub changed: bool,
     /// The user asked to run the query.
     pub run: bool,
+    /// The relation the query reads from may have changed meaning — the user
+    /// typed SQL naming something else. Hosts that re-aim on relation changes
+    /// can ignore this; it is here so they need not diff the text.
+    pub sql_edited: bool,
 }

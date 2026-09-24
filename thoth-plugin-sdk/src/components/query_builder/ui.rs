@@ -10,8 +10,9 @@
 use egui::{Align, Layout, Margin, vec2};
 
 use crate::components::{
-    Badge, Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonType, CodeEditor, ColumnType,
-    IconButton, Input, NumberInput, Select, SelectOption, Size, Typography, TypographyVariant,
+    Badge, Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonType, CodeEditor,
+    CodeEditorOutput, ColumnType, IconButton, Input, NumberInput, Select, SelectOption, Size,
+    Typography, TypographyVariant,
 };
 use crate::theme::{
     FONT_CAPTION, RADIUS_CONTROL, ThemeColors, color_to_hex, edge_stroke, hover_text,
@@ -99,6 +100,7 @@ impl QueryBuilder {
         }
         let mut run = run_key;
         let mut add_filter = false;
+        let mut sql_edited = false;
         let mut changed = false;
 
         ui.vertical(|ui| {
@@ -112,12 +114,43 @@ impl QueryBuilder {
                 // Compiled once per frame and shared: the foot names an
                 // incomplete lane as soon as it is incomplete, and the SQL box
                 // shows the statement that same failure is holding back.
-                let compiled = self.spec.compile(&self.relation);
+                //
+                // When the user has typed their own SQL it is that, not the
+                // lanes, that will run — so it is that the foot judges and the
+                // pane shows.
+                let compiled = self.sql();
+                let overridden = self.sql_override.is_some();
 
-                add_filter |= self.lanes(ui, &colors, &mut changed);
-                run |= self.foot(ui, &colors, &compiled, &mut sql_open, &mut changed);
+                // Shown, so the query the typed SQL grew out of is still
+                // readable, but not editable: two editable copies of one query
+                // means the last one touched wins invisibly.
+                ui.add_enabled_ui(!overridden, |ui| {
+                    add_filter |= self.lanes(ui, &colors, &mut changed);
+                });
+                let (ran, revert) = self.foot(
+                    ui,
+                    &colors,
+                    &compiled,
+                    &mut sql_open,
+                    &mut changed,
+                    overridden,
+                );
+                run |= ran;
+                if revert {
+                    self.sql_override = None;
+                    changed = true;
+                    sql_edited = true;
+                }
                 if sql_open {
-                    sql_box(ui, &self.id, &compiled);
+                    let edited = sql_box(ui, &self.id, &compiled, &mut self.sql_override);
+                    if let Some(request) = edited.run {
+                        let _ = request;
+                        run = true;
+                    }
+                    if edited.changed {
+                        changed = true;
+                        sql_edited = true;
+                    }
                 }
             }
         });
@@ -132,7 +165,11 @@ impl QueryBuilder {
             d.insert_temp(sql_id, sql_open);
         });
 
-        QueryBuilderOutput { changed, run }
+        QueryBuilderOutput {
+            changed,
+            run,
+            sql_edited,
+        }
     }
 
     /// The strip above the lanes. Returns whether the disclosure was clicked.
@@ -617,9 +654,11 @@ impl QueryBuilder {
         compiled: &Result<String, QueryError>,
         sql_open: &mut bool,
         edited: &mut bool,
-    ) -> bool {
+        overridden: bool,
+    ) -> (bool, bool) {
         hairline(ui, colors);
         let mut run = false;
+        let mut revert = false;
         egui::Frame::new()
             .inner_margin(Margin::symmetric(FOOT_PAD_X, FOOT_PAD_Y))
             .show(ui, |ui| {
@@ -651,6 +690,34 @@ impl QueryBuilder {
                                 .button_size(Size::Small)
                                 .copy(sql.clone())
                                 .hover_text("Copy the generated SQL")
+                                .build(),
+                        );
+                    }
+
+                    // Only while the typed SQL is driving. Says so plainly and
+                    // offers the way back, because the lanes above are
+                    // otherwise greyed with no explanation of by what.
+                    if overridden {
+                        if ui
+                            .add(
+                                Button::builder()
+                                    .label("Use the lanes")
+                                    .icon(egui_phosphor::regular::ARROW_U_UP_LEFT)
+                                    .button_type(ButtonType::Text)
+                                    .button_size(Size::Small)
+                                    .hover_text(
+                                        "Go back to the lanes, discarding the SQL you typed",
+                                    )
+                                    .build(),
+                            )
+                            .clicked()
+                        {
+                            revert = true;
+                        }
+                        ui.add(
+                            Typography::builder()
+                                .text("editing SQL — the lanes are paused")
+                                .variant(TypographyVariant::Caption)
                                 .build(),
                         );
                     }
@@ -735,7 +802,7 @@ impl QueryBuilder {
                     });
                 });
             });
-        run
+        (run, revert)
     }
 
     /// A filter on the first available field, or `None` when there are no
@@ -973,12 +1040,24 @@ fn lane_hint(ui: &mut egui::Ui, text: &str) {
 /// Drawn by the SDK's code editor rather than as plain text, so the statement
 /// arrives highlighted and in the same face as the SQL a person writes by hand
 /// elsewhere in the app.
-fn sql_box(ui: &mut egui::Ui, id: &str, compiled: &Result<String, QueryError>) {
+/// Draw the SQL pane, and take an edit if the user makes one.
+///
+/// Editable, and typing in it takes the query over: `override_sql` is filled
+/// with what was typed and from then on that is what runs. The lanes reach
+/// `WHERE`, `GROUP BY` and `ORDER BY`; `HAVING`, a percentile, a window
+/// function and a join are only reachable by writing them.
+fn sql_box(
+    ui: &mut egui::Ui,
+    id: &str,
+    compiled: &Result<String, QueryError>,
+    override_sql: &mut Option<String>,
+) -> CodeEditorOutput {
     // Nothing to show when the lanes do not compile — the foot has already said
     // why, and a stale statement beside that message would contradict it.
     let Ok(sql) = compiled else {
-        return;
+        return CodeEditorOutput::default();
     };
+    let mut out = CodeEditorOutput::default();
     egui::Frame::new()
         .outer_margin(Margin {
             left: SQL_MARGIN,
@@ -987,20 +1066,29 @@ fn sql_box(ui: &mut egui::Ui, id: &str, compiled: &Result<String, QueryError>) {
             bottom: SQL_MARGIN_BOTTOM,
         })
         .show(ui, |ui| {
-            CodeEditor::builder()
+            let mut editor = CodeEditor::builder()
                 .id(format!("{id}_sql"))
                 .value(sql.clone())
                 .syntax("sql")
                 .font_size(SQL_FONT)
                 // As tall as the statement, within reason: a four-line query
-                // should not reserve room for a twenty-line one.
-                .rows(sql.lines().count().clamp(1, SQL_MAX_ROWS))
-                // Read-only rather than disabled: the statement is there to be
-                // read, and dimming it would say the opposite.
-                .read_only(true)
-                .build()
-                .show(ui);
+                // should not reserve room for a twenty-line one. A typed query
+                // gets room to grow into, since it is being written rather
+                // than read.
+                .rows(
+                    sql.lines()
+                        .count()
+                        .max(if override_sql.is_some() { 4 } else { 1 })
+                        .clamp(1, SQL_MAX_ROWS),
+                )
+                .build();
+            out = editor.show(ui);
+            if out.changed {
+                // The first keystroke is what hands the query over.
+                *override_sql = Some(editor.value.clone());
+            }
         });
+    out
 }
 
 /// The rule between two lanes — design `.lane + .lane{box-shadow:inset 0 1px 0}`.
@@ -1117,6 +1205,68 @@ mod tests {
                 field("at", ColumnType::Timestamp),
             ])
             .build()
+    }
+
+    #[test]
+    fn typed_sql_is_what_runs() {
+        // The lanes reach WHERE, GROUP BY and ORDER BY. HAVING, a percentile,
+        // a window function and a join are only reachable by writing them —
+        // so once the user has, that is the query.
+        let mut qb = builder();
+        qb.spec.filters.push(Filter {
+            field: "level".to_string(),
+            operator: Operator::Equals,
+            values: vec!["error".to_string()],
+            column: ColumnType::Text,
+        });
+        let from_lanes = qb.sql().unwrap();
+        assert!(from_lanes.contains("WHERE"), "{from_lanes}");
+        assert!(!qb.is_overridden());
+
+        qb.sql_override = Some(
+            "SELECT service, count(*) AS n FROM data GROUP BY service HAVING n > 10".to_string(),
+        );
+        assert!(qb.is_overridden());
+        assert_eq!(qb.sql().unwrap(), qb.sql_override.clone().unwrap());
+
+        // Reverting hands it back, unchanged.
+        qb.revert();
+        assert!(!qb.is_overridden());
+        assert_eq!(qb.sql().unwrap(), from_lanes);
+    }
+
+    #[test]
+    fn a_lane_edit_cannot_reach_the_query_while_sql_is_typed() {
+        // Two editable copies of one query means the last one touched wins
+        // invisibly. While SQL is typed the lanes are disabled, so a spec
+        // change cannot alter what runs.
+        let mut qb = builder();
+        qb.sql_override = Some("SELECT 1".to_string());
+        qb.spec.filters.push(Filter {
+            field: "level".to_string(),
+            operator: Operator::Equals,
+            values: vec!["error".to_string()],
+            column: ColumnType::Text,
+        });
+        assert_eq!(qb.sql().unwrap(), "SELECT 1", "the lanes must not leak in");
+    }
+
+    #[test]
+    fn an_unrunnable_lane_still_blocks_run_but_typed_sql_does_not() {
+        // An incomplete lane is a compiler error and Run stays disabled. Typed
+        // SQL is the user's business — DuckDB is the judge of it, and its
+        // error is more useful than anything guessed here.
+        let mut qb = builder();
+        qb.spec.filters.push(Filter {
+            field: "level".to_string(),
+            operator: Operator::Equals,
+            values: vec![String::new()], // nothing entered
+            column: ColumnType::Text,
+        });
+        assert!(qb.sql().is_err(), "an empty value is an incomplete lane");
+
+        qb.sql_override = Some("SELECT nonsense FROM nowhere".to_string());
+        assert!(qb.sql().is_ok(), "typed SQL is handed to the engine as-is");
     }
 
     #[test]
