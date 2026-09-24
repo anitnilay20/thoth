@@ -308,11 +308,10 @@ impl Settings {
     /// Returns: ~/.config/thoth/settings.toml on Linux/macOS
     ///          %APPDATA%/thoth/settings.toml on Windows
     pub fn settings_file_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::SettingsLoadError {
-            reason: "Failed to get config directory".to_string(),
-        })?;
-
-        let thoth_config_dir = config_dir.join("thoth");
+        let thoth_config_dir =
+            crate::config_dir::config_root().ok_or_else(|| ThothError::SettingsLoadError {
+                reason: "Failed to get config directory".to_string(),
+            })?;
 
         // Create directory if it doesn't exist
         if !thoth_config_dir.exists() {

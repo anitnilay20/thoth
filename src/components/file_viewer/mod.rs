@@ -57,13 +57,45 @@ impl FileViewerLoader for PluginFileViewerLoader {
 /// a huge file never fully crosses the WASM boundary.
 const DATASET_CAP: usize = 5000;
 
-/// "1 collection" / "N collections", so the header reads as a sentence.
-fn plural(count: usize) -> String {
-    if count == 1 {
-        "1 collection".to_string()
-    } else {
-        format!("{count} collections")
+/// A row count with thousands separators, so the picker's column of figures
+/// reads at a glance — design `.tablemenu .n` is tabular for the same reason.
+fn grouped(count: usize) -> String {
+    let digits = count.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
     }
+    out
+}
+
+/// The handoff's `.tnote`: a view that has to compromise says so once, above
+/// the content it is compromising on. `TextView` draws its own; Markdown is
+/// rendered by the component itself, so its note is drawn here.
+fn document_note(ui: &mut Ui, text: &str) {
+    use thoth_plugin_sdk::components::{Typography, TypographyVariant};
+    let note = egui::Frame::NONE
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.add(
+                Typography::builder()
+                    .text(text)
+                    .variant(TypographyVariant::Mono)
+                    .color("fg_muted")
+                    .size(11.0)
+                    .build(),
+            );
+        });
+    let colors = thoth_plugin_sdk::theme::ThemeColors::from_ctx(ui.ctx());
+    let rect = note.response.rect;
+    ui.painter().hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        thoth_plugin_sdk::theme::edge_stroke(&colors),
+    );
 }
 
 /// A byte count at the coarsest unit that still reads precisely.
@@ -79,26 +111,26 @@ fn human_size(bytes: u64) -> String {
     }
 }
 
-/// Width of the collection list beside a multi-table document.
-const COLLECTIONS_WIDTH: f32 = 180.0;
-
 /// Bytes indexed up front so a tab has content before its real index exists.
 /// Thousands of lines — far more than a screen — for a single read.
 const PREVIEW_BYTES: u64 = 1 << 20;
 
-/// The view a file opens in, before the user picks one.
+/// Which `DataView` view an engine-backed file opens in.
 ///
-/// Chosen by format rather than fixed, because the right first look differs:
-/// records read best as a tree, tabular formats as a grid, and anything we have
-/// no structure for is most honestly shown as text.
+/// Only engine-backed tabs reach `DataView` at all — a document is drawn by
+/// `TextView` or `Markdown` and never sees this — so every arm here has rows
+/// behind it and must name a view `DataView` actually offers.
 fn default_view(path: &Path) -> &'static str {
     match FileType::from_path(path) {
         // Records — the tree is the point.
         FileType::Json => "json",
         // Already rectangular.
-        FileType::Csv | FileType::Parquet | FileType::DB => "table",
-        // No schema we can trust; show it as it is.
-        FileType::Plugin | FileType::Unknown => "raw",
+        FileType::Csv | FileType::Parquet | FileType::Excel | FileType::Arrow | FileType::DB => {
+            "table"
+        }
+        // The extension said nothing, but reaching here means DuckDB read it
+        // anyway — so there is a grid to show.
+        FileType::Plugin | FileType::Unknown => "table",
     }
 }
 
@@ -168,6 +200,30 @@ pub struct FileViewer {
     /// Which collection the tab is showing.
     selected_collection: usize,
 
+    /// Tables inside an attached database, when the file is one.
+    ///
+    /// The other half of what the picker offers. A database opens on one of
+    /// its tables and the rest used to be reachable only by writing SQL —
+    /// which is the same misrepresentation the envelope collections fixed, so
+    /// they go through the same control.
+    db_tables: Vec<String>,
+
+    /// Which of `db_tables` is showing.
+    selected_db_table: Option<String>,
+
+    /// The optional DuckDB reader this file needs, when it came back as text
+    /// only because that reader is not installed. Drives the offer above the
+    /// document.
+    needs_extension: Option<crate::file::extensions::Extension>,
+
+    /// A running extension install, started from that offer.
+    installing: Option<crate::file::indexing::ExtensionJob>,
+
+    /// The extension revision this tab was indexed against. When it moves, a
+    /// reader arrived from somewhere — the marketplace, most likely — and a
+    /// tab showing its file as text should look again.
+    extensions_seen: u64,
+
     /// The owning tab, so the sheet keeps a stable producer identity when the
     /// selected collection changes.
     tab_id: usize,
@@ -227,6 +283,11 @@ impl FileViewer {
             collection_rows: HashMap::new(),
             staging: None,
             selected_collection: 0,
+            db_tables: Vec::new(),
+            selected_db_table: None,
+            needs_extension: None,
+            installing: None,
+            extensions_seen: 0,
             tab_id: 0,
             loader: None,
             viewer: None,
@@ -267,12 +328,16 @@ impl FileViewer {
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
         let ext_str = ext.as_deref().unwrap_or("");
 
-        // A plugin that declares FileViewer owns rendering as well as loading.
-        // If one claims this extension its result is used as-is — we do NOT
-        // silently fall through to the engine when a plugin claims the format.
+        // A plugin that declares FileViewer owns rendering as well as loading,
+        // and its result is then used as-is — but only for a format the engine
+        // does not read itself. The engine brings lazy scanning, real types,
+        // SQL and everything built on it, so handing one of its formats to a
+        // plugin is a downgrade the user never asked for.
         let plugin_manager = crate::plugin::runtime::active_manager();
         let plugin_rendered = plugin_manager.as_deref().and_then(|pm| {
-            if pm.plugin_has_capability(ext_str, &Capability::FileViewer) {
+            if !FileType::from_path(path).is_native()
+                && pm.plugin_has_capability(ext_str, &Capability::FileViewer)
+            {
                 Some(pm.open_file_with_viewer(ext_str, path))
             } else {
                 None
@@ -286,6 +351,11 @@ impl FileViewer {
         self.collection_rows.clear();
         self.staging = None;
         self.selected_collection = 0;
+        self.db_tables.clear();
+        self.selected_db_table = None;
+        self.needs_extension = None;
+        self.installing = None;
+        self.extensions_seen = crate::file::extensions::revision();
         self.tab_id = tab_id;
 
         let kind = match plugin_rendered {
@@ -411,37 +481,23 @@ impl FileViewer {
         // A staging job or a query may have landed since the last frame.
         self.poll_staging();
         self.poll_query();
+        self.poll_extension_install();
+        self.poll_extension_arrivals();
 
         if let Some(handle) = self.handle.clone() {
-            // A document that yielded several tables shows what is inside it.
-            // Without this the other collections exist only if the user knows
-            // to write SQL for them, which is not a viewer.
-            if self.collections.len() > 1 {
-                let available = ui.available_rect_before_wrap();
-                let mut switch_to: Option<usize> = None;
-
-                ui.horizontal_top(|ui| {
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(COLLECTIONS_WIDTH, available.height()),
-                        egui::Layout::top_down_justified(egui::Align::Min),
-                        |ui| {
-                            switch_to = self.collections_list(ui);
-                        },
-                    );
-                    ui.separator();
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(ui.available_width(), available.height()),
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| self.draw_data_view(ui, &handle),
-                    );
-                });
-
-                if let Some(index) = switch_to {
-                    self.select_collection(index);
-                }
+            // A document is not a dataset. `DataView` leads with a table
+            // picker and a format switcher and carries Copy and Export,
+            // because rows can be drawn several ways and taken elsewhere — a
+            // log has one sensible rendering and no columns to export, so all
+            // of that is chrome answering questions nobody asked.
+            if self.engine.is_none() {
+                self.draw_document(ui, &handle);
                 return;
             }
-
+            // What a document holds is the first thing the pane has to answer,
+            // so it is asked at the head of the view rather than in a list
+            // beside it: the grid gets the full width, and the collections are
+            // named where the question comes up.
             self.draw_data_view(ui, &handle);
             return;
         }
@@ -523,6 +579,10 @@ impl FileViewer {
                 let engine = Arc::new(engine);
                 self.collections = collections;
                 self.collection_rows.clear();
+                // A database's tables come from the engine rather than from a
+                // document scan; everything downstream treats them the same.
+                self.db_tables = engine.database_tables();
+                self.selected_db_table = self.db_tables.first().cloned();
                 // Only what is actually staged has a count; the rest report
                 // their size until they are.
                 if let Some(primary) = engine.primary_alias() {
@@ -551,6 +611,15 @@ impl FileViewer {
                 handle
             }
             crate::file::indexing::Indexed::Text(index) => {
+                self.needs_extension = None;
+                crate::papyrus::publish_text("core", &instance, name.clone(), *index)
+            }
+            // Readable, but only with a reader the user has not fetched. The
+            // text is real and browsable; the banner says what would open it
+            // properly, so the file does not just look corrupt.
+            crate::file::indexing::Indexed::NeedsExtension { index, extension } => {
+                self.needs_extension = Some(extension);
+                self.extensions_seen = crate::file::extensions::revision();
                 crate::papyrus::publish_text("core", &instance, name.clone(), *index)
             }
         };
@@ -562,57 +631,91 @@ impl FileViewer {
         Some((name, total))
     }
 
-    /// Draw the collection list, returning the index the user picked.
-    fn collections_list(&self, ui: &mut Ui) -> Option<usize> {
+    /// The collections this document holds, as the `DataView`'s table picker
+    /// offers them.
+    ///
+    /// Every collection is listed, including the objects and scalars that have
+    /// no row shape: a picker that shows only the queryable parts of a file
+    /// misrepresents the file. What each entry reports depends on what is
+    /// actually known — a staged table its rows, an unstaged one its size —
+    /// because claiming a row count would mean reading the collection, and
+    /// reading it is the thing the user has not asked for yet.
+    fn table_options(&self) -> Vec<thoth_plugin_sdk::components::DataTable> {
         use crate::file::json_envelope::ValueKind;
-        use thoth_plugin_sdk::components::{
-            List, ListEvent, ListItem, Typography, TypographyVariant,
-        };
+        use thoth_plugin_sdk::components::DataTable;
 
-        ui.add(
-            Typography::builder()
-                .text(format!("{} in this file", plural(self.collections.len())))
-                .variant(TypographyVariant::BodyMuted)
-                .build(),
-        );
-        ui.add_space(4.0);
+        // A database's tables, when the file is one. Only the table on screen
+        // reports a count: `count(*)` is a scan per table, and this is read
+        // while drawing.
+        if !self.db_tables.is_empty() {
+            return self
+                .db_tables
+                .iter()
+                .map(|table| {
+                    let showing = self.selected_db_table.as_deref() == Some(table.as_str());
+                    let detail = showing
+                        .then(|| self.collection_rows.get(table).map(|rows| grouped(*rows)))
+                        .flatten();
+                    DataTable::builder()
+                        .value(table.clone())
+                        .label(table.clone())
+                        .maybe_detail(detail)
+                        .build()
+                })
+                .collect();
+        }
 
         let staging = self.staging.as_ref().map(|job| job.name());
-        let items: Vec<ListItem> = self
-            .collections
+        self.collections
             .iter()
-            .enumerate()
-            .map(|(index, c)| {
+            .map(|c| {
                 let alias = alias_of(&c.name);
-                // What a row says depends on what is known: a staged table
-                // reports rows, an unstaged one its size, and a key with no row
-                // shape says so rather than pretending to be a table.
-                let description = if staging == Some(alias.as_str()) {
+                let detail = if staging == Some(alias.as_str()) {
                     "staging…".to_string()
                 } else if let Some(rows) = self.collection_rows.get(&alias) {
-                    format!("{rows} rows")
+                    grouped(*rows)
                 } else if c.kind == ValueKind::Array {
-                    format!("{} · not loaded", human_size(c.len()))
+                    human_size(c.len())
                 } else {
                     format!("{} · {}", human_size(c.len()), c.kind.as_str())
                 };
 
-                ListItem::builder()
-                    .title(c.name.clone())
-                    .description(description)
-                    .selected(index == self.selected_collection)
+                DataTable::builder()
+                    .value(c.name.clone())
+                    .label(c.name.clone())
+                    .detail(detail)
                     .build()
             })
-            .collect();
+            .collect()
+    }
 
-        match List::builder()
-            .id("file_collections")
-            .items(items)
-            .build()
-            .show(ui)
+    /// Point the tab at another table of the attached database.
+    ///
+    /// Nothing to stage: the table is already there, and switching is a view
+    /// definition. The sheet is republished rather than mutated because its
+    /// row count and window both describe the relation it points at.
+    fn select_database_table(&mut self, table: &str) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let Ok(rows) = engine.show_database_table(table) else {
+            return;
+        };
+        self.collection_rows.insert(table.to_string(), rows);
+        self.selected_db_table = Some(table.to_string());
+        self.handle = crate::papyrus::publish_arrow_with_total(
+            "core",
+            &format!("core#{}", self.tab_id),
+            table.to_string(),
+            engine,
+            rows as u64,
+        );
+        if let Some(alias) = self
+            .engine
+            .as_ref()
+            .and_then(|engine| engine.primary_alias())
         {
-            Some(ListEvent::ItemClicked(index)) => Some(index),
-            _ => None,
+            self.aim_query_at(&alias);
         }
     }
 
@@ -799,6 +902,201 @@ impl FileViewer {
         }
     }
 
+    /// Lines the document views read before they say they have stopped.
+    ///
+    /// Both materialize — the editor lays out every line it is handed and
+    /// Markdown is a whole-document format — so a large file is a window onto
+    /// itself, and the caption says which window.
+    const DOCUMENT_LINES: u32 = 5_000;
+
+    /// The offer above a document the engine could read with one more reader.
+    ///
+    /// Drawn where the compromise is, like every other note in the viewer, and
+    /// it states the cost before asking: a one-time download of a stated size
+    /// is a different proposition from an unexplained wait.
+    fn draw_extension_offer(&mut self, ui: &mut Ui) {
+        use thoth_plugin_sdk::components::{Button, ButtonColor, Typography, TypographyVariant};
+
+        let Some(extension) = self.needs_extension.clone() else {
+            return;
+        };
+        let busy = self
+            .installing
+            .as_ref()
+            .is_some_and(|job| job.extension().name == extension.name && !job.is_finished());
+
+        let colors = thoth_plugin_sdk::theme::ThemeColors::from_ctx(ui.ctx());
+        let mut start = false;
+        let note = egui::Frame::NONE
+            .fill(colors.surface)
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.add(
+                        Typography::builder()
+                            .text(format!(
+                                "{} need the DuckDB {} reader · {} one-time download",
+                                extension.unlocks, extension.name, extension.size
+                            ))
+                            .variant(TypographyVariant::BodyMuted)
+                            .build(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if busy {
+                            ui.add(
+                                Typography::builder()
+                                    .text("Downloading…")
+                                    .variant(TypographyVariant::BodyMuted)
+                                    .build(),
+                            );
+                        } else {
+                            start = ui
+                                .add(
+                                    Button::builder()
+                                        .label("Install")
+                                        .icon(egui_phosphor::regular::DOWNLOAD_SIMPLE)
+                                        .color(ButtonColor::Primary)
+                                        .hover_text(format!(
+                                            "Fetch the {} reader and reopen this file",
+                                            extension.name
+                                        ))
+                                        .build(),
+                                )
+                                .clicked();
+                        }
+                    });
+                });
+            });
+        ui.painter().hline(
+            note.response.rect.x_range(),
+            note.response.rect.bottom() - 0.5,
+            thoth_plugin_sdk::theme::edge_stroke(&colors),
+        );
+
+        if start {
+            self.installing = Some(crate::file::indexing::ExtensionJob::spawn(extension));
+        }
+    }
+
+    /// Reopen when a reader this file was waiting for turns up.
+    ///
+    /// The install can come from anywhere — the offer above the document, or
+    /// the marketplace, which has never heard of this tab. Both bump the same
+    /// counter, so both are noticed here.
+    fn poll_extension_arrivals(&mut self) {
+        let revision = crate::file::extensions::revision();
+        if self.needs_extension.is_none() || revision == self.extensions_seen {
+            return;
+        }
+        self.extensions_seen = revision;
+        if let Some(path) = self.file_path.clone() {
+            let mut kind = FileKind::default();
+            let tab_id = self.tab_id;
+            let _ = self.open(&path, tab_id, &mut kind);
+        }
+    }
+
+    /// Adopt a finished extension install: on success the file is reopened,
+    /// because the engine can read it now and text was only ever the fallback.
+    fn poll_extension_install(&mut self) {
+        let Some(job) = self.installing.as_ref() else {
+            return;
+        };
+        if !job.is_finished() {
+            return;
+        }
+        let outcome = job.take();
+        self.installing = None;
+
+        match outcome {
+            Some(Ok(())) => {
+                self.needs_extension = None;
+                if let Some(path) = self.file_path.clone() {
+                    let mut kind = FileKind::default();
+                    let tab_id = self.tab_id;
+                    let _ = self.open(&path, tab_id, &mut kind);
+                }
+            }
+            Some(Err(message)) => {
+                crate::notification::NotificationManager::notify_error(
+                    crate::notification::Notification::new(
+                        "Could not install the reader",
+                        &message,
+                    ),
+                );
+            }
+            None => {}
+        }
+    }
+
+    /// Draw a text-backed tab as the document it is.
+    fn draw_document(&mut self, ui: &mut Ui, handle: &str) {
+        use thoth_plugin_sdk::components::{Markdown, TextView};
+
+        let total = crate::papyrus::total(handle);
+        let page = crate::papyrus::read(handle, 0, Self::DOCUMENT_LINES);
+        let text = page
+            .map(|page| {
+                // A text index publishes one row per line, numbered. The line
+                // number is chrome the file never had.
+                let col = page.columns.len().saturating_sub(1);
+                page.rows
+                    .iter()
+                    .map(|row| row.get(col).map(String::as_str).unwrap_or(""))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+
+        self.draw_extension_offer(ui);
+
+        let markdown = self
+            .file_path
+            .as_deref()
+            .is_some_and(FileType::is_prose_document);
+
+        if markdown {
+            // Markdown has no honest partial rendering — a heading means
+            // nothing without the section under it — so a truncated document
+            // says so before it is read, not after.
+            if total > u64::from(Self::DOCUMENT_LINES) {
+                document_note(
+                    ui,
+                    &format!(
+                        "first {} of {} lines",
+                        grouped(Self::DOCUMENT_LINES as usize),
+                        grouped(total as usize)
+                    ),
+                );
+            }
+            egui::ScrollArea::vertical()
+                .id_salt(("file_markdown", self.tab_id))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    Markdown::builder()
+                        .id(format!("file_markdown_{}", self.tab_id))
+                        .value(text)
+                        .build()
+                        .show(ui);
+                });
+            return;
+        }
+
+        TextView::builder()
+            .id(format!("file_text_{}", self.tab_id))
+            .value(text)
+            .maybe_caption((total > u64::from(Self::DOCUMENT_LINES)).then(|| {
+                format!(
+                    "first {} of {} lines",
+                    grouped(Self::DOCUMENT_LINES as usize),
+                    grouped(total as usize)
+                )
+            }))
+            .build()
+            .show(ui);
+    }
+
     fn draw_data_view(&mut self, ui: &mut Ui, handle: &str) {
         // Only an engine-backed file has a relation to query; a text index has
         // lines, and offering SQL over them would be a promise nothing keeps.
@@ -816,11 +1114,36 @@ impl FileViewer {
             .id(format!("file_view_{}", self.tab_id))
             .handle(handle.to_string())
             .default_view(self.default_view)
+            .tables(self.table_options())
+            .maybe_selected_table(if self.db_tables.is_empty() {
+                self.collections
+                    .get(self.selected_collection)
+                    .map(|c| c.name.clone())
+            } else {
+                self.selected_db_table.clone()
+            })
             .build();
         // Consumed, so a shortcut fires once rather than every frame until the
         // next one replaces it.
         view.tree_action = self.tree_action.take();
         view.show(ui, &mut events);
+
+        // Switching table is this tab's work, not the app's: it may have to
+        // stage the collection first, and only the viewer knows that. Kept out
+        // of `pending_events` so the app never sees an action it has no handler
+        // for.
+        events.retain(|event| {
+            if event.id != thoth_plugin_sdk::actions::SELECT_TABLE {
+                return true;
+            }
+            if self.db_tables.contains(&event.value) {
+                self.select_database_table(&event.value);
+            } else if let Some(index) = self.collections.iter().position(|c| c.name == event.value)
+            {
+                self.select_collection(index);
+            }
+            false
+        });
         self.pending_events.extend(events);
     }
 
@@ -944,9 +1267,175 @@ mod tests {
         assert_eq!(default_view(Path::new("/tmp/a.parquet")), "table");
         assert_eq!(default_view(Path::new("/tmp/a.duckdb")), "table");
         assert_eq!(default_view(Path::new("/tmp/a.sqlite")), "table");
-        // ...and anything we can't infer a shape for, as text.
-        assert_eq!(default_view(Path::new("/tmp/a.weird")), "raw");
-        assert_eq!(default_view(Path::new("/tmp/noext")), "raw");
+        // ...and an unnamed format that the engine read anyway as a grid.
+        // (A document never gets here: it has no engine, so it is drawn by
+        // `TextView` and `default_view` is not consulted.)
+        assert_eq!(default_view(Path::new("/tmp/a.weird")), "table");
+        assert_eq!(default_view(Path::new("/tmp/a.log")), "table");
+        assert_eq!(default_view(Path::new("/tmp/noext")), "table");
+    }
+
+    #[test]
+    fn a_markdown_file_is_never_handed_to_the_engine() {
+        // DuckDB's CSV sniffer reads almost any line-oriented text as a
+        // one-column table, so without this a README opens as a grid of its
+        // own lines.
+        assert!(FileType::is_prose_document("/tmp/README.md"));
+        assert!(FileType::is_prose_document("/tmp/notes.MARKDOWN"));
+        assert!(!FileType::is_prose_document("/tmp/data.csv"));
+        assert!(!FileType::is_prose_document("/tmp/app.log"));
+        assert!(!FileType::is_prose_document("/tmp/noext"));
+    }
+
+    #[test]
+    fn a_row_count_reads_in_groups_of_three() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(7), "7");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(1_000), "1,000");
+        assert_eq!(grouped(4_812), "4,812");
+        assert_eq!(grouped(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn the_picker_reports_what_is_known_and_no_more() {
+        use crate::file::json_envelope::{Collection, ValueKind};
+
+        let mut viewer = FileViewer::new();
+        viewer.collections = vec![
+            Collection {
+                name: "users".to_string(),
+                kind: ValueKind::Array,
+                start: 0,
+                end: 4096,
+            },
+            Collection {
+                name: "logs".to_string(),
+                kind: ValueKind::Array,
+                start: 4096,
+                end: 8192,
+            },
+            Collection {
+                name: "meta".to_string(),
+                kind: ValueKind::Object,
+                start: 8192,
+                end: 8292,
+            },
+        ];
+        // Only `users` has been read, so only `users` can report rows.
+        viewer.collection_rows.insert(alias_of("users"), 4812);
+
+        let tables = viewer.table_options();
+        assert_eq!(
+            tables.iter().map(|t| t.value.as_str()).collect::<Vec<_>>(),
+            ["users", "logs", "meta"],
+            "every collection is offered, not just the queryable ones"
+        );
+        assert_eq!(tables[0].detail.as_deref(), Some("4,812"));
+        // Unread: its size, never a row count it would have to scan for.
+        assert_eq!(tables[1].detail.as_deref(), Some("4 KB"));
+        // No row shape at all, and it says so instead of posing as a table.
+        assert_eq!(tables[2].detail.as_deref(), Some("100 B · object"));
+    }
+
+    #[test]
+    fn an_envelope_reaches_the_picker_with_every_collection_it_holds() {
+        use std::io::Write;
+
+        crate::file::index_cache::tests::isolate();
+
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        tmp.write_all(
+            concat!(
+                r#"{"users":[{"id":1,"name":"ada"},{"id":2,"name":"linus"}],"#,
+                r#""logs":[{"level":"INFO"}],"meta":{"v":3}}"#
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        tmp.flush().unwrap();
+
+        let mut viewer = FileViewer::new();
+        let mut kind = FileKind::Json;
+        viewer.open(tmp.path(), 4242, &mut kind).expect("opened");
+
+        // The index runs on a worker; the tab shows a preview until it lands.
+        let mut landed = false;
+        for _ in 0..2000 {
+            if viewer.poll_index(4242).is_some() {
+                landed = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(landed, "the index never landed");
+
+        let tables = viewer.table_options();
+        assert_eq!(
+            tables.iter().map(|t| t.value.as_str()).collect::<Vec<_>>(),
+            ["users", "logs", "meta"],
+            "the picker offers what the document holds, in document order"
+        );
+        // Whichever collection the tab opened on is the one with a count; the
+        // rest report their size, because nothing has scanned them.
+        let opened = viewer.selected_collection;
+        let staged = alias_of(&viewer.collections[opened].name);
+        assert_eq!(viewer.collection_rows.len(), 1, "only one was staged");
+        assert_eq!(
+            tables[opened].detail.as_deref(),
+            Some(grouped(viewer.collection_rows[&staged])).as_deref()
+        );
+        for (i, t) in tables.iter().enumerate() {
+            if i != opened {
+                let detail = t.detail.as_deref().unwrap();
+                assert!(
+                    detail.contains('B') || detail.contains("KB"),
+                    "unstaged {} reported {detail}, not a size",
+                    t.value
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_document_is_drawn_as_a_document_not_as_a_dataset() {
+        use std::io::Write;
+
+        crate::file::index_cache::tests::isolate();
+        // A file DuckDB declines is text, and a text tab has no engine — which
+        // is what routes it to `TextView` instead of `DataView` and its table
+        // picker, format switcher, Copy and Export.
+        let mut tmp = tempfile::Builder::new().suffix(".log").tempfile().unwrap();
+        tmp.write_all(b"starting worker\nshard-02 ready\nall done\n")
+            .unwrap();
+        tmp.flush().unwrap();
+
+        let mut viewer = FileViewer::new();
+        let mut kind = FileKind::Json;
+        viewer.open(tmp.path(), 7, &mut kind).expect("opened");
+        for _ in 0..2000 {
+            if viewer.poll_index(7).is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        assert!(
+            viewer.engine.is_none(),
+            "prose reached the engine; it would be drawn as a dataset"
+        );
+        assert!(viewer.handle.is_some(), "the tab still has content to draw");
+        assert!(
+            viewer.table_options().is_empty(),
+            "a document has no collections to pick between"
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_one_table_offers_no_tables() {
+        // Natively-read files (CSV, NDJSON, Parquet) yield no collections, and
+        // the picker is hidden rather than showing the file back to itself.
+        assert!(FileViewer::new().table_options().is_empty());
     }
 
     #[test]
@@ -958,11 +1447,12 @@ mod tests {
             "/tmp/a.csv",
             "/tmp/a.parquet",
             "/tmp/a.weird",
+            "/tmp/README.md",
         ] {
             let view = default_view(Path::new(path));
             assert!(
-                matches!(view, "table" | "json" | "raw"),
-                "{path} → {view} is not a built-in view"
+                matches!(view, "table" | "json" | "raw" | "chart"),
+                "{path} → {view} is not a view DataView offers"
             );
         }
     }

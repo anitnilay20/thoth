@@ -109,7 +109,7 @@ mod tests {
             .items(vec![
                 ContextMenuItem::builder()
                     .label("Copy value")
-                    .shortcut("⌘C")
+                    .shortcut(format!("{}C", egui_phosphor::regular::COMMAND))
                     .build(),
                 ContextMenuItem::separator(),
                 ContextMenuItem::builder()
@@ -123,7 +123,10 @@ mod tests {
         let back: ContextMenu =
             serde_json::from_str(&serde_json::to_string(&menu).unwrap()).unwrap();
         assert_eq!(back.items.len(), 3);
-        assert_eq!(back.items[0].shortcut.as_deref(), Some("⌘C"));
+        assert_eq!(
+            back.items[0].shortcut.as_deref(),
+            Some(format!("{}C", egui_phosphor::regular::COMMAND).as_str())
+        );
         assert!(back.items[1].separator);
         assert!(back.items[2].checked && back.items[2].disabled);
     }

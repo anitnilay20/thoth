@@ -465,8 +465,23 @@ impl PluginManager {
                 plugin.icon_path = Some(icon);
             }
 
-            if theme_path.exists() {
-                plugin.location = Some(theme_path.display().to_string());
+            // Some plugins are pure metadata — a theme's colours, a DuckDB
+            // reader's declaration — and ship no `plugin.wasm` to load. Asking
+            // what the plugin *needs* rather than which file happens to be
+            // present is what lets a new such capability work without teaching
+            // the scanner about it: keying off `theme.json` meant every reader
+            // plugin was skipped for want of a wasm it never had.
+            let runtime = plugin
+                .capabilities
+                .iter()
+                .any(crate::plugin::Capability::needs_runtime);
+
+            if !runtime {
+                plugin.location = Some(if theme_path.exists() {
+                    theme_path.display().to_string()
+                } else {
+                    path.display().to_string()
+                });
                 self.registry.add_plugin(plugin);
             } else if let Err(e) = self.load_plugin(plugin_path.clone(), plugin) {
                 eprintln!("Skipping plugin at {}: {e}", plugin_path.display());

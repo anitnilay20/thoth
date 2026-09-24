@@ -477,6 +477,41 @@ pub fn color_to_hex(c: Color32) -> String {
     format!("#{:02x}{:02x}{:02x}{:02x}", c.r(), c.g(), c.b(), c.a())
 }
 
+/// Register the Phosphor icon font into `fonts`, the one way.
+///
+/// Three things, and every one of them is load-bearing:
+///
+/// 1. the font data, so anything can reach it;
+/// 2. a named `"phosphor"` family, which [`phosphor_font_id`] resolves to and
+///    icon widgets ask for directly;
+/// 3. a place in the fallback chain of *both* the proportional and monospace
+///    stacks, so a glyph inside ordinary text renders wherever it appears.
+///
+/// The third is the one that gets forgotten. `egui_phosphor::add_to_fonts`
+/// reaches Proportional only, and the design sets every shortcut chip in
+/// mono — so a mark that looked right in a tooltip was an empty box in a
+/// chip six pixels away. Phosphor's glyphs live in the Unicode private-use
+/// block, so sitting in a fallback chain can never shadow a real character;
+/// it only rescues one that nothing else can draw.
+///
+/// Call this instead of `egui_phosphor::add_to_fonts` — the whole point is
+/// that there is one registration and not six slightly different ones.
+#[cfg(feature = "egui")]
+pub fn register_phosphor(fonts: &mut egui::FontDefinitions) {
+    egui_phosphor::add_to_fonts(fonts, egui_phosphor::Variant::Regular);
+    fonts.families.insert(
+        egui::FontFamily::Name("phosphor".into()),
+        vec!["phosphor".into()],
+    );
+    // Behind the primary face, never in front of it: the mono stack's own
+    // font must keep drawing digits and letters.
+    if let Some(stack) = fonts.families.get_mut(&egui::FontFamily::Monospace)
+        && !stack.iter().any(|f| f == "phosphor")
+    {
+        stack.insert(1.min(stack.len()), "phosphor".into());
+    }
+}
+
 /// Returns a [`egui::FontId`] that resolves to the Phosphor icon font family.
 ///
 /// The host is expected to register the icon font under the
@@ -615,5 +650,57 @@ mod tests {
     fn contrast_text_color_is_white_on_dark_and_black_on_light() {
         assert_eq!(get_contrast_text_color(Color32::BLACK), Color32::WHITE);
         assert_eq!(get_contrast_text_color(Color32::WHITE), Color32::BLACK);
+    }
+
+    #[test]
+    fn an_icon_glyph_is_drawable_in_every_text_style() {
+        // The bug this guards: `egui_phosphor::add_to_fonts` reaches
+        // Proportional only, so a mark that rendered in a tooltip was an empty
+        // box in a monospace chip. A glyph has to be reachable from whichever
+        // stack the text it sits in happens to use.
+        let mut fonts = egui::FontDefinitions::default();
+        register_phosphor(&mut fonts);
+
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            let stack = fonts
+                .families
+                .get(&family)
+                .unwrap_or_else(|| panic!("{family:?} has no stack"));
+            assert!(
+                stack.iter().any(|f| f == "phosphor"),
+                "{family:?} cannot draw an icon glyph: {stack:?}"
+            );
+            assert_ne!(
+                stack.first().map(String::as_str),
+                Some("phosphor"),
+                "{family:?} leads with the icon font, which would displace its real face"
+            );
+        }
+
+        // And the named family icon widgets ask for directly.
+        assert_eq!(
+            fonts
+                .families
+                .get(&egui::FontFamily::Name("phosphor".into()))
+                .map(Vec::as_slice),
+            Some(["phosphor".to_string()].as_slice()),
+        );
+    }
+
+    #[test]
+    fn registering_twice_does_not_stack_the_icon_font_up() {
+        // The host re-runs its font setup whenever the font setting changes.
+        let mut fonts = egui::FontDefinitions::default();
+        register_phosphor(&mut fonts);
+        register_phosphor(&mut fonts);
+        let mono = fonts
+            .families
+            .get(&egui::FontFamily::Monospace)
+            .expect("a mono stack");
+        assert_eq!(
+            mono.iter().filter(|f| *f == "phosphor").count(),
+            1,
+            "{mono:?}"
+        );
     }
 }

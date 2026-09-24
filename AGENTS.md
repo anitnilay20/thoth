@@ -28,6 +28,28 @@ Available under `thoth_plugin_sdk::components`:
 If a component is missing, add it to the SDK rather than inlining a one-off in
 the host: the host and every plugin then get it, and it stays consistent.
 
+## Icons: Phosphor, never a Unicode symbol
+
+**Every glyph comes from Phosphor** — `egui_phosphor::regular::*`, or the SDK's
+`Icon` component when it stands alone as a widget. Whether a character like
+`⌘`, `⌥`, `↵` or `⏎` has a glyph depends on the fonts the machine happens to
+carry: `⌘` resolves through a system fallback on macOS while `↵` does not, so
+a hand-written `"⌘↵"` renders as a command mark followed by an empty box.
+Phosphor is bundled into the binary, so every mark is present on every machine.
+
+This covers arrows, carets, ticks, keyboard marks and anything else decorative.
+For keyboard shortcuts in the host, use `crate::shortcuts::marks` rather than a
+fourth copy of the platform logic:
+
+```rust
+use crate::shortcuts::marks;
+format!("{}W", marks::command())   // ⌘W on macOS, Ctrl+W elsewhere
+marks::RETURN                       // not "↵"
+```
+
+Plain text is still plain text — `·`, `–`, `—` and quotation marks are
+punctuation, not icons, and stay as they are.
+
 **Raw `egui` is still correct for layout and plumbing** — `ui.horizontal`,
 `allocate_ui_with_layout`, `ScrollArea`, `Frame`, `vec2`. The SDK's own
 components use those internally. The rule is about *widgets*, not geometry.

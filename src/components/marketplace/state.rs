@@ -147,6 +147,16 @@ pub struct MarketplaceUiState {
     /// Slot written by the background fetch thread; polled each frame.
     pub pending: Option<PendingManifest>,
     pub sort: SortOrder,
+    /// Installs of DuckDB's optional file readers, keyed by extension name.
+    ///
+    /// Separate from `install_handles`: an extension is not a plugin. It has
+    /// no manifest, no icon and no version to update to — DuckDB owns the
+    /// bytes and the directory, and all we hold is whether a fetch is running.
+    #[allow(clippy::type_complexity)]
+    pub extension_jobs: HashMap<String, crate::file::indexing::ExtensionJob>,
+    /// The last failure per extension, so the row can say what went wrong
+    /// rather than silently returning to "Install".
+    pub extension_errors: HashMap<String, String>,
 }
 
 impl Default for MarketplaceUiState {
@@ -164,11 +174,51 @@ impl Default for MarketplaceUiState {
             loading: false,
             pending: None,
             sort: SortOrder::default(),
+            extension_jobs: HashMap::new(),
+            extension_errors: HashMap::new(),
         }
     }
 }
 
 impl MarketplaceUiState {
+    /// Adopt any finished reader install.
+    ///
+    /// The engine picks a newly installed reader up on its next connection —
+    /// they are files in DuckDB's own directory, not state this process holds
+    /// — so there is nothing to reload here beyond clearing the row.
+    pub fn poll_extension_installs(&mut self) {
+        let finished: Vec<String> = self
+            .extension_jobs
+            .iter()
+            .filter(|(_, job)| job.is_finished())
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in finished {
+            let Some(job) = self.extension_jobs.remove(&name) else {
+                continue;
+            };
+            match job.take() {
+                Some(Err(message)) => {
+                    self.extension_errors.insert(name, message);
+                }
+                _ => {
+                    self.extension_errors.remove(&name);
+                }
+            }
+        }
+    }
+
+    /// Start fetching a reader, unless one is already on its way.
+    pub fn install_extension(&mut self, extension: crate::file::extensions::Extension) {
+        if self.extension_jobs.contains_key(&extension.name) {
+            return;
+        }
+        self.extension_errors.remove(&extension.name);
+        self.extension_jobs.insert(
+            extension.name.clone(),
+            crate::file::indexing::ExtensionJob::spawn(extension),
+        );
+    }
     /// Kick off the background manifest fetch if not already loaded/loading.
     pub fn load_if_needed(&mut self, ctx: &egui::Context, force: bool) {
         if (self.loaded || self.loading) && !force {

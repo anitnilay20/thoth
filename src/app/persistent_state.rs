@@ -119,10 +119,10 @@ impl PersistentState {
     /// Returns: ~/.config/thoth/persistent_state.json on Linux/macOS
     ///          %APPDATA%/thoth/persistent_state.json on Windows
     fn storage_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::StateError {
-            reason: "Failed to get config directory".to_string(),
-        })?;
-        let thoth_config_dir = config_dir.join("thoth");
+        let thoth_config_dir =
+            crate::config_dir::config_root().ok_or_else(|| ThothError::StateError {
+                reason: "Failed to get config directory".to_string(),
+            })?;
 
         // Create directory if it doesn't exist
         if !thoth_config_dir.exists() {
@@ -155,10 +155,11 @@ impl PersistentState {
 
     /// Migrate from old recent_files.json format
     fn migrate_from_old_format() -> Result<Self> {
-        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::StateError {
-            reason: "Failed to get config directory".to_string(),
-        })?;
-        let old_path = config_dir.join("thoth").join("recent_files.json");
+        let old_path = crate::config_dir::config_root()
+            .ok_or_else(|| ThothError::StateError {
+                reason: "Failed to get config directory".to_string(),
+            })?
+            .join("recent_files.json");
 
         if old_path.exists() {
             // Read old format
@@ -345,10 +346,10 @@ impl PersistentState {
 
     /// Get the path to the search history storage file
     fn search_history_storage_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::StateError {
-            reason: "Failed to get config directory".to_string(),
-        })?;
-        let thoth_config_dir = config_dir.join("thoth");
+        let thoth_config_dir =
+            crate::config_dir::config_root().ok_or_else(|| ThothError::StateError {
+                reason: "Failed to get config directory".to_string(),
+            })?;
 
         // Create directory if it doesn't exist
         if !thoth_config_dir.exists() {
@@ -471,11 +472,8 @@ impl PersistentState {
     }
 
     pub fn local_plugin_dir(plugin_id: &str) -> Result<PathBuf> {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| "failed to locate config directory".to_string())?;
-
-        let dir = config_dir
-            .join("thoth")
+        let dir = crate::config_dir::config_root()
+            .ok_or_else(|| "failed to locate config directory".to_string())?
             .join("data")
             .join("plugins")
             .join(plugin_id);
@@ -490,10 +488,9 @@ impl PersistentState {
     }
 
     pub fn marketplace_dir() -> Result<PathBuf> {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| "failed to locate config directory".to_string())?;
-
-        let dir = config_dir.join("thoth").join("marketplace");
+        let dir = crate::config_dir::config_root()
+            .ok_or_else(|| "failed to locate config directory".to_string())?
+            .join("marketplace");
 
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 

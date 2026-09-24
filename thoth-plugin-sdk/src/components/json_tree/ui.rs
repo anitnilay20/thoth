@@ -784,6 +784,19 @@ fn json_to_clipboard(value: Value) -> String {
 ///
 /// Entries are offered by what the row actually is: a container has an object
 /// to copy, a leaf has a value, and a closing bracket has neither.
+/// The copy shortcut as the row's trailing chip.
+///
+/// Phosphor rather than a `"⌘C"` literal: whether the Unicode symbol has a
+/// glyph depends on the machine's fonts, and the modifier is not ⌘ off macOS.
+fn copy_shortcut() -> String {
+    let modifier = if cfg!(target_os = "macos") {
+        egui_phosphor::regular::COMMAND
+    } else {
+        egui_phosphor::regular::CONTROL
+    };
+    format!("{modifier}C")
+}
+
 fn node_menu(ui: &mut egui::Ui, row: &TreeRow, source: &Source<'_>) -> Option<String> {
     use crate::components::{ContextMenu, ContextMenuItem};
 
@@ -800,7 +813,7 @@ fn node_menu(ui: &mut egui::Ui, row: &TreeRow, source: &Source<'_>) -> Option<St
             } else {
                 "Copy value"
             })
-            .shortcut("⌘C")
+            .shortcut(copy_shortcut())
             .build(),
         ContextMenuItem::builder().label("Copy key").build(),
         ContextMenuItem::builder().label("Copy path").build(),

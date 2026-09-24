@@ -12,13 +12,18 @@ const BADGE_H: f32 = 26.0;
 const BADGE_FONT: f32 = 12.0;
 /// Horizontal padding inside a badge — design `.pfield{padding:0 10px}`.
 const BADGE_PAD_H: f32 = 10.0;
-/// The literal badge of the tab-switching row. Held in a const so the width
-/// pre-pass measures the same string `static_shortcut_row` paints.
-const TAB_SWITCH_BADGE: &str = if cfg!(target_os = "macos") {
-    "⌘1 – ⌘9"
-} else {
-    "Ctrl+1 – Ctrl+9"
-};
+/// The badge of the tab-switching row. Built once so the width pre-pass
+/// measures the same string `static_shortcut_row` paints, and built from the
+/// shared Phosphor marks rather than a Unicode literal — see
+/// [`crate::shortcuts::marks`].
+fn tab_switch_badge() -> String {
+    if cfg!(target_os = "macos") {
+        let cmd = crate::shortcuts::marks::command();
+        format!("{cmd}1 – {cmd}9")
+    } else {
+        "Ctrl+1 – Ctrl+9".to_string()
+    }
+}
 
 pub struct ShortcutsTab;
 
@@ -79,7 +84,7 @@ impl StatelessComponent for ShortcutsTab {
                 .map(|s| s.format())
                 // The static rows paint literal text, which has to be measured
                 // too or a wide literal overflows its badge.
-                .chain(std::iter::once(TAB_SWITCH_BADGE.to_string()))
+                .chain(std::iter::once(tab_switch_badge()))
                 .map(|txt| {
                     if txt.is_empty() {
                         return 0.0_f32;
@@ -120,7 +125,7 @@ impl StatelessComponent for ShortcutsTab {
                     static_shortcut_row(
                         ui,
                         "Switch to tab 1–9",
-                        TAB_SWITCH_BADGE,
+                        &tab_switch_badge(),
                         badge_width,
                         colors,
                     );

@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::error::Result;
+use crate::file::FileType;
 use crate::file::index_cache;
 use crate::file::json_envelope::{Collection, JsonEnvelope};
 use crate::file::loaders::{DuckdbConnection, FileLoader, TextIndex};
@@ -37,13 +38,33 @@ pub enum Indexed {
     },
     /// No structure we could use — browsable as text, at any size.
     Text(Box<TextIndex>),
+    /// The engine reads this format, but only with an optional reader the
+    /// user has not installed. Text meanwhile, plus the name of what would
+    /// open it properly — the viewer turns that into the offer.
+    ///
+    /// Distinct from [`Text`](Indexed::Text) on purpose: a spreadsheet shown
+    /// as its own ZIP bytes with no explanation is indistinguishable from a
+    /// corrupt file, and that is what this file used to do.
+    NeedsExtension {
+        index: Box<TextIndex>,
+        extension: crate::file::extensions::Extension,
+    },
 }
 
 impl Indexed {
+    /// The optional reader this file needs, when that is why it came back as
+    /// text.
+    pub fn needs_extension(&self) -> Option<&crate::file::extensions::Extension> {
+        match self {
+            Indexed::NeedsExtension { extension, .. } => Some(extension),
+            _ => None,
+        }
+    }
+
     /// The text index, when that is what indexing produced.
     pub fn as_text(&self) -> Option<&TextIndex> {
         match self {
-            Indexed::Text(index) => Some(index),
+            Indexed::Text(index) | Indexed::NeedsExtension { index, .. } => Some(index),
             Indexed::Engine { .. } => None,
         }
     }
@@ -52,7 +73,7 @@ impl Indexed {
     pub fn collections(&self) -> &[Collection] {
         match self {
             Indexed::Engine { collections, .. } => collections,
-            Indexed::Text(_) => &[],
+            Indexed::Text(_) | Indexed::NeedsExtension { .. } => &[],
         }
     }
 }
@@ -115,10 +136,20 @@ impl IndexJob {
         });
         let result = Arc::new(std::sync::Mutex::new(None));
 
-        // A document that is one top-level object may yield tables, and that is
-        // strictly better than text. A cached text index from a previous open
-        // must not shadow it.
+        // A cached text index is only ever a fallback, so it must never be
+        // served in place of asking the engine:
+        //
+        // * a document that is one top-level object may yield tables, which is
+        //   strictly better than text;
+        // * a format the engine claims may have become readable since — the
+        //   reader for it is a download, and installing one has to change what
+        //   the next open does. Serving the cache first meant it never did,
+        //   and a file that fell back to text once stayed text forever.
+        //
+        // Text is cached for the files that are genuinely text, which is the
+        // case the cache exists for.
         if !is_single_object(path)
+            && !FileType::from_path(path).is_native()
             && let Some(cached) = index_cache::load(path)
         {
             *result.lock().unwrap_or_else(|e| e.into_inner()) =
@@ -151,7 +182,8 @@ impl IndexJob {
             // Reading the file natively is the best outcome, and the cheapest
             // to try — but not for a document that is one top-level object,
             // where finding out costs a parse of the whole thing.
-            if !is_single_object(&worker_path)
+            if !FileType::is_prose_document(&worker_path)
+                && !is_single_object(&worker_path)
                 && let Ok(engine) = DuckdbConnection::open_path(&worker_path)
             {
                 // Counted here rather than on the UI thread: `count(*)` over a
@@ -198,8 +230,16 @@ impl IndexJob {
                     // Best effort: a cache that fails to write costs a rescan
                     // next time, nothing more.
                     let _ = index_cache::store(&index);
+                    // Text is the right fallback either way, but *why* differs:
+                    // a format the engine reads once its optional reader is
+                    // installed is a file the user can still open properly, and
+                    // saying nothing leaves a spreadsheet looking corrupt.
+                    let index = Box::new(index);
                     *worker_result.lock().unwrap_or_else(|e| e.into_inner()) =
-                        Some(Indexed::Text(Box::new(index)));
+                        Some(match missing_reader_for(&worker_path) {
+                            Some(extension) => Indexed::NeedsExtension { index, extension },
+                            None => Indexed::Text(index),
+                        });
                 }
                 // Cancelled — leave no result and store nothing.
                 Ok(None) => {}
@@ -504,19 +544,36 @@ fn attach_cached_collections(path: &Path) -> Option<Indexed> {
 /// Cheap: reads the first non-whitespace byte. Worth knowing before handing a
 /// file to DuckDB, because an object it cannot read is only discovered by
 /// parsing all of it.
+/// The optional reader this file would need, when that is why the engine
+/// declined it.
+///
+/// Asked only once the engine has already failed, so it costs nothing in the
+/// ordinary case; it is a lookup against what DuckDB has on disk, not a read
+/// of the file.
+fn missing_reader_for(path: &Path) -> Option<crate::file::extensions::Extension> {
+    let file_type = FileType::from_path(path);
+    let needed = crate::file::extensions::required_for(file_type).or_else(|| {
+        // A `.db` is SQLite or DuckDB and only the bytes say which; DuckDB's
+        // own databases attach unaided.
+        (file_type == FileType::DB && crate::file::loaders::duck_db::is_sqlite(path))
+            .then(|| crate::file::extensions::for_file_extension("sqlite"))
+            .flatten()
+    })?;
+    let conn = duckdb::Connection::open_in_memory().ok()?;
+    (!crate::file::extensions::is_installed(&conn, &needed.name)).then_some(needed)
+}
+
 fn is_single_object(path: &Path) -> bool {
-    use std::io::Read;
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let mut head = [0u8; 64];
-    let Ok(read) = file.read(&mut head) else {
-        return false;
-    };
-    head[..read]
-        .iter()
-        .find(|b| !b.is_ascii_whitespace())
-        .is_some_and(|b| *b == b'{')
+    // A leading `{` is not enough: NDJSON starts with one too, and treating it
+    // as an envelope sent every NDJSON file down the envelope path, found no
+    // collections in it, and left the whole file as a text index — DuckDB
+    // never saw the one format it reads best. The sniffer tells the two apart
+    // from the first few lines, which is cheap; what the old comment was
+    // avoiding is parsing the *document*, and this does not.
+    matches!(
+        crate::file::detect_file_type::sniff_file_type(path),
+        Ok(crate::file::detect_file_type::DetectedFileType::JsonObject)
+    )
 }
 
 /// Index `path` on this thread, using the cache when it is current.
@@ -617,6 +674,10 @@ mod tests {
 
     #[test]
     fn a_second_open_is_served_from_the_cache() {
+        // The cache directory is shared, and `index_cache`'s own tests clear
+        // it wholesale — so anything that depends on what is in it takes the
+        // same lock rather than racing them.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let file = source(300);
         let first = IndexJob::spawn(file.path());
@@ -639,6 +700,10 @@ mod tests {
 
     #[test]
     fn index_now_populates_the_cache_for_later_opens() {
+        // The cache directory is shared, and `index_cache`'s own tests clear
+        // it wholesale — so anything that depends on what is in it takes the
+        // same lock rather than racing them.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let file = source(50);
 
@@ -731,6 +796,173 @@ mod tests {
     }
 
     #[test]
+    fn a_log_file_of_ndjson_opens_through_the_engine() {
+        // The rule: what DuckDB can read, DuckDB reads — the extension is not
+        // the decider. Before this, a `.log` had to be claimed by a plugin or
+        // it fell all the way to a text index.
+        crate::file::index_cache::tests::isolate();
+        let mut tmp = tempfile::Builder::new().suffix(".log").tempfile().unwrap();
+        write!(tmp, "{{\"a\":1}}\n{{\"a\":2}}\n{{\"a\":3}}\n").unwrap();
+        tmp.flush().unwrap();
+
+        let job = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&job), Progress::Ready);
+        let indexed = job.take().expect("indexed");
+        let Indexed::Engine { total, .. } = indexed else {
+            panic!("a readable .log should reach the engine, not the text index");
+        };
+        assert_eq!(total, 3);
+    }
+
+    #[test]
+    fn ndjson_reaches_the_engine_whatever_it_is_called() {
+        // Every one of these used to land in a text index: a leading `{` was
+        // read as "single object", which sent them down the envelope path,
+        // found nothing tabular, and gave up.
+        crate::file::index_cache::tests::isolate();
+        for suffix in [".ndjson", ".json", ".jsonl", ".log", ".dat"] {
+            let mut tmp = tempfile::Builder::new().suffix(suffix).tempfile().unwrap();
+            write!(tmp, "{{\"a\":1}}\n{{\"a\":2}}\n{{\"a\":3}}\n").unwrap();
+            tmp.flush().unwrap();
+
+            let job = IndexJob::spawn(tmp.path());
+            assert_eq!(settle(&job), Progress::Ready);
+            let Indexed::Engine { total, .. } = job.take().expect("indexed") else {
+                panic!("{suffix} of NDJSON should reach the engine");
+            };
+            assert_eq!(total, 3, "{suffix}");
+        }
+    }
+
+    #[test]
+    fn a_json_array_reaches_the_engine_too() {
+        crate::file::index_cache::tests::isolate();
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(tmp, "[{{\"a\":1}},{{\"a\":2}}]").unwrap();
+        tmp.flush().unwrap();
+
+        let job = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&job), Progress::Ready);
+        let Indexed::Engine { total, .. } = job.take().expect("indexed") else {
+            panic!("a JSON array should reach the engine");
+        };
+        assert_eq!(total, 2);
+    }
+
+    #[test]
+    fn an_envelope_is_still_an_envelope() {
+        // The counterpart: a genuine single top-level object must keep going
+        // down the envelope path, or the collections feature disappears.
+        crate::file::index_cache::tests::isolate();
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(tmp, "{{\"users\":[{{\"id\":1}}],\"logs\":[{{\"n\":2}}]}}").unwrap();
+        tmp.flush().unwrap();
+
+        let job = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&job), Progress::Ready);
+        let indexed = job.take().expect("indexed");
+        assert_eq!(names(indexed.collections()), ["users", "logs"]);
+    }
+
+    #[test]
+    fn a_cached_text_index_never_shadows_the_engine() {
+        // Installing a reader has to change what the next open does. It did
+        // not: the first open fell back to text and *cached* that, and every
+        // open after it was served the cache before the engine was even
+        // asked — so a file that became readable stayed text forever.
+        crate::file::index_cache::tests::isolate();
+        let _cache = crate::file::index_cache::tests::exclusive();
+
+        let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        tmp.write_all(b"a,b\n1,x\n2,y\n").unwrap();
+        tmp.flush().unwrap();
+
+        // Stand in for "an earlier open could not read it": a text index for
+        // this exact file, sitting in the cache.
+        let text = TextIndex::build(tmp.path()).unwrap();
+        index_cache::store(&text).unwrap();
+        assert!(
+            index_cache::load(tmp.path()).is_some(),
+            "the cache entry this test is about was not written"
+        );
+
+        let job = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&job), Progress::Ready);
+        match job.take().expect("indexed") {
+            Indexed::Engine { total, .. } => assert_eq!(total, 2),
+            other => panic!(
+                "a cached text index shadowed the engine: got {}",
+                match other {
+                    Indexed::Text(_) => "text",
+                    Indexed::NeedsExtension { .. } => "needs-extension",
+                    Indexed::Engine { .. } => unreachable!(),
+                }
+            ),
+        }
+    }
+
+    #[test]
+    fn a_spreadsheet_never_silently_becomes_mojibake() {
+        // The cache directory is shared, and `index_cache`'s own tests clear
+        // it wholesale — so anything that depends on what is in it takes the
+        // same lock rather than racing them.
+        let _cache = crate::file::index_cache::tests::exclusive();
+        // The bug: an .xlsx the engine could not read fell all the way to a
+        // text index and showed its own ZIP bytes, indistinguishable from a
+        // corrupt file. Whichever way this machine is set up, the outcome has
+        // to be one the user can act on — a table, or text that *says* which
+        // reader would open it.
+        crate::file::index_cache::tests::isolate();
+
+        // A real workbook, written by DuckDB. Without the reader installed we
+        // cannot make one, and that is itself the case worth testing — so fall
+        // back to asserting the decision directly.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("book.xlsx");
+        let maker = DuckdbConnection::new().unwrap();
+        let wrote = maker
+            .query(&format!(
+                "INSTALL excel; LOAD excel; COPY (SELECT 1 AS a, 'x' AS b) TO '{}' \
+                 (FORMAT XLSX, HEADER true)",
+                path.to_string_lossy()
+            ))
+            .is_ok()
+            && path.exists();
+        if !wrote {
+            eprintln!("skipping: the excel reader is unavailable on this host");
+            return;
+        }
+
+        let job = IndexJob::spawn(&path);
+        assert_eq!(settle(&job), Progress::Ready);
+        match job.take().expect("indexed") {
+            Indexed::Engine { total, .. } => assert_eq!(total, 1),
+            Indexed::NeedsExtension { extension, .. } => assert_eq!(extension.name, "excel"),
+            Indexed::Text(_) => {
+                panic!("a spreadsheet came back as unexplained text")
+            }
+        }
+    }
+
+    #[test]
+    fn a_markdown_file_is_read_as_a_document() {
+        // Markdown is prose. DuckDB would happily make a one-column table of
+        // its lines, which is why it never gets the chance.
+        crate::file::index_cache::tests::isolate();
+        let mut tmp = tempfile::Builder::new().suffix(".md").tempfile().unwrap();
+        write!(tmp, "# Title\n\nSome **bold** text.\n\n- one\n- two\n").unwrap();
+        tmp.flush().unwrap();
+
+        let job = IndexJob::spawn(tmp.path());
+        assert_eq!(settle(&job), Progress::Ready);
+        let indexed = job.take().expect("indexed");
+        assert!(
+            indexed.as_text().is_some(),
+            "markdown should be read as a document, not staged as a table"
+        );
+    }
+
+    #[test]
     fn a_plain_log_file_is_indexed_as_text() {
         crate::file::index_cache::tests::isolate();
         let file = source(40);
@@ -740,6 +972,10 @@ mod tests {
     }
     #[test]
     fn a_second_open_of_an_envelope_attaches_its_cache() {
+        // The cache directory is shared, and `index_cache`'s own tests clear
+        // it wholesale — so anything that depends on what is in it takes the
+        // same lock rather than racing them.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(
@@ -779,6 +1015,10 @@ mod tests {
 
     #[test]
     fn a_changed_document_is_not_served_from_a_stale_cache() {
+        // The cache directory is shared, and `index_cache`'s own tests clear
+        // it wholesale — so anything that depends on what is in it takes the
+        // same lock rather than racing them.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(tmp, r#"{{"users":[{{"id":1,"name":"ada"}}]}}"#).unwrap();
@@ -910,6 +1150,11 @@ mod real_file {
                 }
             }
             Indexed::Text(index) => println!("fell back to text: {} lines", index.len()),
+            Indexed::NeedsExtension { index, extension } => println!(
+                "fell back to text ({} lines): needs the {} reader",
+                index.len(),
+                extension.name
+            ),
         }
         // And the capability that motivated all of this: a join across two
         // collections of a document DuckDB cannot read as a table at all.
@@ -932,5 +1177,67 @@ mod real_file {
                 }
             }
         }
+    }
+}
+
+/// A running extension install.
+///
+/// Fetching a reader is a network call measured in seconds, so it belongs
+/// here rather than on the frame that asked for it — the same rule as every
+/// other job in this module.
+#[derive(Clone)]
+pub struct ExtensionJob {
+    extension: crate::file::extensions::Extension,
+    finished: Arc<AtomicBool>,
+    /// `None` while running, `Some(Ok(()))` or `Some(Err(message))` after.
+    outcome: Arc<Mutex<Option<std::result::Result<(), String>>>>,
+}
+
+impl ExtensionJob {
+    /// Start fetching `extension` on a worker.
+    pub fn spawn(extension: crate::file::extensions::Extension) -> Self {
+        let finished = Arc::new(AtomicBool::new(false));
+        let outcome = Arc::new(Mutex::new(None));
+        let (worker_finished, worker_outcome) = (finished.clone(), outcome.clone());
+        let worker_extension = extension.clone();
+
+        std::thread::spawn(move || {
+            // Its own connection: installing writes to DuckDB's extension
+            // directory, which every later connection then sees.
+            let result = duckdb::Connection::open_in_memory()
+                .map_err(|e| e.to_string())
+                .and_then(|conn| {
+                    crate::file::extensions::install(&conn, &worker_extension)
+                        .map_err(|e| e.to_string())
+                });
+            *worker_outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
+            worker_finished.store(true, Ordering::Release);
+            if let Some(ctx) = crate::EGUI_CTX.get() {
+                ctx.request_repaint();
+            }
+        });
+
+        Self {
+            extension,
+            finished,
+            outcome,
+        }
+    }
+
+    /// Which reader is being fetched.
+    pub fn extension(&self) -> &crate::file::extensions::Extension {
+        &self.extension
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.finished.load(Ordering::Acquire)
+    }
+
+    /// The outcome, once. `None` while it is still running.
+    pub fn take(&self) -> Option<std::result::Result<(), String>> {
+        self.outcome
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
     }
 }

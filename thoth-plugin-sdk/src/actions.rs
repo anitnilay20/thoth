@@ -20,3 +20,12 @@ pub const OPEN_IN_CHARTS: &str = "thoth:open-in-charts";
 /// is `{"handle": "<dataset handle>", "exporter": "<plugin id>"}`. The host
 /// reads the rows, runs the chosen exporter, and saves the file.
 pub const EXPORT_DATASET: &str = "thoth:export-dataset";
+
+/// Point a [`DataView`](crate::components::DataView) at another of the tables
+/// its document holds. Emitted by the view's table picker; the event value is
+/// the chosen [`DataTable::value`](crate::components::DataTable::value).
+///
+/// The producer owns what switching costs — a collection may have to be read
+/// before it can be shown — so the picker only ever reports the choice and
+/// leaves the work, and the new `selected_table`, to whoever built the node.
+pub const SELECT_TABLE: &str = "thoth:select-table";

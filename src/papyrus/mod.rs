@@ -70,6 +70,10 @@ pub struct DatasetMeta {
 pub struct Page {
     pub columns: Vec<DatasetColumn>,
     pub rows: Vec<Vec<String>>,
+    /// Which cells were NULL, parallel to `rows`. Empty when the source cannot
+    /// tell a NULL from an empty string — pushed rows and text lines both
+    /// arrive as strings and have no nulls to report.
+    pub nulls: Vec<Vec<bool>>,
     pub offset: u64,
     pub total: u64,
 }
@@ -640,6 +644,7 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
             Some(Page {
                 columns: stored.meta.columns.clone(),
                 rows: rows[start..end].to_vec(),
+                nulls: Vec::new(),
                 offset: start as u64,
                 total,
             })
@@ -656,23 +661,35 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
                     .enumerate()
                     .map(|(i, text)| vec![(start as usize + i + 1).to_string(), text])
                     .collect(),
+                nulls: Vec::new(),
                 offset: start,
                 total,
             })
         }
-        // Scanned on demand — only the requested window crosses.
+        // Scanned on demand — only the requested window crosses, and only
+        // once. Through the sheet's `RecordWindow`, which is what makes a
+        // repeated read free: the grid resolves its page on *every frame* it
+        // is drawn, and going straight to `loader.fetch` re-ran the query each
+        // time — for a grouped result, the whole aggregation, sixty times a
+        // second. The window was already here and simply was not used.
         Source::Arrow(sheet) => {
             let total = sheet.total;
             let start = offset.min(total);
-            let batches = sheet
-                .loader
-                .fetch(Vec::new(), Some(start as usize), Some(capped as usize))
+            // Destructured so the window can be borrowed mutably while the
+            // loader beside it is borrowed shared.
+            let ArrowSheet {
+                loader,
+                window,
+                columns,
+                ..
+            } = &mut **sheet;
+            let (rows, nulls) = window
+                .cells(loader.as_ref(), start as usize, capped as usize)
                 .ok()?;
             Some(Page {
-                columns: sheet.columns.clone(),
-                rows: crate::file::to_dataset::batches_to_dataset(&batches)
-                    .map(|(_, rows)| rows)
-                    .unwrap_or_default(),
+                columns: columns.clone(),
+                rows,
+                nulls,
                 offset: start,
                 total,
             })

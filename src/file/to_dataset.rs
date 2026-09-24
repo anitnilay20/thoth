@@ -1,6 +1,6 @@
 //! Convert an open file into a tabular dataset for the data bus (#113) —
-//! so Thoth core (the file viewer) and every file-loader plugin (csv-loader,
-//! …) are producers too.
+//! so Thoth core (the file viewer) and every file-loader plugin are producers
+//! too.
 //!
 //! The conversion reads straight from a tab's live [`FileLoader`] as Arrow
 //! and formats the batches into strings. Because every format — native or
@@ -10,7 +10,7 @@
 //! [`records_to_dataset`] remains for callers that already hold JSON records
 //! (plugin data sources, chart studio) and never touch a file loader.
 
-use duckdb::arrow::array::RecordBatch;
+use duckdb::arrow::array::{Array, RecordBatch};
 use duckdb::arrow::datatypes::DataType;
 use duckdb::arrow::util::display::{ArrayFormatter, FormatOptions};
 use serde_json::Value;
@@ -175,9 +175,40 @@ fn type_hint_arrow(dt: &DataType) -> String {
         Date32 | Date64 => "date",
         Timestamp(_, _) => "timestamp",
         Time32(_) | Time64(_) => "time",
+        // A nested value is JSON to everything downstream: the grid draws it as
+        // a chip rather than a wall of braces, and the tree walks into it.
+        // Without this it reads as text and the formatted JSON fills the cell.
+        Struct(_)
+        | List(_)
+        | LargeList(_)
+        | ListView(_)
+        | LargeListView(_)
+        | FixedSizeList(_, _)
+        | Map(_, _)
+        | Union(_, _) => "json",
         _ => "",
     }
     .to_string()
+}
+
+/// Which cells of the first [`CAP`] rows were NULL, in the same shape as
+/// [`batches_to_dataset`]'s rows.
+///
+/// Arrow formats a NULL as the empty string, which is also a perfectly good
+/// value — so the mask is the only thing that can tell a field the record does
+/// not carry from one that carries `""`. Kept separate from the rows so export
+/// and the data bus, which want the empty string, are unaffected.
+pub fn batch_nulls(batches: &[RecordBatch]) -> Vec<Vec<bool>> {
+    let mut mask: Vec<Vec<bool>> = Vec::new();
+    for batch in batches.iter().filter(|b| b.num_rows() > 0) {
+        for row in 0..batch.num_rows() {
+            mask.push(batch.columns().iter().map(|c| c.is_null(row)).collect());
+            if mask.len() >= CAP {
+                return mask;
+            }
+        }
+    }
+    mask
 }
 
 #[cfg(test)]
@@ -254,8 +285,53 @@ mod tests {
     }
 
     #[test]
+    fn the_null_mask_separates_an_absent_field_from_an_empty_one() {
+        // Row 0's `b` is the empty string, row 1's is absent. Both format as
+        // "", so only the mask can tell the grid which is which.
+        let file = ndjson("{\"a\":1,\"b\":\"\"}\n{\"a\":2}\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let batches = db.fetch(Vec::new(), None, Some(CAP)).unwrap();
+
+        let (cols, rows) = batches_to_dataset(&batches).unwrap();
+        let b = cols.iter().position(|(n, _)| n == "b").unwrap();
+        assert_eq!(rows[0][b], "");
+        assert_eq!(rows[1][b], "");
+
+        let nulls = batch_nulls(&batches);
+        assert!(!nulls[0][b], "an empty string is a value");
+        assert!(nulls[1][b], "a field the record does not carry is absent");
+    }
+
+    #[test]
+    fn the_null_mask_matches_the_rows_it_describes() {
+        // Spanning several Arrow batches, so a per-batch mask that forgot to
+        // accumulate would be caught.
+        let lines: String = (0..5000).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        let file = ndjson(&lines);
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let batches = db.fetch(Vec::new(), None, Some(CAP)).unwrap();
+
+        let (cols, rows) = batches_to_dataset(&batches).unwrap();
+        let nulls = batch_nulls(&batches);
+        assert_eq!(nulls.len(), rows.len());
+        assert!(nulls.iter().all(|r| r.len() == cols.len()));
+    }
+
+    #[test]
+    fn a_nested_value_is_typed_as_json() {
+        // Without this the grid reads a struct as text and renders the whole
+        // formatted object into one 22px cell.
+        let file = ndjson("{\"a\":1,\"t\":{\"id\":\"x\",\"ok\":true}}\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+
+        let (cols, _) = loader_to_dataset(&db).unwrap();
+        let t = cols.iter().find(|(n, _)| n == "t").expect("column present");
+        assert_eq!(t.1, "json");
+    }
+
+    #[test]
     fn object_rows_union_keys() {
-        // The csv-loader shape: each record is an object (one CSV row).
+        // A file-loader plugin's shape: each record is an object (one row).
         let recs = vec![
             json!({ "name": "ada", "age": 36 }),
             json!({ "name": "linus", "city": "helsinki" }),

@@ -667,7 +667,7 @@ impl QueryBuilder {
                                     .color(ButtonColor::Primary)
                                     .enabled(runnable)
                                     .hover_text(if runnable {
-                                        format!("Run the query ({}↵)", modifier())
+                                        format!("Run the query ({}{})", modifier(), return_key())
                                     } else {
                                         "Finish the query before running it".to_string()
                                     })
@@ -1020,13 +1020,26 @@ fn caret(open: bool) -> &'static str {
     }
 }
 
-/// The platform's command-key label, for the shortcut chips.
+/// The platform's command-key mark, for the shortcut chips.
+///
+/// Phosphor, not the Unicode `⌘`: whether a plain-text symbol has a glyph
+/// depends on the fonts the machine happens to carry, and the one that had no
+/// glyph rendered as an empty box in the middle of a tooltip. Phosphor ships
+/// with the app, so every mark is there on every machine.
 fn modifier() -> &'static str {
     if cfg!(target_os = "macos") {
-        "⌘"
+        egui_phosphor::regular::COMMAND
     } else {
         "Ctrl+"
     }
+}
+
+/// The Return key's mark, for the same reason.
+///
+/// The bare elbow arrow, not Phosphor's `key-return`: that one draws the whole
+/// key cap, and at chip size the box closes up into a smudge.
+fn return_key() -> &'static str {
+    egui_phosphor::regular::ARROW_ELBOW_DOWN_LEFT
 }
 
 /// Whether a column holds numbers, which is what `sum` and `avg` need.
@@ -1075,11 +1088,7 @@ mod tests {
         // The host registers the icon font; a bare test context has none, and
         // every button in the builder carries a glyph.
         let mut fonts = egui::FontDefinitions::default();
-        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-        fonts.families.insert(
-            egui::FontFamily::Name("phosphor".into()),
-            vec!["phosphor".into()],
-        );
+        crate::theme::register_phosphor(&mut fonts);
         ctx.set_fonts(fonts);
         let mut f = Some(f);
         let mut out = None;

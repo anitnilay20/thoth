@@ -1917,16 +1917,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "csv-loader"
-version = "0.1.0"
-dependencies = [
- "csv",
- "serde_json",
- "thoth-plugin-sdk",
- "wit-bindgen-rt",
-]
-
-[[package]]
 name = "ctutils"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

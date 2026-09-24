@@ -2244,8 +2244,8 @@ impl ThothApp {
                     });
                 }
                 // Core producer: any open file tab. This includes files loaded
-                // by a file-loader plugin (csv-loader, …), because the tab's
-                // live loader exposes records uniformly.
+                // by a file-loader plugin, because the tab's live loader
+                // exposes records uniformly.
                 if let Some(path) = tab.file_path.as_ref() {
                     let label = path
                         .file_name()
@@ -2925,6 +2925,7 @@ pub fn resolve_dataset_for_view(
             })
             .collect(),
         rows: page.rows,
+        nulls: page.nulls,
         total: page.total,
     })
 }

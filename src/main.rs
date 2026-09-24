@@ -167,11 +167,7 @@ fn main() -> Result<()> {
             // Initialize Phosphor icon fonts and register the named family so
             // FontFamily::Name("phosphor") is available from the very first frame.
             let mut fonts = egui::FontDefinitions::default();
-            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-            fonts.families.insert(
-                egui::FontFamily::Name("phosphor".into()),
-                vec!["phosphor".into()],
-            );
+            thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
             cc.egui_ctx.set_fonts(fonts);
 
             // Register egui's image loaders so components can decode embedded

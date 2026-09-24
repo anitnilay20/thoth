@@ -21,6 +21,13 @@ use serde_json::Value;
 use crate::error::Result;
 use crate::file::loaders::FileLoader;
 
+/// A window's rows as the dataset layer wants them: string cells, plus the
+/// mask saying which the source had no value for.
+///
+/// Named because it is the return of [`RecordWindow::cells`] as well as the
+/// field behind it, and the pair travels together everywhere.
+pub type Cells = (Vec<Vec<String>>, Vec<Vec<bool>>);
+
 /// Rows fetched per window. Large enough that a screenful of a table never
 /// spans more than one query, small enough to stay cheap on a huge file.
 pub const WINDOW_ROWS: usize = 2048;
@@ -79,10 +86,26 @@ pub struct RecordWindow {
     /// Only [`RecordWindow::records`] populates this, so callers that walk
     /// Arrow directly never pay for it.
     values: Option<Vec<Value>>,
+    /// The window's rows as dataset cells and their null mask, on the same
+    /// terms: converted at most once per fetch, and only for callers that ask.
+    ///
+    /// The grid reads this on every frame it draws. Formatting a window of
+    /// rows into strings each time is the same waste as re-running the query
+    /// each time — less of it, but the same kind.
+    cells: Option<Cells>,
     /// Absolute row index of the first row held.
     start: usize,
     /// Rows actually held (may be short at end-of-file).
     len: usize,
+    /// The last fetch came back short, so the window runs to the end of the
+    /// relation and there is nothing beyond it to fetch.
+    ///
+    /// Without this a request for more rows than the relation *has* can never
+    /// be satisfied: a 7-row grouped result asked for 1,000 rows fails
+    /// `holds` every time and refetches on every call — which, for a grid
+    /// that reads once a frame, means re-running the query sixty times a
+    /// second forever.
+    at_end: bool,
     /// Rows requested per fetch.
     window: usize,
 }
@@ -98,8 +121,10 @@ impl RecordWindow {
         Self {
             batches: Vec::new(),
             values: None,
+            cells: None,
             start: 0,
             len: 0,
+            at_end: false,
             window: window.max(1),
         }
     }
@@ -108,13 +133,20 @@ impl RecordWindow {
     pub fn invalidate(&mut self) {
         self.batches.clear();
         self.values = None;
+        self.cells = None;
         self.start = 0;
         self.len = 0;
+        self.at_end = false;
     }
 
     /// Whether `[start, start + count)` is already loaded.
     fn holds(&self, start: usize, count: usize) -> bool {
-        self.len > 0 && start >= self.start && start + count <= self.start + self.len
+        if self.len == 0 || start < self.start {
+            return false;
+        }
+        // Either the window covers the whole request, or it already reaches
+        // the end of the relation and so covers everything there is.
+        start + count <= self.start + self.len || (self.at_end && start <= self.start + self.len)
     }
 
     /// Ensure `[start, start + count)` is loaded, fetching if needed.
@@ -131,8 +163,11 @@ impl RecordWindow {
             let span = count.max(self.window);
             let batches = loader.fetch(Vec::new(), Some(start), Some(span))?;
             self.len = batch_rows(&batches);
+            // Fewer rows back than asked for means there are no more.
+            self.at_end = self.len < span;
             self.batches = batches;
             self.values = None; // stale for the new window
+            self.cells = None;
             self.start = start;
         }
         Ok(&self.batches)
@@ -162,6 +197,34 @@ impl RecordWindow {
             .as_ref()
             .map(|values| values.iter().skip(offset).take(count).cloned().collect())
             .unwrap_or_default())
+    }
+
+    /// Rows `[start, start + count)` as dataset cells, with the null mask that
+    /// says which of them the source had no value for.
+    ///
+    /// Fetches only when the window does not already cover the range, and
+    /// formats the window once rather than once per call — which is what the
+    /// grid needs, since it reads this every frame it is on screen.
+    pub fn cells(&mut self, loader: &dyn FileLoader, start: usize, count: usize) -> Result<Cells> {
+        if count == 0 {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        self.ensure(loader, start, count)?;
+        if self.cells.is_none() {
+            let rows = crate::file::to_dataset::batches_to_dataset(&self.batches)
+                .map(|(_, rows)| rows)
+                .unwrap_or_default();
+            let nulls = crate::file::to_dataset::batch_nulls(&self.batches);
+            self.cells = Some((rows, nulls));
+        }
+        // The window may hold more than was asked for, and starts at its own
+        // absolute row — so the request is a slice of it, not the whole thing.
+        let offset = start.saturating_sub(self.start);
+        let (rows, nulls) = self.cells.as_ref().expect("just populated");
+        Ok((
+            rows.iter().skip(offset).take(count).cloned().collect(),
+            nulls.iter().skip(offset).take(count).cloned().collect(),
+        ))
     }
 
     /// A single row as JSON.
@@ -302,6 +365,70 @@ mod tests {
             1,
             "the whole file fits one window, so it must be fetched once"
         );
+    }
+
+    #[test]
+    fn a_short_relation_is_not_refetched_on_every_read() {
+        // The grid resolves its page once per frame. A relation with fewer
+        // rows than the page size — a grouped result, most of all — could
+        // never satisfy `holds`, so every read refetched and a `GROUP BY`
+        // re-ran sixty times a second.
+        let file = ndjson("{\"n\":0}\n{\"n\":1}\n{\"n\":2}\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let counting = CountingLoader {
+            inner: &db,
+            fetches: std::cell::Cell::new(0),
+        };
+
+        let mut window = RecordWindow::default();
+        for _ in 0..60 {
+            let (rows, _) = window.cells(&counting, 0, 1000).unwrap();
+            assert_eq!(rows.len(), 3, "the whole relation, every time");
+        }
+        assert_eq!(
+            counting.fetches.get(),
+            1,
+            "sixty reads should cost one query"
+        );
+    }
+
+    #[test]
+    fn the_conversion_is_done_once_per_window_too() {
+        // Formatting the window into strings on every frame is the same waste
+        // as re-running the query, just less of it.
+        let lines: String = (0..500).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        let file = ndjson(&lines);
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let counting = CountingLoader {
+            inner: &db,
+            fetches: std::cell::Cell::new(0),
+        };
+
+        let mut window = RecordWindow::new(64);
+        let (first, _) = window.cells(&counting, 0, 32).unwrap();
+        let (again, _) = window.cells(&counting, 0, 32).unwrap();
+        assert_eq!(first, again);
+        assert_eq!(counting.fetches.get(), 1);
+
+        // A range outside the window is a genuine miss, and refetches once.
+        let _ = window.cells(&counting, 400, 10).unwrap();
+        assert_eq!(counting.fetches.get(), 2);
+    }
+
+    #[test]
+    fn cells_slices_the_window_to_what_was_asked_for() {
+        // `ensure` may hold more rows than the request; handing the caller the
+        // whole window would silently widen every page.
+        let lines: String = (0..100).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        let file = ndjson(&lines);
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+
+        let mut window = RecordWindow::default();
+        let (rows, nulls) = window.cells(&db, 10, 5).unwrap();
+        assert_eq!(rows.len(), 5);
+        assert_eq!(nulls.len(), 5);
+        assert_eq!(rows[0][0], "10", "the slice starts where it was asked to");
+        assert_eq!(rows[4][0], "14");
     }
 
     #[test]

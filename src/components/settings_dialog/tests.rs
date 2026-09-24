@@ -13,11 +13,7 @@ where
 {
     let ctx = egui::Context::default();
     let mut fonts = egui::FontDefinitions::default();
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    fonts.families.insert(
-        egui::FontFamily::Name("phosphor".into()),
-        vec!["phosphor".into()],
-    );
+    thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
     ctx.set_fonts(fonts);
     let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
         egui::CentralPanel::default().show_inside(ctx, &mut f);

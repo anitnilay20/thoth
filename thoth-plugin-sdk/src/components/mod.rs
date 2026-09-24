@@ -41,6 +41,7 @@ mod slider;
 mod spinner;
 mod table_view;
 mod tabs;
+mod text_view;
 mod toggle_switch;
 mod typography;
 
@@ -58,7 +59,7 @@ pub use context_menu::{ContextMenu, ContextMenuItem};
 #[cfg(feature = "egui")]
 pub use data_row::DataRowOutput;
 pub use data_row::{DataRow, DataRowIcon, RowHighlights};
-pub use data_view::DataView;
+pub use data_view::{DataTable, DataView};
 pub use icon::Icon;
 pub use icon_button::{IconButton, IconButtonSelectedStyle};
 pub use input::Input;
@@ -95,5 +96,6 @@ pub use slider::Slider;
 pub use spinner::Spinner;
 pub use table_view::{ColumnType, TableView};
 pub use tabs::{TabAction, Tabs};
+pub use text_view::TextView;
 pub use toggle_switch::ToggleSwitch;
 pub use typography::{Typography, TypographyVariant};

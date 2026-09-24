@@ -23,8 +23,28 @@ pub struct DatasetPage {
     pub columns: Vec<DatasetColumn>,
     /// Row-major string cells (length ≤ `total`; the page may be capped).
     pub rows: Vec<Vec<String>>,
+    /// Which cells of [`rows`](DatasetPage::rows) were NULL, in the same shape.
+    ///
+    /// A NULL formats as the empty string, so without this a field the record
+    /// does not carry is indistinguishable from one that carries `""` — and
+    /// with mixed record shapes in one file, that difference is most of what
+    /// the grid is there to show. Empty (or short) means "not known", which
+    /// reads every cell as present: a source that cannot tell them apart says
+    /// nothing rather than guessing.
+    pub nulls: Vec<Vec<bool>>,
     /// Total rows available (the page may be capped).
     pub total: u64,
+}
+
+impl DatasetPage {
+    /// Whether the cell at `row`/`col` was NULL in the source.
+    pub fn is_null(&self, row: usize, col: usize) -> bool {
+        self.nulls
+            .get(row)
+            .and_then(|r| r.get(col))
+            .copied()
+            .unwrap_or(false)
+    }
 }
 
 /// `(handle, row limit) -> page`. Installed by the host.
@@ -85,7 +105,14 @@ pub struct TreeNode {
     /// Formatted leaf text; empty for containers.
     pub preview: String,
     /// Syntax token for the value half of the row.
-    pub token: crate::theme::TextToken,
+    ///
+    /// Reached through `tokens`, where it is defined, rather than through
+    /// `theme`, which only re-exports it and is gated behind the `egui`
+    /// feature. A plugin builds this crate *without* that feature, so the
+    /// re-export path does not exist there — and naming it here failed every
+    /// plugin's build with an error about `theme` that had nothing to do with
+    /// theming.
+    pub token: crate::tokens::TextToken,
 }
 
 /// Lazy, node-at-a-time access to a dataset's records.
@@ -202,5 +229,42 @@ pub fn render_with_plugin(plugin_id: &str, handle: &str) -> PluginRenderResult {
     match PLUGIN_RENDERER.get() {
         Some(f) => f(plugin_id, handle),
         None => PluginRenderResult::Unavailable,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_page_with_no_mask_reads_every_cell_as_present() {
+        // A source that cannot tell a NULL from an empty string says nothing
+        // rather than guessing, and the grid draws values, not dashes.
+        let page = DatasetPage {
+            columns: vec![DatasetColumn {
+                name: "a".into(),
+                type_hint: "text".into(),
+            }],
+            rows: vec![vec![String::new()]],
+            nulls: Vec::new(),
+            total: 1,
+        };
+        assert!(!page.is_null(0, 0));
+        // Out of range is not a null either.
+        assert!(!page.is_null(9, 9));
+    }
+
+    #[test]
+    fn a_short_mask_only_speaks_for_the_cells_it_covers() {
+        let page = DatasetPage {
+            columns: Vec::new(),
+            rows: Vec::new(),
+            nulls: vec![vec![true, false]],
+            total: 1,
+        };
+        assert!(page.is_null(0, 0));
+        assert!(!page.is_null(0, 1));
+        assert!(!page.is_null(0, 2));
+        assert!(!page.is_null(1, 0));
     }
 }

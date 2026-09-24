@@ -3,6 +3,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 pub mod detect_file_type;
+pub mod extensions;
 pub mod index_cache;
 pub mod indexing;
 pub mod json_envelope;
@@ -22,6 +23,8 @@ pub enum FileType {
     Json,
     Csv,
     Parquet,
+    Excel,
+    Arrow,
     DB,
     Plugin,
     #[default]
@@ -62,10 +65,54 @@ impl FileType {
             Some("json") | Some("ndjson") | Some("jsonl") => FileType::Json,
             Some("csv") | Some("tsv") => FileType::Csv,
             Some("parquet") | Some("pq") => FileType::Parquet,
+            Some("xlsx") | Some("xlsm") => FileType::Excel,
+            Some("arrow") | Some("arrows") | Some("ipc") => FileType::Arrow,
             Some("db") | Some("duckdb") | Some("sqlite") | Some("sqlite3") => FileType::DB,
             Some("duckdb_extension") | Some("so") | Some("dll") | Some("dylib") => FileType::Plugin,
             _ => FileType::Unknown,
         }
+    }
+
+    /// Whether the engine reads this format itself.
+    ///
+    /// The engine is the better reader for everything it claims — lazy
+    /// scanning, real types, and SQL over the result — so a plugin never gets
+    /// a format from this list, even one that asks for it. Without that rule
+    /// a bundled loader silently shadows DuckDB: the CSV plugin declared
+    /// `file-viewer` for `.csv`, and every spreadsheet in the app went through
+    /// it instead, arriving with no query builder, no collections and no
+    /// chart.
+    ///
+    /// [`Unknown`](FileType::Unknown) is absent deliberately: the extension
+    /// has said nothing, so a plugin is asked only after the engine's own
+    /// readers have declined (see `DuckdbConnection::sniff_reader`).
+    pub fn is_native(&self) -> bool {
+        matches!(
+            self,
+            FileType::Json
+                | FileType::Csv
+                | FileType::Parquet
+                | FileType::Excel
+                | FileType::Arrow
+                | FileType::DB
+        )
+    }
+
+    /// Whether this path is a prose document rather than data.
+    ///
+    /// Markdown is the case that matters: DuckDB's CSV sniffer will read
+    /// almost any line-oriented text as a one-column table, and a README that
+    /// opens as a grid of its own lines is worse than no table at all. A
+    /// document is read as a document.
+    pub fn is_prose_document<P: AsRef<Path>>(path: P) -> bool {
+        matches!(
+            path.as_ref()
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("md" | "markdown" | "mdown" | "mkd")
+        )
     }
 
     /// Short label for UI / logs.
@@ -74,6 +121,8 @@ impl FileType {
             FileType::Json => "JSON",
             FileType::Csv => "CSV",
             FileType::Parquet => "Parquet",
+            FileType::Excel => "Excel",
+            FileType::Arrow => "Arrow",
             FileType::DB => "Database",
             FileType::Plugin => "Plugin",
             FileType::Unknown => "Unknown",

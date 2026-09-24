@@ -230,8 +230,6 @@ svg {
 
 .btn-text { color: var(--fg-muted); }
 .btn-text:hover { color: var(--fg); background: var(--surface); }
-.btn-primary-text { color: var(--accent); }
-.btn-primary-text:hover { color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent); }
 
 .icobtn {
   display: inline-grid; place-items: center;
@@ -313,7 +311,9 @@ svg {
   color: var(--fg);
 }
 .select:hover { background: var(--surface-raised); }
-.select .lbl { flex: 1; text-align: left; }
+.select[disabled] { opacity: 0.55; pointer-events: none; }
+.select .cnt { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 11px; color: var(--fg-muted); }
+.select .lbl { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .select .caret { color: var(--fg-muted); }
 
 /* Floating menu — the one place shadows are allowed */
@@ -341,6 +341,14 @@ svg {
 .menu button .tick { margin-left: auto; opacity: 0; }
 .menu button[aria-checked="true"] .tick { opacity: 1; }
 .menu .sep { height: 1px; margin: 4px 6px; background: var(--hairline); }
+
+.menu.tablemenu { min-width: 248px; max-height: 340px; overflow: auto; }
+.tablemenu .n {
+  margin-left: auto;
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 10.5px; color: var(--fg-muted);
+}
+.tablemenu button .tick { margin-left: 8px; }
 
 /* ── Body: sidebar rail + sidebar pane + main ────────────────────────────── */
 
@@ -449,9 +457,6 @@ svg {
   height: 2px; border-radius: 2px;
   background: var(--accent-2);
 }
-.tab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
-.tab .x { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; color: var(--fg-muted); }
-.tab .x:hover { background: var(--surface-raised); color: var(--fg); }
 
 /* ── Query builder ───────────────────────────────────────────────────────────
    Four lanes on a 4px grid: Filter, Group by, Compute, Sort. Each lane is a
@@ -675,7 +680,9 @@ svg {
   box-shadow: inset 0 1px 0 var(--hairline), inset 0 -1px 0 var(--hairline);
   flex: none;
 }
-.dvbar .viewsel { width: 136px; }
+/* Which table comes first and gets the room; how to draw it comes second. */
+.dvbar .tablesel { width: 212px; }
+.dvbar .viewsel { width: 124px; }
 .dvbar .exportsel { width: 92px; }
 .dvbar .rcount { font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted); }
 .dvbar .sp { flex: 1; }
@@ -785,6 +792,14 @@ mark.hit {
   user-select: text;
 }
 
+/* Stated once, above the grid, on the one view that has to compromise. */
+.tnote {
+  padding: 8px 12px;
+  box-shadow: inset 0 -1px 0 var(--hairline);
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--fg-muted);
+}
+
 /* Lazy-load sentinel */
 .loadmore {
   display: flex; align-items: center; gap: 8px;
@@ -828,7 +843,6 @@ mark.hit {
   display: grid; place-items: center;
   gap: 10px;
   background: color-mix(in oklab, var(--bg) 72%, transparent);
-  backdrop-filter: blur(1px);
 }
 .veil[hidden] { display: none; }
 .veil .txt { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-muted); }
@@ -849,17 +863,6 @@ mark.hit {
 .statusbar .sp { flex: 1; }
 .statusbar .sig .dot { color: var(--success); font-size: 9px; }
 .statusbar .sig.live .dot { color: var(--accent-2); }
-.statusbar .chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: var(--h-btn-sm);
-  padding: 0 8px;
-  border-radius: var(--r-chip);
-  background: var(--surface);
-  color: var(--fg);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-}
-.statusbar .chip[hidden] { display: none; }
-.statusbar .chip svg { color: var(--accent); }
 
 /* ── Query head — visible whether or not the builder is ─────────────────────
    Collapsed, this strip is the whole query: the lanes read back as words so
@@ -908,7 +911,7 @@ mark.hit {
   height: 100%;
 }
 .tl-bars .b i { display: block; width: 100%; }
-.tl-bars .b:hover i { filter: brightness(1.25); }
+.tl-bars .b:hover { box-shadow: inset 0 0 0 1px var(--hairline-strong); }
 .tl-bars .lv-error { background: var(--error); }
 .tl-bars .lv-warn  { background: var(--warning); }
 .tl-bars .lv-info  { background: var(--info); }
@@ -947,19 +950,59 @@ mark.hit {
 /* ── Field facets — the sidebar way to filter without typing ─────────────── */
 
 .facets { padding: 2px 0 12px; }
-.facet-h {
+/* Header is a row, not a button: the name folds the group, the pin makes the
+   field a column. One affordance each, no second panel. */
+.facet-h { display: flex; align-items: center; height: var(--row); }
+.facet-h:hover { background: var(--sidebar-hover); }
+.facet-t {
   display: flex; align-items: center; gap: 6px;
-  width: 100%; height: var(--row);
-  padding: 0 12px;
+  flex: 1; min-width: 0; height: 100%;
+  padding: 0 4px 0 12px;
   font: 600 10.5px/1 var(--font-display);
   letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--sidebar-header);
+  text-align: left;
 }
-.facet-h:hover { background: var(--sidebar-hover); color: var(--fg); }
-.facet-h .tw { color: var(--fg-muted); transition: transform 90ms ease; }
-.facet-h .n { margin-left: auto; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0; color: var(--fg-muted); }
-.facet[aria-expanded="false"] .facet-h .tw { transform: rotate(-90deg); }
+button.facet-t:hover { color: var(--fg); }
+.facet-t.static { cursor: default; }
+.facet-t .tw { flex: none; color: var(--fg-muted); transition: transform 90ms ease; }
+.facet-t .n {
+  margin-left: auto;
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0; color: var(--fg-muted);
+}
+.facet[aria-expanded="false"] .facet-t .tw { transform: rotate(-90deg); }
 .facet[aria-expanded="false"] .facet-vals { display: none; }
+
+.facet-pin {
+  flex: none;
+  width: 20px; height: 18px;
+  margin-right: 8px;
+  border-radius: 4px;
+  font: 400 12px/1 var(--font-mono);
+  color: var(--fg-muted);
+  opacity: 0;
+}
+.facet-pin.wide { width: auto; padding: 0 5px; font-size: 10px; }
+.facet-h:hover .facet-pin,
+.facet-pin[aria-pressed="true"] { opacity: 1; }
+.facet-pin:hover { background: var(--surface); color: var(--fg); }
+.facet-pin[aria-pressed="true"] { color: var(--accent-2); }
+
+/* Columns sits above the facet list and is separated from it. */
+.facet.cols {
+  padding-bottom: 4px; margin-bottom: 4px;
+  box-shadow: inset 0 -1px 0 var(--hairline);
+}
+
+.cols-hint {
+  padding: 0 12px 3px 31px;
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--fg-muted);
+}
+.fval.col { grid-template-columns: minmax(0, 1fr) auto; }
+.fval.col .x { font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted); }
+.fval.col:hover .x { color: var(--fg); }
 .facet + .facet { margin-top: 4px; }
 
 .fval {
@@ -1011,6 +1054,50 @@ mark.hit {
   color: var(--fg-muted);
 }
 .fstat b { color: var(--fg); font-weight: 400; }
+
+/* An absent field and an empty string are different facts. */
+.tv td.t-nil { color: var(--fg-muted); font-family: var(--font-mono); }
+
+.jchip {
+  display: inline-flex; align-items: center;
+  height: 17px; padding: 0 6px;
+  border-radius: var(--r-chip);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--fg-muted);
+}
+/* ── Chart view — bars for a grouped result ─────────────────────────────── */
+
+.chart { padding: 10px 14px 18px; }
+.chead {
+  padding-bottom: 8px;
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--fg-muted);
+}
+.crow {
+  display: grid;
+  grid-template-columns: minmax(96px, 210px) minmax(0, 1fr) 78px;
+  align-items: center; gap: 12px;
+  height: var(--row);
+}
+.crow:hover { background: var(--sidebar-hover); }
+.clabel {
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cbar { height: 9px; border-radius: 2px; background: var(--surface); overflow: hidden; }
+.cbar i {
+  display: block; height: 100%; width: var(--p, 0%);
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--accent-2) 52%, transparent);
+}
+.cval {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: 11.5px; color: var(--fg-muted);
+  text-align: right;
+}
 
 /* ── Record drawer — one record read in full, beside the table ───────────── */
 

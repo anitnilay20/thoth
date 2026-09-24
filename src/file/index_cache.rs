@@ -137,11 +137,10 @@ pub fn database_path(path: &Path) -> Result<PathBuf> {
 pub fn cache_dir() -> Result<PathBuf> {
     let dir = match std::env::var_os(CACHE_DIR_ENV) {
         Some(dir) => PathBuf::from(dir),
-        None => dirs::config_dir()
+        None => crate::config_dir::config_root()
             .ok_or_else(|| ThothError::StateError {
                 reason: "failed to locate config directory".to_string(),
             })?
-            .join("thoth")
             .join("data")
             .join("index"),
     };

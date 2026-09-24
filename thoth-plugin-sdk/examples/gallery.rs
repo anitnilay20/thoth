@@ -17,7 +17,7 @@ use thoth_plugin_sdk::components::{
     Input, JsonTree, KeyValueList, KvEntry, Link, List, ListItem, ListItemAction, ListItemBadge,
     Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row, Select, SelectOption,
     Separator, SidebarHeader, SidebarHeaderAction, Size, Slider, Spinner, TableView, Tabs,
-    ToggleSwitch, Typography, TypographyVariant,
+    TextView, ToggleSwitch, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 use thoth_plugin_sdk::theme::{THEME_MEMORY_ID, TextToken, ThemeColors};
@@ -41,11 +41,7 @@ fn main() -> eframe::Result<()> {
 /// the Thoth host does so `phosphor_font_id` resolves.
 fn register_phosphor(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    fonts.families.insert(
-        egui::FontFamily::Name("phosphor".into()),
-        vec!["phosphor".into()],
-    );
+    thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
     ctx.set_fonts(fonts);
 }
 
@@ -77,6 +73,7 @@ enum Story {
     KeyValueList,
     Code,
     Markdown,
+    TextView,
     CodeEditor,
     List,
     Tabs,
@@ -112,6 +109,7 @@ const STORIES: &[(Story, &str)] = &[
     (Story::KeyValueList, "Key-Value List"),
     (Story::Code, "Code"),
     (Story::Markdown, "Markdown"),
+    (Story::TextView, "Text View"),
     (Story::CodeEditor, "Code Editor"),
     (Story::List, "List"),
     (Story::Tabs, "Tabs"),
@@ -144,6 +142,8 @@ struct Gallery {
     // Stateful widgets owning their own value.
     input: Input,
     select: Select,
+    /// Which table the searchable picker is pointed at.
+    table: String,
     toggled: bool,
     row_selected: bool,
     last_header_action: Option<usize>,
@@ -182,6 +182,7 @@ impl Default for Gallery {
                 .placeholder("Type something…")
                 .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
                 .build(),
+            table: "events".to_string(),
             select: Select::builder()
                 .id("gallery-select")
                 .value("name")
@@ -343,6 +344,7 @@ impl eframe::App for Gallery {
                 Story::KeyValueList => self.key_value_list_story(ui),
                 Story::Code => self.code_story(ui),
                 Story::Markdown => self.markdown_story(ui),
+                Story::TextView => self.text_view_story(ui),
                 Story::CodeEditor => self.code_editor_story(ui),
                 Story::List => self.list_story(ui),
                 Story::Tabs => self.tabs_story(ui),
@@ -607,6 +609,68 @@ impl Gallery {
         }
         ui.add_space(8.0);
         ui.label(format!("value: {}", self.select.value));
+
+        // The table-picker shape: a searchable menu, wider than its trigger,
+        // with a figure beside each name and beside the chosen one.
+        ui.add_space(20.0);
+        ui.label("Searchable, with counts (the DataView table picker)");
+        ui.add_space(8.0);
+        let table = |value: &str, n: &str| {
+            SelectOption::builder()
+                .value(value)
+                .label(value)
+                .detail(n)
+                .build()
+        };
+        if let Some(v) = Select::builder()
+            .id("gallery-select-tables")
+            .value(self.table.clone())
+            .options(vec![
+                table("events", "4,812"),
+                table("line_items", "18,204"),
+                table("customers", "912"),
+                table("shipments", "1.4 MB"),
+                table("settings", "220 B · object"),
+            ])
+            .icon(egui_phosphor::regular::TABLE)
+            .count(self.table_count())
+            .width(212.0)
+            .menu_width(248.0)
+            .menu_max_height(340.0)
+            .searchable(true)
+            .build()
+            .show(ui)
+            .inner
+            .selected
+        {
+            self.table = v;
+        }
+
+        ui.add_space(20.0);
+        ui.label("Disabled — one table is not a choice, but it is worth naming");
+        ui.add_space(8.0);
+        Select::builder()
+            .id("gallery-select-disabled")
+            .value("events")
+            .options(vec![table("events", "4,812")])
+            .icon(egui_phosphor::regular::TABLE)
+            .count("4,812")
+            .width(212.0)
+            .disabled(true)
+            .build()
+            .show(ui);
+    }
+
+    /// The figure beside the selected table's name in the trigger.
+    fn table_count(&self) -> String {
+        match self.table.as_str() {
+            "line_items" => "18,204",
+            "customers" => "912",
+            "shipments" => "1.4 MB",
+            "settings" => "220 B · object",
+            _ => "4,812",
+        }
+        .to_string()
     }
 
     fn toggle_story(&mut self, ui: &mut egui::Ui) {
@@ -927,6 +991,24 @@ impl Gallery {
         ui.add_space(8.0);
         Markdown::builder()
             .value("# Heading\n\nSome **bold** and _italic_ text, a `code` span, and:\n\n- a list\n- of items\n")
+            .build()
+            .show(ui);
+    }
+
+    fn text_view_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Text View");
+        ui.add_space(4.0);
+        ui.label("A document as itself — no picker, no format switcher, no Export.");
+        ui.add_space(8.0);
+        TextView::builder()
+            .id("gallery-text")
+            .value(
+                "2026-09-20 09:04:11  starting worker\n\
+                 2026-09-20 09:04:52  shard-02 ready\n\
+                 2026-09-20 09:05:03  ingest.retry attempt=2\n\
+                 2026-09-20 09:05:44  all done\n",
+            )
+            .caption("first 4 of 402,118 lines")
             .build()
             .show(ui);
     }

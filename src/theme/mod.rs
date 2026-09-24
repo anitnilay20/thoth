@@ -429,14 +429,9 @@ pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
 
     let mut fonts = egui::FontDefinitions::default();
 
-    // Register Phosphor first so its font data is available, then expose it as
-    // a dedicated named family. Icon widgets use FontFamily::Name("phosphor")
-    // directly instead of relying on fallback order in Proportional.
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    fonts.families.insert(
-        egui::FontFamily::Name("phosphor".into()),
-        vec!["phosphor".into()],
-    );
+    // Icons first: the named family and both fallback chains, so a glyph is
+    // drawable wherever it lands.
+    thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
 
     if let Some(family) = &settings.font_family
         && let Some(bytes) = crate::platform::find_font_bytes(family)

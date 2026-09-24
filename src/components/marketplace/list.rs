@@ -176,6 +176,16 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
             label: "Updates".to_string(),
             count: updates_count,
         },
+        // DuckDB's optional file readers. A fixed category rather than one
+        // derived from the manifest: they are not plugins and do not come from
+        // it, but this is where a user looks for "what else can this open?" —
+        // and fetching one ahead of meeting the file is the whole point.
+        CatDef {
+            id: READERS_CATEGORY.to_string(),
+            glyph: egui_phosphor::regular::FILE_MAGNIFYING_GLASS,
+            label: "File readers".to_string(),
+            count: crate::file::extensions::catalog().len(),
+        },
     ];
 
     // Dynamic category entries from plugin categories
@@ -263,6 +273,14 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
 
     // `.mk-plugs{border-top:1px solid …}`
     ui.add(Separator::plain());
+
+    // ── File readers ───────────────────────────────────────────────────────
+    // Their own list: an extension has no author, version, icon or update, so
+    // it would be four empty columns in the plugin row shape.
+    if state.selected_category == READERS_CATEGORY {
+        render_readers(ui, state, colors);
+        return;
+    }
 
     // ── Plugin list ────────────────────────────────────────────────────────
     if state.loading {
@@ -486,6 +504,102 @@ pub(super) fn render(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: 
     }
 }
 
+/// The category id for DuckDB's optional file readers.
+pub(super) const READERS_CATEGORY: &str = "readers";
+
+/// List DuckDB's optional readers, with the state each is actually in.
+///
+/// Installed is terminal here. DuckDB has no `UNINSTALL`, and deleting the
+/// file out from under a running engine is not something to offer behind a
+/// one-click button — so a reader that is present says so and stops.
+fn render_readers(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: &ThemeColors) {
+    use crate::file::extensions;
+
+    state.poll_extension_installs();
+
+    let probe = duckdb::Connection::open_in_memory().ok();
+    let query = state.search_query.to_lowercase();
+
+    struct Reader {
+        extension: extensions::Extension,
+        installed: bool,
+        installing: bool,
+        error: Option<String>,
+    }
+
+    let readers: Vec<Reader> = extensions::catalog()
+        .into_iter()
+        .filter(|e| {
+            query.is_empty()
+                || e.name.to_lowercase().contains(&query)
+                || e.unlocks.to_lowercase().contains(&query)
+        })
+        .map(|extension| Reader {
+            installed: probe
+                .as_ref()
+                .is_some_and(|c| extensions::is_installed(c, &extension.name)),
+            installing: state.extension_jobs.contains_key(&extension.name),
+            error: state.extension_errors.get(&extension.name).cloned(),
+            extension,
+        })
+        .collect();
+
+    let items: Vec<ListItem> = readers
+        .iter()
+        .map(|r| {
+            let postfix = if r.installing {
+                Some(ListItemPostfix::Text {
+                    text: "Downloading…".to_string(),
+                    color: Some(color_to_hex(colors.fg_muted)),
+                    mono: false,
+                })
+            } else if r.installed {
+                Some(ListItemPostfix::Text {
+                    text: "Installed".to_string(),
+                    color: Some(color_to_hex(colors.success)),
+                    mono: false,
+                })
+            } else {
+                Some(ListItemPostfix::Button(
+                    Button::builder()
+                        .label("Install")
+                        .color(ButtonColor::Primary)
+                        .button_size(ButtonSize::Small)
+                        .build(),
+                ))
+            };
+            // The size is part of the offer, not decoration: a reader is a
+            // download, and how big it is belongs next to the button for it.
+            let description = match &r.error {
+                Some(message) => format!("{} · could not install: {message}", r.extension.unlocks),
+                None => format!("{} · {}", r.extension.unlocks, r.extension.size),
+            };
+            ListItem::builder()
+                .title(r.extension.name.clone())
+                .description(description)
+                .prefix(ListItemPrefix::Icon {
+                    glyph: egui_phosphor::regular::FILE_MAGNIFYING_GLASS.to_string(),
+                    color: Some(color_to_hex(colors.fg_muted)),
+                })
+                .maybe_postfix(postfix)
+                .build()
+        })
+        .collect();
+
+    if let Some(ListEvent::ItemClicked(idx)) = List::builder()
+        .items(items)
+        .style(ListStyle::Flush)
+        .shrink_to_fit(true)
+        .build()
+        .show(ui)
+        && let Some(reader) = readers.get(idx)
+        && !reader.installed
+        && !reader.installing
+    {
+        state.install_extension(reader.extension.clone());
+    }
+}
+
 pub(super) fn count_filtered(state: &MarketplaceUiState) -> usize {
     let query = state.search_query.to_lowercase();
     state
@@ -509,4 +623,27 @@ pub(super) fn count_filtered(state: &MarketplaceUiState) -> usize {
                     || p.author.to_lowercase().contains(&query))
         })
         .count()
+}
+
+#[cfg(test)]
+mod reader_tests {
+    use super::*;
+
+    #[test]
+    fn the_readers_category_is_its_own() {
+        // It must not collide with a category a plugin could declare in the
+        // manifest, or the two lists would fight over the same selection.
+        assert_eq!(READERS_CATEGORY, "readers");
+        for fixed in ["all", "installed", "updates"] {
+            assert_ne!(READERS_CATEGORY, fixed);
+        }
+    }
+
+    #[test]
+    fn with_no_reader_plugin_installed_the_list_is_empty() {
+        // The catalog comes from installed plugins now, so "none installed"
+        // has to be an ordinary empty list rather than a panic or a stale
+        // hardcoded set.
+        assert!(crate::file::extensions::catalog().is_empty());
+    }
 }

@@ -16,14 +16,11 @@
 <!-- Icon sprite: monoline 16px marks, currentColor -->
 <svg width="0" height="0" aria-hidden="true" style="position:absolute">
   <defs>
-    <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2 14 14"/></symbol>
     <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 4.8V8l2.4 1.6"/></symbol>
     <symbol id="i-bookmark" viewBox="0 0 16 16"><path d="M4 2.6h8v11l-4-2.8-4 2.8z"/></symbol>
     <symbol id="i-plug" viewBox="0 0 16 16"><path d="M6 2v3M10 2v3M4 5h8v3a4 4 0 0 1-8 0zM8 12v2.2"/></symbol>
     <symbol id="i-db" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="4.8" ry="1.9"/><path d="M3.2 4v8c0 1.05 2.15 1.9 4.8 1.9s4.8-.85 4.8-1.9V4M3.2 8c0 1.05 2.15 1.9 4.8 1.9s4.8-.85 4.8-1.9"/></symbol>
     <symbol id="i-file" viewBox="0 0 16 16"><path d="M9 2H4.6v12h6.8V4.4z"/><path d="M9 2v2.4h2.4M6.4 8.6h3.2M6.4 11h3.2"/></symbol>
-    <symbol id="i-caret-left" viewBox="0 0 16 16"><path d="M9.8 4 6 8l3.8 4"/></symbol>
-    <symbol id="i-caret-right" viewBox="0 0 16 16"><path d="M6.2 4 10 8l-3.8 4"/></symbol>
     <symbol id="i-caret-down" viewBox="0 0 16 16"><path d="M4 6.4 8 10l4-3.6"/></symbol>
     <symbol id="i-table" viewBox="0 0 16 16"><rect x="2.4" y="3" width="11.2" height="10" rx="1.2"/><path d="M2.4 6.4h11.2M6.6 6.4V13M10.4 6.4V13"/></symbol>
     <symbol id="i-braces" viewBox="0 0 16 16"><path d="M6.4 2.6c-1.5 0-1.6 1.1-1.6 2.6S4.4 8 3.2 8c1.2 0 1.6.7 1.6 2.8s.1 2.6 1.6 2.6"/><path d="M9.6 2.6c1.5 0 1.6 1.1 1.6 2.6S11.6 8 12.8 8c-1.2 0-1.6.7-1.6 2.8s-.1 2.6-1.6 2.6"/></symbol>
@@ -54,7 +51,7 @@
     </div>
     <div class="doc mono"><b>events.ndjson</b> — ~/data/telemetry</div>
     <div class="sp"></div>
-    <button class="icobtn" id="themeBtn" data-od-id="theme-picker" title="Theme (⌘K ⌘T)" aria-haspopup="true" aria-expanded="false">
+    <button class="icobtn" id="themeBtn" data-od-id="theme-picker" title="Theme" aria-haspopup="true" aria-expanded="false">
       <svg width="16" height="16"><use href="#i-moon" id="themeIcon"/></svg>
     </button>
     <div class="menu" id="themeMenu" hidden role="menu" style="right:12px;top:42px">
@@ -98,7 +95,6 @@
     <!-- Sidebar pane -->
     <aside class="sidebar pane" data-od-id="sidebar" aria-label="Recent files">
       <div class="sidehead"><span id="sideTitle">Recent files</span><div class="sp"></div>
-        <button class="icobtn sm" title="Clear list"><svg width="14" height="14"><use href="#i-x"/></svg></button>
       </div>
       <div class="sidebody" id="sideBody">
         <div class="sgroup"><h3>Today</h3></div>
@@ -137,15 +133,6 @@
       <div class="tabstrip" role="tablist" data-od-id="tabstrip">
         <button class="tab" role="tab" aria-selected="true" data-od-id="tab-events">
           <svg width="14" height="14"><use href="#i-file"/></svg> events.ndjson
-          <span class="x" title="Close (⌘W)"><svg width="11" height="11"><use href="#i-x"/></svg></span>
-        </button>
-        <button class="tab" role="tab" aria-selected="false" data-od-id="tab-orders">
-          <svg width="14" height="14"><use href="#i-file"/></svg> orders.csv
-          <span class="x" title="Close (⌘W)"><svg width="11" height="11"><use href="#i-x"/></svg></span>
-        </button>
-        <button class="tab" role="tab" aria-selected="false" data-od-id="tab-spans">
-          <svg width="14" height="14"><use href="#i-file"/></svg> spans.ndjson <span class="dot" title="Unsaved filter"></span>
-          <span class="x" title="Close (⌘W)"><svg width="11" height="11"><use href="#i-x"/></svg></span>
         </button>
       </div>
 
@@ -165,7 +152,7 @@
         </div>
 
         <div class="qb-body" id="qbBody">
-        <div class="qb-lanes" id="qbLanes">
+        <div id="qbLanes">
 
           <div class="lane" data-od-id="lane-filter">
             <div class="lane-l">
@@ -251,12 +238,21 @@
       <!-- DataView node — host-owned dataset rendered as table / JSON / raw -->
       <section class="dataview" id="dataview" data-od-id="data-view">
         <div class="dvbar" id="dvbar" data-od-id="dv-bar">
+          <!-- Which table. The first question the pane has to answer. -->
+          <button class="select tablesel" id="tableSel" aria-haspopup="true" aria-expanded="false" data-od-id="dv-table-select">
+            <svg width="15" height="15"><use href="#i-table"/></svg>
+            <span class="lbl" id="tableLbl">All records</span>
+            <span class="cnt" id="tableCnt"></span>
+            <svg class="caret" width="14" height="14"><use href="#i-caret-down"/></svg>
+          </button>
+          <div class="menu tablemenu" id="tableMenu" hidden role="menu" style="left:12px;top:46px"></div>
+
           <button class="select viewsel" id="viewSel" aria-haspopup="true" aria-expanded="false" data-od-id="dv-view-select">
             <svg width="15" height="15"><use href="#i-table" id="viewIcon"/></svg>
             <span class="lbl" id="viewLbl">Table</span>
             <svg class="caret" width="14" height="14"><use href="#i-caret-down"/></svg>
           </button>
-          <div class="menu" id="viewMenu" hidden role="menu" style="left:12px;top:46px">
+          <div class="menu" id="viewMenu" hidden role="menu" style="left:232px;top:46px">
             <button role="menuitemradio" data-view="table" aria-checked="true">
               <svg width="15" height="15"><use href="#i-table"/></svg> Table
               <svg class="tick" width="15" height="15"><use href="#i-check"/></svg>
@@ -269,9 +265,8 @@
               <svg width="15" height="15"><use href="#i-code"/></svg> Raw
               <svg class="tick" width="15" height="15"><use href="#i-check"/></svg>
             </button>
-            <div class="sep"></div>
-            <button role="menuitemradio" data-view="plugin:card-view" aria-checked="false">
-              <svg width="15" height="15"><use href="#i-plug"/></svg> Card view
+            <button role="menuitemradio" data-view="chart" aria-checked="false">
+              <svg width="15" height="15"><use href="#i-chart"/></svg> Chart
               <svg class="tick" width="15" height="15"><use href="#i-check"/></svg>
             </button>
           </div>
@@ -291,9 +286,6 @@
               <button data-export="json"><svg width="15" height="15"><use href="#i-download"/></svg> JSON (.json)</button>
               <button data-export="ndjson"><svg width="15" height="15"><use href="#i-download"/></svg> NDJSON (.ndjson)</button>
             </div>
-            <button class="btn btn-primary-text" id="chartsBtn" title="Open in Chart Studio" data-od-id="dv-charts">
-              <svg width="15" height="15"><use href="#i-chart"/></svg> Charts
-            </button>
           </div>
         </div>
 
@@ -329,8 +321,7 @@
     <span class="item" id="stItems"><svg width="13" height="13"><use href="#i-list"/></svg> <span class="v">4,812</span> items</span>
     <span class="item"><svg width="13" height="13"><use href="#i-db"/></svg> Ndjson</span>
     <span class="sp"></span>
-    <span class="chip" id="stChart" hidden><svg width="13" height="13"><use href="#i-chart"/></svg> Chart Studio · events.ndjson</span>
-    <span class="item sig" id="stSig"><span class="dot">●</span> duckdb <span class="v" id="stSigVal">ready</span></span>
+    <span class="item sig" id="stSig"><span class="dot">●</span> <span class="v" id="stSigVal">ready</span></span>
     <span class="item" id="stMode">Raw</span>
   </footer>
 </div>

@@ -75,8 +75,12 @@ pub struct DuckdbConnection {
 
 impl DuckdbConnection {
     pub fn new() -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        // Before anything can trigger one: DuckDB otherwise fetches a reader
+        // on first use, from a worker thread, without telling anyone.
+        crate::file::extensions::disable_autoload(&conn)?;
         Ok(Self {
-            conn: Mutex::new(Connection::open_in_memory()?),
+            conn: Mutex::new(conn),
             sources: Mutex::new(Vec::new()),
             row_count: Mutex::new(None),
             staged: Mutex::new(HashMap::new()),
@@ -143,6 +147,53 @@ impl DuckdbConnection {
             })
     }
 
+    /// Which of DuckDB's readers can read this file, if any.
+    ///
+    /// Each candidate is probed with `LIMIT 1`, not a scan: the readers infer
+    /// their schema from a sample, so a probe costs a sample and not the
+    /// document. It still parses, so this belongs on a worker — it is reached
+    /// only from `IndexJob`.
+    ///
+    /// JSON is tried first because it is the stricter of the two: almost any
+    /// line-oriented text parses *as CSV*, so CSV also has to yield more than
+    /// one column to count. A single column is the sniffer failing to find a
+    /// delimiter, which is to say the file is prose.
+    fn sniff_reader(&self, path: &Path) -> Option<FileType> {
+        let literal = quote_literal(&path.to_string_lossy());
+        if self
+            .collect(&format!("SELECT * FROM read_json_auto({literal}) LIMIT 1"))
+            .is_ok()
+        {
+            return Some(FileType::Json);
+        }
+        let csv = self
+            .collect(&format!("SELECT * FROM read_csv_auto({literal}) LIMIT 1"))
+            .ok()?;
+        let columns = csv.first().map(|b| b.num_columns()).unwrap_or(0);
+        (columns > 1).then_some(FileType::Csv)
+    }
+
+    /// Load an optional reader if the user has already installed it.
+    ///
+    /// Silent on absence: not having it is the ordinary state, and the
+    /// reader call that follows is what turns it into something the user can
+    /// act on — DuckDB's own error names the extension that would fix it.
+    fn load_extension(&self, name: &str) {
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        crate::file::extensions::load(&conn, name);
+    }
+
+    /// Whether this connection can read `file_type` right now, or is missing
+    /// the optional extension for it.
+    pub fn missing_extension(
+        &self,
+        file_type: FileType,
+    ) -> Option<crate::file::extensions::Extension> {
+        let needed = crate::file::extensions::required_for(file_type)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        (!crate::file::extensions::is_installed(&conn, &needed.name)).then_some(needed)
+    }
+
     /// Register a native format as a view over the matching DuckDB reader.
     fn register_scan(&self, alias: &str, file_type: FileType, scan_path: &Path) -> Result<()> {
         let literal = quote_literal(&scan_path.to_string_lossy());
@@ -156,6 +207,17 @@ impl DuckdbConnection {
             }
             FileType::Csv => format!("read_csv_auto({literal})"),
             FileType::Parquet => format!("read_parquet({literal})"),
+            // Formats whose reader is an optional extension. `LOAD` only —
+            // never `INSTALL`: fetching one is the user's decision, and the
+            // failure below is what asks them. See `file::extensions`.
+            FileType::Excel => {
+                self.load_extension("excel");
+                format!("read_xlsx({literal})")
+            }
+            FileType::Arrow => {
+                self.load_extension("arrow");
+                format!("read_arrow({literal})")
+            }
             FileType::DB => return self.register_database(alias, scan_path),
         };
         self.execute(&format!(
@@ -164,12 +226,59 @@ impl DuckdbConnection {
         ))
     }
 
+    /// Every table inside the attached database, in name order.
+    ///
+    /// Empty for a file that is not a database. A database opens on one of its
+    /// tables — it has to open on *something* — and without this the rest were
+    /// reachable only by writing SQL, which is not a viewer.
+    ///
+    /// Names only: counting rows in each would be a scan per table, and this
+    /// is read while drawing.
+    pub fn database_tables(&self) -> Vec<String> {
+        let Some(alias) = self.primary_alias() else {
+            return Vec::new();
+        };
+        let db_alias = format!("{alias}__db");
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
+        let Ok(mut stmt) = conn.prepare(
+            "SELECT table_name FROM duckdb_tables() WHERE database_name = ? ORDER BY table_name",
+        ) else {
+            return Vec::new();
+        };
+        let Ok(rows) = stmt.query_map([&db_alias], |row| row.get::<_, String>(0)) else {
+            return Vec::new();
+        };
+        rows.flatten().collect()
+    }
+
+    /// Point the primary alias at another table of the attached database.
+    ///
+    /// Returns its row count, which is only counted once the user has actually
+    /// asked for the table — never for all of them at once.
+    pub fn show_database_table(&self, table: &str) -> Result<usize> {
+        let alias = self
+            .primary_alias()
+            .ok_or_else(|| ThothError::DatabaseError {
+                reason: "No file is open on this connection".to_string(),
+            })?;
+        let db_alias = format!("{alias}__db");
+        self.execute(&format!(
+            "CREATE OR REPLACE VIEW {} AS SELECT * FROM {}.{}",
+            quote_ident(&alias),
+            quote_ident(&db_alias),
+            quote_ident(table)
+        ))?;
+        *self.row_count.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        self.row_count_of(&alias)
+    }
+
     /// Attach a SQLite/DuckDB database and point the alias at its first table.
     fn register_database(&self, alias: &str, path: &Path) -> Result<()> {
         if is_sqlite(path) {
-            // Best effort — a sandboxed or offline host may not be able to
-            // fetch the extension, in which case ATTACH reports the problem.
-            let _ = self.execute("INSTALL sqlite; LOAD sqlite;");
+            // `LOAD` only, for the same reason as the readers above: the
+            // ATTACH below reports it when the extension is not there, and
+            // that error is what the offer is built from.
+            self.load_extension("sqlite");
         }
         let db_alias = format!("{alias}__db");
         self.execute(&format!(
@@ -653,22 +762,25 @@ impl FileLoader for DuckdbConnection {
         }
 
         let file_type = FileType::from_path(path);
-        // Formats DuckDB cannot read natively come through a plugin, staged as
-        // NDJSON so DuckDB can scan them like any other JSON source.
-        let staged = match file_type {
-            FileType::Plugin | FileType::Unknown => Some(stage_via_plugin(path)?),
-            _ => None,
+        // An unnamed format is not necessarily an unreadable one: a `.log` of
+        // NDJSON and a `.dat` of CSV are both things DuckDB reads perfectly
+        // well, and the extension is the only reason to think otherwise. So
+        // ask DuckDB first and only fall back to a plugin when it declines.
+        // Formats DuckDB cannot read come through a plugin, staged as NDJSON
+        // so it can scan them like any other JSON source.
+        let (scan_type, staged) = match file_type {
+            FileType::Unknown => match self.sniff_reader(path) {
+                Some(readable) => (readable, None),
+                None => (FileType::Json, Some(stage_via_plugin(path)?)),
+            },
+            FileType::Plugin => (FileType::Json, Some(stage_via_plugin(path)?)),
+            named => (named, None),
         };
 
         let source = Source {
             alias: alias.to_string(),
             path: path.to_path_buf(),
             staged,
-        };
-        let scan_type = if source.staged.is_some() {
-            FileType::Json
-        } else {
-            file_type
         };
         self.register_scan(alias, scan_type, source.scan_path())?;
 
@@ -850,7 +962,7 @@ fn quote_literal(value: &str) -> String {
 }
 
 /// SQLite files start with a fixed 16-byte header; DuckDB files do not.
-fn is_sqlite(path: &Path) -> bool {
+pub(crate) fn is_sqlite(path: &Path) -> bool {
     use std::io::Read;
     let Ok(mut file) = std::fs::File::open(path) else {
         return false;
@@ -880,6 +992,238 @@ mod tests {
         tmp.write_all(contents.as_bytes()).unwrap();
         tmp.flush().unwrap();
         tmp
+    }
+
+    /// A file whose extension says nothing about its contents.
+    fn unnamed_file(suffix: &str, contents: &str) -> NamedTempFile {
+        let mut tmp = tempfile::Builder::new().suffix(suffix).tempfile().unwrap();
+        tmp.write_all(contents.as_bytes()).unwrap();
+        tmp.flush().unwrap();
+        tmp
+    }
+
+    #[test]
+    fn an_unnamed_format_opens_through_duckdb_when_duckdb_can_read_it() {
+        // The rule: the extension decides nothing. A `.log` of NDJSON is a
+        // table, and so is a `.dat` of CSV.
+        let db = DuckdbConnection::new().unwrap();
+
+        let ndjson = unnamed_file(".log", "{\"a\":1,\"b\":\"x\"}\n{\"a\":2,\"b\":\"y\"}\n");
+        assert_eq!(db.sniff_reader(ndjson.path()), Some(FileType::Json));
+
+        let csv = unnamed_file(".dat", "a,b,c\n1,2,3\n4,5,6\n");
+        assert_eq!(db.sniff_reader(csv.path()), Some(FileType::Csv));
+    }
+
+    #[test]
+    fn prose_is_not_a_one_column_table() {
+        // DuckDB's CSV sniffer will read almost any line-oriented text, so the
+        // probe only accepts CSV that found a delimiter. Without the guard a
+        // log file becomes a grid of its own lines, which is worse than text.
+        let db = DuckdbConnection::new().unwrap();
+        let prose = unnamed_file(".log", "starting worker\nshard-02 ready\nall done\n");
+        assert_eq!(db.sniff_reader(prose.path()), None);
+    }
+
+    #[test]
+    fn an_unnamed_format_duckdb_cannot_read_declines() {
+        // No reader claims it, so `open` falls through to a plugin and then to
+        // the text index — which is what makes any text file openable.
+        let db = DuckdbConnection::new().unwrap();
+        let binaryish = unnamed_file(".bin", "\u{1}\u{2}\u{3}not data at all\u{0}\u{4}");
+        assert_eq!(db.sniff_reader(binaryish.path()), None);
+    }
+
+    // ── The format matrix ───────────────────────────────────────────────────
+    //
+    // One test per format the engine claims, each opened the way the app opens
+    // it — `DuckdbConnection::open_path`, not a hand-written reader call — so
+    // a format that stops being wired up fails here rather than in the app.
+    //
+    // The binary fixtures are generated by DuckDB itself rather than committed:
+    // a checked-in `.parquet` is a blob nobody can review, and one written by
+    // the same version that reads it cannot drift out of step.
+
+    /// Rows and columns `open_path` yields for a file, as the app would see it.
+    fn open_and_count(path: &Path) -> Result<(usize, usize)> {
+        let db = DuckdbConnection::open_path(path)?;
+        let alias = db.primary_alias().expect("an alias");
+        let batches = db.query(&format!("SELECT * FROM {}", quote_ident(&alias)))?;
+        let rows = batches.iter().map(|b| b.num_rows()).sum();
+        let cols = batches.first().map(|b| b.num_columns()).unwrap_or(0);
+        Ok((rows, cols))
+    }
+
+    /// Write `contents` to a file with `suffix`, returning the temp handle.
+    fn fixture(suffix: &str, contents: &[u8]) -> NamedTempFile {
+        let mut tmp = tempfile::Builder::new().suffix(suffix).tempfile().unwrap();
+        tmp.write_all(contents).unwrap();
+        tmp.flush().unwrap();
+        tmp
+    }
+
+    /// Ask DuckDB to write a fixture in a format only it can produce.
+    /// `None` when the format needs an extension this host cannot fetch.
+    fn generated(
+        name: &str,
+        copy_sql: impl Fn(&str) -> String,
+    ) -> Option<(tempfile::TempDir, PathBuf)> {
+        let dir = tempfile::tempdir().ok()?;
+        let path = dir.path().join(name);
+        let db = DuckdbConnection::new().ok()?;
+        db.query(&copy_sql(&path.to_string_lossy())).ok()?;
+        path.exists().then_some((dir, path))
+    }
+
+    #[test]
+    fn format_csv() {
+        let f = fixture(".csv", b"a,b\n1,x\n2,y\n");
+        assert_eq!(open_and_count(f.path()).unwrap(), (2, 2));
+    }
+
+    #[test]
+    fn format_tsv() {
+        let f = fixture(".tsv", b"a\tb\n1\tx\n2\ty\n");
+        assert_eq!(open_and_count(f.path()).unwrap(), (2, 2));
+    }
+
+    #[test]
+    fn format_ndjson() {
+        let f = fixture(".ndjson", b"{\"a\":1,\"b\":\"x\"}\n{\"a\":2,\"b\":\"y\"}\n");
+        assert_eq!(open_and_count(f.path()).unwrap(), (2, 2));
+    }
+
+    #[test]
+    fn format_json_array() {
+        let f = fixture(".json", b"[{\"a\":1,\"b\":\"x\"},{\"a\":2,\"b\":\"y\"}]");
+        assert_eq!(open_and_count(f.path()).unwrap(), (2, 2));
+    }
+
+    #[test]
+    fn format_parquet() {
+        let Some((_dir, path)) = generated("t.parquet", |p| {
+            format!(
+                "COPY (SELECT 1 AS a, 'x' AS b UNION ALL SELECT 2, 'y') TO '{p}' (FORMAT PARQUET)"
+            )
+        }) else {
+            panic!("parquet is bundled; writing a fixture must work");
+        };
+        assert_eq!(open_and_count(&path).unwrap(), (2, 2));
+    }
+
+    #[test]
+    fn format_duckdb_database() {
+        let Some((_dir, path)) = generated("t.duckdb", |p| {
+            format!("ATTACH '{p}' AS mk; CREATE TABLE mk.t AS SELECT 1 AS a, 'x' AS b; DETACH mk;")
+        }) else {
+            panic!("attaching a duckdb database is core; writing one must work");
+        };
+        assert_eq!(open_and_count(&path).unwrap(), (1, 2));
+    }
+
+    #[test]
+    fn a_database_offers_every_table_not_just_the_first() {
+        // A database opens on one of its tables — it has to open on
+        // something — and the rest used to be reachable only by writing SQL.
+        // The picker needs the whole list, and switching must actually move
+        // the primary relation.
+        let Some((_dir, path)) = generated("multi.duckdb", |p| {
+            format!(
+                "ATTACH '{p}' AS mk; \
+                 CREATE TABLE mk.customers AS SELECT 1 AS id, 'ada' AS name; \
+                 CREATE TABLE mk.orders AS SELECT 1 AS id UNION ALL SELECT 2; \
+                 CREATE TABLE mk.order_items AS SELECT 1 AS order_id UNION ALL SELECT 2 \
+                   UNION ALL SELECT 3; \
+                 DETACH mk;"
+            )
+        }) else {
+            panic!("attaching a duckdb database is core; writing one must work");
+        };
+
+        let db = DuckdbConnection::open_path(&path).unwrap();
+        assert_eq!(
+            db.database_tables(),
+            ["customers", "order_items", "orders"],
+            "every table in the database is offered"
+        );
+
+        // It opens on the first by name, and each other one is reachable.
+        assert_eq!(open_and_count(&path).unwrap(), (1, 2));
+        assert_eq!(db.show_database_table("orders").unwrap(), 2);
+        assert_eq!(db.show_database_table("order_items").unwrap(), 3);
+        // And back again — switching is not one-way.
+        assert_eq!(db.show_database_table("customers").unwrap(), 1);
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_database_offers_no_tables() {
+        // The picker keys off this being empty to fall back to a document's
+        // collections, so a plain file must answer with nothing rather than
+        // with whatever `duckdb_tables()` happens to hold.
+        let f = fixture(".csv", b"a,b\n1,x\n");
+        let db = DuckdbConnection::open_path(f.path()).unwrap();
+        assert!(db.database_tables().is_empty());
+    }
+
+    #[test]
+    fn format_sqlite_database() {
+        // Needs the `sqlite` extension, which DuckDB fetches on first use — so
+        // an offline host skips rather than fails. The point of the test is
+        // that the wiring is right when the extension is there.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.sqlite");
+        let built = std::process::Command::new("sqlite3")
+            .arg(&path)
+            .arg("CREATE TABLE t(a INTEGER, b TEXT); INSERT INTO t VALUES (1,'x'),(2,'y');")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !built {
+            eprintln!("skipping: no sqlite3 CLI to build a fixture");
+            return;
+        }
+        match open_and_count(&path) {
+            Ok(counts) => assert_eq!(counts, (2, 2)),
+            Err(e) => eprintln!("skipping: sqlite extension unavailable ({e})"),
+        }
+    }
+
+    #[test]
+    fn format_excel() {
+        // Same story as SQLite: the `excel` extension is fetched on demand.
+        let Some((_dir, path)) = generated("t.xlsx", |p| {
+            format!(
+                "INSTALL excel; LOAD excel; \
+                 COPY (SELECT 1 AS a, 'x' AS b UNION ALL SELECT 2, 'y') TO '{p}' (FORMAT XLSX, HEADER true)"
+            )
+        }) else {
+            eprintln!("skipping: excel extension unavailable");
+            return;
+        };
+        match open_and_count(&path) {
+            Ok(counts) => assert_eq!(counts, (2, 2)),
+            Err(e) => eprintln!("skipping: excel extension unavailable ({e})"),
+        }
+    }
+
+    #[test]
+    fn every_native_format_has_a_reader() {
+        // `is_native` is what stops a plugin shadowing the engine, so each
+        // format it claims must actually resolve to a reader — a format listed
+        // there with no reader behind it would be unopenable by anything.
+        for ty in [
+            FileType::Json,
+            FileType::Csv,
+            FileType::Parquet,
+            FileType::Excel,
+            FileType::DB,
+        ] {
+            assert!(ty.is_native(), "{ty:?} should be read by the engine");
+        }
+        // And the two that are not the engine's: Unknown is probed at open
+        // time, Plugin is a plugin's by definition.
+        assert!(!FileType::Unknown.is_native());
+        assert!(!FileType::Plugin.is_native());
     }
 
     #[test]

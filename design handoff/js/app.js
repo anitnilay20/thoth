@@ -16,38 +16,20 @@ const TREE_CHUNK = 120;         // lazy-scroll page size for the raw tree
 const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent);
 const MOD = IS_MAC ? '⌘' : 'Ctrl';
 
-/* ── 1. The loaded file: events.ndjson ────────────────────────────────────── */
+/* ── 1. The loaded file: events.ndjson ────────────────────────────────────────
+   A real NDJSON stream is not one table. Each event type carries its own
+   fields, so the file below is deliberately heterogeneous: twelve event types
+   over nine distinct record shapes, sharing only ts / level / event / service.
+   Nothing here declares a schema - the catalog and the shapes are both read
+   back off the records, the way the app must read them off a user's file.
+   ────────────────────────────────────────────────────────────────────────── */
 
-const COLUMNS = [
-  { name: 'ts',          type: 'TIMESTAMP' },
-  { name: 'level',       type: 'VARCHAR'   },
-  { name: 'event',       type: 'VARCHAR'   },
-  { name: 'service',     type: 'VARCHAR'   },
-  { name: 'user_id',     type: 'BIGINT'    },
-  { name: 'duration_ms', type: 'DOUBLE'    },
-  { name: 'status',      type: 'INTEGER'   },
-  { name: 'region',      type: 'VARCHAR'   },
-  { name: 'payload',     type: 'JSON'      },
-];
-const COLNAMES = COLUMNS.map(c => c.name);
-const TYPE_OF = Object.fromEntries(COLUMNS.map(c => [c.name, c.type]));
-
-const EVENTS = [
-  ['checkout.completed', 'billing',      '/v2/checkout',        201],
-  ['auth.login',         'auth-svc',     '/v2/session',         200],
-  ['auth.token.refresh', 'auth-svc',     '/v2/session/refresh', 200],
-  ['search.query',       'search-svc',   '/v2/search',          200],
-  ['file.upload',        'api-gateway',  '/v2/files',           201],
-  ['cache.miss',         'search-svc',   '/v2/search',          200],
-  ['webhook.delivered',  'api-gateway',  '/v2/hooks/dispatch',  202],
-  ['index.rebuild',      'ingest-worker','/internal/reindex',   200],
-  ['session.expired',    'auth-svc',     '/v2/session',         401],
-  ['rate.limited',       'api-gateway',  '/v2/search',          429],
-  ['payment.declined',   'billing',      '/v2/checkout',        402],
-  ['ingest.retry',       'ingest-worker','/internal/ingest',    503],
-];
 const REGIONS = ['us-east-1', 'us-west-2', 'eu-west-1', 'ap-south-1'];
-const TAGS = ['cold', 'warm', 'beta', 'mobile', 'web', 'batch', 'retry', 'canary'];
+const METHODS = ['password', 'oauth-google', 'oauth-github', 'magic-link'];
+const TYPES = ['image/png', 'application/pdf', 'text/csv', 'image/jpeg'];
+const QUERIES = ['status:open', 'invoice overdue', 'region eu', 'user 3312', 'retry failed'];
+const DECLINES = ['insufficient_funds', 'card_expired', 'do_not_honor', 'fraud_suspected'];
+const ENDPOINTS = ['/v2/hooks/dispatch', '/v2/hooks/retry', '/v2/hooks/replay'];
 
 /** Deterministic PRNG so the file is identical on every load. */
 function lcg(seed) {
@@ -55,47 +37,242 @@ function lcg(seed) {
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
 }
 
+/* Each builder returns only the fields that event actually carries. Weight is
+   how often the event appears in the stream. */
+const EVENT_KINDS = [
+  {
+    event: 'checkout.completed', service: 'billing', level: 'info', weight: 9,
+    build: (r, id) => ({
+      status: 201,
+      order_id: `ord_${(100000 + Math.floor(r() * 899999)).toString(36)}`,
+      amount_usd: Math.round((8 + r() * 940) * 100) / 100,
+      currency: r() < 0.82 ? 'USD' : 'EUR',
+      items: 1 + Math.floor(r() * 6),
+      user_id: id,
+      duration_ms: Math.round((90 + r() * 380) * 10) / 10,
+      region: REGIONS[Math.floor(r() * REGIONS.length)],
+      trace: { trace_id: `t_${Math.floor(r() * 1e9).toString(16)}`, sampled: r() < 0.3 },
+    }),
+  },
+  {
+    event: 'payment.declined', service: 'billing', level: 'warn', weight: 4,
+    build: (r, id) => ({
+      status: 402,
+      order_id: `ord_${(100000 + Math.floor(r() * 899999)).toString(36)}`,
+      amount_usd: Math.round((8 + r() * 940) * 100) / 100,
+      currency: r() < 0.82 ? 'USD' : 'EUR',
+      decline_code: DECLINES[Math.floor(r() * DECLINES.length)],
+      user_id: id,
+      region: REGIONS[Math.floor(r() * REGIONS.length)],
+    }),
+  },
+  {
+    event: 'auth.login', service: 'auth-svc', level: 'info', weight: 14,
+    build: (r, id) => authShape(r, id, 200),
+  },
+  {
+    event: 'auth.token.refresh', service: 'auth-svc', level: 'info', weight: 11,
+    build: (r, id) => authShape(r, id, 200),
+  },
+  {
+    event: 'session.expired', service: 'auth-svc', level: 'warn', weight: 5,
+    build: (r, id) => authShape(r, id, 401),
+  },
+  {
+    event: 'search.query', service: 'search-svc', level: 'info', weight: 16,
+    build: (r, id) => searchShape(r, id),
+  },
+  {
+    event: 'cache.miss', service: 'search-svc', level: 'debug', weight: 7,
+    build: (r, id) => searchShape(r, id),
+  },
+  {
+    event: 'file.upload', service: 'api-gateway', level: 'info', weight: 8,
+    build: (r, id) => ({
+      status: 201,
+      file_id: `f_${Math.floor(r() * 1e9).toString(36)}`,
+      bytes: 2048 + Math.floor(r() * 9400000),
+      content_type: TYPES[Math.floor(r() * TYPES.length)],
+      duration_ms: Math.round((120 + r() * 1800) * 10) / 10,
+      user_id: id,
+      region: REGIONS[Math.floor(r() * REGIONS.length)],
+    }),
+  },
+  {
+    event: 'webhook.delivered', service: 'api-gateway', level: 'info', weight: 9,
+    build: (r) => ({
+      status: 202,
+      hook_id: `hk_${Math.floor(r() * 1e6).toString(36)}`,
+      endpoint: ENDPOINTS[Math.floor(r() * ENDPOINTS.length)],
+      attempt: 1 + Math.floor(r() * 3),
+      duration_ms: Math.round((20 + r() * 260) * 10) / 10,
+      trace: { trace_id: `t_${Math.floor(r() * 1e9).toString(16)}`, sampled: r() < 0.3 },
+    }),
+  },
+  {
+    event: 'rate.limited', service: 'api-gateway', level: 'warn', weight: 6,
+    build: (r) => ({
+      status: 429,
+      client_id: `cl_${Math.floor(r() * 9999).toString().padStart(4, '0')}`,
+      endpoint: ENDPOINTS[Math.floor(r() * ENDPOINTS.length)],
+      limit: [100, 500, 1000, 5000][Math.floor(r() * 4)],
+      window_s: [1, 60, 3600][Math.floor(r() * 3)],
+    }),
+  },
+  {
+    event: 'index.rebuild', service: 'ingest-worker', level: 'info', weight: 4,
+    build: (r) => ({
+      shard: `shard-${Math.floor(r() * 16).toString().padStart(2, '0')}`,
+      docs: 100 + Math.floor(r() * 480000),
+      duration_ms: Math.round((900 + r() * 26000) * 10) / 10,
+      retries: 0,
+    }),
+  },
+  {
+    event: 'ingest.retry', service: 'ingest-worker', level: 'error', weight: 7,
+    build: (r) => ({
+      shard: `shard-${Math.floor(r() * 16).toString().padStart(2, '0')}`,
+      docs: 100 + Math.floor(r() * 480000),
+      duration_ms: Math.round((900 + r() * 26000) * 10) / 10,
+      retries: 1 + Math.floor(r() * 4),
+      error: ['connection reset', 'shard locked', 'disk pressure', 'checksum mismatch'][Math.floor(r() * 4)],
+      trace: { trace_id: `t_${Math.floor(r() * 1e9).toString(16)}`, sampled: true },
+    }),
+  },
+];
+
+/* Three event types share this shape, and two share the search one - which is
+   why a shape cannot simply be named after its event. */
+function authShape(r, id, status) {
+  return {
+    status,
+    user_id: id,
+    method: METHODS[Math.floor(r() * METHODS.length)],
+    mfa: r() < 0.38,
+    ip: `${10 + Math.floor(r() * 80)}.${Math.floor(r() * 256)}.${Math.floor(r() * 256)}.${1 + Math.floor(r() * 254)}`,
+    duration_ms: Math.round((8 + r() * 120) * 10) / 10,
+    region: REGIONS[Math.floor(r() * REGIONS.length)],
+  };
+}
+
+function searchShape(r, id) {
+  const hit = r() < 0.64;
+  return {
+    status: 200,
+    query: QUERIES[Math.floor(r() * QUERIES.length)],
+    hits: Math.floor(r() * 240),
+    cache_hit: hit,
+    duration_ms: Math.round((hit ? 4 + r() * 40 : 60 + r() * 420) * 10) / 10,
+    user_id: 100000 + Math.floor(r() * 899999),
+  };
+}
+
 function buildRecords(n) {
-  const rnd = lcg(20260818);
+  const rnd = lcg(20260918);
+  const bag = [];
+  for (const k of EVENT_KINDS) for (let i = 0; i < k.weight; i++) bag.push(k);
+
   const out = new Array(n);
-  let t = Date.UTC(2026, 7, 17, 9, 0, 0);
+  let t = Date.UTC(2026, 8, 20, 9, 0, 0);
   for (let i = 0; i < n; i++) {
     t += 500 + Math.floor(rnd() * 39500);
-    const [event, service, route, okStatus] = EVENTS[Math.floor(rnd() * EVENTS.length)];
-    const bad = okStatus >= 400;
-    const level = bad ? (okStatus >= 500 ? 'error' : 'warn')
-                      : (rnd() < 0.08 ? 'debug' : 'info');
-    const hit = !event.startsWith('cache') && rnd() < 0.72;
-    const retries = bad ? 1 + Math.floor(rnd() * 3) : 0;
-    const base = hit ? 4 + rnd() * 40 : 55 + rnd() * 420;
-    const tagCount = 1 + Math.floor(rnd() * 3);
-    const tags = [];
-    for (let k = 0; k < tagCount; k++) {
-      const tag = TAGS[Math.floor(rnd() * TAGS.length)];
-      if (!tags.includes(tag)) tags.push(tag);
-    }
-    out[i] = {
+    const kind = bag[Math.floor(rnd() * bag.length)];
+    out[i] = Object.assign({
       ts: new Date(t).toISOString().replace('T', ' ').replace('Z', ''),
-      level,
-      event,
-      service,
-      user_id: 100000 + Math.floor(rnd() * 899999),
-      duration_ms: Math.round(base * 10) / 10,
-      status: okStatus,
-      region: REGIONS[Math.floor(rnd() * REGIONS.length)],
-      payload: {
-        route,
-        bytes: 180 + Math.floor(rnd() * 96000),
-        retries,
-        cache: { hit, ttl_s: hit ? [30, 60, 300, 900][Math.floor(rnd() * 4)] : null },
-        tags,
-      },
-    };
+      level: kind.level,
+      event: kind.event,
+      service: kind.service,
+    }, kind.build(rnd, 100000 + Math.floor(rnd() * 899999)));
   }
   return out;
 }
 
 const RECORDS = buildRecords(4812);
+
+/* ── Field catalog — read off the records, not declared ──────────────────── */
+
+const TS_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/;
+
+function inferType(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'boolean') return 'BOOLEAN';
+  if (typeof value === 'number') return Number.isInteger(value) ? 'BIGINT' : 'DOUBLE';
+  if (typeof value === 'object') return 'JSON';
+  return TS_RE.test(value) ? 'TIMESTAMP' : 'VARCHAR';
+}
+
+/* A field seen as both BIGINT and DOUBLE is a DOUBLE; anything else that
+   disagrees falls back to VARCHAR rather than guessing. */
+function mergeType(a, b) {
+  if (!a) return b;
+  if (!b || a === b) return a;
+  const nums = ['BIGINT', 'DOUBLE'];
+  if (nums.includes(a) && nums.includes(b)) return 'DOUBLE';
+  return 'VARCHAR';
+}
+
+function scanFields(records) {
+  const seen = new Map();
+  let order = 0;
+  for (const r of records) {
+    for (const k in r) {
+      let f = seen.get(k);
+      if (!f) { f = { name: k, type: null, n: 0, order: order++, sample: null, values: new Set() }; seen.set(k, f); }
+      f.n++;
+      const v = r[k];
+      f.type = mergeType(f.type, inferType(v));
+      if (f.sample === null && v !== null && v !== undefined) f.sample = v;
+      if (f.values.size <= 64 && typeof v !== 'object') f.values.add(v);
+    }
+  }
+  return [...seen.values()]
+    .map(f => ({ ...f, type: f.type || 'VARCHAR', present: f.n / records.length }))
+    .sort((a, b) => (b.present - a.present) || (a.order - b.order));
+}
+
+const FIELDS = scanFields(RECORDS);
+
+/* ── Record types — the tables inside one file ───────────────────────────────
+   A file that mixes record kinds nearly always names them in a field; here it
+   is `event`. Those values are the tables. Picking one writes an ordinary
+   filter, so the builder, the SQL and the picker can never disagree.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Several fields can look like the type field - `level` here has four values
+   and is in every record - but a severity is something you filter by, not a
+   table. Prefer the conventional names, then the one that draws the most
+   distinctions, which is what a type field is for. */
+const TYPE_NAMES = ['type', 'kind', 'event', '_type', 'event_type', 'record_type', '__typename'];
+
+const TYPE_FIELD = (() => {
+  const cands = FIELDS.filter(f => f.present >= 0.9 && f.type === 'VARCHAR'
+    && f.values.size > 1 && f.values.size <= 24 && f.name !== 'ts');
+  if (!cands.length) return null;
+  const named = cands.find(f => TYPE_NAMES.includes(f.name.toLowerCase()));
+  return named || cands.reduce((a, b) => (b.values.size > a.values.size ? b : a));
+})();
+
+/** One entry per distinct value, biggest first. */
+const TABLES = (() => {
+  if (!TYPE_FIELD) return [];
+  const counts = new Map();
+  for (const r of RECORDS) {
+    const v = String(r[TYPE_FIELD.name] ?? '');
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([label, n]) => ({ label, n }));
+})();
+
+const CATALOG = FIELDS;
+const COLUMNS = CATALOG.map(f => ({ name: f.name, type: f.type }));
+const COLNAMES = COLUMNS.map(c => c.name);
+const TYPE_OF = Object.fromEntries(COLUMNS.map(c => [c.name, c.type]));
+const FIELD_OF = Object.fromEntries(CATALOG.map(f => [f.name, f]));
+
+/** One accessor for every record read, so a derived field stays possible. */
+function getField(r, name) {
+  return r[name];
+}
 
 /* -- 2. Query engine --------------------------------------------------------
    The builder owns a structured spec - filters, groups, aggregates, sort. Two
@@ -169,12 +346,37 @@ function aggSql(a) {
   return `${a.fn}(${a.field}) AS ${aggName(a)}`;
 }
 
-/** The columns the spec produces - i.e. what the Sort lane can order by. */
-function outputColumns(spec) {
-  if (!spec.groupBy.length && !spec.aggs.length) return COLUMNS.slice();
+/** A grouped result's columns are fully determined before anything runs. */
+function groupedColumns(spec) {
   const cols = spec.groupBy.map(f => ({ name: f, type: TYPE_OF[f] }));
   for (const a of spec.aggs) cols.push({ name: aggName(a), type: aggType(a) });
   return cols;
+}
+
+const AUTO_PRESENCE = 0.6;   // a column has to be in most rows to earn its width
+const AUTO_MAX = 14;
+
+/* With mixed records there is no single right column set, so the default is
+   the set actually populated in the rows on screen: narrow to one shape and
+   that shape's fields appear on their own. Pinning a column in the Fields
+   panel freezes the choice and nothing here overrides it. */
+function autoColumns(rows, sameType) {
+  if (!rows.length) return [];
+  const count = new Map();
+  for (const r of rows) for (const k in r) count.set(k, (count.get(k) || 0) + 1);
+  return CATALOG
+    /* One table selected means the type is the same in every row and the
+       picker already says which - it does not need a column too. */
+    .filter(f => !(sameType && TYPE_FIELD && f.name === TYPE_FIELD.name))
+    .filter(f => (count.get(f.name) || 0) / rows.length >= AUTO_PRESENCE)
+    .slice(0, AUTO_MAX)
+    .map(f => ({ name: f.name, type: f.type }));
+}
+
+function resultColumns(spec, rows, sameType) {
+  if (spec.groupBy.length || spec.aggs.length) return groupedColumns(spec);
+  if (spec.columns.length) return spec.columns.map(n => ({ name: n, type: TYPE_OF[n] }));
+  return autoColumns(rows, sameType);
 }
 
 function listOf(value) {
@@ -213,7 +415,7 @@ function compileSql(spec) {
   const grouped = spec.groupBy.length || spec.aggs.length;
   const select = grouped
     ? [...spec.groupBy, ...spec.aggs.map(aggSql)].join(', ')
-    : '*';
+    : (spec.columns.length ? spec.columns.join(', ') : '*');
   const lines = [`SELECT ${select}`, 'FROM data'];
   if (spec.filters.length) {
     const glue = spec.combine === 'any' ? '\n   OR ' : '\n  AND ';
@@ -244,8 +446,8 @@ function compileFilter(f) {
   const kind = typeClass(TYPE_OF[f.field]);
   const col = f.field;
 
-  if (f.op === 'is null') return r => r[col] === null || r[col] === undefined;
-  if (f.op === 'is not null') return r => r[col] !== null && r[col] !== undefined;
+  if (f.op === 'is null') return r => getField(r, col) === null || getField(r, col) === undefined;
+  if (f.op === 'is not null') return r => getField(r, col) !== null && getField(r, col) !== undefined;
 
   /* Values come from a typed input, so the only failures left are an empty
      entry and a non-numeric one - both worth naming in the user's own words. */
@@ -270,31 +472,31 @@ function compileFilter(f) {
       throw new QueryError(`"${col} is any of" needs at least one value, comma separated.`);
     }
     const set = new Set(items.map(v => v.toLowerCase()));
-    return r => set.has(asText(r[col]).toLowerCase());
+    return r => set.has(asText(getField(r, col)).toLowerCase());
   }
   if (f.op === 'contains' || f.op === 'starts') {
     const v = need(f.value);
     const re = likeToRegex(f.op === 'contains' ? `%${v}%` : `${v}%`);
-    return r => re.test(asText(r[col]));
+    return r => re.test(asText(getField(r, col)));
   }
   if (f.op === 'between') {
     const lo = need(f.value, 'a lower bound');
     const hi = need(f.value2, 'an upper bound');
     return r => {
-      const d1 = cmpCell(r[col], lo, kind);
-      const d2 = cmpCell(r[col], hi, kind);
+      const d1 = cmpCell(getField(r, col), lo, kind);
+      const d2 = cmpCell(getField(r, col), hi, kind);
       return d1 !== null && d2 !== null && d1 >= 0 && d2 <= 0;
     };
   }
 
   const v = need(f.value);
   switch (f.op) {
-    case '=':  return r => cmpCell(r[col], v, kind) === 0;
-    case '!=': return r => { const d = cmpCell(r[col], v, kind); return d !== null && d !== 0; };
-    case '>':  return r => { const d = cmpCell(r[col], v, kind); return d !== null && d > 0; };
-    case '>=': return r => { const d = cmpCell(r[col], v, kind); return d !== null && d >= 0; };
-    case '<':  return r => { const d = cmpCell(r[col], v, kind); return d !== null && d < 0; };
-    case '<=': return r => { const d = cmpCell(r[col], v, kind); return d !== null && d <= 0; };
+    case '=':  return r => cmpCell(getField(r, col), v, kind) === 0;
+    case '!=': return r => { const d = cmpCell(getField(r, col), v, kind); return d !== null && d !== 0; };
+    case '>':  return r => { const d = cmpCell(getField(r, col), v, kind); return d !== null && d > 0; };
+    case '>=': return r => { const d = cmpCell(getField(r, col), v, kind); return d !== null && d >= 0; };
+    case '<':  return r => { const d = cmpCell(getField(r, col), v, kind); return d !== null && d < 0; };
+    case '<=': return r => { const d = cmpCell(getField(r, col), v, kind); return d !== null && d <= 0; };
   }
   throw new QueryError(`Unsupported condition "${f.op}" on ${col}.`);
 }
@@ -316,7 +518,7 @@ function aggregate(a, rows) {
   if (a.fn === 'distinct') {
     const seen = new Set();
     for (const r of rows) {
-      const v = r[field];
+      const v = getField(r, field);
       if (v !== null && v !== undefined) seen.add(asText(v));
     }
     return seen.size;
@@ -324,7 +526,7 @@ function aggregate(a, rows) {
   if (a.fn === 'sum' || a.fn === 'avg') {
     let total = 0, n = 0;
     for (const r of rows) {
-      const v = Number(r[field]);
+      const v = Number(getField(r, field));
       if (Number.isFinite(v)) { total += v; n++; }
     }
     if (a.fn === 'sum') return Math.round(total * 10) / 10;
@@ -333,7 +535,7 @@ function aggregate(a, rows) {
   const kind = typeClass(TYPE_OF[field]);
   let best = null;
   for (const r of rows) {
-    const v = r[field];
+    const v = getField(r, field);
     if (v === null || v === undefined) continue;
     if (best === null) { best = v; continue; }
     const d = cmpCell(v, kind === 'num' ? Number(best) : asText(best), kind);
@@ -348,9 +550,9 @@ function sortRows(rows, sort, cols) {
   const typeOf = Object.fromEntries(cols.map(c => [c.name, c.type]));
   return rows.sort((x, y) => {
     for (const s of sort) {
-      const numeric = typeClass(typeOf[s.field] || 'VARCHAR') === 'num';
+      const numeric = typeClass(typeOf[s.field] || TYPE_OF[s.field] || 'VARCHAR') === 'num';
       const sign = s.dir === 'asc' ? 1 : -1;
-      const a = x[s.field], b = y[s.field];
+      const a = getField(x, s.field), b = getField(y, s.field);
       if (a === b) continue;
       if (a === null || a === undefined) return 1;
       if (b === null || b === undefined) return -1;
@@ -371,33 +573,37 @@ function runSpec(spec) {
   const scanned = rows.length;
   const filtered = rows;   // pre-grouping, for the facet counts and the timeline
 
-  const cols = outputColumns(spec);
-  if (spec.groupBy.length || spec.aggs.length) {
+  const grouped = spec.groupBy.length > 0 || spec.aggs.length > 0;
+  if (grouped) {
     const groups = new Map();
     for (const r of rows) {
-      const key = spec.groupBy.map(f => asText(r[f])).join(' | ');
+      const key = spec.groupBy.map(f => asText(getField(r, f))).join(' | ');
       let g = groups.get(key);
       if (!g) { g = { head: r, rows: [] }; groups.set(key, g); }
       g.rows.push(r);
     }
     rows = [...groups.values()].map(g => {
       const o = {};
-      for (const f of spec.groupBy) o[f] = g.head[f];
+      for (const f of spec.groupBy) o[f] = getField(g.head, f);
       for (const a of spec.aggs) o[aggName(a)] = aggregate(a, g.rows);
       return o;
     });
   }
 
-  rows = sortRows(rows, spec.sort, cols);
+  rows = sortRows(rows, spec.sort, grouped ? groupedColumns(spec) : []);
   const matched = rows.length;
   const limited = rows.slice(0, spec.limit);
   const objs = limited.slice(0, DV_LIMIT);
+  /* One kind of record in the result means the picker is showing a table. */
+  const sameType = !!TYPE_FIELD && spec.filters.some(f =>
+    f.field === TYPE_FIELD.name && f.op === '=' && String(f.value || '').trim());
+  const cols = resultColumns(spec, objs, sameType);
   const ms = performance.now() - t0;
 
   return {
     columns: cols, objs,
     matched, selected: limited.length, drawn: objs.length, scanned, filtered,
-    grouped: spec.groupBy.length > 0 || spec.aggs.length > 0,
+    grouped, auto: !grouped && !spec.columns.length,
     ms, sql: compileSql(spec),
   };
 }
@@ -471,13 +677,21 @@ function renderTable(result) {
     const right = ['BIGINT', 'INTEGER', 'DOUBLE', 'TIMESTAMP'].includes(c.type);
     return `<th class="${right ? 'r' : ''}">${esc(c.name)}<span class="ty">${c.type}</span></th>`;
   }).join('');
+
   const body = result.objs.map((row, i) => {
     const tds = result.columns.map(c => {
-      const raw = row[c.name];
+      const raw = getField(row, c.name);
+      /* A field this record does not carry is absent, not blank - with mixed
+         shapes that difference is the whole point of the table. */
+      if (raw === undefined || raw === null) return '<td class="t-nil">&mdash;</td>';
+      if (typeof raw === 'object') {
+        const n = Array.isArray(raw) ? raw.length : Object.keys(raw).length;
+        const glyph = Array.isArray(raw) ? `[${n}]` : `{${n}}`;
+        return `<td class="t-json" title="${escAttr(JSON.stringify(raw))}">`
+          + `<span class="jchip">${glyph}</span></td>`;
+      }
       const text = cellText(raw, c.type);
-      /* Only a real record field can be quick-filtered - an aggregate column
-         has no value to match a record against. */
-      const q = COLNAMES.includes(c.name) && c.type !== 'JSON' && text !== ''
+      const q = COLNAMES.includes(c.name) && text !== ''
         ? ` data-f="${c.name}" data-v="${escAttr(text)}"` : '';
       if (c.name === 'level') {
         return `<td${q}><span class="lvl lvl-${escAttr(String(raw))}">${esc(text)}</span></td>`;
@@ -486,6 +700,7 @@ function renderTable(result) {
     }).join('');
     return `<tr data-i="${i}">${tds}</tr>`;
   }).join('');
+
   return `<table class="tv${result.grouped ? ' grouped' : ''}">`
     + `<thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
@@ -572,10 +787,14 @@ function emptyState(title, sub) {
 /* The default question the viewer opens on: newest records first, no filter. */
 const DEFAULT_SPEC = {
   combine: 'all',
-  filters: [],
+  /* The biggest table, not every record: one type means real columns. */
+  filters: (TYPE_FIELD && TABLES.length)
+    ? [{ field: TYPE_FIELD.name, op: '=', value: TABLES[0].label, value2: '' }]
+    : [],
   groupBy: [],
   aggs: [],
   sort: [{ field: 'ts', dir: 'desc' }],
+  columns: [],          // empty = columns follow the result
   limit: 1000,
 };
 
@@ -593,8 +812,11 @@ function normalizeSpec(raw) {
     groupBy: Array.isArray(raw && raw.groupBy) ? raw.groupBy : [],
     aggs: Array.isArray(raw && raw.aggs) ? raw.aggs : [],
     sort: Array.isArray(raw && raw.sort) ? raw.sort : [],
+    columns: Array.isArray(raw && raw.columns) ? raw.columns : [],
     limit: Number(raw && raw.limit) || DEFAULT_SPEC.limit,
   };
+
+  s.columns = [...new Set(s.columns.filter(n => COLNAMES.includes(n)))];
 
   s.filters = s.filters
     .filter(f => f && COLNAMES.includes(f.field))
@@ -633,7 +855,10 @@ function normalizeSpec(raw) {
 }
 
 function sortFields(spec) {
-  return outputColumns(spec).filter(c => c.type !== 'JSON').map(c => c.name);
+  if (spec.groupBy.length || spec.aggs.length) {
+    return groupedColumns(spec).filter(c => c.type !== 'JSON').map(c => c.name);
+  }
+  return PLAIN_FIELDS;
 }
 
 function loadSpec() {
@@ -672,6 +897,8 @@ const el = {
   html: document.documentElement,
   body: $('#body'), dvbody: $('#dvbody'), dvbar: $('#dvbar'), rcount: $('#rcount'),
   veil: $('#veil'), veilTxt: $('#veilTxt'),
+  tableSel: $('#tableSel'), tableMenu: $('#tableMenu'),
+  tableLbl: $('#tableLbl'), tableCnt: $('#tableCnt'),
   viewSel: $('#viewSel'), viewMenu: $('#viewMenu'), viewLbl: $('#viewLbl'), viewIcon: $('#viewIcon'),
   exportSel: $('#exportSel'), exportMenu: $('#exportMenu'),
   themeBtn: $('#themeBtn'), themeMenu: $('#themeMenu'), themeIcon: $('#themeIcon'),
@@ -686,7 +913,7 @@ const el = {
   detail: $('#detail'), detailIdx: $('#detailIdx'), detailBody: $('#detailBody'),
   sideTitle: $('#sideTitle'), sideBody: $('#sideBody'), cellact: $('#cellact'),
   stItems: $('#stItems'), stMode: $('#stMode'),
-  stSig: $('#stSig'), stSigVal: $('#stSigVal'), stChart: $('#stChart'),
+  stSig: $('#stSig'), stSigVal: $('#stSigVal'),
   copyLbl: $('#copyLbl'),
 };
 
@@ -695,7 +922,7 @@ const VIEW_META = {
   'table': ['Table', '#i-table'],
   'json': ['JSON', '#i-braces'],
   'raw': ['Raw', '#i-code'],
-  'plugin:card-view': ['Card view', '#i-plug'],
+  'chart': ['Chart', '#i-chart'],
 };
 
 /* -- 7. Query builder -------------------------------------------------------
@@ -707,11 +934,11 @@ const CARET_SM = '<svg class="caret" width="12" height="12"><use href="#i-caret-
 const RM_BTN = '<button class="rm" data-role="remove" title="Remove" aria-label="Remove">'
   + '<svg width="11" height="11"><use href="#i-x"/></svg></button>';
 
-/* Real values out of events.ndjson, so a placeholder teaches the field. */
-const EXAMPLE = {
-  ts: '2026-08-17 12:00', level: 'error', event: 'auth.login', service: 'auth-svc',
-  user_id: '100000', duration_ms: '250', status: '500', region: 'eu-west-1', payload: 'checkout',
-};
+/* A placeholder is the field's own first value, so it teaches the column. */
+const EXAMPLE = Object.fromEntries(CATALOG.map(f => {
+  const v = f.sample;
+  return [f.name, (v === null || v === undefined || typeof v === 'object') ? '' : String(v).slice(0, 19)];
+}));
 
 function selHtml(role, value, options, aria) {
   const body = options.map(o => {
@@ -814,15 +1041,24 @@ function renderSql() {
    two update, so the query is never in two places at once.
    ------------------------------------------------------------------------- */
 
-const FACET_FIELDS = ['level', 'service', 'event', 'status', 'region'];
-const MEASURES = ['duration_ms'];
+/* Shape leads; after it, any low-cardinality field is worth a facet. An id is
+   never a measure - the median of a user id means nothing. */
+const ID_RE = /(^|_)id$/;
+const FACET_FIELDS = FIELDS
+  .filter(f => f.name !== 'ts' && f.type !== 'JSON'
+    && f.name !== (TYPE_FIELD && TYPE_FIELD.name)   // the table picker owns this one
+    && f.values.size > 1 && f.values.size <= 24)
+  .map(f => f.name).slice(0, 15);
+const MEASURES = FIELDS
+  .filter(f => typeClass(f.type) === 'num' && f.values.size > 24 && !ID_RE.test(f.name))
+  .slice(0, 3).map(f => f.name);
 const FACET_TOP = 5;
 const LEVELS = [['error', 'lv-error'], ['warn', 'lv-warn'], ['info', 'lv-info'], ['debug', 'lv-debug']];
 
 /* Value lists so a filter value can be picked instead of typed. */
 function renderDatalists() {
   $('#datalists').innerHTML = FACET_FIELDS.map(field => {
-    const vals = [...new Set(RECORDS.map(r => asText(r[field])))].sort();
+    const vals = [...new Set(RECORDS.map(r => asText(getField(r, field))))].sort();
     return `<datalist id="dl-${field}">`
       + vals.map(v => `<option value="${escAttr(v)}"></option>`).join('')
       + '</datalist>';
@@ -898,6 +1134,49 @@ function excludeValue(field, value) {
   commitSpec();
 }
 
+/* The pin is the whole column picker: no new panel, one affordance per field. */
+function facetHead(field, badge) {
+  const pinned = state.spec.columns.includes(field);
+  return '<div class="facet-h">'
+    + '<button class="facet-t" data-role="facet-head">'
+    + '<svg class="tw" width="12" height="12"><use href="#i-caret-down"/></svg>'
+    + ` ${esc(field)}${badge ? `<span class="n">${badge}</span>` : ''}</button>`
+    + `<button class="facet-pin" data-role="facet-pin" aria-pressed="${pinned}"`
+    + ` title="${pinned ? 'Remove this column' : 'Show as a column'}">${pinned ? '\u2713' : '+'}</button>`
+    + '</div>';
+}
+
+/* Pinning starts from whatever is already on screen, so the first `+` adds a
+   column instead of blanking the table down to one. */
+function toggleColumn(field) {
+  const s = state.spec;
+  if (!s.columns.length && state.result) s.columns = state.result.columns.map(c => c.name);
+  const at = s.columns.indexOf(field);
+  if (at >= 0) s.columns.splice(at, 1);
+  else s.columns.push(field);
+  commitSpec();
+}
+
+function columnsGroup() {
+  const pinned = state.spec.columns;
+  const shown = state.result ? state.result.columns.length : 0;
+  const head = (badge, extra) => '<div class="facet-h">'
+    + `<span class="facet-t static">columns<span class="n">${badge}</span></span>${extra}</div>`;
+
+  if (!pinned.length) {
+    return '<div class="facet cols" data-field="__cols" aria-expanded="true">'
+      + head(shown, '')
+      + '<div class="facet-vals"><div class="cols-hint">following the result</div></div></div>';
+  }
+  return '<div class="facet cols" data-field="__cols" aria-expanded="true">'
+    + head(pinned.length, '<button class="facet-pin wide" data-role="cols-auto"'
+        + ' title="Go back to automatic columns">auto</button>')
+    + '<div class="facet-vals">'
+    + pinned.map(n => `<button class="fval col" data-col="${escAttr(n)}" title="Remove ${escAttr(n)}">`
+        + `<span class="nm">${esc(n)}</span><span class="x">\u00d7</span></button>`).join('')
+    + '</div></div>';
+}
+
 function quantile(sorted, p) {
   if (!sorted.length) return null;
   const i = Math.min(sorted.length - 1, Math.floor(p * sorted.length));
@@ -909,12 +1188,12 @@ function quantile(sorted, p) {
 function renderFacets() {
   const rows = state.result ? state.result.filtered : RECORDS;
   const total = rows.length || 1;
-  let html = '<div class="facets">';
+  let html = '<div class="facets">' + columnsGroup();
 
   for (const field of FACET_FIELDS) {
     const counts = new Map();
     for (const r of rows) {
-      const v = asText(r[field]);
+      const v = asText(getField(r, field));
       counts.set(v, (counts.get(v) || 0) + 1);
     }
     const vals = [...counts].sort((a, b) => b[1] - a[1]);
@@ -923,9 +1202,7 @@ function renderFacets() {
     const shown = all ? vals : vals.slice(0, FACET_TOP);
 
     html += `<div class="facet" data-field="${field}" aria-expanded="${open}">`
-      + '<button class="facet-h" data-role="facet-head">'
-      + '<svg class="tw" width="12" height="12"><use href="#i-caret-down"/></svg>'
-      + ` ${field}<span class="n">${nf.format(vals.length)}</span></button>`
+      + facetHead(field, nf.format(vals.length))
       + '<div class="facet-vals">'
       + shown.map(([v, n]) => {
         const pct = (n / total * 100);
@@ -945,12 +1222,10 @@ function renderFacets() {
   /* Measures get percentiles rather than values — clicking one filters to the
      slow tail, which is the reason anyone opens a latency column. */
   for (const field of MEASURES) {
-    const nums = rows.map(r => Number(r[field])).filter(Number.isFinite).sort((a, b) => a - b);
+    const nums = rows.map(r => Number(getField(r, field))).filter(Number.isFinite).sort((a, b) => a - b);
     const p50 = quantile(nums, 0.5), p95 = quantile(nums, 0.95), max = nums[nums.length - 1];
-    html += `<div class="facet" data-field="${field}" aria-expanded="true">`
-      + `<button class="facet-h" data-role="facet-head">`
-      + '<svg class="tw" width="12" height="12"><use href="#i-caret-down"/></svg>'
-      + ` ${field}<span class="n">ms</span></button>`
+    html += `<div class="facet" data-field="${field}" aria-expanded="${!state.facetShut.has(field)}">`
+      + facetHead(field, '')
       + '<div class="facet-vals"><div class="fstat">'
       + [['p50', p50], ['p95', p95], ['max', max]].map(([k, v]) => v === null || v === undefined
         ? `<span>${k} —</span>`
@@ -1123,7 +1398,8 @@ function renderStatusLine() {
   }
   const r = state.result;
   if (!r) {
-    el.qstatus.innerHTML = '<span class="ok">Ready — DuckDB scanning events.ndjson as <b>data</b>.</span>';
+    el.qstatus.innerHTML = `<span class="ok">Ready &middot; ${nf.format(RECORDS.length)} records`
+      + ` &middot; ${CATALOG.length} fields &middot; ${TABLES.length} types</span>`;
     return;
   }
   const noun = r.grouped ? (r.selected === 1 ? 'group' : 'groups') : (r.selected === 1 ? 'row' : 'rows');
@@ -1158,18 +1434,91 @@ function renderResult() {
     return;
   }
   if (state.view === 'table') {
-    el.dvbody.innerHTML = renderTable(r);
+    const union = !currentTable() && TYPE_FIELD && TABLES.length > 1;
+    const note = union
+      ? `<div class="tnote">${TABLES.length} record types in view &middot; a table can only show`
+        + ' the fields all of them share &middot; pick one above, or switch to JSON to read records whole</div>'
+      : '';
+    el.dvbody.innerHTML = note + renderTable(r);
   } else if (state.view === 'json') {
     el.dvbody.innerHTML = `<div class="tree" id="tree">${renderTreeRange(r.objs, 0, Math.min(r.objs.length, TREE_CHUNK), '', 0)}</div>`
       + (r.objs.length > TREE_CHUNK
-        ? `<div class="loadmore" style="padding-left:66px">${nf.format(r.objs.length - TREE_CHUNK)} more rows — the JSON view pages as you scroll in the app.</div>`
+        ? `<div class="loadmore" style="padding-left:66px">${nf.format(TREE_CHUNK)} of ${nf.format(r.objs.length)} rows &middot; narrow the query to see the rest</div>`
         : '');
   } else if (state.view === 'raw') {
     el.dvbody.innerHTML = renderRawJson(r.objs);
-  } else {
-    el.dvbody.innerHTML = emptyState('Card view is not installed',
-      'This renderer plugin was uninstalled. Pick Table, JSON or Raw, or reinstall it from the marketplace.');
+  } else if (state.view === 'chart') {
+    el.dvbody.innerHTML = renderChart(r);
   }
+}
+
+/* ---- Table picker ------------------------------------------------------ */
+
+/* The picker is a view onto one ordinary filter, never a second source of
+   truth: filter the type from a table cell and the picker moves with it. */
+function currentTable() {
+  if (!TYPE_FIELD) return null;
+  const f = state.spec.filters.find(x => x.field === TYPE_FIELD.name && (x.op === '=' || x.op === 'in'));
+  if (!f) return null;
+  return f.op === 'in' ? { many: listOf(f.value).length } : { one: asText(f.value) };
+}
+
+function setTable(value) {
+  if (!TYPE_FIELD) return;
+  const s = state.spec;
+  s.filters = s.filters.filter(x => !(x.field === TYPE_FIELD.name && (x.op === '=' || x.op === 'in')));
+  if (value) s.filters.unshift({ field: TYPE_FIELD.name, op: '=', value, value2: '' });
+  commitSpec();
+}
+
+function renderTableMenu() {
+  if (!TYPE_FIELD) {
+    el.tableSel.disabled = true;
+    el.tableSel.title = 'Every record in this file is the same kind';
+    return;
+  }
+  el.tableSel.title = `Switch table \u2014 ${TABLES.length} kinds of record in this file`;
+  const item = (value, label, n) =>
+    `<button role="menuitemradio" data-table="${escAttr(value)}" aria-checked="false">`
+    + `${esc(label)}<span class="n">${nf.format(n)}</span>`
+    + '<svg class="tick" width="15" height="15"><use href="#i-check"/></svg></button>';
+  el.tableMenu.innerHTML = item('', 'All types', RECORDS.length)
+    + '<div class="sep"></div>'
+    + TABLES.map(t => item(t.label, t.label, t.n)).join('');
+}
+
+const CHART_ROWS = 40;
+const isNumType = t => ['BIGINT', 'INTEGER', 'DOUBLE'].includes(t);
+
+/* A chart of ungrouped rows would be 1,000 bars of nothing, so this view
+   charts what grouping already produced and says so when there is none. */
+function renderChart(r) {
+  const label = r.columns.find(c => !isNumType(c.type));
+  const value = r.columns.find(c => isNumType(c.type));
+  if (!r.grouped || !label || !value) {
+    return emptyState('Nothing to chart yet',
+      'A bar needs one row per group. Add a field to <code>Group by</code>'
+      + ' and a number to <code>Compute</code>.');
+  }
+
+  const rows = r.objs.slice(0, CHART_ROWS);
+  const peak = Math.max(...rows.map(o => Math.abs(Number(o[value.name])) || 0), 1);
+  const bars = rows.map(o => {
+    const raw = o[value.name];
+    const n = Number(raw);
+    const pct = Number.isFinite(n) ? Math.abs(n) / peak * 100 : 0;
+    const text = !Number.isFinite(n) ? '—'
+      : Number.isInteger(n) ? nf.format(n) : cellText(n, value.type);
+    const name = asText(o[label.name]);
+    return `<div class="crow">`
+      + `<span class="clabel" title="${escAttr(name)}">${esc(name)}</span>`
+      + `<span class="cbar"><i style="--p:${pct.toFixed(1)}%"></i></span>`
+      + `<span class="cval">${esc(text)}</span></div>`;
+  }).join('');
+
+  const note = r.objs.length > CHART_ROWS
+    ? ` &middot; top ${CHART_ROWS} of ${nf.format(r.objs.length)}` : '';
+  return `<div class="chart"><div class="chead">${esc(value.name)} by ${esc(label.name)}${note}</div>${bars}</div>`;
 }
 
 function renderChrome() {
@@ -1177,6 +1526,15 @@ function renderChrome() {
   el.themeIcon.setAttribute('href', state.theme === 'latte' ? '#i-sun' : '#i-moon');
   for (const b of el.themeMenu.querySelectorAll('button')) {
     b.setAttribute('aria-checked', String(b.dataset.themeSet === state.theme));
+  }
+
+  const t = currentTable();
+  if (TYPE_FIELD) {
+    el.tableLbl.textContent = !t ? 'All types' : t.many ? `${t.many} types` : t.one;
+    el.tableCnt.textContent = state.result ? nf.format(state.result.scanned) : '';
+    for (const b of el.tableMenu.querySelectorAll('button')) {
+      b.setAttribute('aria-checked', String(b.dataset.table === (t && t.one ? t.one : '')));
+    }
   }
 
   const [label, icon] = VIEW_META[state.view] || VIEW_META.table;
@@ -1432,6 +1790,14 @@ el.sideBody.addEventListener('click', e => {
   if (!facet) return;
   const field = facet.dataset.field;
 
+  if (e.target.closest('[data-role="cols-auto"]')) {
+    state.spec.columns = [];
+    commitSpec();
+    return;
+  }
+  if (e.target.closest('[data-role="facet-pin"]')) { toggleColumn(field); return; }
+  const col = e.target.closest('[data-col]');
+  if (col) { toggleColumn(col.dataset.col); return; }
   if (e.target.closest('[data-role="facet-head"]')) {
     if (state.facetShut.has(field)) state.facetShut.delete(field);
     else state.facetShut.add(field);
@@ -1489,7 +1855,8 @@ $('#detailCopy').addEventListener('click', async () => {
 });
 
 /* Menus — one open at a time, closed by outside click or Escape. */
-const MENUS = [['#viewSel', '#viewMenu'], ['#exportSel', '#exportMenu'], ['#themeBtn', '#themeMenu']];
+const MENUS = [['#tableSel', '#tableMenu'], ['#viewSel', '#viewMenu'],
+  ['#exportSel', '#exportMenu'], ['#themeBtn', '#themeMenu']];
 function closeMenus(except) {
   for (const [t, m] of MENUS) {
     const menu = $(m);
@@ -1510,6 +1877,13 @@ for (const [trigger, menu] of MENUS) {
 }
 document.addEventListener('click', () => closeMenus());
 
+el.tableMenu.addEventListener('click', e => {
+  const b = e.target.closest('[data-table]');
+  if (!b) return;
+  setTable(b.dataset.table);
+  closeMenus();
+});
+
 for (const b of el.viewMenu.querySelectorAll('button')) {
   b.addEventListener('click', () => { setView(b.dataset.view); closeMenus(); });
 }
@@ -1526,7 +1900,6 @@ for (const b of el.themeMenu.querySelectorAll('button')) {
 }
 
 $('#copyBtn').addEventListener('click', copyRows);
-$('#chartsBtn').addEventListener('click', () => { el.stChart.hidden = !el.stChart.hidden; });
 $('#collapseBtn').addEventListener('click', () => el.body.classList.toggle('collapsed'));
 
 /* Tree twisties — delegated, so a 120-row page costs one listener. */
@@ -1543,8 +1916,8 @@ el.dvbody.addEventListener('click', e => {
 const PANES = {
   bookmarks: ['Bookmarks', `
     <div class="sgroup"><h3>events.ndjson</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[0].payload.cache</span><span class="pth">record 0</span></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[1633].payload.tags</span><span class="pth">record 1633</span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[0].trace.trace_id</span><span class="pth">record 0</span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[1633].decline_code</span><span class="pth">record 1633</span></div>
     <div class="sgroup"><h3>spans.ndjson</h3></div>
     <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[88].trace_id</span><span class="pth">record 88</span></div>`],
   seshat: ['Seshat — databases', `
@@ -1616,6 +1989,12 @@ document.addEventListener('keydown', e => {
 $('#runKbd').textContent = IS_MAC ? '⌘↵' : 'Ctrl↵';
 $('#filterKbd').textContent = IS_MAC ? '⌘F' : 'Ctrl F';
 $('#qbKbd').textContent = IS_MAC ? '⌘/' : 'Ctrl /';
+/* A session that last used the removed card view would land on no view at
+   all, so an unknown view falls back rather than rendering nothing. */
+if (!VIEW_META[state.view]) { state.view = 'table'; store.set('view', 'table'); }
+
+for (const f of FACET_FIELDS.slice(4)) state.facetShut.add(f);
+renderTableMenu();
 renderDatalists();
 renderSidebar();
 execute();

@@ -132,7 +132,12 @@ impl From<FileType> for FileKind {
             // Native formats all surface as JSON records via `to_json`, so the
             // built-in tree viewer renders them. A dedicated table viewer
             // lands with the query editor (#149).
-            FileType::Json | FileType::Csv | FileType::Parquet | FileType::DB => FileKind::Json,
+            FileType::Json
+            | FileType::Csv
+            | FileType::Parquet
+            | FileType::Excel
+            | FileType::Arrow
+            | FileType::DB => FileKind::Json,
             FileType::Plugin => FileKind::Plugin,
             FileType::Unknown => FileKind::Json,
         }
