@@ -94,7 +94,7 @@ pub use sidebar_header::{SidebarHeader, SidebarHeaderAction};
 pub use size::Size;
 pub use slider::Slider;
 pub use spinner::Spinner;
-pub use table_view::{ColumnType, TableView};
+pub use table_view::{ColumnType, SortBy, TableView};
 pub use tabs::{TabAction, Tabs};
 pub use text_view::TextView;
 pub use toggle_switch::ToggleSwitch;

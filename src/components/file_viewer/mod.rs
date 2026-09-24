@@ -18,7 +18,9 @@ use crate::file::{FileKind, FileType};
 use crate::plugin::Capability;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
 use crate::search::results::{MatchFragment, SearchResults};
-use thoth_plugin_sdk::components::{ColumnType, DataView, QueryBuilder, QueryField, TreeAction};
+use thoth_plugin_sdk::components::{
+    ColumnType, DataView, QueryBuilder, QueryField, SortBy, TreeAction,
+};
 
 /// Wrapper for WasmFileViewerLoader to implement FileViewerLoader
 struct PluginFileViewerLoader {
@@ -263,6 +265,11 @@ pub struct FileViewer {
     /// it has, because a query that clears the screen to say "working" is worse
     /// than one that takes a moment.
     query_job: Option<crate::file::indexing::QueryJob>,
+
+    /// A header click that arrived while a query was already running, to run
+    /// once the engine is free. Without it the arrow in the header and the
+    /// rows under it would disagree until the user pressed Run.
+    sort_queued: bool,
 }
 
 impl FileViewer {
@@ -299,6 +306,7 @@ impl FileViewer {
             tree_action: None,
             query: QueryBuilder::default(),
             query_job: None,
+            sort_queued: false,
         }
     }
 
@@ -481,6 +489,12 @@ impl FileViewer {
         // A staging job or a query may have landed since the last frame.
         self.poll_staging();
         self.poll_query();
+        // A header click that had to wait for the engine, now that it is free.
+        // Checked here rather than inside `poll_query`, which has several ways
+        // of giving up on a result and would drop the click down most of them.
+        if self.query_job.is_none() && std::mem::take(&mut self.sort_queued) {
+            self.run_query();
+        }
         self.poll_extension_install();
         self.poll_extension_arrivals();
 
@@ -813,6 +827,35 @@ impl FileViewer {
             .build();
     }
 
+    /// Reorder the result by the column a header click named, and re-run.
+    ///
+    /// `value` is a JSON [`SortBy`], or `null` when the click cleared the sort.
+    /// Only the sort lane is touched — the filters the user set still hold, so
+    /// reordering a result never quietly changes which rows it holds.
+    ///
+    /// A header click replaces the whole sort rather than adding to it: the
+    /// grid marks one column with one arrow, and a second, invisible key would
+    /// make the order it shows unexplainable from what it shows.
+    fn sort_by(&mut self, value: &str) {
+        let Ok(next) = serde_json::from_str::<Option<SortBy>>(value) else {
+            return;
+        };
+        self.query.spec.sort = next
+            .into_iter()
+            .map(|sort| thoth_plugin_sdk::components::Sort {
+                field: sort.column,
+                descending: sort.descending,
+            })
+            .collect();
+        // A click that lands mid-query must not be dropped: the header shows
+        // the new arrow the moment it is clicked, so the rows have to catch up.
+        if self.query_job.is_some() {
+            self.sort_queued = true;
+            return;
+        }
+        self.run_query();
+    }
+
     /// Run the query the lanes describe, on a worker thread.
     fn run_query(&mut self) {
         let Some(engine) = self.engine.clone() else {
@@ -1127,6 +1170,14 @@ impl FileViewer {
             } else {
                 self.selected_db_table.clone()
             })
+            // Sorting means re-running the query, so it is offered only where
+            // there is one to re-run: an engine-backed file whose lanes are not
+            // paused behind typed SQL.
+            .sortable(self.engine.is_some() && !self.query.is_overridden())
+            .maybe_sort(self.query.spec.sort.first().map(|s| SortBy {
+                column: s.field.clone(),
+                descending: s.descending,
+            }))
             .build();
         // Consumed, so a shortcut fires once rather than every frame until the
         // next one replaces it.
@@ -1138,6 +1189,10 @@ impl FileViewer {
         // of `pending_events` so the app never sees an action it has no handler
         // for.
         events.retain(|event| {
+            if event.id == thoth_plugin_sdk::actions::SORT_COLUMN {
+                self.sort_by(&event.value);
+                return false;
+            }
             if event.id != thoth_plugin_sdk::actions::SELECT_TABLE {
                 return true;
             }
@@ -1441,6 +1496,57 @@ mod tests {
         // Natively-read files (CSV, NDJSON, Parquet) yield no collections, and
         // the picker is hidden rather than showing the file back to itself.
         assert!(FileViewer::new().table_options().is_empty());
+    }
+
+    #[test]
+    fn sorting_by_a_header_leaves_the_filters_alone() {
+        use thoth_plugin_sdk::components::{Filter, Operator};
+
+        let mut viewer = FileViewer::new();
+        viewer.query.spec.filters = vec![Filter {
+            field: "level".to_string(),
+            operator: Operator::Equals,
+            values: vec!["error".to_string()],
+            column: ColumnType::Text,
+        }];
+
+        // Ascending, then descending on the same column, then cleared — the
+        // three states a header cycles through.
+        viewer.sort_by(r#"{"column":"ts","descending":false}"#);
+        assert_eq!(viewer.query.spec.sort.len(), 1);
+        assert_eq!(viewer.query.spec.sort[0].field, "ts");
+        assert!(!viewer.query.spec.sort[0].descending);
+
+        viewer.sort_by(r#"{"column":"ts","descending":true}"#);
+        assert!(viewer.query.spec.sort[0].descending);
+
+        // Another column replaces the key rather than adding a second one the
+        // grid could not show.
+        viewer.sort_by(r#"{"column":"level","descending":false}"#);
+        assert_eq!(viewer.query.spec.sort.len(), 1);
+        assert_eq!(viewer.query.spec.sort[0].field, "level");
+
+        viewer.sort_by("null");
+        assert!(viewer.query.spec.sort.is_empty(), "the sort was cleared");
+
+        // Through all of it, the filter the user set is still the filter.
+        assert_eq!(viewer.query.spec.filters.len(), 1);
+        assert_eq!(viewer.query.spec.filters[0].values, ["error"]);
+    }
+
+    #[test]
+    fn a_malformed_sort_event_changes_nothing() {
+        let mut viewer = FileViewer::new();
+        viewer.query.spec.sort = vec![thoth_plugin_sdk::components::Sort {
+            field: "ts".to_string(),
+            descending: true,
+        }];
+        viewer.sort_by("not json");
+        assert_eq!(
+            viewer.query.spec.sort.len(),
+            1,
+            "an unreadable event must not silently drop the order"
+        );
     }
 
     #[test]

@@ -16,7 +16,7 @@ use thoth_plugin_sdk::components::{
     Card, CardAction, CardIcon, Checkbox, Code, CodeEditor, Column, DataRow, Icon, IconButton,
     Input, JsonTree, KeyValueList, KvEntry, Link, List, ListItem, ListItemAction, ListItemBadge,
     Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row, Select, SelectOption,
-    Separator, SidebarHeader, SidebarHeaderAction, Size, Slider, Spinner, TableView, Tabs,
+    Separator, SidebarHeader, SidebarHeaderAction, Size, Slider, SortBy, Spinner, TableView, Tabs,
     TextView, ToggleSwitch, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
@@ -147,6 +147,9 @@ struct Gallery {
     toggled: bool,
     row_selected: bool,
     last_header_action: Option<usize>,
+    /// Which column the Table View story is sorted by — the grid reports the
+    /// click and the story, as its own producer, reorders the rows.
+    table_sort: Option<SortBy>,
 
     // New-component state.
     checked: bool,
@@ -196,6 +199,7 @@ impl Default for Gallery {
             toggled: true,
             row_selected: false,
             last_header_action: None,
+            table_sort: None,
             checked: true,
             slider_value: 0.5,
             number_value: 8080.0,
@@ -806,6 +810,27 @@ impl Gallery {
         ui.heading("Table View");
         ui.add_space(8.0);
         let cell = |s: String| RenderNode::Text(Typography::builder().text(s).build());
+        // The grid never reorders itself — it reports the click and whoever
+        // owns the data sorts it, which here is the story.
+        let mut records: Vec<(i32, String, String)> = (1..=50)
+            .map(|i| {
+                (
+                    i,
+                    format!("plugin-{i}"),
+                    if i % 2 == 0 { "rust" } else { "wasm" }.to_owned(),
+                )
+            })
+            .collect();
+        if let Some(sort) = &self.table_sort {
+            match sort.column.as_str() {
+                "name" => records.sort_by(|a, b| a.1.cmp(&b.1)),
+                "lang" => records.sort_by(|a, b| a.2.cmp(&b.2).then(a.0.cmp(&b.0))),
+                _ => records.sort_by_key(|r| r.0),
+            }
+            if sort.descending {
+                records.reverse();
+            }
+        }
         let mut table = TableView::builder()
             .headers(vec![
                 "id  ·  int".into(),
@@ -813,19 +838,22 @@ impl Gallery {
                 "lang  ·  text".into(),
             ])
             .rows(
-                (1..=50)
-                    .map(|i| {
-                        vec![
-                            cell(i.to_string()),
-                            cell(format!("plugin-{i}")),
-                            cell(if i % 2 == 0 { "rust" } else { "wasm" }.to_owned()),
-                        ]
-                    })
+                records
+                    .into_iter()
+                    .map(|(id, name, lang)| vec![cell(id.to_string()), cell(name), cell(lang)])
                     .collect(),
             )
+            .sortable(true)
+            .maybe_sort(self.table_sort.clone())
             .build();
-        if let Some(row) = table.show(ui, &mut Vec::new()) {
+        let mut events = Vec::new();
+        if let Some(row) = table.show(ui, &mut events) {
             println!("clicked row {row}");
+        }
+        for event in events {
+            if event.id == thoth_plugin_sdk::actions::SORT_COLUMN {
+                self.table_sort = serde_json::from_str(&event.value).unwrap_or(None);
+            }
         }
     }
 

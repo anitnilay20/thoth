@@ -80,6 +80,17 @@ pub struct DataView {
     /// Which of [`tables`](DataView::tables) the `handle` currently points at.
     #[serde(default, rename = "selected-table")]
     pub selected_table: Option<String>,
+    /// Which column the rows are ordered by, shown as an arrow in the table
+    /// view's header.
+    #[serde(default)]
+    pub sort: Option<crate::components::SortBy>,
+    /// Let the table view's headers be clicked to sort, emitting
+    /// [`SORT_COLUMN`](crate::actions::SORT_COLUMN). Off by default: the rows
+    /// behind a handle are a page of something the view cannot reorder, so
+    /// only a producer that can re-run its query should offer it.
+    #[builder(default)]
+    #[serde(default)]
+    pub sortable: bool,
 }
 
 #[cfg(feature = "egui")]
@@ -114,8 +125,11 @@ impl DataView {
     /// The table picker emits the chosen table on the reserved
     /// [`SELECT_TABLE`](crate::actions::SELECT_TABLE) id into `events`, because
     /// pointing the node at another table is the producer's work, not the
-    /// view's. Everything else — the view toggle, Copy, Export — is handled
-    /// in-widget or on [`EXPORT_DATASET`](crate::actions::EXPORT_DATASET).
+    /// view's. A sortable grid's header does the same on
+    /// [`SORT_COLUMN`](crate::actions::SORT_COLUMN), for the same reason:
+    /// reordering means re-running the query. Everything else — the view
+    /// toggle, Copy, Export — is handled in-widget or on
+    /// [`EXPORT_DATASET`](crate::actions::EXPORT_DATASET).
     pub fn show(&self, ui: &mut egui::Ui, events: &mut Vec<crate::render_node::UiEvent>) {
         use crate::components::{SelectOption, Typography, TypographyVariant};
         use crate::dataset::{renderers, resolve_dataset};
@@ -540,6 +554,8 @@ impl DataView {
                         .rows(rows)
                         .column_types(column_types)
                         .framed(false)
+                        .sortable(self.sortable)
+                        .maybe_sort(self.sort.clone())
                         .build()
                         .show(ui, events);
                 }

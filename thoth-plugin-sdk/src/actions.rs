@@ -29,3 +29,14 @@ pub const EXPORT_DATASET: &str = "thoth:export-dataset";
 /// before it can be shown — so the picker only ever reports the choice and
 /// leaves the work, and the new `selected_table`, to whoever built the node.
 pub const SELECT_TABLE: &str = "thoth:select-table";
+
+/// Order a [`DataView`](crate::components::DataView)'s rows by one of its
+/// columns. Emitted by the grid's header when a sortable column is clicked;
+/// the event value is a JSON [`SortBy`](crate::components::SortBy) — or `null`
+/// when the click cleared the sort.
+///
+/// The grid only ever reports the choice: it holds one page of a result that
+/// may be far larger, so ordering it here would sort the page rather than the
+/// data. Re-running the query is the producer's work, exactly as with
+/// [`SELECT_TABLE`].
+pub const SORT_COLUMN: &str = "thoth:sort-column";
