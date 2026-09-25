@@ -410,8 +410,8 @@ impl SettingsDialog {
                 for event in output.events {
                     use performance::PerformanceTabEvent;
                     match event {
-                        PerformanceTabEvent::CacheSizeChanged(size) => {
-                            settings.performance.cache_size = size;
+                        PerformanceTabEvent::IndexCacheBudgetChanged(mb) => {
+                            settings.performance.index_cache_mb = mb;
                         }
                         PerformanceTabEvent::MaxRecentFilesChanged(max) => {
                             settings.performance.max_recent_files = max;
@@ -601,7 +601,7 @@ fn section_is_dirty(tab: SettingsTab, draft: &Settings, baseline: &Settings) -> 
             draft.viewer.syntax_highlighting != baseline.viewer.syntax_highlighting
         }
         SettingsTab::Performance => {
-            draft.performance.cache_size != baseline.performance.cache_size
+            draft.performance.index_cache_mb != baseline.performance.index_cache_mb
                 || draft.performance.max_recent_files != baseline.performance.max_recent_files
                 || draft.performance.navigation_history_size
                     != baseline.performance.navigation_history_size

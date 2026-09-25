@@ -55,7 +55,7 @@ Features like API/network support, database connectivity, and additional file fo
 │  │           Wasmtime Runtime               │   │
 │  │                                          │   │
 │  │  ┌────────────┐  ┌────────────────────┐  │   │
-│  │  │ csv-loader │  │ postgres-source     │  │   │
+│  │  │ url-source │  │ postgres-source     │  │   │
 │  │  │ plugin.wasm│  │ plugin.wasm        │  │   │
 │  │  └────────────┘  └────────────────────┘  │   │
 │  └──────────────────────────────────────────┘   │
@@ -168,7 +168,7 @@ A plugin is a **directory** containing:
 
 ```text
 ~/.config/thoth/plugins/
-└── csv-loader/
+└── url-source/
     ├── plugin.toml   ← required metadata
     ├── plugin.wasm   ← compiled WASM component
     └── icon.png      ← optional 64×64 icon shown in Settings
@@ -177,19 +177,19 @@ A plugin is a **directory** containing:
 ### `plugin.toml` format
 
 ```toml
-id          = "com.example.csv-loader"   # Reverse-domain unique identifier
-name        = "CSV Loader"
+id          = "com.example.xml-loader"   # Reverse-domain unique identifier
+name        = "XML Loader"
 version     = "0.2.1"
-description = "Load CSV and TSV files as tabular JSON records"
+description = "Load XML documents as tabular JSON records"
 author      = "Your Name <you@example.com>"
-homepage    = "https://github.com/example/csv-loader"   # optional
+homepage    = "https://github.com/example/xml-loader"   # optional
 
 capabilities = ["file-loader", "file-viewer"]
 
 # One [[file-loader]] block per distinct MIME type / extension group
 [[file-loader]]
-file-type            = "text/csv"
-supported-extensions = ["csv"]
+file-type            = "application/xml"
+supported-extensions = ["xml"]
 
 [[file-loader]]
 file-type            = "text/tab-separated-values"
@@ -548,6 +548,13 @@ Each WIT call replenishes fuel to **5,000,000,000 units** (`PLUGIN_FUEL_BUDGET`)
 
 ## Implementing a File Loader Plugin
 
+> **Pick a format the engine cannot already read.** DuckDB reads JSON, NDJSON,
+> CSV, TSV, Parquet, Excel and SQLite/DuckDB databases natively, and the host
+> hands those straight to it — a plugin claiming `.csv` is never consulted for
+> one. Write a loader for what the engine has no reader for: XML, a proprietary
+> binary log, an instrument's export format. The worked example below is an XML
+> loader for exactly that reason.
+
 This walkthrough creates a CSV plugin in Rust using `cargo-component`.
 
 ### 1. Install tooling
@@ -560,15 +567,15 @@ rustup target add wasm32-wasip1
 ### 2. Scaffold the plugin
 
 ```bash
-cargo component new --lib csv-loader
-cd csv-loader
+cargo component new --lib xml-loader
+cd xml-loader
 ```
 
 ### 3. Configure `Cargo.toml`
 
 ```toml
 [package]
-name    = "csv-loader"
+name    = "xml-loader"
 version = "0.1.0"
 edition = "2021"
 
@@ -580,7 +587,7 @@ wit-bindgen-rt = "0.41"
 serde_json     = "1"
 
 [package.metadata.component]
-package = "com.example:csv-loader"
+package = "com.example:xml-loader"
 
 [package.metadata.component.target]
 path  = "../../wit"
@@ -615,10 +622,10 @@ thread_local! {
 impl MetaGuest for CsvPlugin {
     fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
         bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
-            id:           "com.example.csv-loader".to_string(),
-            name:         "CSV Loader".to_string(),
+            id:           "com.example.xml-loader".to_string(),
+            name:         "XML Loader".to_string(),
             version:      "0.1.0".to_string(),
-            description:  "Load CSV files as JSON records".to_string(),
+            description:  "Load XML documents as JSON records".to_string(),
             capabilities: vec![Capability::FileLoader],
             author:       Some("Your Name <you@example.com>".to_string()),
             homepage:     None,
@@ -646,7 +653,7 @@ impl SettingsGuest for CsvPlugin {
 
 impl FileLoaderGuest for CsvPlugin {
     fn supported_extensions() -> Vec<String> {
-        vec!["csv".to_string(), "tsv".to_string()]
+        vec!["xml".to_string()]
     }
 
     fn open(path: String) -> Result<u64, PluginError> {
@@ -674,12 +681,12 @@ bindings::export!(CsvPlugin with_types_in bindings);
 
 ```bash
 cargo component build --release
-mkdir -p ~/.config/thoth/plugins/csv-loader
-cp target/wasm32-wasip1/release/csv_loader.wasm ~/.config/thoth/plugins/csv-loader/plugin.wasm
-cp plugin.toml ~/.config/thoth/plugins/csv-loader/plugin.toml
+mkdir -p ~/.config/thoth/plugins/xml-loader
+cp target/wasm32-wasip1/release/xml_loader.wasm ~/.config/thoth/plugins/xml-loader/plugin.wasm
+cp plugin.toml ~/.config/thoth/plugins/xml-loader/plugin.toml
 ```
 
-Restart Thoth — opening a `.csv` file will now use your plugin.
+Restart Thoth — opening a `.xml` file will now use your plugin.
 
 ---
 
@@ -1003,7 +1010,6 @@ fn handle_event(event: UiEvent) -> Result<UiOutput, PluginError> {
 ### Worked examples
 
 The bundled plugins are built entirely with the SDK and are the best reference:
-- **`plugins/csv-loader`** — minimal (`render-settings` only).
 - **`plugins/url-source`** — a full request/response UI: rows with layout props,
   tabs with actions, modals (`open`/`close-id`/`width-pct`), inputs, key-value
   lists, a code editor, badges, and a JSON-tree response view.

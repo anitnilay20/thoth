@@ -1,59 +1,85 @@
-//! Convert an open file tab into a tabular dataset for the data bus (#113) —
-//! so Thoth core (the file viewer) and every file-loader plugin (csv-loader,
-//! …) are producers too.
+//! Convert an open file into a tabular dataset for the data bus (#113) —
+//! so Thoth core (the file viewer) and every file-loader plugin are producers
+//! too.
 //!
-//! The conversion reads records straight from a tab's *live* [`FileType`]
-//! loader via [`FileType::get`], which yields a [`Value`] regardless of the
-//! backing format (JSON, NDJSON, or a WASM file-loader plugin like csv-loader).
-//! That's what makes every file-loader plugin a producer "by default".
+//! The conversion reads straight from a tab's live [`FileLoader`] as Arrow
+//! and formats the batches into strings. Because every format — native or
+//! plugin-loaded — reaches the loader through DuckDB, this one path covers
+//! JSON, NDJSON, CSV, Parquet, databases and plugin formats alike.
 //!
-//! Best-effort v1 mapping (capped so a huge file never fully crosses):
-//! - array/NDJSON of objects → columns = union of keys (first-seen), one row
-//!   per record;
-//! - a single JSON object → a two-column `key` / `value` table;
-//! - scalars/arrays → a single `value` column.
+//! [`records_to_dataset`] remains for callers that already hold JSON records
+//! (plugin data sources, chart studio) and never touch a file loader.
 
+use duckdb::arrow::array::{Array, RecordBatch};
+use duckdb::arrow::datatypes::DataType;
+use duckdb::arrow::util::display::{ArrayFormatter, FormatOptions};
 use serde_json::Value;
 
-use crate::file::loaders::FileType;
+use crate::file::loaders::{FileLoader, batch_rows};
 
 /// Rows read from the file (bounds the crossing for large files).
 const CAP: usize = 5000;
-
-/// Rows fetched per bulk `get_range` call.
-const CHUNK: usize = 2000;
 
 /// `(columns, rows)` where each column is `(name, sql-ish type hint)` and each
 /// row is a list of string cells.
 pub type DatasetTable = (Vec<(String, String)>, Vec<Vec<String>>);
 
-/// Read up to [`CAP`] records from a live loader and map them to a
-/// [`DatasetTable`]. Works for any [`FileType`] (JSON/NDJSON and plugin
-/// loaders alike). `None` if the loader yields no readable records.
-pub fn loader_to_dataset(loader: &mut FileType) -> Option<DatasetTable> {
-    let n = loader.len().min(CAP);
-    let mut records: Vec<Value> = Vec::with_capacity(n);
-    // Read in bulk chunks via `get_range` — a single sequential pass per chunk
-    // instead of `n` per-record crossings (O(n²) for stream-parsed formats).
-    let mut start = 0;
-    while start < n {
-        let count = CHUNK.min(n - start);
-        match loader.get_range(start, count) {
-            Ok(chunk) => {
-                if chunk.is_empty() {
-                    break; // file ended early
-                }
-                let got = chunk.len();
-                records.extend(chunk);
-                start += got;
-            }
-            Err(_) => break,
-        }
-    }
-    records_to_dataset(&records)
+/// Read up to [`CAP`] rows from a live loader and map them to a
+/// [`DatasetTable`]. `None` if the loader yields no readable rows.
+pub fn loader_to_dataset(loader: &dyn FileLoader) -> Option<DatasetTable> {
+    let batches = loader.fetch(Vec::new(), None, Some(CAP)).ok()?;
+    batches_to_dataset(&batches)
 }
 
-/// Map already-loaded records to a [`DatasetTable`]. `None` if empty.
+/// Map Arrow batches to a [`DatasetTable`]. `None` if there are no rows.
+pub fn batches_to_dataset(batches: &[RecordBatch]) -> Option<DatasetTable> {
+    let first = batches.iter().find(|b| b.num_rows() > 0)?;
+
+    let cols: Vec<(String, String)> = first
+        .schema()
+        .fields()
+        .iter()
+        .map(|f| (f.name().to_string(), type_hint_arrow(f.data_type())))
+        .collect();
+    if cols.is_empty() {
+        return None;
+    }
+
+    let opts = FormatOptions::default().with_null("");
+    let mut rows: Vec<Vec<String>> = Vec::with_capacity(batch_rows(batches).min(CAP));
+
+    for batch in batches.iter().filter(|b| b.num_rows() > 0) {
+        // One formatter per column, reused across every row in the batch.
+        let formatters: Vec<ArrayFormatter> = match batch
+            .columns()
+            .iter()
+            .map(|col| ArrayFormatter::try_new(col.as_ref(), &opts))
+            .collect::<Result<_, _>>()
+        {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        for row in 0..batch.num_rows() {
+            rows.push(
+                formatters
+                    .iter()
+                    .map(|f| f.value(row).to_string())
+                    .collect(),
+            );
+            if rows.len() >= CAP {
+                return Some((cols, rows));
+            }
+        }
+    }
+
+    if rows.is_empty() {
+        None
+    } else {
+        Some((cols, rows))
+    }
+}
+
+/// Map already-loaded JSON records to a [`DatasetTable`]. `None` if empty.
 pub fn records_to_dataset(records: &[Value]) -> Option<DatasetTable> {
     if records.is_empty() {
         return None;
@@ -137,19 +163,70 @@ fn type_hint(v: &Value) -> String {
     }
 }
 
+/// Map an Arrow type to the same sql-ish hints [`type_hint`] produces, so a
+/// dataset looks the same whether it arrived as Arrow or as JSON records.
+fn type_hint_arrow(dt: &DataType) -> String {
+    use DataType::*;
+    match dt {
+        Int8 | Int16 | Int32 | Int64 | UInt8 | UInt16 | UInt32 | UInt64 => "integer",
+        Float16 | Float32 | Float64 | Decimal128(_, _) | Decimal256(_, _) => "float",
+        Boolean => "boolean",
+        Utf8 | LargeUtf8 | Utf8View => "text",
+        Date32 | Date64 => "date",
+        Timestamp(_, _) => "timestamp",
+        Time32(_) | Time64(_) => "time",
+        // A nested value is JSON to everything downstream: the grid draws it as
+        // a chip rather than a wall of braces, and the tree walks into it.
+        // Without this it reads as text and the formatted JSON fills the cell.
+        Struct(_)
+        | List(_)
+        | LargeList(_)
+        | ListView(_)
+        | LargeListView(_)
+        | FixedSizeList(_, _)
+        | Map(_, _)
+        | Union(_, _) => "json",
+        _ => "",
+    }
+    .to_string()
+}
+
+/// Which cells of the first [`CAP`] rows were NULL, in the same shape as
+/// [`batches_to_dataset`]'s rows.
+///
+/// Arrow formats a NULL as the empty string, which is also a perfectly good
+/// value — so the mask is the only thing that can tell a field the record does
+/// not carry from one that carries `""`. Kept separate from the rows so export
+/// and the data bus, which want the empty string, are unaffected.
+pub fn batch_nulls(batches: &[RecordBatch]) -> Vec<Vec<bool>> {
+    let mut mask: Vec<Vec<bool>> = Vec::new();
+    for batch in batches.iter().filter(|b| b.num_rows() > 0) {
+        for row in 0..batch.num_rows() {
+            mask.push(batch.columns().iter().map(|c| c.is_null(row)).collect());
+            if mask.len() >= CAP {
+                return mask;
+            }
+        }
+    }
+    mask
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::file::loaders::{FileType, JsonArrayFile};
+    use crate::file::loaders::duck_db::DuckdbConnection;
     use serde_json::json;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
-    fn json_array_loader(json: &str) -> FileType {
-        let mut tmp = NamedTempFile::new().unwrap();
-        tmp.write_all(json.as_bytes()).unwrap();
+    fn ndjson(lines: &str) -> NamedTempFile {
+        let mut tmp = tempfile::Builder::new()
+            .suffix(".ndjson")
+            .tempfile()
+            .unwrap();
+        tmp.write_all(lines.as_bytes()).unwrap();
         tmp.flush().unwrap();
-        FileType::JsonArray(JsonArrayFile::open(tmp.path()).unwrap())
+        tmp
     }
 
     #[test]
@@ -158,35 +235,103 @@ mod tests {
     }
 
     #[test]
-    fn loader_to_dataset_reads_live_loader() {
-        let mut loader = json_array_loader(r#"[{"a":1,"b":"x"},{"a":2,"b":"y"}]"#);
-        let (cols, rows) = loader_to_dataset(&mut loader).unwrap();
-        let names: Vec<&str> = cols.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names.len(), 2);
-        assert!(names.contains(&"a") && names.contains(&"b"));
-        assert_eq!(rows.len(), 2);
+    fn loader_to_dataset_reads_a_live_loader() {
+        let file = ndjson("{\"a\":1,\"b\":\"x\"}\n{\"a\":2,\"b\":\"y\"}\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+
+        let (cols, rows) = loader_to_dataset(&db).unwrap();
+        assert_eq!(
+            cols.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+        assert_eq!(cols[0].1, "integer");
+        assert_eq!(cols[1].1, "text");
+        assert_eq!(rows, vec![vec!["1", "x"], vec!["2", "y"]]);
     }
 
     #[test]
-    fn loader_to_dataset_crosses_chunk_boundary() {
-        // More than CHUNK rows, so loader_to_dataset must loop get_range and
-        // accumulate across multiple bulk reads.
-        let n = CHUNK + 500;
-        let arr: Vec<serde_json::Value> = (0..n).map(|i| json!({ "n": i })).collect();
-        let mut loader = json_array_loader(&serde_json::to_string(&arr).unwrap());
-        let (cols, rows) = loader_to_dataset(&mut loader).unwrap();
+    fn loader_to_dataset_reads_past_one_arrow_batch() {
+        // DuckDB emits ~2048-row batches, so this spans several.
+        let n = 5000;
+        let lines: String = (0..n).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        let file = ndjson(&lines);
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+
+        let (cols, rows) = loader_to_dataset(&db).unwrap();
         assert_eq!(cols.len(), 1);
-        assert_eq!(cols[0].0, "n");
-        assert_eq!(rows.len(), n);
-        // Order preserved across chunk seams.
+        assert_eq!(rows.len(), CAP.min(n));
+        // Order is preserved across batch seams.
         assert_eq!(rows[0][0], "0");
-        assert_eq!(rows[CHUNK][0], CHUNK.to_string());
-        assert_eq!(rows[n - 1][0], (n - 1).to_string());
+        assert_eq!(rows[3000][0], "3000");
+    }
+
+    #[test]
+    fn loader_to_dataset_caps_large_files() {
+        let lines: String = (0..CAP + 500).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        let file = ndjson(&lines);
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+
+        let (_, rows) = loader_to_dataset(&db).unwrap();
+        assert_eq!(rows.len(), CAP);
+    }
+
+    #[test]
+    fn nulls_become_empty_cells() {
+        let file = ndjson("{\"a\":1,\"b\":\"x\"}\n{\"a\":null,\"b\":\"y\"}\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+
+        let (_, rows) = loader_to_dataset(&db).unwrap();
+        assert_eq!(rows[1][0], "");
+    }
+
+    #[test]
+    fn the_null_mask_separates_an_absent_field_from_an_empty_one() {
+        // Row 0's `b` is the empty string, row 1's is absent. Both format as
+        // "", so only the mask can tell the grid which is which.
+        let file = ndjson("{\"a\":1,\"b\":\"\"}\n{\"a\":2}\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let batches = db.fetch(Vec::new(), None, Some(CAP)).unwrap();
+
+        let (cols, rows) = batches_to_dataset(&batches).unwrap();
+        let b = cols.iter().position(|(n, _)| n == "b").unwrap();
+        assert_eq!(rows[0][b], "");
+        assert_eq!(rows[1][b], "");
+
+        let nulls = batch_nulls(&batches);
+        assert!(!nulls[0][b], "an empty string is a value");
+        assert!(nulls[1][b], "a field the record does not carry is absent");
+    }
+
+    #[test]
+    fn the_null_mask_matches_the_rows_it_describes() {
+        // Spanning several Arrow batches, so a per-batch mask that forgot to
+        // accumulate would be caught.
+        let lines: String = (0..5000).map(|i| format!("{{\"n\":{i}}}\n")).collect();
+        let file = ndjson(&lines);
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let batches = db.fetch(Vec::new(), None, Some(CAP)).unwrap();
+
+        let (cols, rows) = batches_to_dataset(&batches).unwrap();
+        let nulls = batch_nulls(&batches);
+        assert_eq!(nulls.len(), rows.len());
+        assert!(nulls.iter().all(|r| r.len() == cols.len()));
+    }
+
+    #[test]
+    fn a_nested_value_is_typed_as_json() {
+        // Without this the grid reads a struct as text and renders the whole
+        // formatted object into one 22px cell.
+        let file = ndjson("{\"a\":1,\"t\":{\"id\":\"x\",\"ok\":true}}\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+
+        let (cols, _) = loader_to_dataset(&db).unwrap();
+        let t = cols.iter().find(|(n, _)| n == "t").expect("column present");
+        assert_eq!(t.1, "json");
     }
 
     #[test]
     fn object_rows_union_keys() {
-        // The csv-loader shape: each record is an object (one CSV row).
+        // A file-loader plugin's shape: each record is an object (one row).
         let recs = vec![
             json!({ "name": "ada", "age": 36 }),
             json!({ "name": "linus", "city": "helsinki" }),

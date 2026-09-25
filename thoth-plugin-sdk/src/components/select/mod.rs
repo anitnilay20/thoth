@@ -15,6 +15,14 @@ pub struct SelectOption {
     pub value: String,
     /// Human-readable label shown in the list.
     pub label: String,
+    /// Optional trailing detail, right-aligned in monospace at the row's end —
+    /// design `.tablemenu .n`, the row count beside each table's name. `None`
+    /// (the default) leaves the row as label-only.
+    ///
+    /// When any option carries one, every row reserves the tick's width so the
+    /// details line up in a column rather than stepping in and out by a glyph.
+    #[serde(default)]
+    pub detail: Option<String>,
 }
 
 /// The outcome of rendering a [`Select`] for one frame.
@@ -87,4 +95,26 @@ pub struct Select {
     #[builder(default)]
     #[serde(default)]
     pub searchable: bool,
+    /// Optional trailing figure in the *trigger*, between the label and the
+    /// caret — design `.select .cnt`: monospace, tabular, muted. The label
+    /// gives up the width it takes, so a long label ellipsises rather than
+    /// pushing the figure under the caret.
+    #[serde(default)]
+    pub count: Option<String>,
+    /// Greys the trigger out and stops it opening — design
+    /// `.select[disabled]`. For a picker that has nothing to pick between: it
+    /// stays on screen, still naming what is shown, instead of vanishing.
+    #[builder(default)]
+    #[serde(default)]
+    pub disabled: bool,
+    /// Minimum popover width — design `.menu.tablemenu{min-width:248px}`, a
+    /// menu wider than the trigger it hangs from. The popover never narrows
+    /// below the trigger, so this only ever widens it.
+    #[serde(default, rename = "menu-width")]
+    pub menu_width: Option<f32>,
+    /// Maximum height of the popover's option list — design
+    /// `.menu.tablemenu{max-height:340px}`. Unset falls back to the shared
+    /// eight-row cap.
+    #[serde(default, rename = "menu-max-height")]
+    pub menu_max_height: Option<f32>,
 }

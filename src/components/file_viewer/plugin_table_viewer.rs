@@ -3,18 +3,26 @@ use std::collections::HashMap;
 use eframe::egui;
 use serde_json::Value;
 
-use crate::components::file_viewer::viewer_trait::FileFormatViewer;
-use crate::file::loaders::FileType;
+use crate::components::file_viewer::viewer_trait::{FileFormatViewer, FileViewerLoader};
 use crate::helpers::LruCache;
 use crate::plugin::wasm_file_viewer_loader::DisplayMode;
 use thoth_plugin_sdk::components::TableView;
 use thoth_plugin_sdk::render_node::RenderNode;
+
+/// Records held for plugin rendering.
+///
+/// Plugin viewers render through `render_record`, a WIT call that takes a JSON
+/// string, so this path genuinely needs records as `Value` — unlike the tree
+/// viewer, which reads Arrow directly. The cache is owned here rather than
+/// shared, so that cost stays on the path that incurs it.
+const RECORD_CACHE: usize = 200;
 
 pub struct PluginTableViewer {
     headers: Vec<String>,
     visible_indices: Vec<usize>,
     display_mode: DisplayMode,
     render_cache: HashMap<usize, String>,
+    records: LruCache<usize, Value>,
 }
 
 impl PluginTableViewer {
@@ -24,6 +32,7 @@ impl PluginTableViewer {
             visible_indices: Vec::new(),
             display_mode: DisplayMode::Table,
             render_cache: HashMap::new(),
+            records: LruCache::new(RECORD_CACHE),
         }
     }
 }
@@ -40,13 +49,13 @@ impl FileFormatViewer for PluginTableViewer {
         self.visible_indices.clear();
         self.display_mode = DisplayMode::Table;
         self.render_cache.clear();
+        self.records = LruCache::new(RECORD_CACHE);
     }
 
     fn rebuild_view(
         &mut self,
         visible_roots: &Option<Vec<usize>>,
-        _cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         total_len: usize,
     ) {
         if self.headers.is_empty() {
@@ -56,7 +65,7 @@ impl FileFormatViewer for PluginTableViewer {
             } else if total_len > 0 {
                 // Plugin didn't provide headers — derive them from the keys of
                 // the first record so the table has something to render.
-                if let Ok(first) = loader.get(0)
+                if let Ok(first) = loader.get_value(0)
                     && let Some(obj) = first.as_object()
                 {
                     let mut keys: Vec<String> = obj.keys().cloned().collect();
@@ -81,8 +90,7 @@ impl FileFormatViewer for PluginTableViewer {
         &mut self,
         ui: &mut egui::Ui,
         _selected: &mut Option<String>,
-        cache: &mut LruCache<usize, Value>,
-        loader: &mut FileType,
+        loader: &mut dyn FileViewerLoader,
         _should_scroll_to_selection: &mut bool,
         _is_search_navigation: bool,
         _syntax_highlighting: bool,
@@ -93,6 +101,7 @@ impl FileFormatViewer for PluginTableViewer {
         let indices = self.visible_indices.clone();
         let num_rows = indices.len();
         let render_cache = &mut self.render_cache;
+        let cache = &mut self.records;
 
         // Standalone grid — it owns its container fill, edge and corners.
         TableView::show_rows(
@@ -110,7 +119,7 @@ impl FileFormatViewer for PluginTableViewer {
                         let cached = cache.get(&idx).cloned();
                         let record = match cached {
                             Some(v) => Some(v),
-                            None => loader.get(idx).ok().inspect(|v| {
+                            None => loader.get_value(idx).ok().inspect(|v| {
                                 cache.put(idx, v.clone());
                             }),
                         };
@@ -131,13 +140,13 @@ impl FileFormatViewer for PluginTableViewer {
                             let cached = cache.get(&idx).cloned();
                             let record = match cached {
                                 Some(v) => Some(v),
-                                None => loader.get(idx).ok().inspect(|v| {
+                                None => loader.get_value(idx).ok().inspect(|v| {
                                     cache.put(idx, v.clone());
                                 }),
                             };
                             if let Some(r) = record {
                                 let json = serde_json::to_string(&r).unwrap_or_default();
-                                if let Some(node_json) = loader.render_record(&json) {
+                                if let Ok(node_json) = loader.render_record(&json) {
                                     e.insert(node_json);
                                 }
                             }

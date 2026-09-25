@@ -13,6 +13,7 @@ mod card;
 mod checkbox;
 mod code;
 mod code_editor;
+mod context_menu;
 mod data_row;
 mod data_view;
 #[cfg(feature = "egui")]
@@ -30,6 +31,7 @@ mod modal;
 mod multi_select;
 mod number_input;
 mod progress;
+mod query_builder;
 mod radio;
 mod select;
 mod separator;
@@ -39,6 +41,7 @@ mod slider;
 mod spinner;
 mod table_view;
 mod tabs;
+mod text_view;
 mod toggle_switch;
 mod typography;
 
@@ -52,14 +55,15 @@ pub use card::{Card, CardAction, CardIcon};
 pub use checkbox::Checkbox;
 pub use code::Code;
 pub use code_editor::{CodeEditor, CodeEditorOutput, CustomSyntax, RunRequest};
+pub use context_menu::{ContextMenu, ContextMenuItem};
 #[cfg(feature = "egui")]
 pub use data_row::DataRowOutput;
 pub use data_row::{DataRow, DataRowIcon, RowHighlights};
-pub use data_view::DataView;
+pub use data_view::{DataTable, DataView};
 pub use icon::Icon;
 pub use icon_button::{IconButton, IconButtonSelectedStyle};
 pub use input::Input;
-pub use json_tree::JsonTree;
+pub use json_tree::{JsonTree, TreeAction};
 pub use key_value_list::{KeyValueList, KvEntry};
 pub use layout::{
     Align, BgColor, Collapsible, Colored, Column, Footer, Group, KeyValue, Row, Scroll, Spacer,
@@ -77,6 +81,12 @@ pub use modal::Modal;
 pub use multi_select::MultiSelect;
 pub use number_input::NumberInput;
 pub use progress::Progress;
+#[cfg(feature = "egui")]
+pub use query_builder::QueryBuilderOutput;
+pub use query_builder::{
+    Aggregate, AggregateFn, Combine, Filter, Operator, QueryBuilder, QueryError, QueryField,
+    QuerySpec, QueryStatus, Sort,
+};
 pub use radio::Radio;
 pub use select::{Select, SelectOption, SelectResponse};
 pub use separator::Separator;
@@ -84,7 +94,8 @@ pub use sidebar_header::{SidebarHeader, SidebarHeaderAction};
 pub use size::Size;
 pub use slider::Slider;
 pub use spinner::Spinner;
-pub use table_view::{ColumnType, TableView};
+pub use table_view::{ColumnType, SortBy, TableView};
 pub use tabs::{TabAction, Tabs};
+pub use text_view::TextView;
 pub use toggle_switch::ToggleSwitch;
 pub use typography::{Typography, TypographyVariant};

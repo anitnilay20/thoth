@@ -104,6 +104,21 @@ pub enum ThothError {
         path: PathBuf,
         reason: String,
     },
+
+    // Database errors
+    DatabaseError {
+        reason: String,
+    },
+    DatabaseConversionError {
+        reason: String,
+    },
+    DatabaseQueryError {
+        query: String,
+        reason: String,
+    },
+    DatabaseParameterError {
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for ThothError {
@@ -210,6 +225,20 @@ impl std::fmt::Display for ThothError {
             ThothError::FileSaveError { path, reason } => {
                 write!(f, "Failed to save file '{}': {}", path.display(), reason)
             }
+
+            // Database errors
+            ThothError::DatabaseError { reason } => {
+                write!(f, "Database error: {}", reason)
+            }
+            ThothError::DatabaseConversionError { reason } => {
+                write!(f, "Database conversion error: {}", reason)
+            }
+            ThothError::DatabaseQueryError { query, reason } => {
+                write!(f, "Database query error for '{}': {}", query, reason)
+            }
+            ThothError::DatabaseParameterError { reason } => {
+                write!(f, "Database parameter error: {}", reason)
+            }
         }
     }
 }
@@ -269,6 +298,116 @@ impl From<reqwest::Error> for ThothError {
     fn from(err: reqwest::Error) -> Self {
         ThothError::UpdateCheckError {
             reason: err.to_string(),
+        }
+    }
+}
+
+impl From<arrow::error::ArrowError> for ThothError {
+    fn from(err: arrow::error::ArrowError) -> Self {
+        ThothError::DatabaseConversionError {
+            reason: err.to_string(),
+        }
+    }
+}
+
+impl From<duckdb::Error> for ThothError {
+    fn from(value: duckdb::Error) -> Self {
+        match value {
+            duckdb::Error::DuckDBFailure(error, _reason) => ThothError::DatabaseError {
+                reason: error.to_string(),
+            },
+            duckdb::Error::FromSqlConversionFailure(_, _, error) => {
+                ThothError::DatabaseConversionError {
+                    reason: error.to_string(),
+                }
+            }
+            duckdb::Error::IntegralValueOutOfRange(_, _) => ThothError::DatabaseConversionError {
+                reason: "Integral value out of range".to_string(),
+            },
+            duckdb::Error::UnsignedIntegralValueOutOfRange(_, _) => {
+                ThothError::DatabaseConversionError {
+                    reason: "Unsigned integral value out of range".to_string(),
+                }
+            }
+            duckdb::Error::Utf8Error(utf8_error) => ThothError::DatabaseConversionError {
+                reason: utf8_error.to_string(),
+            },
+            duckdb::Error::NulError(nul_error) => ThothError::DatabaseConversionError {
+                reason: nul_error.to_string(),
+            },
+            duckdb::Error::InvalidParameterName(name) => ThothError::DatabaseParameterError {
+                reason: format!("Invalid parameter name: {}", name),
+            },
+            duckdb::Error::InvalidPath(path_buf) => ThothError::FileReadError {
+                path: path_buf,
+                reason: "Invalid database path".to_string(),
+            },
+            duckdb::Error::ExecuteReturnedResults => ThothError::DatabaseError {
+                reason: "Execute returned results unexpectedly".to_string(),
+            },
+            duckdb::Error::QueryReturnedNoRows => ThothError::DatabaseQueryError {
+                query: "unknown".to_string(),
+                reason: "Query returned no rows".to_string(),
+            },
+            duckdb::Error::QueryReturnedMoreThanOneRow => ThothError::DatabaseQueryError {
+                query: "unknown".to_string(),
+                reason: "Query returned more than one row".to_string(),
+            },
+            duckdb::Error::InvalidColumnIndex(idx) => ThothError::DatabaseQueryError {
+                query: "unknown".to_string(),
+                reason: format!("Invalid column index: {}", idx),
+            },
+            duckdb::Error::InvalidColumnName(name) => ThothError::DatabaseQueryError {
+                query: "unknown".to_string(),
+                reason: format!("Invalid column name: {}", name),
+            },
+            duckdb::Error::InvalidColumnType(idx, name, typ) => {
+                ThothError::DatabaseConversionError {
+                    reason: format!(
+                        "Invalid column type for column {} ({}, {}): expected different type",
+                        idx, name, typ
+                    ),
+                }
+            }
+            duckdb::Error::ArrowTypeToDuckdbType(_, data_type) => {
+                ThothError::DatabaseConversionError {
+                    reason: format!(
+                        "Arrow type to DuckDB type conversion failed: {:?}",
+                        data_type
+                    ),
+                }
+            }
+            duckdb::Error::StatementChangedRows(rows) => ThothError::DatabaseError {
+                reason: format!("Statement changed {} rows unexpectedly", rows),
+            },
+            duckdb::Error::ToSqlConversionFailure(error) => ThothError::DatabaseConversionError {
+                reason: error.to_string(),
+            },
+            duckdb::Error::InvalidQuery => ThothError::DatabaseQueryError {
+                query: "unknown".to_string(),
+                reason: "Invalid query".to_string(),
+            },
+            duckdb::Error::MultipleStatement => ThothError::DatabaseQueryError {
+                query: "unknown".to_string(),
+                reason: "Multiple statements not supported".to_string(),
+            },
+            duckdb::Error::InvalidParameterCount(expected, actual) => {
+                ThothError::DatabaseParameterError {
+                    reason: format!(
+                        "Invalid parameter count: expected {}, got {}",
+                        expected, actual
+                    ),
+                }
+            }
+            duckdb::Error::InvalidParameterIndex(idx) => ThothError::DatabaseParameterError {
+                reason: format!("Invalid parameter index: {}", idx),
+            },
+            duckdb::Error::AppendError => ThothError::DatabaseError {
+                reason: "Append error".to_string(),
+            },
+            _ => ThothError::DatabaseError {
+                reason: value.to_string(),
+            },
         }
     }
 }

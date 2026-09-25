@@ -52,7 +52,9 @@ impl MultiSelect {
                     &self.summary(),
                     is_open,
                     // No leading glyph on a multi-select trigger — its label is a
-                    // selection count, not a named value.
+                    // selection count, not a named value — and no trailing
+                    // figure either: the summary already counts.
+                    None,
                     None,
                 );
 
@@ -81,6 +83,9 @@ impl MultiSelect {
                     id.with("_area"),
                     trigger_rect,
                     &colors,
+                    // The sheet matches the trigger; only the table picker's
+                    // menu is deliberately wider than its control.
+                    None,
                     |ui, popup_w| {
                         egui::ScrollArea::vertical()
                             .max_height(scroll_h)

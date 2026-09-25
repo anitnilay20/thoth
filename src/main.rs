@@ -89,11 +89,12 @@ fn main() -> Result<()> {
 
     // ── MCP server branch ────────────────────────────────────────────────
     // Must happen BEFORE any GUI init — stdout must stay clean for JSON-RPC.
-    if args.get(1).map(|s| s.as_str()) == Some("mcp") {
-        let mcp_args: Vec<String> = args[2..].to_vec();
-        return thoth::mcp::run_mcp_command(&mcp_args)
-            .map_err(|e| format!("MCP error: {e}").into());
-    }
+    // TODO: Fix the mcp server
+    // if args.get(1).map(|s| s.as_str()) == Some("mcp") {
+    //     let mcp_args: Vec<String> = args[2..].to_vec();
+    //     return thoth::mcp::run_mcp_command(&mcp_args)
+    //         .map_err(|e| format!("MCP error: {e}").into());
+    // }
 
     let settings = settings::Settings::load().unwrap_or_else(|e| {
         eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);
@@ -166,11 +167,7 @@ fn main() -> Result<()> {
             // Initialize Phosphor icon fonts and register the named family so
             // FontFamily::Name("phosphor") is available from the very first frame.
             let mut fonts = egui::FontDefinitions::default();
-            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-            fonts.families.insert(
-                egui::FontFamily::Name("phosphor".into()),
-                vec!["phosphor".into()],
-            );
+            thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
             cc.egui_ctx.set_fonts(fonts);
 
             // Register egui's image loaders so components can decode embedded
@@ -180,6 +177,18 @@ fn main() -> Result<()> {
             // Let `DataView` render nodes read dataset rows from the host's
             // single-owned registry by handle (the data never enters plugins).
             thoth_plugin_sdk::dataset::set_dataset_resolver(app::resolve_dataset_for_view);
+            // Lazy, node-at-a-time access to the same handles, so a `data-view`
+            // can draw a tree over a file far larger than memory by reading only
+            // the nodes it is showing.
+            thoth_plugin_sdk::dataset::set_dataset_access(
+                thoth_plugin_sdk::dataset::DatasetAccess {
+                    total: thoth::papyrus::total,
+                    records_expandable: thoth::papyrus::records_expandable,
+                    children: thoth::papyrus::children,
+                    node_preview: thoth::papyrus::node_preview,
+                    node_json: thoth::papyrus::node_json,
+                },
+            );
             // Populate the DataView "Export" dropdown with installed exporters.
             thoth_plugin_sdk::dataset::set_exporters_provider(app::list_exporters_for_view);
             // Populate the DataView view dropdown with installed renderer plugins,
@@ -189,7 +198,7 @@ fn main() -> Result<()> {
 
             let mut app = app::ThothApp::new(settings, file_to_open);
             app.core.plugins.install_as_active();
-            app.core.datasets.install_as_active();
+            app.core.papyrus.install_as_active();
             app.core.plugins.start(
                 app.core.settings.plugins.enabled,
                 app.core.settings.plugins.plugin_settings.clone(),

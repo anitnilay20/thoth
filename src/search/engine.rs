@@ -14,7 +14,10 @@ use super::results::{
     FieldComponent, MatchFragment, MatchPreview, MatchTarget, SearchHit, SearchResults,
 };
 use crate::error::ThothError;
-use crate::file::loaders::{FileKind, FileType, load_file_auto};
+use crate::file::FileKind;
+use crate::file::detect_file_type::{DetectedFileType, sniff_file_type};
+use crate::file::loaders::{FileLoader, NdjsonFile, JsonArrayFile};
+use crate::components::file_viewer::viewer_trait::FileViewerLoader;
 
 const MAX_FRAGMENTS_PER_RECORD: usize = 64;
 const PREVIEW_CONTEXT_BYTES: usize = 36;
@@ -42,18 +45,17 @@ impl Search {
     pub fn start_scanning(
         &self,
         file: &Option<PathBuf>,
-        file_type: &FileKind,
+        _file_type: &FileKind,
     ) -> mpsc::Receiver<Search> {
         let (tx, rx) = mpsc::channel();
         let mut job = self.clone();
         let file = file.clone();
-        let file_type = *file_type;
 
         // mark as scanning for the first UI update
         job.scanning = true;
 
         thread::spawn(move || {
-            job.start_scanning_internal(&file, &file_type);
+            job.start_scanning_internal(&file);
             let _ = tx.send(job); // send finished (scanning=false, results filled)
         });
 
@@ -62,7 +64,7 @@ impl Search {
 
     /// Parallel substring scan over the file's records.
     /// Populates `self.results` with matching root indices, then sets `scanning = false`.
-    pub fn start_scanning_internal(&mut self, file: &Option<PathBuf>, _file_type: &FileKind) {
+    pub fn start_scanning_internal(&mut self, file: &Option<PathBuf>) {
         self.scanning = true;
         self.results.clear();
         self.error = None;
@@ -80,21 +82,57 @@ impl Search {
             return;
         };
 
-        // Open lazily (auto-detect NDJSON / array JSON / single object)
-        let (_detected, store) = match load_file_auto(path) {
-            Ok(result) => result,
+        // Detect file type and create appropriate loader
+        let detected = match sniff_file_type(path) {
+            Ok(d) => d,
             Err(e) => {
                 self.scanning = false;
                 self.error = Some(ThothError::SearchError {
                     query: self.query.clone(),
-                    reason: format!("Failed to load file for search: {}", e),
+                    reason: format!("Failed to detect file type: {}", e),
                 });
                 return;
             }
         };
 
-        // Move the store into an Arc so threads can share it immutably.
-        let store = Arc::new(store);
+        let store: Arc<dyn FileLoader + Send + Sync> = match detected {
+            DetectedFileType::Ndjson => {
+                match NdjsonFile::open(path) {
+                    Ok(loader) => Arc::new(loader),
+                    Err(e) => {
+                        self.scanning = false;
+                        self.error = Some(ThothError::SearchError {
+                            query: self.query.clone(),
+                            reason: format!("Failed to open NDJSON file: {}", e),
+                        });
+                        return;
+                    }
+                }
+            }
+            DetectedFileType::JsonArray => {
+                match JsonArrayFile::open(path) {
+                    Ok(loader) => Arc::new(loader),
+                    Err(e) => {
+                        self.scanning = false;
+                        self.error = Some(ThothError::SearchError {
+                            query: self.query.clone(),
+                            reason: format!("Failed to open JSON array file: {}", e),
+                        });
+                        return;
+                    }
+                }
+            }
+            DetectedFileType::JsonObject => {
+                // For JSON object, we'd need a different loader
+                // For now, treat as error
+                self.scanning = false;
+                self.error = Some(ThothError::SearchError {
+                    query: self.query.clone(),
+                    reason: "JSON object files not supported for search yet".to_string(),
+                });
+                return;
+            }
+        };
 
         // Run the appropriate matcher
         let results = match self.query_mode {
@@ -134,11 +172,11 @@ impl Search {
 }
 
 fn parallel_scan(
-    store: Arc<FileType>,
+    store: Arc<dyn FileLoader + Send + Sync>,
     query: &str,
     match_case: bool,
 ) -> crate::error::Result<SearchResults> {
-    let total = store.len();
+    let total = store.len()?;
     if total == 0 {
         return Ok(SearchResults::default());
     }
@@ -160,7 +198,7 @@ fn parallel_scan(
     let mut hits: Vec<SearchHit> = (0..total)
         .into_par_iter()
         .filter_map(|i| {
-            let original = store.raw_slice(i).ok()?;
+            let original = store.raw_bytes(i).ok()?;
             let hay_cow: Cow<'_, [u8]> = if fold {
                 let mut buf = original.clone();
                 ascii_lower_in_place(&mut buf);
@@ -190,11 +228,11 @@ fn parallel_scan(
 }
 
 fn jsonpath_scan(
-    store: Arc<FileType>,
+    store: Arc<dyn FileLoader + Send + Sync>,
     query: &JsonPathQuery,
     match_case: bool,
 ) -> crate::error::Result<SearchResults> {
-    let total = store.len();
+    let total = store.len()?;
     if total == 0 {
         return Ok(SearchResults::default());
     }
@@ -202,7 +240,7 @@ fn jsonpath_scan(
     let mut hits: Vec<SearchHit> = (0..total)
         .into_par_iter()
         .filter_map(|i| {
-            let bytes = store.raw_slice(i).ok()?;
+            let bytes = store.raw_bytes(i).ok()?;
             let value: Value = serde_json::from_slice(&bytes).ok()?;
             let root_path = i.to_string();
             let mut matches = query.evaluate(&value, &root_path, match_case);

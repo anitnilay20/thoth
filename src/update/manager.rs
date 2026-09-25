@@ -3,6 +3,7 @@ use crate::error::{Result, ThothError};
 use crate::platform::{get_extractor_for_file, get_fs_ops};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::Duration;
 
 const GITHUB_REPO: &str = "anitnilay20/thoth";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -51,8 +52,15 @@ impl UpdateManager {
     fn fetch_releases() -> Result<Vec<ReleaseInfo>> {
         let url = format!("https://api.github.com/repos/{}/releases", GITHUB_REPO);
 
+        // A short connect timeout so an unreachable host fails fast, and a
+        // bounded but generous transfer timeout — `reqwest::blocking` defaults
+        // the whole request to 30 seconds, which a slow link turns into a size
+        // limit. See `plugin::marketplace`, where the same default killed a
+        // 1.5 KB download that took 75 seconds.
         let client = reqwest::blocking::Client::builder()
             .user_agent("thoth-updater")
+            .connect_timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(2 * 60))
             .build()?;
 
         let response = client
@@ -153,8 +161,13 @@ impl UpdateManager {
         // Determine the correct asset based on platform
         let asset = Self::get_platform_asset(release)?;
 
+        // The release binary is tens of megabytes: 30 seconds is nowhere near
+        // enough on an ordinary connection, and the failure reads as a network
+        // error rather than as the deadline it is.
         let client = reqwest::blocking::Client::builder()
             .user_agent("thoth-updater")
+            .connect_timeout(Duration::from_secs(20))
+            .timeout(Duration::from_secs(30 * 60))
             .build()?;
 
         // Create temp directory for download

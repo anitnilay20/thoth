@@ -6,10 +6,12 @@ use egui_dock::{DockState, tab_viewer::OnCloseResponse};
 
 use crate::{
     app::persistent_state::PersistentState,
-    components::central_panel::{CentralPanel, CentralPanelProps},
-    components::traits::ContextComponent,
+    components::{
+        central_panel::{CentralPanel, CentralPanelProps},
+        traits::ContextComponent,
+    },
     error::ThothError,
-    file::lazy_loader::FileKind,
+    file::FileKind,
     plugin::render_node::UiOutput,
     settings::Settings,
     state::{ActivePluginPane, NavigationHistory, SearchEngineState},
@@ -138,7 +140,7 @@ pub struct ThothTabViewer<'a> {
     pub persistent_state: &'a mut PersistentState,
     pub nav_capacity: usize,
     /// Search message for the focused tab, consumed by the first matching tab::ui call.
-    pub search_msg: Option<(TabId, crate::search::SearchMessage)>,
+    pub search_msg: Option<(TabId, String)>,
     /// Outbound events collected during show_inside, drained by ThothApp afterwards.
     pub events: Vec<TabEvent>,
     /// Current theme colors for per-tab style overrides.
@@ -201,7 +203,6 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         let previous_path = tab.central_panel.get_selected_path().cloned();
 
         // Copy primitive settings values before the mutable borrow of tab.
-        let cache_size = self.settings.performance.cache_size;
         let syntax_highlighting = self.settings.viewer.syntax_highlighting;
         let plugin_ui = tab.active_plugin_pane.as_ref().map(|p| &p.ui_output);
 
@@ -213,11 +214,11 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         let output = tab.central_panel.render(
             ui,
             CentralPanelProps {
+                tab_id: *tab_id,
                 file_path: &tab.file_path,
                 file_type: tab.file_type,
                 error: &tab.error,
                 search_message: search_msg,
-                cache_size,
                 syntax_highlighting,
                 plugin_ui,
                 recent_files: &recent_files,
@@ -301,6 +302,10 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
             && let Some(pane) = tab.active_plugin_pane.as_ref()
         {
             pane.loader.on_tab_closed();
+        }
+        // A scan whose tab is gone has nobody to deliver to.
+        if let Some(tab) = self.tabs.get_mut(tab_id) {
+            tab.central_panel.cancel_indexing();
         }
         self.tabs.remove(tab_id);
         self.events.push(TabEvent::TabClosed(*tab_id));
@@ -420,6 +425,9 @@ impl TabManager {
         // Remove from the dock tree first.
         if let Some(path) = self.dock_state.find_tab(&id) {
             self.dock_state.remove_tab(path);
+        }
+        if let Some(tab) = self.tabs.get_mut(&id) {
+            tab.central_panel.cancel_indexing();
         }
         self.tabs.remove(&id);
         was_empty

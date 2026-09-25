@@ -4,7 +4,7 @@ use egui_extras::{Column, TableBuilder};
 use crate::render_node::UiEvent;
 use crate::theme::{FONT_CAPTION, RADIUS_PANEL, ThemeColors, edge_stroke, with_alpha};
 
-use super::TableView;
+use super::{SortBy, TableView, header_name};
 
 /// Sticky header height — design `.tv thead th{height:28px}`.
 const HEADER_H: f32 = 28.0;
@@ -24,6 +24,11 @@ const TYPE_FONT: f32 = 9.0;
 const TYPE_GAP: f32 = 5.0;
 /// Zebra wash — design `tbody tr:nth-child(even){background:text 3%}`.
 const ZEBRA_ALPHA: u8 = 8;
+/// Sort arrow size — a shade under the header text, so it marks the column
+/// without competing with its name for the eye.
+const SORT_ARROW_FONT: f32 = 10.0;
+/// Gap between the label and the sort arrow.
+const SORT_ARROW_GAP: f32 = 6.0;
 
 impl TableView {
     /// Render the grid, drawing each cell node and collecting their events.
@@ -36,7 +41,16 @@ impl TableView {
         let min_col_width = self.min_col_width.unwrap_or(150.0);
         let auto_fit_id = ui.id().with("table-view-auto-fit-column");
         let auto_fit_column = ui.data_mut(|data| data.remove_temp::<usize>(auto_fit_id));
+        let selection_id = ui.id().with("table-view-selected-row");
+        let row_count = self.rows.len();
+        let mut selected: Option<usize> = ui
+            .data(|d| d.get_temp::<usize>(selection_id))
+            .filter(|row| *row < row_count);
+        let moved = move_selection(ui, &mut selected, row_count);
         let requested_auto_fit = std::cell::Cell::new(None::<usize>);
+        let requested_sort = std::cell::Cell::new(None::<usize>);
+        let sort = self.sort.clone();
+        let sortable = self.sortable;
         // Per-column right-alignment from the (optional) SQL types.
         let right_aligned: Vec<bool> = (0..num_cols)
             .map(|i| self.column_types.get(i).is_some_and(|t| t.right_aligned()))
@@ -81,16 +95,30 @@ impl TableView {
                     }
                     table
                         .header(HEADER_H, |header_row| {
-                            if let Some(col) = paint_header_row(header_row, &headers, &colors) {
-                                requested_auto_fit.set(Some(col));
-                            }
+                            let hit = paint_header_row(
+                                header_row,
+                                &headers,
+                                &colors,
+                                sort.as_ref(),
+                                sortable,
+                            );
+                            requested_auto_fit.set(hit.auto_fit);
+                            requested_sort.set(hit.sorted);
                         })
                         .body(|body| {
                             body.rows(ROW_H, rows.len(), |mut row| {
                                 let idx = row.index();
 
+                                let is_selected = selected == Some(idx);
                                 let mut row_clicked = false;
                                 let (_, number_resp) = row.col(|ui| {
+                                    if is_selected {
+                                        ui.painter().rect_filled(
+                                            ui.max_rect(),
+                                            0.0,
+                                            with_alpha(colors.accent, SELECTED_ROW_ALPHA),
+                                        );
+                                    }
                                     paint_row_number(ui, &colors, &(idx + 1).to_string());
                                     paint_cell_borders(ui, grid, grid);
                                 });
@@ -165,6 +193,10 @@ impl TableView {
             ui.ctx().request_repaint();
         }
 
+        if let Some(col) = requested_sort.get() {
+            emit_sort(events, &headers, col, sort.as_ref());
+        }
+
         // Resolve a requested copy to clipboard text, now that the grid is drawn
         // and `rows` is free to read. Row → cells tab-separated; column → the
         // whole column newline-separated, header first.
@@ -199,6 +231,12 @@ impl TableView {
         }
 
         self.rows = rows;
+        if let Some(row) = selected {
+            ui.data_mut(|data| data.insert_temp(selection_id, row));
+        }
+        if moved {
+            ui.ctx().request_repaint();
+        }
         clicked_row
     }
 
@@ -226,6 +264,13 @@ impl TableView {
         let num_cols = headers.len().max(1);
         let min_col_width = min_col_width.unwrap_or(150.0);
         let auto_fit_id = ui.id().with("table-view-auto-fit-column");
+        let selection_id = ui.id().with("table-view-selected-row");
+        let mut selected: Option<usize> = ui
+            .data(|d| d.get_temp::<usize>(selection_id))
+            .filter(|row| *row < row_count);
+        // Moving before the rows are drawn means the new selection is painted
+        // this frame rather than one frame late.
+        let moved = move_selection(ui, &mut selected, row_count);
         let auto_fit_column = ui.data_mut(|data| data.remove_temp::<usize>(auto_fit_id));
         let requested_auto_fit = std::cell::Cell::new(None::<usize>);
 
@@ -258,9 +303,10 @@ impl TableView {
                     }
                     table
                         .header(HEADER_H, |header_row| {
-                            if let Some(col) = paint_header_row(header_row, headers, &colors) {
-                                requested_auto_fit.set(Some(col));
-                            }
+                            // Rows built on demand come from somewhere this
+                            // view cannot reorder, so the header only fits.
+                            let hit = paint_header_row(header_row, headers, &colors, None, false);
+                            requested_auto_fit.set(hit.auto_fit);
                         })
                         .body(|body| {
                             body.rows(ROW_H, row_count, |mut row| {
@@ -271,8 +317,16 @@ impl TableView {
                                     cells.push(crate::render_node::RenderNode::text(""));
                                 }
 
+                                let is_selected = selected == Some(idx);
                                 let mut row_clicked = false;
                                 let (_, number_resp) = row.col(|ui| {
+                                    if is_selected {
+                                        ui.painter().rect_filled(
+                                            ui.max_rect(),
+                                            0.0,
+                                            with_alpha(colors.accent, SELECTED_ROW_ALPHA),
+                                        );
+                                    }
                                     paint_row_number(ui, &colors, &(idx + 1).to_string());
                                     paint_cell_borders(ui, grid, grid);
                                 });
@@ -282,6 +336,13 @@ impl TableView {
 
                                 for cell in &mut cells {
                                     let (_, response) = row.col(|ui| {
+                                        if is_selected {
+                                            ui.painter().rect_filled(
+                                                ui.max_rect(),
+                                                0.0,
+                                                with_alpha(colors.accent, SELECTED_ROW_ALPHA),
+                                            );
+                                        }
                                         cell_frame(ui, false, |ui| {
                                             cell.show(ui, events);
                                         });
@@ -293,6 +354,7 @@ impl TableView {
                                 }
                                 if row_clicked {
                                     clicked_row = Some(idx);
+                                    selected = Some(idx);
                                 }
                             });
                         });
@@ -303,10 +365,77 @@ impl TableView {
             ui.data_mut(|data| data.insert_temp(auto_fit_id, col));
             ui.ctx().request_repaint();
         }
+        if let Some(row) = selected {
+            ui.data_mut(|data| data.insert_temp(selection_id, row));
+        }
+        if moved {
+            ui.ctx().request_repaint();
+        }
 
         clicked_row
     }
 }
+
+/// Move the selected row in response to the keyboard.
+///
+/// Returns whether anything moved. A grid with no selection starts at the top
+/// on the first downward move, so the keyboard is usable without clicking
+/// first.
+fn move_selection(ui: &egui::Ui, selected: &mut Option<usize>, row_count: usize) -> bool {
+    use egui::Key;
+
+    if row_count == 0 {
+        return false;
+    }
+    let last = row_count - 1;
+    let page = PAGE_ROWS.min(row_count);
+
+    let pressed: Vec<Key> = ui.input(|i| {
+        [
+            Key::ArrowDown,
+            Key::ArrowUp,
+            Key::PageDown,
+            Key::PageUp,
+            Key::Home,
+            Key::End,
+        ]
+        .into_iter()
+        .filter(|k| i.key_pressed(*k))
+        .collect()
+    });
+    if pressed.is_empty() {
+        return false;
+    }
+
+    let before = *selected;
+    for key in pressed {
+        let current = selected.unwrap_or(0);
+        *selected = Some(match key {
+            Key::ArrowDown => current.saturating_add(1).min(last),
+            Key::ArrowUp => current.saturating_sub(1),
+            Key::PageDown => current.saturating_add(page).min(last),
+            Key::PageUp => current.saturating_sub(page),
+            Key::Home => 0,
+            Key::End => last,
+            _ => current,
+        });
+    }
+    *selected != before
+}
+
+/// Wash over the selected row — the accent at a data-bar weight, not an
+/// accent fill, so cell text stays readable on top of it.
+const SELECTED_ROW_ALPHA: u8 = 36;
+
+// The row highlight has to sit under cell text and stay readable, so it is a
+// data-bar weight rather than an accent fill.
+const _: () = assert!(
+    SELECTED_ROW_ALPHA < 64,
+    "an opaque selected row would bury its own contents"
+);
+
+/// Rows a page key moves by.
+const PAGE_ROWS: usize = 20;
 
 /// Best-effort plain text of a cell node, for clipboard copy. Covers the node
 /// kinds `typed_cell` produces (text, code, badge, and colored wrappers);
@@ -341,28 +470,27 @@ fn copy_menu(
     row: usize,
     col: Option<usize>,
 ) {
-    // Context-menu text is 2pt smaller than the default.
-    for style in [egui::TextStyle::Button, egui::TextStyle::Body] {
-        if let Some(font) = ui.style_mut().text_styles.get_mut(&style) {
-            font.size = (font.size - 2.0).max(1.0);
-        }
+    use crate::components::{ContextMenu, ContextMenuItem};
+
+    // The gutter identifies a row but no column, so it offers only the row.
+    let mut items = Vec::new();
+    if col.is_some() {
+        items.push(ContextMenuItem::builder().label("Copy cell").build());
     }
-    if let Some(col) = col
-        && ui.button("Copy cell").clicked()
-    {
-        action.set(Some(CopyAction::Cell(row, col)));
-        ui.close();
+    items.push(ContextMenuItem::builder().label("Copy row").build());
+    if col.is_some() {
+        items.push(ContextMenuItem::builder().label("Copy column").build());
     }
-    if ui.button("Copy row").clicked() {
-        action.set(Some(CopyAction::Row(row)));
-        ui.close();
-    }
-    if let Some(col) = col
-        && ui.button("Copy column").clicked()
-    {
-        action.set(Some(CopyAction::Column(col)));
-        ui.close();
-    }
+
+    let Some(picked) = ContextMenu::builder().items(items).build().show(ui) else {
+        return;
+    };
+    action.set(match (col, picked) {
+        (Some(col), 0) => Some(CopyAction::Cell(row, col)),
+        (Some(_), 1) | (None, 0) => Some(CopyAction::Row(row)),
+        (Some(col), 2) => Some(CopyAction::Column(col)),
+        _ => None,
+    });
 }
 
 /// Paint a cell's right + bottom grid lines.
@@ -474,8 +602,10 @@ fn paint_header_row(
     mut header_row: egui_extras::TableRow<'_, '_>,
     headers: &[String],
     colors: &ThemeColors,
-) -> Option<usize> {
-    let mut auto_fit = None;
+    sort: Option<&SortBy>,
+    sortable: bool,
+) -> HeaderHit {
+    let mut hit = HeaderHit::default();
     header_row.col(|ui| {
         ui.painter()
             .rect_filled(ui.max_rect(), 0.0, colors.bg_panel);
@@ -483,30 +613,117 @@ fn paint_header_row(
         paint_cell_borders(ui, colors.surface, colors.surface_raised);
     });
     for (col, h) in headers.iter().enumerate() {
+        let direction = sort
+            .filter(|s| s.column == header_name(h))
+            .map(|s| s.descending);
         let (_, resp) = header_row.col(|ui| {
             ui.painter()
                 .rect_filled(ui.max_rect(), 0.0, colors.bg_panel);
-            paint_header_label(ui, colors, h);
+            paint_header_label(ui, colors, h, direction);
             paint_cell_borders(ui, colors.surface, colors.surface_raised);
         });
         let resp = crate::theme::hover_text(
             resp,
-            format!("{h}\nDouble-click to fit column · drag edge to resize"),
+            if sortable {
+                format!("{h}\nClick to sort · drag edge to resize")
+            } else {
+                format!("{h}\nDouble-click to fit column · drag edge to resize")
+            },
         );
-        if resp.double_clicked() {
-            auto_fit = Some(col);
+        // A header paints its text rather than adding a widget, so its own cell
+        // response catches the right-click — no overlay to steal the left one.
+        resp.context_menu(|ui| {
+            if header_menu(ui) {
+                hit.auto_fit = Some(col);
+            }
+        });
+        if sortable {
+            // `clicked()` is true for a double-click too, so the two cannot
+            // share the header: sorting takes the click, and auto-fit moves to
+            // the menu, where it is at least nameable.
+            if resp.clicked() {
+                hit.sorted = Some(col);
+            }
+        } else if resp.double_clicked() {
+            hit.auto_fit = Some(col);
         }
     }
-    auto_fit
+    hit
+}
+
+/// What a header interaction asked for this frame.
+#[derive(Default)]
+struct HeaderHit {
+    /// Fit this column to its visible content.
+    auto_fit: Option<usize>,
+    /// Move this column's sort on a step.
+    sorted: Option<usize>,
+}
+
+/// A header's right-click menu. Returns whether "Fit to contents" was picked.
+fn header_menu(ui: &mut egui::Ui) -> bool {
+    use crate::components::{ContextMenu, ContextMenuItem};
+
+    ContextMenu::builder()
+        .items(vec![
+            ContextMenuItem::builder().label("Fit to contents").build(),
+        ])
+        .build()
+        .show(ui)
+        == Some(0)
+}
+
+/// Emit the sort a click on `col` moves to, as the reserved
+/// [`SORT_COLUMN`](crate::actions::SORT_COLUMN) event.
+fn emit_sort(events: &mut Vec<UiEvent>, headers: &[String], col: usize, current: Option<&SortBy>) {
+    let Some(label) = headers.get(col) else {
+        return;
+    };
+    let next = TableView::next_sort(current, header_name(label));
+    if let Ok(value) = serde_json::to_string(&next) {
+        events.push(UiEvent {
+            id: crate::actions::SORT_COLUMN.to_string(),
+            kind: "click".to_string(),
+            // The whole `Option`, so a cleared sort has a spelling of its own
+            // (`null`) rather than arriving as an empty value.
+            value,
+        });
+    }
 }
 
 /// Paint one header cell's text: the column name left-aligned inside the 10px
 /// padding box at semibold 11px, then the optional `"name  ·  type"` suffix as a
 /// small muted mono annotation 5px further right.
-fn paint_header_label(ui: &egui::Ui, colors: &ThemeColors, label: &str) {
+///
+/// `sort` — `Some(descending)` when this is the column the grid is ordered by —
+/// paints a direction arrow against the right edge, and the label is laid out
+/// in what room is left so a long name ellipsises rather than running under it.
+fn paint_header_label(ui: &egui::Ui, colors: &ThemeColors, label: &str, sort: Option<bool>) {
     let rect = ui.max_rect();
     let pad = f32::from(CELL_PAD);
     let (name, ty) = label.split_once("  ·  ").unwrap_or((label, ""));
+
+    let mut right = rect.right() - pad;
+    if let Some(descending) = sort {
+        let arrow = layout_line(
+            ui.painter(),
+            if descending {
+                egui_phosphor::regular::ARROW_DOWN
+            } else {
+                egui_phosphor::regular::ARROW_UP
+            },
+            egui::FontId::proportional(SORT_ARROW_FONT),
+            colors.accent,
+            f32::INFINITY,
+        );
+        let pos = egui::pos2(
+            right - arrow.size().x,
+            rect.center().y - arrow.size().y / 2.0,
+        );
+        right -= arrow.size().x + SORT_ARROW_GAP;
+        ui.painter().galley(pos, arrow, colors.accent);
+    }
+    let rect = egui::Rect::from_x_y_ranges(rect.left()..=right + pad, rect.y_range());
 
     let mut x = rect.left() + pad;
     // Design `thead th{font-weight:600}` — a real semibold face. (The previous
@@ -592,4 +809,49 @@ fn layout_line(
         overflow_character: Some('…'),
     };
     painter.layout_job(job)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `move_selection` reads egui input, so these exercise the arithmetic it
+    /// applies rather than the key plumbing: the clamping is what would
+    /// silently select a row that does not exist.
+    #[test]
+    fn selection_clamps_to_the_grid() {
+        // Down from the last row stays on it rather than running off the end.
+        let last = 9usize;
+        assert_eq!(last.saturating_add(1).min(last), 9);
+        // Up from the first stays at zero rather than wrapping to the bottom.
+        assert_eq!(0usize.saturating_sub(1), 0);
+        // A page beyond the end lands on the last row.
+        assert_eq!(5usize.saturating_add(PAGE_ROWS).min(last), 9);
+        // And a page before the start lands on the first.
+        assert_eq!(3usize.saturating_sub(PAGE_ROWS), 0);
+    }
+
+    /// The sorted column is marked by a glyph and nothing else, so a missing
+    /// one is not a cosmetic problem: the header would say nothing at all
+    /// about which way the rows run. Phosphor is bundled, unlike the Unicode
+    /// arrows a system font may or may not carry.
+    #[test]
+    fn both_sort_arrows_have_a_glyph_to_draw() {
+        let ctx = egui::Context::default();
+        let mut fonts = egui::FontDefinitions::default();
+        crate::theme::register_phosphor(&mut fonts);
+        ctx.set_fonts(fonts);
+        let _ = ctx.run_ui(Default::default(), |_| {});
+
+        let font = egui::FontId::proportional(SORT_ARROW_FONT);
+        for arrow in [
+            egui_phosphor::regular::ARROW_UP,
+            egui_phosphor::regular::ARROW_DOWN,
+        ] {
+            assert!(
+                ctx.fonts_mut(|f| f.has_glyphs(&font, arrow)),
+                "no glyph for the sort arrow {arrow:?} in the header's font"
+            );
+        }
+    }
 }

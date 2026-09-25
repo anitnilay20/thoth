@@ -1,248 +1,145 @@
-mod json_array;
-mod ndjson;
-mod single;
+//! The file-loading interface (#147 / #148).
+//!
+//! Every locally-opened file is reached through [`FileLoader`]. The single
+//! implementation is [`duck_db::DuckdbConnection`] — DuckDB is the host-side
+//! query engine, so native formats (JSON/CSV/Parquet/…) are scanned directly
+//! and plugin-loaded formats are ingested into it first. That keeps one SQL
+//! surface for filtering (#53), sorting (#54) and aggregation (#55).
+//!
+//! [`FileLoader`] is the tabular half of the interface — it speaks Arrow.
+//! [`RecordSource`] is the record half, used by the JSON tree viewer, the
+//! search engine and the MCP tools, which all think in terms of one JSON
+//! value per row.
 
-pub use json_array::JsonArrayFile;
-pub use ndjson::NdjsonFile;
-pub use single::SingleValueFile;
+pub mod arrow_rows;
+pub mod arrow_tree;
+pub mod duck_db;
+pub mod text_index;
 
 use crate::error::Result;
-use crate::file::detect_file_type::DetectedFileType;
-use crate::plugin::wasm_file_viewer_loader::{DisplayMode, WasmFileViewerLoader};
-use crate::plugin::wasm_loader::WasmFileLoader;
+use crate::file::FileType;
+use duckdb::arrow::array::RecordBatch;
 use serde_json::Value;
-use std::path::Path;
 
-/// Common trait for all lazy file loaders.
-///
-/// # Design Philosophy
-/// - Loaders should perform minimal work during `open()` — just enough to index the file
-/// - Actual parsing happens lazily on `get()` calls
-/// - All read operations should be position-independent (safe for parallel access)
-#[allow(dead_code)]
+pub use arrow_rows::{RecordWindow, batch_columns, batch_rows, batches_to_values};
+pub use arrow_tree::{ArrowNode, NodeKind};
+pub use duck_db::DuckdbConnection;
+pub use text_index::TextIndex;
+
+/// Tabular access to an opened file, in Arrow.
 pub trait FileLoader {
-    type Item;
+    /// Run arbitrary SQL against the connection. Aliases registered by
+    /// [`FileLoader::open`] are referenced by name.
+    fn query(&self, query: &str) -> Result<Vec<RecordBatch>>;
 
-    fn open(path: &Path) -> Result<Self>
-    where
-        Self: Sized;
+    /// `SELECT *` over the primary alias with optional `WHERE` predicates
+    /// (combined with `AND`), `LIMIT` and `OFFSET`.
+    fn fetch(
+        &self,
+        filters: Vec<String>,
+        offset: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Vec<RecordBatch>>;
 
-    fn len(&self) -> usize;
+    /// Size in bytes of the backing file.
+    fn size(&self) -> Result<u128>;
 
-    fn is_empty(&self) -> bool {
-        self.len() == 0
+    /// Number of rows in the primary alias.
+    fn len(&self) -> Result<usize>;
+
+    /// Whether the primary alias has no rows.
+    fn is_empty(&self) -> Result<bool> {
+        Ok(self.len()? == 0)
     }
 
-    fn get(&mut self, idx: usize) -> Result<Self::Item>;
+    /// A single row by zero-based index.
+    fn get(&self, index: usize) -> Result<RecordBatch>;
 
-    fn raw_bytes(&self, idx: usize) -> Result<Vec<u8>>;
+    /// Register `path` under `alias`. The first alias opened becomes the
+    /// primary one that `fetch` / `len` / `get` operate on.
+    fn open(&self, path: &str, alias: &str) -> Result<()>;
 }
 
-// ── Lightweight discriminant (Copy, stored in state/events) ───────────────────
+/// Record-oriented access, derived from Arrow.
+///
+/// Every method here is a thin conversion over [`FileLoader::fetch`] — the
+/// read itself is always Arrow, and JSON is materialized only for the
+/// consumers that think in records (tree viewer, search, MCP). Blanket-
+/// implemented, so any `FileLoader` (including `dyn FileLoader`) gets it.
+///
+/// Prefer [`RecordSource::record_range`] over a loop of
+/// [`RecordSource::record`] — each call is one query — or hold a
+/// [`RecordWindow`] when reads are repeated, which caches the Arrow window.
+pub trait RecordSource: FileLoader {
+    /// Rows `[start, start + count)` as JSON values.
+    fn record_range(&self, start: usize, count: usize) -> Result<Vec<Value>> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        batches_to_values(&self.fetch(Vec::new(), Some(start), Some(count))?)
+    }
 
-/// A lightweight, `Copy` tag describing what kind of file is loaded.
-/// Used in window state, toolbar events, and status bar display.
-/// Does not hold any file handles.
+    /// The row at `index` as a JSON value.
+    fn record(&self, index: usize) -> Result<Value> {
+        self.record_range(index, 1)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| crate::error::ThothError::DatabaseQueryError {
+                query: format!("row {index}"),
+                reason: format!("No record at index {index}"),
+            })
+    }
+
+    /// The row at `index` serialized to JSON bytes. Used by the search engine,
+    /// which scans raw bytes before it parses anything.
+    fn raw_bytes(&self, index: usize) -> Result<Vec<u8>> {
+        Ok(serde_json::to_vec(&self.record(index)?)?)
+    }
+
+    /// Column names of the primary alias, in schema order. Reads the schema
+    /// only — `LIMIT 0` fetches no data.
+    fn column_names(&self) -> Result<Vec<String>> {
+        let schema_only = batch_columns(&self.fetch(Vec::new(), None, Some(0))?);
+        if !schema_only.is_empty() {
+            return Ok(schema_only);
+        }
+        // Some readers only publish a schema alongside real rows.
+        Ok(batch_columns(&self.fetch(Vec::new(), None, Some(1))?))
+    }
+}
+
+impl<T: FileLoader + ?Sized> RecordSource for T {}
+
+/// A lightweight, `Copy` tag describing what kind of file a tab holds.
+///
+/// Stored in window state, toolbar events and the status bar; unlike
+/// [`FileType`] it also records that a *plugin* supplies the renderer, which
+/// only the host knows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum FileKind {
     #[default]
     Ndjson,
     Json,
+    /// Loaded through a file-loader plugin; rendered by the built-in viewer.
     Plugin,
+    /// Loaded through a plugin that also supplies its own tabular renderer.
     PluginTable,
 }
 
-impl From<DetectedFileType> for FileKind {
-    fn from(val: DetectedFileType) -> Self {
-        match val {
-            DetectedFileType::Ndjson => FileKind::Ndjson,
-            DetectedFileType::JsonArray | DetectedFileType::JsonObject => FileKind::Json,
+impl From<FileType> for FileKind {
+    fn from(value: FileType) -> Self {
+        match value {
+            // Native formats all surface as JSON records via `to_json`, so the
+            // built-in tree viewer renders them. A dedicated table viewer
+            // lands with the query editor (#149).
+            FileType::Json
+            | FileType::Csv
+            | FileType::Parquet
+            | FileType::Excel
+            | FileType::Arrow
+            | FileType::DB => FileKind::Json,
+            FileType::Plugin => FileKind::Plugin,
+            FileType::Unknown => FileKind::Json,
         }
-    }
-}
-
-// ── Fat loader enum (owns file handles) ───────────────────────────────────────
-
-/// Unified file loader — dispatches to the right implementation and owns all
-/// file handles. Add new formats here; callers only deal with this one type.
-pub enum FileType {
-    Ndjson(NdjsonFile),
-    JsonArray(JsonArrayFile),
-    Single(SingleValueFile),
-    /// Loaded via a WASM plugin (file-loader only).
-    Plugin(WasmFileLoader),
-    /// Loaded via a WASM plugin that also controls rendering (file-loader + file-viewer).
-    PluginWithViewer(WasmFileViewerLoader),
-}
-
-impl FileType {
-    /// Returns the lightweight discriminant for this loader, suitable for
-    /// storing in state or passing through events.
-    pub fn kind(&self) -> FileKind {
-        match self {
-            FileType::Ndjson(_) => FileKind::Ndjson,
-            FileType::JsonArray(_) | FileType::Single(_) => FileKind::Json,
-            FileType::Plugin(_) => FileKind::Plugin,
-            FileType::PluginWithViewer(_) => FileKind::PluginTable,
-        }
-    }
-
-    /// Returns the number of top-level elements in the file.
-    #[allow(clippy::len_without_is_empty)]
-    pub fn len(&self) -> usize {
-        match self {
-            FileType::Ndjson(f) => f.len(),
-            FileType::JsonArray(f) => f.len(),
-            FileType::Single(_) => 1,
-            FileType::Plugin(f) => f.len(),
-            FileType::PluginWithViewer(f) => f.len(),
-        }
-    }
-
-    /// Get a parsed JSON value at the specified index.
-    pub fn get(&mut self, idx: usize) -> Result<Value> {
-        match self {
-            FileType::Ndjson(f) => f.get(idx),
-            FileType::JsonArray(f) => f.get(idx),
-            FileType::Single(f) => f.get(idx),
-            FileType::Plugin(f) => f.get(idx),
-            FileType::PluginWithViewer(f) => f.get(idx),
-        }
-    }
-
-    /// Read records `[start, start + count)` in one bulk, sequential pass.
-    ///
-    /// For plugin loaders this is a single WASM call (see the `get-range`
-    /// export) — far cheaper than looping `get(idx)`, which is O(n²) for
-    /// stream-parsed formats like CSV. Native loaders already offer O(1)
-    /// random access, so they just loop `get`.
-    pub fn get_range(&mut self, start: usize, count: usize) -> Result<Vec<Value>> {
-        match self {
-            FileType::Plugin(f) => f.get_range(start, count),
-            FileType::PluginWithViewer(f) => f.get_range(start, count),
-            other => {
-                let end = start.saturating_add(count).min(other.len());
-                let mut out = Vec::with_capacity(end.saturating_sub(start));
-                for i in start..end {
-                    out.push(other.get(i)?);
-                }
-                Ok(out)
-            }
-        }
-    }
-
-    /// Get the raw bytes for an element at the specified index.
-    pub fn raw_slice(&self, idx: usize) -> Result<Vec<u8>> {
-        match self {
-            FileType::Ndjson(f) => f.raw_line(idx),
-            FileType::JsonArray(f) => f.raw_element(idx),
-            FileType::Single(f) => f.raw_all(),
-            FileType::Plugin(f) => f.raw_bytes(idx),
-            FileType::PluginWithViewer(f) => f.raw_bytes(idx),
-        }
-    }
-
-    /// Ask the plugin how it wants its data displayed.
-    /// Only available for PluginWithViewer loaders; defaults to Table.
-    pub fn preferred_display(&mut self) -> DisplayMode {
-        match self {
-            FileType::PluginWithViewer(f) => f.preferred_display(),
-            _ => DisplayMode::Table,
-        }
-    }
-
-    /// Ask the plugin to render the given JSON record; returns the node_json string.
-    /// Only available for PluginWithViewer loaders.
-    pub fn render_record(&mut self, record_json: &str) -> Option<String> {
-        match self {
-            FileType::PluginWithViewer(f) => f.render_record(record_json).ok(),
-            _ => None,
-        }
-    }
-
-    /// Return plugin-supplied column headers. Only available for PluginWithViewer loaders.
-    pub fn column_headers(&mut self) -> Option<Vec<String>> {
-        match self {
-            FileType::PluginWithViewer(f) => f.column_headers(),
-            _ => None,
-        }
-    }
-}
-
-impl FileLoader for FileType {
-    type Item = Value;
-
-    fn open(path: &Path) -> Result<Self> {
-        let (_detected, file_type) = load_file_auto(path)?;
-        Ok(file_type)
-    }
-
-    fn len(&self) -> usize {
-        self.len()
-    }
-
-    fn get(&mut self, idx: usize) -> Result<Self::Item> {
-        self.get(idx)
-    }
-
-    fn raw_bytes(&self, idx: usize) -> Result<Vec<u8>> {
-        self.raw_slice(idx)
-    }
-}
-
-/// Load a file with automatic format detection.
-pub fn load_file_auto(path: &Path) -> Result<(DetectedFileType, FileType)> {
-    use crate::file::detect_file_type::sniff_file_type;
-
-    let detected = sniff_file_type(path)?;
-    let file_type = match detected {
-        DetectedFileType::Ndjson => FileType::Ndjson(NdjsonFile::open(path)?),
-        DetectedFileType::JsonArray => FileType::JsonArray(JsonArrayFile::open(path)?),
-        DetectedFileType::JsonObject => FileType::Single(SingleValueFile::open(path)?),
-    };
-    Ok((detected, file_type))
-}
-
-#[cfg(test)]
-mod get_range_tests {
-    use super::*;
-    use std::io::Write;
-    use tempfile::NamedTempFile;
-
-    fn json_array_loader(json: &str) -> FileType {
-        let mut tmp = NamedTempFile::new().unwrap();
-        tmp.write_all(json.as_bytes()).unwrap();
-        tmp.flush().unwrap();
-        FileType::JsonArray(JsonArrayFile::open(tmp.path()).unwrap())
-    }
-
-    /// Extract the `n` field of each returned record as an i64.
-    fn ns(vals: &[serde_json::Value]) -> Vec<i64> {
-        vals.iter().map(|v| v["n"].as_i64().unwrap()).collect()
-    }
-
-    #[test]
-    fn get_range_native_fallback_slices() {
-        let mut loader = json_array_loader(r#"[{"n":0},{"n":1},{"n":2},{"n":3},{"n":4}]"#);
-        assert_eq!(loader.len(), 5);
-        // Mid-range window.
-        assert_eq!(ns(&loader.get_range(1, 2).unwrap()), [1, 2]);
-        // Whole file.
-        assert_eq!(ns(&loader.get_range(0, 5).unwrap()), [0, 1, 2, 3, 4]);
-    }
-
-    #[test]
-    fn get_range_clamps_count_past_end() {
-        let mut loader = json_array_loader(r#"[{"n":0},{"n":1},{"n":2}]"#);
-        // Asking for more than exists returns only what's there.
-        assert_eq!(ns(&loader.get_range(1, 100).unwrap()), [1, 2]);
-    }
-
-    #[test]
-    fn get_range_start_past_end_is_empty() {
-        let mut loader = json_array_loader(r#"[{"n":0},{"n":1}]"#);
-        assert!(loader.get_range(5, 10).unwrap().is_empty());
-        // Exactly at the end is also empty.
-        assert!(loader.get_range(2, 10).unwrap().is_empty());
     }
 }

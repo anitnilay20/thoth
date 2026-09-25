@@ -6,14 +6,15 @@ use crate::{
     app::{file_picker, pick_file, tab_manager::TabEvent},
     components::{self, traits::ContextComponent},
     core::{CoreAction, CoreEvent, ThothCore},
+    file::FileKind,
     plugin::plugin_ui_host::PluginCore,
     settings, state,
     theme::ThemeColorsExt,
 };
 
 use super::{
-    ShortcutAction, persistent_state::PersistentState, search_handler::SearchHandler,
-    shortcut_handler::ShortcutHandler, update_handler::UpdateHandler,
+    ShortcutAction, persistent_state::PersistentState, shortcut_handler::ShortcutHandler,
+    update_handler::UpdateHandler,
 };
 
 pub struct ThothApp {
@@ -378,27 +379,28 @@ impl App for ThothApp {
             ctx.copy_text(text);
         }
 
-        let sidebar_msg = self.render_sidebar(ui);
+        let _sidebar_msg = self.render_sidebar(ui);
 
+        // TODO: Older search functions.
         // Handle search messages from sidebar against the active tab.
-        let (msg_to_central, search_error) =
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                SearchHandler::handle_search_messages(
-                    sidebar_msg,
-                    &mut tab.search_engine_state,
-                    &tab.file_path,
-                    &tab.file_type,
-                    &ctx,
-                )
-            } else {
-                (None, None)
-            };
+        // let (msg_to_central, search_error) =
+        //     if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+        //         SearchHandler::handle_search_messages(
+        //             sidebar_msg,
+        //             &mut tab.search_engine_state,
+        //             &tab.file_path,
+        //             &tab.file_type,
+        //             &ctx,
+        //         )
+        //     } else {
+        //         (None, None)
+        //     };
 
-        if let Some(error) = search_error
-            && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-        {
-            tab.error = Some(error);
-        }
+        // if let Some(error) = search_error
+        //     && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+        // {
+        //     tab.error = Some(error);
+        // }
 
         let shortcut_actions =
             ShortcutHandler::handle_shortcuts(ui.ctx(), &self.core.settings.shortcuts);
@@ -523,7 +525,7 @@ impl App for ThothApp {
                         use crate::components::traits::StatelessComponent;
                         MarketplaceDetail::render(ui, MarketplaceDetailProps);
                     } else {
-                        self.render_central_panel(ui, msg_to_central);
+                        self.render_central_panel(ui, Option::None);
                     }
                 });
         }
@@ -713,31 +715,31 @@ impl ThothApp {
                     }
                 }
                 ShortcutAction::CopyKey => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_key()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_key();
                     }
                 }
                 ShortcutAction::CopyValue => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_value()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_value();
                     }
                 }
                 ShortcutAction::CopyObject => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_object()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_object();
                     }
                 }
                 ShortcutAction::CopyPath => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_path()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_path();
                     }
                 }
                 ShortcutAction::CloseTab => {
@@ -1239,12 +1241,8 @@ impl ThothApp {
                 let fwd = tab.navigation_history.can_go_forward();
                 (tab.file_type, tab.file_path.clone(), back, fwd)
             } else {
-                (
-                    crate::file::lazy_loader::FileKind::default(),
-                    None,
-                    false,
-                    false,
-                )
+                // TODO: Check if this needs fixing
+                (FileKind::default(), None, false, false)
             };
 
         let output = self.window_state.toolbar.render(
@@ -1576,22 +1574,22 @@ impl ThothApp {
             .tab_manager
             .tabs
             .iter()
-            .filter_map(|(id, t)| match t.active_plugin_pane.as_ref() {
+            .map(|(id, t)| match t.active_plugin_pane.as_ref() {
                 // Plugin producer/consumer instances.
-                Some(p) => Some(p.loader.instance_id().to_string()),
+                Some(p) => p.loader.instance_id().to_string(),
                 // Core file tabs act as dataset producers under a stable marker.
-                None if t.file_path.is_some() => Some(format!("core#{id}")),
-                None => None,
+                // Keyed on the tab existing, not on `file_path` — that is set an
+                // event later than the sheet is published, so testing it here
+                // would reap a freshly-opened file on its very first frame.
+                None => format!("core#{id}"),
             })
             .collect();
         crate::plugin::signals::retain_instances(&open_instances);
         // Datasets are cleared when their producing instance closes too.
-        crate::plugin::datasets::retain_instances(&open_instances);
+        crate::papyrus::retain_instances(&open_instances);
         // Release cached plugin renders whose dataset is gone (producer closed).
-        let live_handles: std::collections::HashSet<String> = crate::plugin::datasets::list()
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
+        let live_handles: std::collections::HashSet<String> =
+            crate::papyrus::list().into_iter().map(|m| m.id).collect();
         prune_render_cache(&live_handles);
 
         let (
@@ -1605,10 +1603,11 @@ impl ThothApp {
             selected_path,
             active_plugin_id,
         ) = if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-            let search = &tab.search_engine_state.search;
-            let scanning = search.scanning;
-            let results_len = search.results.len();
-            let query_non_empty = !search.query.is_empty();
+            let _search = &tab.search_engine_state.search;
+            // TODO: Default random value set here
+            let scanning = false;
+            let results_len = 0;
+            let query_non_empty = false;
             let filtered = if query_non_empty && results_len > 0 {
                 Some(results_len)
             } else {
@@ -1635,7 +1634,7 @@ impl ThothApp {
         } else {
             (
                 None,
-                crate::file::lazy_loader::FileKind::default(),
+                FileKind::default(),
                 0,
                 false,
                 false,
@@ -1656,7 +1655,65 @@ impl ThothApp {
             components::status_bar::StatusBarStatus::Ready
         };
 
+        // Adopt any finished index and announce it, then report the progress of
+        // whatever is still running on the active tab.
+        let finished: Vec<(crate::app::tab_manager::TabId, String, usize)> = self
+            .window_state
+            .tab_manager
+            .tabs
+            .iter_mut()
+            .filter_map(|(id, tab)| {
+                tab.central_panel
+                    .poll_index(*id)
+                    .map(|(name, total)| (*id, name, total))
+            })
+            .collect();
+        if !finished.is_empty() {
+            // A finished index just added to the cache, so this is the moment
+            // to bring it back under budget. Doing it here rather than on a
+            // timer means the cache is only trimmed when it actually grew, and
+            // never while a file is mid-index.
+            let budget = self.core.settings.performance.index_cache_mb as u64 * 1024 * 1024;
+            // Caches an open tab is reading from are off limits, whatever their
+            // age -- evicting one would take its tab down with it.
+            let in_use: std::collections::HashSet<std::path::PathBuf> = self
+                .window_state
+                .tab_manager
+                .tabs
+                .values()
+                .filter_map(|t| t.file_path.as_ref())
+                .filter_map(|p| crate::file::index_cache::database_path(p).ok())
+                .collect();
+            crate::file::index_cache::enforce_budget(budget, &in_use);
+        }
+        // The tab was reporting its preview's size; now it knows the real one.
+        for (id, _, total) in &finished {
+            if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(id) {
+                tab.total_items = *total;
+            }
+        }
+        for (_, name, _) in finished {
+            crate::notification::NotificationManager::notify(
+                crate::notification::Notification::new(
+                    "File indexed",
+                    &format!("{name} is ready to browse."),
+                )
+                .with_kind(crate::notification::NotificationKind::Success),
+            );
+        }
+
         let active_id = self.window_state.tab_manager.active_tab_id();
+        let indexing_progress: Option<f32> = active_id
+            .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
+            .and_then(|t| match t.central_panel.index_progress() {
+                Some(crate::file::indexing::Progress::Running { fraction }) => Some(fraction),
+                _ => None,
+            });
+
+        let showing_preview = active_id
+            .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
+            .is_some_and(|t| t.central_panel.showing_preview());
+
         let chart_summary: Option<String> = active_id
             .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
             .and_then(|t| t.chart.as_ref().map(|c| c.status_summary()));
@@ -1674,6 +1731,8 @@ impl ThothApp {
                     .as_ref()
                     .map(|(p, i)| (p.as_str(), i.as_str())),
                 chart_summary: chart_summary.as_deref(),
+                indexing: indexing_progress,
+                preview: showing_preview,
             },
         );
 
@@ -1690,11 +1749,7 @@ impl ThothApp {
     }
 
     /// Render the DockArea that hosts all open tabs.
-    fn render_central_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        search_message: Option<crate::search::SearchMessage>,
-    ) {
+    fn render_central_panel(&mut self, ui: &mut egui::Ui, search_message: Option<String>) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -1850,7 +1905,7 @@ impl ThothApp {
         }
     }
 
-    fn render_sidebar(&mut self, ui: &mut egui::Ui) -> Option<crate::search::SearchMessage> {
+    fn render_sidebar(&mut self, ui: &mut egui::Ui) -> Option<String> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
@@ -1880,14 +1935,14 @@ impl ThothApp {
             .unwrap_or_default();
 
         // Snapshot per-tab data we need for SidebarProps (avoids complex lifetime issues).
-        let (current_file_path, search_state_clone) =
+        let (current_file_path, _search_state_clone) =
             if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                 (
                     tab.file_path.clone(),
                     tab.search_engine_state.search.clone(),
                 )
             } else {
-                (None, crate::search::Search::default())
+                (None, String::new())
             };
 
         // The mounted plugin sidebar (independent of any tab) drives the sidebar
@@ -1947,7 +2002,7 @@ impl ThothApp {
                 sidebar_width: self.core.persistent_state.get_sidebar_width(),
                 selected_section: self.window_state.sidebar_selected_section.clone(),
                 focus_search,
-                search_state: &search_state_clone,
+                // search_state: &search_state_clone,
                 search_history: search_history.as_ref(),
                 data_source_plugins: &ds_plugins,
                 ui_component_plugins: &ui_plugins,
@@ -2046,18 +2101,18 @@ impl ThothApp {
                     self.core.persistent_state.set_sidebar_width(new_width);
                     let _ = self.core.persistent_state.save();
                 }
-                components::sidebar::SidebarEvent::Search(msg) => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(file_path) = &tab.file_path
-                        && let Some(path_str) = file_path.to_str()
-                        && let Some(entry) = msg.history_entry()
-                    {
-                        let _ = super::persistent_state::PersistentState::add_search_query(
-                            path_str, entry,
-                        );
-                    }
-                    return Some(msg);
-                }
+                // components::sidebar::SidebarEvent::Search(msg) => {
+                //     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                //         && let Some(file_path) = &tab.file_path
+                //         && let Some(path_str) = file_path.to_str()
+                //         && let Some(entry) = msg.history_entry()
+                //     {
+                //         let _ = super::persistent_state::PersistentState::add_search_query(
+                //             path_str, entry,
+                //         );
+                //     }
+                //     return Some(msg);
+                // }
                 components::sidebar::SidebarEvent::NavigateToSearchResult { record_index } => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                         tab.central_panel.navigate_to_record(record_index);
@@ -2189,8 +2244,8 @@ impl ThothApp {
                     });
                 }
                 // Core producer: any open file tab. This includes files loaded
-                // by a file-loader plugin (csv-loader, …), because the tab's
-                // live loader exposes records uniformly.
+                // by a file-loader plugin, because the tab's live loader
+                // exposes records uniformly.
                 if let Some(path) = tab.file_path.as_ref() {
                     let label = path
                         .file_name()
@@ -2391,11 +2446,19 @@ impl ThothApp {
             return;
         };
 
-        let Some(meta) = crate::plugin::datasets::meta(handle) else {
+        let Some(meta) = crate::papyrus::meta(handle) else {
             Self::notify_dataset_unavailable();
             return;
         };
         let source = meta.source_plugin.clone();
+
+        // A built-in format is written by the host from the dataset it already
+        // holds — the same read Copy makes — so there is no plugin to hand it
+        // to and nothing to consent to.
+        if let Some(format) = exporter_id.strip_prefix("builtin:") {
+            Self::export_builtin(handle, format, &meta.name);
+            return;
+        }
 
         // Consent-gate handing *another* producer's data to the exporter plugin
         // (exporting your own plugin's dataset needs no prompt). On approval the
@@ -2432,11 +2495,51 @@ impl ThothApp {
     fn drain_pending_exports(&mut self) {
         for (handle, exporter_id) in drain_queued_exports() {
             // The dataset may have been dropped between approval and now.
-            let Some(meta) = crate::plugin::datasets::meta(&handle) else {
+            let Some(meta) = crate::papyrus::meta(&handle) else {
                 Self::notify_dataset_unavailable();
                 continue;
             };
             self.perform_export(&handle, &exporter_id, &meta.name);
+        }
+    }
+
+    /// Write a dataset out in one of the host's own formats (#55).
+    ///
+    /// The whole result, not the page on screen: `dataset_pages` walks the
+    /// registry to the end, so exporting an aggregate keeps every group rather
+    /// than the first screenful of them.
+    fn export_builtin(handle: &str, format: &str, name: &str) {
+        let Some((columns, rows)) = dataset_grid(handle) else {
+            Self::notify_dataset_unavailable();
+            return;
+        };
+        let (bytes, ext) = match format {
+            "csv" => (csv_bytes(&columns, &rows), "csv"),
+            _ => (json_records(&columns, &rows), "json"),
+        };
+        Self::save_export(&bytes, name, ext);
+    }
+
+    /// Offer a save dialog and write `bytes`, reporting either way.
+    fn save_export(bytes: &[u8], name: &str, ext: &str) {
+        use crate::notification::{Notification, NotificationManager};
+
+        let default_name = format!("{}.{}", sanitize_filename(name), ext);
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter(ext, &[ext])
+            .save_file()
+        {
+            match std::fs::write(&path, bytes) {
+                Ok(()) => NotificationManager::notify(
+                    Notification::new("Exported", &format!("Saved to {}", path.display()))
+                        .with_toast(true),
+                ),
+                Err(e) => NotificationManager::notify_error(Notification::new(
+                    "Export failed",
+                    &e.to_string(),
+                )),
+            };
         }
     }
 
@@ -2491,24 +2594,7 @@ impl ThothApp {
             }
         };
 
-        // Save via a native dialog.
-        let default_name = format!("{}.{}", sanitize_filename(name), ext);
-        if let Some(path) = rfd::FileDialog::new()
-            .set_file_name(&default_name)
-            .add_filter(&ext, &[ext.as_str()])
-            .save_file()
-        {
-            match std::fs::write(&path, &bytes) {
-                Ok(()) => NotificationManager::notify(
-                    Notification::new("Exported", &format!("Saved to {}", path.display()))
-                        .with_toast(true),
-                ),
-                Err(e) => NotificationManager::notify_error(Notification::new(
-                    "Export failed",
-                    &e.to_string(),
-                )),
-            };
-        }
+        Self::save_export(&bytes, name, &ext);
     }
 
     /// Activate an existing tab by id.
@@ -2588,7 +2674,7 @@ impl ThothApp {
                             tab.error = None;
                             tab.file_path = None;
                             tab.total_items = 0;
-                            tab.search_engine_state.search = crate::search::Search::default();
+                            tab.search_engine_state.search = String::new();
                         }
                     }
                 }
@@ -2714,13 +2800,112 @@ pub fn list_renderers_for_view() -> Vec<thoth_plugin_sdk::dataset::RendererInfo>
 
 /// Serialize a dataset (paged reads) into the `{columns, rows}` records-json the
 /// exporter/renderer plugins consume.
+/// A whole dataset as `(column names, rows of cells)`, or `None` when the
+/// handle no longer resolves.
+///
+/// A cell that was NULL comes back as `None`, which is the distinction the
+/// encoders need: in JSON it is `null` rather than `""`, and the two mean very
+/// different things about the record.
+type Cell = Option<String>;
+fn dataset_grid(handle: &str) -> Option<(Vec<String>, Vec<Vec<Cell>>)> {
+    let mut columns: Vec<String> = Vec::new();
+    let mut rows: Vec<Vec<Cell>> = Vec::new();
+    let mut offset: u64 = 0;
+    let mut seen = false;
+    while let Some(page) = crate::papyrus::read(handle, offset, crate::papyrus::MAX_READ_LIMIT) {
+        seen = true;
+        if columns.is_empty() {
+            columns = page.columns.iter().map(|c| c.name.clone()).collect();
+        }
+        let got = page.rows.len() as u64;
+        for (r, row) in page.rows.iter().enumerate() {
+            rows.push(
+                row.iter()
+                    .enumerate()
+                    .map(|(c, cell)| {
+                        // `nulls` is empty for sources that cannot tell a NULL
+                        // from an empty string, and then nothing is null.
+                        let is_null = page
+                            .nulls
+                            .get(r)
+                            .and_then(|mask| mask.get(c))
+                            .copied()
+                            .unwrap_or(false);
+                        (!is_null).then(|| cell.clone())
+                    })
+                    .collect(),
+            );
+        }
+        offset += got;
+        if got == 0 || offset >= page.total {
+            break;
+        }
+    }
+    seen.then_some((columns, rows))
+}
+
+/// A grid as RFC 4180 CSV. A field is quoted when it has to be — a comma, a
+/// quote or a newline in it — because quoting everything makes a file that is
+/// correct and unreadable.
+fn csv_bytes(columns: &[String], rows: &[Vec<Cell>]) -> Vec<u8> {
+    fn field(value: &str) -> String {
+        if value.contains([',', '"', '\n', '\r']) {
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_string()
+        }
+    }
+    let mut out = String::new();
+    out.push_str(
+        &columns
+            .iter()
+            .map(|c| field(c))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    out.push('\n');
+    for row in rows {
+        out.push_str(
+            &row.iter()
+                .map(|cell| field(cell.as_deref().unwrap_or("")))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        out.push('\n');
+    }
+    out.into_bytes()
+}
+
+/// A grid as an array of JSON objects — one per row, keyed by column.
+///
+/// Values are the strings the registry holds, except a NULL, which is `null`.
+/// The registry stores display text, so a number exports as `"42"`; making it
+/// a JSON number here would mean guessing a type the page no longer carries.
+fn json_records(columns: &[String], rows: &[Vec<Cell>]) -> Vec<u8> {
+    let records: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            let mut object = serde_json::Map::new();
+            for (name, cell) in columns.iter().zip(row) {
+                object.insert(
+                    name.clone(),
+                    match cell {
+                        Some(value) => serde_json::Value::String(value.clone()),
+                        None => serde_json::Value::Null,
+                    },
+                );
+            }
+            serde_json::Value::Object(object)
+        })
+        .collect();
+    serde_json::to_vec_pretty(&records).unwrap_or_default()
+}
+
 fn dataset_records_json(handle: &str) -> String {
     let mut columns: Vec<String> = Vec::new();
     let mut rows: Vec<Vec<String>> = Vec::new();
     let mut offset: u64 = 0;
-    while let Some(page) =
-        crate::plugin::datasets::read(handle, offset, crate::plugin::datasets::MAX_READ_LIMIT)
-    {
+    while let Some(page) = crate::papyrus::read(handle, offset, crate::papyrus::MAX_READ_LIMIT) {
         if columns.is_empty() {
             columns = page.columns.iter().map(|c| c.name.clone()).collect();
         }
@@ -2767,7 +2952,7 @@ pub fn render_dataset_with_plugin(
     use crate::notification::{Notification, NotificationManager};
     use thoth_plugin_sdk::dataset::PluginRenderResult;
 
-    let Some(meta) = crate::plugin::datasets::meta(handle) else {
+    let Some(meta) = crate::papyrus::meta(handle) else {
         return PluginRenderResult::Unavailable;
     };
     let source = meta.source_plugin.clone();
@@ -2861,7 +3046,7 @@ pub fn resolve_dataset_for_view(
     handle: &str,
     limit: u32,
 ) -> Option<thoth_plugin_sdk::dataset::DatasetPage> {
-    let page = crate::plugin::datasets::read(handle, 0, limit)?;
+    let page = crate::papyrus::read(handle, 0, limit)?;
     Some(thoth_plugin_sdk::dataset::DatasetPage {
         columns: page
             .columns
@@ -2872,6 +3057,7 @@ pub fn resolve_dataset_for_view(
             })
             .collect(),
         rows: page.rows,
+        nulls: page.nulls,
         total: page.total,
     })
 }
@@ -2937,4 +3123,58 @@ fn column_is_numeric(rows: &[Vec<String>], c: usize) -> bool {
         })
         .count();
     ok * 2 >= sample
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    fn cell(value: &str) -> Cell {
+        Some(value.to_string())
+    }
+
+    #[test]
+    fn a_csv_field_is_quoted_only_when_it_has_to_be() {
+        let columns = vec!["name".to_string(), "note".to_string()];
+        let rows = vec![
+            vec![cell("ada"), cell("plain")],
+            // A comma, a quote and a newline are each a reason to quote, and
+            // an embedded quote is doubled rather than escaped.
+            vec![cell("bob, jr"), cell("said \"hi\"\nthen left")],
+            vec![cell(""), None],
+        ];
+        let csv = String::from_utf8(csv_bytes(&columns, &rows)).unwrap();
+        assert_eq!(
+            csv,
+            "name,note\n\
+             ada,plain\n\
+             \"bob, jr\",\"said \"\"hi\"\"\nthen left\"\n\
+             ,\n"
+        );
+    }
+
+    #[test]
+    fn a_null_exports_as_null_and_an_empty_string_as_a_string() {
+        // The mask is the only thing that separates a field the record does
+        // not carry from one that carries "", and an export that loses it
+        // cannot be read back into the same records.
+        let columns = vec!["a".to_string(), "b".to_string()];
+        let rows = vec![vec![cell(""), None]];
+        let json = String::from_utf8(json_records(&columns, &rows)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed[0]["a"], serde_json::json!(""));
+        assert_eq!(parsed[0]["b"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn an_empty_result_still_exports_its_header() {
+        // A query that matched nothing is an answer; a zero-byte file is not.
+        let csv =
+            String::from_utf8(csv_bytes(&["hour".to_string(), "events".to_string()], &[])).unwrap();
+        assert_eq!(csv, "hour,events\n");
+        assert_eq!(
+            String::from_utf8(json_records(&["hour".to_string()], &[])).unwrap(),
+            "[]"
+        );
+    }
 }

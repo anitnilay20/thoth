@@ -1,20 +1,22 @@
 use crate::components::file_viewer::FileViewer;
 use crate::components::traits::ContextComponent;
 use crate::error::{ErrorHandler, ThothError};
-use crate::file::loaders::FileKind;
+use crate::file::FileKind;
 use crate::plugin::render_node::{UiEvent, UiNode, UiOutput, render_ui_node};
-use crate::search;
 use eframe::egui;
 use std::path::PathBuf;
 use thoth_plugin_sdk::components::Separator;
 
 /// Props passed down to the CentralPanel (immutable, one-way binding)
 pub struct CentralPanelProps<'a> {
+    /// The owning tab's id. A file tab acts as a dataset producer under a
+    /// stable per-tab marker, so its sheet on the bus survives the frame reaper
+    /// and is dropped when the tab closes.
+    pub tab_id: usize,
     pub file_path: &'a Option<PathBuf>,
     pub file_type: FileKind,
     pub error: &'a Option<ThothError>,
-    pub search_message: Option<search::SearchMessage>,
-    pub cache_size: usize,
+    pub search_message: Option<String>,
     pub syntax_highlighting: bool,
     /// When `Some`, render this interactive `UiNode` tree from the plugin instead of the file viewer.
     pub plugin_ui: Option<&'a UiOutput>,
@@ -93,6 +95,8 @@ impl CentralPanel {
         props: CentralPanelProps<'_>,
         events: &mut Vec<CentralPanelEvent>,
     ) {
+        let mut pending_view_events: Vec<thoth_plugin_sdk::render_node::UiEvent> = Vec::new();
+
         // Open / close viewer once on change
         match (props.file_path, self.loaded_path.as_ref(), self.loaded_type) {
             (Some(new_path), Some(curr_path), Some(curr_ty))
@@ -103,7 +107,10 @@ impl CentralPanel {
             (Some(new_path), _, _) => {
                 self.last_open_err = None;
                 let mut file_type = props.file_type;
-                match self.file_viewer.open(new_path, &mut file_type) {
+                match self
+                    .file_viewer
+                    .open(new_path, props.tab_id, &mut file_type)
+                {
                     Ok(()) => {
                         self.loaded_path = Some(new_path.clone());
                         self.loaded_type = Some(file_type);
@@ -143,7 +150,7 @@ impl CentralPanel {
                 }
             }
             (None, Some(_), _) => {
-                self.file_viewer = FileViewer::with_cache_size(props.cache_size);
+                self.file_viewer = FileViewer::new();
                 self.loaded_path = None;
                 self.loaded_type = None;
                 self.last_open_err = None;
@@ -153,21 +160,22 @@ impl CentralPanel {
         }
 
         // React to search messages
-        if let Some(msg) = props.search_message {
-            self.searching = msg.is_searching();
+        if let Some(_msg) = props.search_message {
+            // TODO: Random value set
+            self.searching = false;
 
-            match msg {
-                search::SearchMessage::StartSearch(search) => {
-                    self.file_viewer.set_highlights(Some(&search.results));
-                    // Search results are now displayed in the sidebar as a clickable list
-                    // Don't filter the main view - keep all records visible
-                    // Users can click on search results to navigate to them
-                }
-                search::SearchMessage::StopSearch => {
-                    // No filtering to clear
-                    self.file_viewer.set_highlights(None);
-                }
-            }
+            // match msg {
+            //     search::SearchMessage::StartSearch(search) => {
+            //         self.file_viewer.set_highlights(Some(&search.results));
+            //         // Search results are now displayed in the sidebar as a clickable list
+            //         // Don't filter the main view - keep all records visible
+            //         // Users can click on search results to navigate to them
+            //     }
+            //     search::SearchMessage::StopSearch => {
+            //         // No filtering to clear
+            //         self.file_viewer.set_highlights(None);
+            //     }
+            // }
         }
 
         // The body's dispatch order, resolved once: the spinner wins, then a
@@ -264,9 +272,46 @@ impl CentralPanel {
 
                         // Render the viewer (no filtering UI needed - search results shown in sidebar)
                         self.file_viewer.ui(ui);
+                        // A file tab's DataView raises the same reserved actions
+                        // a plugin's does (Export, Open in Charts), so they go
+                        // out on the same channel the app already dispatches.
+                        pending_view_events.extend(self.file_viewer.take_events());
                     }
                 }
             });
+
+        // Reserved actions from the file tab's DataView reuse the plugin event
+        // channel — `dispatch_plugin_event_for` intercepts Export and Charts
+        // before any plugin sees them, and a file tab has no plugin to forward
+        // the rest to.
+        for evt in pending_view_events {
+            events.push(CentralPanelEvent::PluginUiEvent(UiEvent {
+                widget_id: evt.id,
+                kind: evt.kind,
+                value: evt.value,
+            }));
+        }
+    }
+
+    /// Whether this tab is showing a prefix of the file while it indexes.
+    pub fn showing_preview(&self) -> bool {
+        self.file_viewer.showing_preview()
+    }
+
+    /// Progress of this tab's background index build, if one is running.
+    pub fn index_progress(&self) -> Option<crate::file::indexing::Progress> {
+        self.file_viewer.index_progress()
+    }
+
+    /// Adopt a finished index, returning the file's name and row count the
+    /// frame it lands.
+    pub fn poll_index(&mut self, tab_id: usize) -> Option<(String, usize)> {
+        self.file_viewer.poll_index(tab_id)
+    }
+
+    /// Abandon a running index build — the tab is going away.
+    pub fn cancel_indexing(&mut self) {
+        self.file_viewer.cancel_indexing();
     }
 
     // ========================================================================
@@ -303,24 +348,27 @@ impl CentralPanel {
         self.file_viewer.move_selection_down();
     }
 
+    // The tree performs the copy itself, so these no longer return text — it
+    // reads the node rather than the rendered row, which is truncated.
+
     /// Copy the key of the currently selected item (for keyboard shortcuts)
-    pub fn copy_selected_key(&mut self) -> Option<String> {
-        self.file_viewer.copy_selected_key()
+    pub fn copy_selected_key(&mut self) {
+        self.file_viewer.copy_selected_key();
     }
 
     /// Copy the value of the currently selected item (for keyboard shortcuts)
-    pub fn copy_selected_value(&mut self) -> Option<String> {
-        self.file_viewer.copy_selected_value()
+    pub fn copy_selected_value(&mut self) {
+        self.file_viewer.copy_selected_value();
     }
 
     /// Copy the entire object of the currently selected item (for keyboard shortcuts)
-    pub fn copy_selected_object(&mut self) -> Option<String> {
-        self.file_viewer.copy_selected_object()
+    pub fn copy_selected_object(&mut self) {
+        self.file_viewer.copy_selected_object();
     }
 
     /// Copy the path of the currently selected item (for keyboard shortcuts)
-    pub fn copy_selected_path(&mut self) -> Option<String> {
-        self.file_viewer.copy_selected_path()
+    pub fn copy_selected_path(&mut self) {
+        self.file_viewer.copy_selected_path();
     }
 
     /// Navigate to a specific root record (for search result navigation)

@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en" data-theme="mocha">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>events.ndjson — Thoth</title>
+<link rel="icon" href="assets/thoth_icon_256.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap">
+<link rel="stylesheet" href="css/thoth.css">
+</head>
+
+<body>
+
+<!-- Icon sprite: monoline 16px marks, currentColor -->
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 4.8V8l2.4 1.6"/></symbol>
+    <symbol id="i-bookmark" viewBox="0 0 16 16"><path d="M4 2.6h8v11l-4-2.8-4 2.8z"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 16 16"><path d="M6 2v3M10 2v3M4 5h8v3a4 4 0 0 1-8 0zM8 12v2.2"/></symbol>
+    <symbol id="i-db" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="4.8" ry="1.9"/><path d="M3.2 4v8c0 1.05 2.15 1.9 4.8 1.9s4.8-.85 4.8-1.9V4M3.2 8c0 1.05 2.15 1.9 4.8 1.9s4.8-.85 4.8-1.9"/></symbol>
+    <symbol id="i-file" viewBox="0 0 16 16"><path d="M9 2H4.6v12h6.8V4.4z"/><path d="M9 2v2.4h2.4M6.4 8.6h3.2M6.4 11h3.2"/></symbol>
+    <symbol id="i-caret-down" viewBox="0 0 16 16"><path d="M4 6.4 8 10l4-3.6"/></symbol>
+    <symbol id="i-table" viewBox="0 0 16 16"><rect x="2.4" y="3" width="11.2" height="10" rx="1.2"/><path d="M2.4 6.4h11.2M6.6 6.4V13M10.4 6.4V13"/></symbol>
+    <symbol id="i-braces" viewBox="0 0 16 16"><path d="M6.4 2.6c-1.5 0-1.6 1.1-1.6 2.6S4.4 8 3.2 8c1.2 0 1.6.7 1.6 2.8s.1 2.6 1.6 2.6"/><path d="M9.6 2.6c1.5 0 1.6 1.1 1.6 2.6S11.6 8 12.8 8c-1.2 0-1.6.7-1.6 2.8s-.1 2.6-1.6 2.6"/></symbol>
+    <symbol id="i-code" viewBox="0 0 16 16"><path d="M5.6 4 2.4 8l3.2 4M10.4 4l3.2 4-3.2 4"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 16 16"><rect x="5.6" y="5.6" width="8" height="8" rx="1.4"/><path d="M10.4 5.6V4a1.6 1.6 0 0 0-1.6-1.6H4A1.6 1.6 0 0 0 2.4 4v4.8A1.6 1.6 0 0 0 4 10.4h1.6"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 16 16"><path d="M2.4 2.4v11.2h11.2"/><path d="M4.8 10.6l2.6-3.2 2.2 1.8 3-4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.4 12.4 8 5 12.6z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 16 16"><path d="M4.4 4.4l7.2 7.2M11.6 4.4l-7.2 7.2"/></symbol>
+    <symbol id="i-check" viewBox="0 0 16 16"><path d="M3.2 8.4 6.4 11.6 12.8 4.8"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8"/><path d="M8 5.2v3.4M8 10.8v.2"/></symbol>
+    <symbol id="i-funnel" viewBox="0 0 16 16"><path d="M2.6 3.4h10.8l-4 4.6v5l-2.8-1.6V8z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 16 16"><path d="M5.4 4.4h8M5.4 8h8M5.4 11.6h8M2.8 4.4h.2M2.8 8h.2M2.8 11.6h.2"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3"/><path d="M8 1.6v1.4M8 13v1.4M1.6 8h1.4M13 8h1.4M3.5 3.5l1 1M11.5 11.5l1 1M12.5 3.5l-1 1M4.5 11.5l-1 1"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 16 16"><path d="M13 9.9A5.7 5.7 0 0 1 6.1 3 5.8 5.8 0 1 0 13 9.9z"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 16 16"><rect x="2.4" y="3" width="11.2" height="10" rx="1.2"/><path d="M6.4 3v10"/></symbol>
+    <symbol id="i-download" viewBox="0 0 16 16"><path d="M8 2.6v7.2M5.2 7.4 8 10.2l2.8-2.8M3 12.4h10"/></symbol>
+  </defs>
+</svg>
+
+<div class="app">
+
+  <!-- ── Title bar ──────────────────────────────────────────────────────── -->
+  <header class="titlebar" data-od-id="titlebar">
+    <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="brand">
+      <img src="assets/thoth_icon_256.png" alt="" width="16" height="16" style="border-radius:3px">
+      <span>Thoth</span>
+    </div>
+    <div class="doc mono"><b>events.ndjson</b> — ~/data/telemetry</div>
+    <div class="sp"></div>
+    <button class="icobtn" id="themeBtn" data-od-id="theme-picker" title="Theme" aria-haspopup="true" aria-expanded="false">
+      <svg width="16" height="16"><use href="#i-moon" id="themeIcon"/></svg>
+    </button>
+    <div class="menu" id="themeMenu" hidden role="menu" style="right:12px;top:42px">
+      <button role="menuitemradio" data-theme-set="mocha" aria-checked="true">
+        <svg width="16" height="16"><use href="#i-moon"/></svg> Catppuccin Mocha
+        <svg class="tick" width="16" height="16"><use href="#i-check"/></svg>
+      </button>
+      <button role="menuitemradio" data-theme-set="latte" aria-checked="false">
+        <svg width="16" height="16"><use href="#i-sun"/></svg> Catppuccin Latte
+        <svg class="tick" width="16" height="16"><use href="#i-check"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Body ───────────────────────────────────────────────────────────── -->
+  <div class="body" id="body">
+
+    <!-- Sidebar rail: one icon per section, 2px accent stripe marks the active one -->
+    <nav class="rail pane" data-od-id="sidebar-rail" aria-label="Sidebar sections">
+      <button class="railbtn" data-section="fields" aria-selected="true" title="Fields — click a value to filter">
+        <svg width="17" height="17"><use href="#i-funnel"/></svg>
+      </button>
+      <button class="railbtn" data-section="recent" aria-selected="false" title="Recent files">
+        <svg width="17" height="17"><use href="#i-clock"/></svg>
+      </button>
+      <button class="railbtn" data-section="bookmarks" aria-selected="false" title="Bookmarks">
+        <svg width="17" height="17"><use href="#i-bookmark"/></svg>
+      </button>
+      <button class="railbtn" data-section="seshat" aria-selected="false" title="Seshat — databases">
+        <svg width="17" height="17"><use href="#i-db"/></svg>
+      </button>
+      <button class="railbtn" data-section="url" aria-selected="false" title="url-source — fetch a URL">
+        <svg width="17" height="17"><use href="#i-plug"/></svg>
+      </button>
+      <div class="sp"></div>
+      <button class="icobtn" id="collapseBtn" title="Collapse sidebar (⌘B)">
+        <svg width="16" height="16"><use href="#i-panel"/></svg>
+      </button>
+    </nav>
+
+    <!-- Sidebar pane -->
+    <aside class="sidebar pane" data-od-id="sidebar" aria-label="Recent files">
+      <div class="sidehead"><span id="sideTitle">Recent files</span><div class="sp"></div>
+      </div>
+      <div class="sidebody" id="sideBody">
+        <div class="sgroup"><h3>Today</h3></div>
+        <div class="frow" aria-current="true" data-od-id="file-events-ndjson">
+          <svg width="14" height="14"><use href="#i-file"/></svg>
+          <span class="nm">events.ndjson</span><span class="pth">~/data/telemetry</span><span class="sz">6.1 MB</span>
+        </div>
+        <div class="frow" data-od-id="file-orders-csv">
+          <svg width="14" height="14"><use href="#i-file"/></svg>
+          <span class="nm">orders.csv</span><span class="pth">~/data/exports</span><span class="sz">842 KB</span>
+        </div>
+        <div class="frow" data-od-id="file-schema-json">
+          <svg width="14" height="14"><use href="#i-file"/></svg>
+          <span class="nm">schema.json</span><span class="pth">~/repos/ingest</span><span class="sz">14 KB</span>
+        </div>
+        <div class="sgroup"><h3>Yesterday</h3></div>
+        <div class="frow" data-od-id="file-spans-ndjson">
+          <svg width="14" height="14"><use href="#i-file"/></svg>
+          <span class="nm">spans.ndjson</span><span class="pth">~/data/traces</span><span class="sz">21 MB</span>
+        </div>
+        <div class="frow" data-od-id="file-billing-parquet">
+          <svg width="14" height="14"><use href="#i-file"/></svg>
+          <span class="nm">billing.parquet</span><span class="pth">~/data/warehouse</span><span class="sz">3.4 MB</span>
+        </div>
+        <div class="frow" data-od-id="file-geo-geojson">
+          <svg width="14" height="14"><use href="#i-file"/></svg>
+          <span class="nm">regions.geojson</span><span class="pth">~/data/geo</span><span class="sz">108 KB</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main pane" data-od-id="viewer">
+
+      <!-- Tab strip -->
+      <div class="tabstrip" role="tablist" data-od-id="tabstrip">
+        <button class="tab" role="tab" aria-selected="true" data-od-id="tab-events">
+          <svg width="14" height="14"><use href="#i-file"/></svg> events.ndjson
+        </button>
+      </div>
+
+      <!-- Query builder — lanes compile to the SQL shown below -->
+      <section class="qb" id="querybar" data-od-id="query-builder" aria-label="Query builder">
+
+        <!-- Head stays visible when the builder is hidden, and reads the query back -->
+        <div class="qb-head" data-od-id="query-head">
+          <button class="disc" id="qbToggle" aria-expanded="true" aria-controls="qbBody"
+                  title="Hide the query builder (⌘/)">
+            <svg class="tw" width="13" height="13"><use href="#i-caret-down"/></svg> Query
+          </button>
+          <div class="qb-sum" id="qbSum"></div>
+          <div class="sp"></div>
+          <span class="qb-count mono" id="qbCount"></span>
+          <span class="kbd" id="qbKbd">⌘/</span>
+        </div>
+
+        <div class="qb-body" id="qbBody">
+        <div id="qbLanes">
+
+          <div class="lane" data-od-id="lane-filter">
+            <div class="lane-l">
+              <span class="lbl">Filter</span>
+              <div class="seg mini" id="combineSeg" hidden role="group" aria-label="Combine filters">
+                <button data-combine="all" aria-pressed="true" title="Every filter must match">All</button>
+                <button data-combine="any" aria-pressed="false" title="Any filter may match">Any</button>
+              </div>
+            </div>
+            <div class="lane-items" id="lnFilters"></div>
+            <button class="addbtn" data-add="filter" data-od-id="add-filter" title="Add a filter">
+              <svg width="13" height="13"><use href="#i-funnel"/></svg> Filter
+              <span class="kbd" id="filterKbd">⌘F</span>
+            </button>
+          </div>
+
+          <div class="lane" data-od-id="lane-group">
+            <div class="lane-l"><span class="lbl">Group by</span></div>
+            <div class="lane-items" id="lnGroup"></div>
+            <button class="addbtn" data-add="group" data-od-id="add-group" title="Group rows by a field (⌘G)">
+              <svg width="13" height="13"><use href="#i-list"/></svg> Field
+            </button>
+          </div>
+
+          <div class="lane" data-od-id="lane-compute">
+            <div class="lane-l"><span class="lbl">Compute</span></div>
+            <div class="lane-items" id="lnAggs"></div>
+            <button class="addbtn" data-add="agg" data-od-id="add-agg" title="Add an aggregate">
+              <svg width="13" height="13"><use href="#i-chart"/></svg> Aggregate
+            </button>
+          </div>
+
+          <div class="lane" data-od-id="lane-sort">
+            <div class="lane-l"><span class="lbl">Sort</span></div>
+            <div class="lane-items" id="lnSort"></div>
+            <button class="addbtn" data-add="sort" data-od-id="add-sort" title="Add a sort key">
+              <svg width="13" height="13"><use href="#i-caret-down"/></svg> Sort
+            </button>
+          </div>
+        </div>
+
+        <div class="qb-foot">
+          <button class="disc" id="sqlDisc" aria-expanded="false" aria-controls="sqlBox" data-od-id="sql-toggle">
+            <svg class="tw" width="13" height="13"><use href="#i-caret-down"/></svg> SQL
+          </button>
+          <div class="qstatus" id="qstatus" role="status" aria-live="polite"></div>
+          <label class="field lim" data-od-id="limit-field" title="Maximum rows returned">
+            <span class="lk">Limit</span>
+            <input id="limIn" type="number" min="1" max="10000" step="100" aria-label="Row limit">
+          </label>
+          <button class="btn btn-text" id="resetBtn" title="Clear every lane">Reset</button>
+          <button class="btn btn-solid" id="runBtn" data-od-id="run-query">
+            <svg width="14" height="14"><use href="#i-play"/></svg> Run <span class="kbd" id="runKbd">⌘↵</span>
+          </button>
+        </div>
+
+        <div class="sqlbox" id="sqlBox" hidden data-od-id="sql-preview">
+          <pre class="sqlhl" id="sqlHl" aria-label="Generated SQL"></pre>
+          <button class="btn btn-text sqlcopy" id="sqlCopy" title="Copy the generated SQL">
+            <svg width="14" height="14"><use href="#i-copy"/></svg> <span id="sqlCopyLbl">Copy SQL</span>
+          </button>
+        </div>
+        </div>
+      </section>
+
+      <!-- Timeline — volume by level across the file; drag to narrow the range -->
+      <section class="tl" id="timeline" data-od-id="timeline" aria-label="Event volume over time">
+        <div class="tl-plot" id="tlPlot">
+          <div class="tl-bars" id="tlBars"></div>
+          <div class="tl-band" id="tlBand" hidden></div>
+          <div class="tl-drag" id="tlDrag" hidden></div>
+        </div>
+        <div class="tl-axis">
+          <span class="mono" id="tlFrom"></span>
+          <div class="tl-legend" id="tlLegend"></div>
+          <button class="tl-clear" id="tlClear" hidden title="Clear the time range">
+            <svg width="11" height="11"><use href="#i-x"/></svg> <span id="tlRange"></span>
+          </button>
+          <span class="mono" id="tlTo"></span>
+        </div>
+      </section>
+
+      <!-- DataView node — host-owned dataset rendered as table / JSON / raw -->
+      <section class="dataview" id="dataview" data-od-id="data-view">
+        <div class="dvbar" id="dvbar" data-od-id="dv-bar">
+          <!-- Which table. The first question the pane has to answer. -->
+          <button class="select tablesel" id="tableSel" aria-haspopup="true" aria-expanded="false" data-od-id="dv-table-select">
+            <svg width="15" height="15"><use href="#i-table"/></svg>
+            <span class="lbl" id="tableLbl">All records</span>
+            <span class="cnt" id="tableCnt"></span>
+            <svg class="caret" width="14" height="14"><use href="#i-caret-down"/></svg>
+          </button>
+          <div class="menu tablemenu" id="tableMenu" hidden role="menu" style="left:12px;top:46px"></div>
+
+          <button class="select viewsel" id="viewSel" aria-haspopup="true" aria-expanded="false" data-od-id="dv-view-select">
+            <svg width="15" height="15"><use href="#i-table" id="viewIcon"/></svg>
+            <span class="lbl" id="viewLbl">Table</span>
+            <svg class="caret" width="14" height="14"><use href="#i-caret-down"/></svg>
+          </button>
+          <div class="menu" id="viewMenu" hidden role="menu" style="left:232px;top:46px">
+            <button role="menuitemradio" data-view="table" aria-checked="true">
+              <svg width="15" height="15"><use href="#i-table"/></svg> Table
+              <svg class="tick" width="15" height="15"><use href="#i-check"/></svg>
+            </button>
+            <button role="menuitemradio" data-view="json" aria-checked="false">
+              <svg width="15" height="15"><use href="#i-braces"/></svg> JSON
+              <svg class="tick" width="15" height="15"><use href="#i-check"/></svg>
+            </button>
+            <button role="menuitemradio" data-view="raw" aria-checked="false">
+              <svg width="15" height="15"><use href="#i-code"/></svg> Raw
+              <svg class="tick" width="15" height="15"><use href="#i-check"/></svg>
+            </button>
+            <button role="menuitemradio" data-view="chart" aria-checked="false">
+              <svg width="15" height="15"><use href="#i-chart"/></svg> Chart
+              <svg class="tick" width="15" height="15"><use href="#i-check"/></svg>
+            </button>
+          </div>
+
+          <span class="rcount" id="rcount">—</span>
+          <div class="sp"></div>
+          <div class="acts">
+            <button class="btn btn-text" id="copyBtn" title="Copy as JSON" data-od-id="dv-copy">
+              <svg width="15" height="15"><use href="#i-copy"/></svg> <span id="copyLbl">Copy</span>
+            </button>
+            <button class="select exportsel" id="exportSel" aria-haspopup="true" aria-expanded="false" data-od-id="dv-export">
+              <span class="lbl">Export</span>
+              <svg class="caret" width="14" height="14"><use href="#i-caret-down"/></svg>
+            </button>
+            <div class="menu" id="exportMenu" hidden role="menu" style="right:112px;top:46px">
+              <button data-export="csv"><svg width="15" height="15"><use href="#i-download"/></svg> CSV (.csv)</button>
+              <button data-export="json"><svg width="15" height="15"><use href="#i-download"/></svg> JSON (.json)</button>
+              <button data-export="ndjson"><svg width="15" height="15"><use href="#i-download"/></svg> NDJSON (.ndjson)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="dvsplit">
+          <div class="dvbody" id="dvbody" tabindex="0"></div>
+          <aside class="detail" id="detail" hidden data-od-id="record-detail" aria-label="Record detail">
+            <div class="detail-h">
+              <span class="lbl">Record</span>
+              <span class="mono" id="detailIdx"></span>
+              <div class="sp"></div>
+              <button class="icobtn sm" id="detailCopy" title="Copy this record">
+                <svg width="14" height="14"><use href="#i-copy"/></svg>
+              </button>
+              <button class="icobtn sm" id="detailClose" title="Close (Esc)">
+                <svg width="14" height="14"><use href="#i-x"/></svg>
+              </button>
+            </div>
+            <div class="detail-b" id="detailBody"></div>
+          </aside>
+        </div>
+
+        <div class="veil" id="veil" hidden>
+          <div class="spin lg"></div>
+          <div class="txt" id="veilTxt">Running query…</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ── Status bar — 30px ──────────────────────────────────────────────── -->
+  <footer class="statusbar" data-od-id="statusbar">
+    <span class="item"><svg width="13" height="13"><use href="#i-file"/></svg> events.ndjson</span>
+    <span class="item" id="stItems"><svg width="13" height="13"><use href="#i-list"/></svg> <span class="v">4,812</span> items</span>
+    <span class="item"><svg width="13" height="13"><use href="#i-db"/></svg> Ndjson</span>
+    <span class="sp"></span>
+    <span class="item sig" id="stSig"><span class="dot">●</span> <span class="v" id="stSigVal">ready</span></span>
+    <span class="item" id="stMode">Raw</span>
+  </footer>
+</div>
+
+<span class="cellact" id="cellact">
+  <button class="mono" data-fq="in" title="Filter to this value" aria-label="Filter to this value">+</button>
+  <button class="mono" data-fq="out" title="Exclude this value" aria-label="Exclude this value">−</button>
+</span>
+
+<div id="datalists" hidden></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

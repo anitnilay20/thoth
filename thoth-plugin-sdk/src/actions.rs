@@ -20,3 +20,30 @@ pub const OPEN_IN_CHARTS: &str = "thoth:open-in-charts";
 /// is `{"handle": "<dataset handle>", "exporter": "<plugin id>"}`. The host
 /// reads the rows, runs the chosen exporter, and saves the file.
 pub const EXPORT_DATASET: &str = "thoth:export-dataset";
+
+/// Point a [`DataView`](crate::components::DataView) at another of the tables
+/// its document holds. Emitted by the view's table picker; the event value is
+/// the chosen [`DataTable::value`](crate::components::DataTable::value).
+///
+/// The producer owns what switching costs — a collection may have to be read
+/// before it can be shown — so the picker only ever reports the choice and
+/// leaves the work, and the new `selected_table`, to whoever built the node.
+pub const SELECT_TABLE: &str = "thoth:select-table";
+
+/// Order a [`DataView`](crate::components::DataView)'s rows by one of its
+/// columns. Emitted by the grid's header when a sortable column is clicked;
+/// the event value is a JSON [`SortBy`](crate::components::SortBy) — or `null`
+/// when the click cleared the sort.
+///
+/// The grid only ever reports the choice: it holds one page of a result that
+/// may be far larger, so ordering it here would sort the page rather than the
+/// data. Re-running the query is the producer's work, exactly as with
+/// [`SELECT_TABLE`].
+pub const SORT_COLUMN: &str = "thoth:sort-column";
+
+/// The exporters the host provides itself, as `(event value, menu label)`.
+///
+/// A `builtin:` id is written by the host from the dataset it already holds,
+/// so it needs no plugin and no consent prompt — it is the same read the Copy
+/// button makes, landing in a file instead of the clipboard.
+pub const BUILTIN_EXPORTERS: &[(&str, &str)] = &[("builtin:csv", "CSV"), ("builtin:json", "JSON")];

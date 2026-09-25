@@ -38,12 +38,33 @@ fn reset() {
     let _ = file_open_channel::drain_open_requests();
 }
 
-/// Serialize all tests in this file to avoid races on the shared global queue.
+/// Serialize all tests in this file to avoid races on the shared global queue,
+/// and point everything Thoth persists at a scratch directory.
+///
+/// These tests build a real `ThothApp`, which loads and *saves* persistent
+/// state. Saving rewrites the whole document, so without the redirect a run
+/// left the user with a recent-files list holding one temp path and nothing
+/// else. Every test here takes this guard, so this is the one place it has to
+/// be done.
 fn test_guard() -> std::sync::MutexGuard<'static, ()> {
     static TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+    thoth::config_dir::isolate_for_tests();
     let mutex = TEST_MUTEX.get_or_init(|| Mutex::new(()));
     // Recover from a poisoned mutex so one test failure doesn't cascade.
     mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[test]
+fn these_tests_never_write_the_users_real_state() {
+    // A tripwire for the guard above: if the redirect is ever dropped, this
+    // fails here rather than silently overwriting somebody's recent files.
+    let _guard = test_guard();
+    let root = thoth::config_dir::config_root().expect("a config root");
+    assert!(
+        root.starts_with(std::env::temp_dir()),
+        "state would be written to {}, which is the user's real config directory",
+        root.display()
+    );
 }
 
 // ---------------------------------------------------------------------------

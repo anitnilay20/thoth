@@ -140,7 +140,7 @@
 
   <rect x="1500" y="618" width="270" height="154" rx="8" fill="#131c2e" stroke="#f59e0b" stroke-width="1.5"/>
   <text x="1516" y="644" class="h" fill="#f59e0b">Bundled Plugins</text>
-  <text x="1516" y="666" class="b">• csv-loader (loader/viewer)</text>
+  <text x="1516" y="666" class="b">• url-source (data source)</text>
   <text x="1516" y="684" class="b">• url-source (HTTP) · seshat (DB)</text>
   <text x="1516" y="702" class="b">• material-theme</text>
 

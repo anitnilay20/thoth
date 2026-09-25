@@ -4,42 +4,86 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::error::Result;
-use crate::file::detect_file_type::DetectedFileType;
-use crate::file::loaders::{FileKind, FileType, load_file_auto};
+use serde_json::Value;
 
-/// Represents a single file opened by the MCP server.
+use crate::error::Result;
+use crate::file::loaders::{DuckdbConnection, FileLoader, RecordSource, RecordWindow};
+use crate::file::{FileKind, FileType};
+
+/// A single file opened by the MCP server, backed by the DuckDB engine.
+///
+/// The window makes repeated record reads cheap: tools like `sample_records`
+/// and `get_schema` walk the head of a file, and only the first read of each
+/// window costs a query.
 pub struct OpenFile {
     pub path: PathBuf,
-    pub detected_type: DetectedFileType,
     pub file_type: FileType,
-    pub file_kind: FileKind,
+    engine: DuckdbConnection,
+    window: RecordWindow,
+    record_count: usize,
 }
 
 impl OpenFile {
     /// Open a file at the given path with automatic format detection.
     pub fn open(path: &Path) -> Result<Self> {
-        let (detected, file_type) = load_file_auto(path)?;
-        let file_kind = FileKind::from(detected);
+        let file_type = FileType::from_path(path);
+        let engine = DuckdbConnection::open_path(path)?;
+        let record_count = engine.len()?;
         Ok(Self {
             path: path.to_path_buf(),
-            detected_type: detected,
             file_type,
-            file_kind,
+            engine,
+            window: RecordWindow::default(),
+            record_count,
         })
     }
 
     /// Return the number of top-level records.
     pub fn record_count(&self) -> usize {
-        self.file_type.len()
+        self.record_count
     }
 
-    /// Return the detected file type as a human-readable string.
+    /// The record at `index`, served from the current Arrow window.
+    pub fn record(&mut self, index: usize) -> Result<Value> {
+        self.window.record(&self.engine, index)?.ok_or_else(|| {
+            crate::error::ThothError::DatabaseQueryError {
+                query: format!("row {index}"),
+                reason: format!("No record at index {index}"),
+            }
+        })
+    }
+
+    /// Records `[start, start + count)` — one query per window.
+    pub fn records(&mut self, start: usize, count: usize) -> Result<Vec<Value>> {
+        self.window.records(&self.engine, start, count)
+    }
+
+    /// Column names, in schema order.
+    pub fn columns(&self) -> Result<Vec<String>> {
+        self.engine.column_names()
+    }
+
+    /// Run SQL against this file. The alias is the file's stem.
+    pub fn query(&self, sql: &str) -> Result<Vec<Value>> {
+        crate::file::loaders::batches_to_values(&self.engine.query(sql)?)
+    }
+
+    /// The alias SQL should reference this file by.
+    pub fn alias(&self) -> String {
+        self.engine.primary_alias().unwrap_or_default()
+    }
+
+    /// Return the file type as a human-readable string.
     pub fn type_name(&self) -> &'static str {
-        match self.detected_type {
-            DetectedFileType::Ndjson => "ndjson",
-            DetectedFileType::JsonArray => "json_array",
-            DetectedFileType::JsonObject => "json_object",
+        match FileKind::from(self.file_type) {
+            FileKind::Ndjson => "ndjson",
+            FileKind::Json => match self.file_type {
+                FileType::Csv => "csv",
+                FileType::Parquet => "parquet",
+                FileType::DB => "database",
+                _ => "json",
+            },
+            FileKind::Plugin | FileKind::PluginTable => "plugin",
         }
     }
 }
@@ -71,6 +115,7 @@ impl ServerState {
             path: path.display().to_string(),
             file_type: open.type_name().to_string(),
             record_count: open.record_count(),
+            alias: open.alias(),
         };
 
         let mut inner = self
@@ -109,6 +154,8 @@ impl ServerState {
     }
 
     /// Run a closure with mutable access to an open file, returning two values atomically.
+    // TODO(#53): used again once the search tool returns.
+    #[allow(dead_code)]
     pub fn with_file_read2<F, A, B>(&self, handle: &str, f: F) -> Option<(A, B)>
     where
         F: FnOnce(&mut OpenFile) -> (A, B),
@@ -131,6 +178,7 @@ impl ServerState {
             path: f.path.display().to_string(),
             file_type: f.type_name().to_string(),
             record_count: f.record_count(),
+            alias: f.alias(),
         })
     }
 
@@ -152,4 +200,6 @@ pub struct FileInfo {
     pub path: String,
     pub file_type: String,
     pub record_count: usize,
+    /// The name SQL should reference this file by (see the query_file tool).
+    pub alias: String,
 }
