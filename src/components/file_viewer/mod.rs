@@ -19,7 +19,7 @@ use crate::plugin::Capability;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
 use crate::search::results::{MatchFragment, SearchResults};
 use thoth_plugin_sdk::components::{
-    ColumnType, DataView, QueryBuilder, QueryField, SortBy, TreeAction,
+    ColumnType, DataView, QueryBuilder, QueryField, QueryStatus, SortBy, TreeAction,
 };
 
 /// Wrapper for WasmFileViewerLoader to implement FileViewerLoader
@@ -812,8 +812,11 @@ impl FileViewer {
             .id(format!("file_query_{}", self.tab_id))
             .relation(alias.to_string())
             .fields(
+                // Paths, not columns: a record format nests, and a lane that
+                // could only offer `user` could only filter on the whole
+                // struct (#53).
                 engine
-                    .column_types(alias)
+                    .query_fields(alias)
                     .unwrap_or_default()
                     .into_iter()
                     .map(|(name, sql_type)| {
@@ -874,11 +877,11 @@ impl FileViewer {
             // The foot already names an incomplete lane; Run is disabled while
             // it does, so reaching here means the shortcut fired instead.
             Err(error) => {
-                self.query.status = Some(error.message);
+                self.query.status = Some(QueryStatus::Failure(error.message));
                 return;
             }
         };
-        self.query.status = Some("running…".to_string());
+        self.query.status = Some(QueryStatus::Report("running…".to_string()));
         self.query_job = Some(crate::file::indexing::QueryJob::spawn(
             engine,
             format!("{QUERY_VIEW_PREFIX}{}", self.tab_id),
@@ -906,15 +909,17 @@ impl FileViewer {
         match outcome {
             Ok(result) => {
                 if engine.set_primary(&result.view).is_err() {
-                    self.query.status = Some("the result could not be read".to_string());
+                    self.query.status = Some(QueryStatus::Failure(
+                        "the result could not be read".to_string(),
+                    ));
                     return;
                 }
-                self.query.status = Some(format!(
+                self.query.status = Some(QueryStatus::Report(format!(
                     "{} {} · {} ms",
-                    result.rows,
+                    grouped(result.rows),
                     if result.rows == 1 { "row" } else { "rows" },
                     result.elapsed.as_millis()
-                ));
+                )));
                 self.handle = crate::papyrus::publish_arrow_with_total(
                     "core",
                     &format!("core#{}", self.tab_id),
@@ -923,7 +928,7 @@ impl FileViewer {
                     result.rows as u64,
                 );
             }
-            Err(message) => self.query.status = Some(message),
+            Err(message) => self.query.status = Some(QueryStatus::Failure(message)),
         }
     }
 

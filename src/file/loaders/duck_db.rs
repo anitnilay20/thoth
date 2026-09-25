@@ -651,7 +651,12 @@ impl DuckdbConnection {
     /// numbers and dates, substring ones on text — so it needs the schema, not
     /// just the names.
     pub fn column_types(&self, alias: &str) -> Result<Vec<(String, String)>> {
-        let sql = format!("DESCRIBE {}", quote_ident(alias));
+        self.describe(&format!("DESCRIBE {}", quote_ident(alias)))
+    }
+
+    /// The `(name, type)` pairs a `DESCRIBE` returns.
+    fn describe(&self, sql: &str) -> Result<Vec<(String, String)>> {
+        let sql = sql.to_string();
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn
             .prepare(&sql)
@@ -675,6 +680,77 @@ impl DuckdbConnection {
             })?);
         }
         Ok(columns)
+    }
+
+    /// The fields the query builder's lanes can be pointed at: every column,
+    /// with each STRUCT column replaced by its leaves as dotted paths
+    /// (`user.name`, `user.address.city`) — #53.
+    ///
+    /// A record format nests, and a lane that can only offer `user` can only
+    /// filter on the whole struct, which is never the question being asked.
+    /// The struct itself is dropped once it has been expanded: it is a
+    /// container, not a value to compare.
+    ///
+    /// Lists are left whole. Their element type is known but the *index* is
+    /// not, and a picker cannot ask "which one"; `items[1].price` still
+    /// compiles when typed into the SQL editor.
+    pub fn query_fields(&self, alias: &str) -> Result<Vec<(String, String)>> {
+        let mut fields = Vec::new();
+        for (name, sql_type) in self.column_types(alias)? {
+            self.expand_field(alias, &name, &sql_type, 0, &mut fields);
+        }
+        Ok(fields)
+    }
+
+    /// One field, expanded in place if it is a struct. Depth-limited, because
+    /// the point is a list a person can read: a deeply recursive document
+    /// would otherwise fill the picker with paths nobody scrolls to.
+    fn expand_field(
+        &self,
+        alias: &str,
+        path: &str,
+        sql_type: &str,
+        depth: usize,
+        out: &mut Vec<(String, String)>,
+    ) {
+        /// How many levels of struct the picker expands.
+        const MAX_DEPTH: usize = 3;
+        /// And how many fields it will list at all.
+        const MAX_FIELDS: usize = 500;
+
+        let mut nested = false;
+        if sql_type.starts_with("STRUCT(")
+            && depth < MAX_DEPTH
+            && out.len() < MAX_FIELDS
+            && let Ok(leaves) = self.struct_fields(alias, path)
+            && !leaves.is_empty()
+        {
+            for (leaf, leaf_type) in leaves {
+                self.expand_field(alias, &format!("{path}.{leaf}"), &leaf_type, depth + 1, out);
+            }
+            nested = true;
+        }
+        // A struct we could not read the shape of is still worth offering
+        // whole — better a field that filters awkwardly than one that is
+        // missing from the list.
+        if !nested {
+            out.push((path.to_string(), sql_type.to_string()));
+        }
+    }
+
+    /// The fields of the struct at `path`, by asking DuckDB to flatten one
+    /// level of it. `unnest` on a struct yields a column per field, so
+    /// describing that query is the shape without reading a row.
+    fn struct_fields(&self, alias: &str, path: &str) -> Result<Vec<(String, String)>> {
+        let expanded = path
+            .split('.')
+            .map(quote_ident)
+            .collect::<Vec<_>>()
+            .join(".");
+        self.describe(&format!(
+            "DESCRIBE SELECT unnest({expanded}) FROM {}",
+            quote_ident(alias)
+        ))
     }
 
     /// Collections already staged, by the alias SQL refers to them by.
@@ -1642,6 +1718,62 @@ mod tests {
         // which is the whole reason the types are read.
         assert_eq!(classified[0], ColumnType::Text);
         assert_eq!(classified[2], ColumnType::Integer);
+    }
+
+    #[test]
+    fn nested_records_reach_the_lanes_as_paths_and_filter_by_them() {
+        use thoth_plugin_sdk::components::{ColumnType, Filter, Operator, QuerySpec};
+
+        let file = ndjson_file(
+            "{\"id\":1,\"user\":{\"name\":\"ada\",\"age\":36,\"at\":{\"city\":\"lovelace\"}}}\n\
+             {\"id\":2,\"user\":{\"name\":\"bob\",\"age\":17,\"at\":{\"city\":\"bath\"}}}\n",
+        );
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+
+        let fields = db.query_fields(&alias).unwrap();
+        let named: Vec<&str> = fields.iter().map(|(name, _)| name.as_str()).collect();
+        // The struct itself is a container, not something to compare, so it is
+        // replaced by its leaves — all the way down.
+        assert_eq!(named, ["id", "user.name", "user.age", "user.at.city"]);
+        // And each leaf carries its own type, which is what decides the
+        // operators the lane offers.
+        let by_name: std::collections::HashMap<&str, &str> = fields
+            .iter()
+            .map(|(n, t)| (n.as_str(), t.as_str()))
+            .collect();
+        assert_eq!(
+            ColumnType::from_sql(by_name["user.age"]),
+            ColumnType::Integer
+        );
+        assert_eq!(ColumnType::from_sql(by_name["user.name"]), ColumnType::Text);
+
+        // A lane pointed at one of those paths compiles to SQL that runs.
+        let spec = QuerySpec {
+            filters: vec![Filter {
+                field: "user.age".into(),
+                operator: Operator::AtLeast,
+                values: vec!["18".into()],
+                column: ColumnType::Integer,
+            }],
+            ..Default::default()
+        };
+        let rows = query_rows(&db, &spec.compile(&alias).unwrap());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn a_flat_file_gains_no_paths_it_does_not_have() {
+        // CSV has no nesting, so expansion must be invisible there rather than
+        // rewriting a schema it has nothing to add to.
+        let file = csv_file("level,ms\nERROR,120\nINFO,8\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+        assert_eq!(
+            db.query_fields(&alias).unwrap(),
+            db.column_types(&alias).unwrap()
+        );
     }
 
     #[test]

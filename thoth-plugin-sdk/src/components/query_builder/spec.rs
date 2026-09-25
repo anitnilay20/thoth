@@ -360,7 +360,7 @@ impl QuerySpec {
         let grouped = !self.group_by.is_empty() || !self.aggregates.is_empty();
 
         let select = if grouped {
-            let mut columns: Vec<String> = self.group_by.iter().map(|f| ident(f)).collect();
+            let mut columns: Vec<String> = self.group_by.iter().map(|f| field_ident(f)).collect();
             for aggregate in &self.aggregates {
                 columns.push(format!(
                     "{} AS {}",
@@ -389,7 +389,7 @@ impl QuerySpec {
             sql.push_str(&format!("\nWHERE {}", conditions?.join(glue)));
         }
         if !self.group_by.is_empty() {
-            let keys: Vec<String> = self.group_by.iter().map(|f| ident(f)).collect();
+            let keys: Vec<String> = self.group_by.iter().map(|f| field_ident(f)).collect();
             sql.push_str(&format!("\nGROUP BY {}", keys.join(", ")));
         }
         if !self.sort.is_empty() {
@@ -399,7 +399,7 @@ impl QuerySpec {
                 .map(|s| {
                     format!(
                         "{} {}",
-                        ident(&s.field),
+                        field_ident(&s.field),
                         if s.descending { "DESC" } else { "ASC" }
                     )
                 })
@@ -423,7 +423,7 @@ fn aggregate_sql(aggregate: &Aggregate) -> Result<String, QueryError> {
             ),
         });
     }
-    let column = ident(&aggregate.field);
+    let column = field_ident(&aggregate.field);
     Ok(match aggregate.function {
         AggregateFn::DistinctCount => format!("count(DISTINCT {column})"),
         AggregateFn::Sum => format!("sum({column})"),
@@ -435,7 +435,7 @@ fn aggregate_sql(aggregate: &Aggregate) -> Result<String, QueryError> {
 }
 
 fn filter_sql(filter: &Filter) -> Result<String, QueryError> {
-    let column = ident(&filter.field);
+    let column = field_ident(&filter.field);
     let need = |position: usize, which: &str| -> Result<String, QueryError> {
         let raw = filter.values.get(position).map(|v| v.trim()).unwrap_or("");
         if raw.is_empty() {
@@ -547,6 +547,38 @@ fn literal(value: &str, column: ColumnType) -> Option<String> {
 /// Quote an identifier, doubling any embedded quote.
 fn ident(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+/// Quote a *field path*: `user.age` is a field of a struct, not a column
+/// called `user.age`, so each step is quoted separately and the dots are left
+/// as DuckDB's struct access (#53). A `[n]` subscript is a list index and rides
+/// along with the step it belongs to.
+///
+/// Quoting the whole path as one identifier — which is what [`ident`] would do
+/// — asks for a column whose name contains a dot, and DuckDB rightly says no
+/// such column exists.
+fn field_ident(path: &str) -> String {
+    path.split('.')
+        .map(|step| {
+            // `items[1]` → the name `items` plus the subscript, which is
+            // syntax and must stay outside the quotes.
+            match step.split_once('[') {
+                Some((name, rest)) if rest.ends_with(']') && is_index(&rest[..rest.len() - 1]) => {
+                    format!("{}[{rest}", ident(name))
+                }
+                _ => ident(step),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// Whether a subscript is a plain integer. Anything else — an expression, a
+/// quoted key, a stray `]` — is left inside the quoted name, where it is
+/// harmless rather than something the user did not write.
+fn is_index(subscript: &str) -> bool {
+    let digits = subscript.strip_prefix('-').unwrap_or(subscript);
+    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Quote a string literal, doubling any embedded quote.
@@ -730,6 +762,48 @@ mod tests {
     }
 
     // ── Quoting, which is where this would go wrong silently ────────────────
+
+    #[test]
+    fn a_nested_field_is_a_path_not_a_column_with_a_dot_in_it() {
+        // `"user.age"` asks DuckDB for a column of that name and it says there
+        // is none; `"user"."age"` reaches into the struct, which is what the
+        // lane offering `user.age` promised (#53).
+        let spec = QuerySpec {
+            filters: vec![Filter {
+                field: "user.age".to_string(),
+                operator: Operator::AtLeast,
+                values: vec!["18".to_string()],
+                column: ColumnType::Integer,
+            }],
+            group_by: vec!["user.name".to_string()],
+            aggregates: vec![Aggregate {
+                function: AggregateFn::Maximum,
+                field: "items[1].price".to_string(),
+            }],
+            sort: vec![Sort {
+                field: "user.name".to_string(),
+                descending: false,
+            }],
+            ..Default::default()
+        };
+        let sql = spec.compile("data").unwrap();
+        assert!(sql.contains(r#""user"."age" >= 18"#), "{sql}");
+        assert!(sql.contains(r#"GROUP BY "user"."name""#), "{sql}");
+        assert!(sql.contains(r#"ORDER BY "user"."name" ASC"#), "{sql}");
+        // A list index is syntax, so it stays outside the quotes.
+        assert!(sql.contains(r#"max("items"[1]."price")"#), "{sql}");
+    }
+
+    #[test]
+    fn a_path_step_cannot_break_out_of_its_quotes_either() {
+        // Splitting on dots must not become a way around the quoting: every
+        // step is quoted, and a step that is not a plain `[n]` subscript stays
+        // inside the name rather than becoming syntax.
+        assert_eq!(field_ident(r#"we"ird.a"#), r#""we""ird"."a""#);
+        assert_eq!(field_ident("items[1].price"), r#""items"[1]."price""#);
+        assert_eq!(field_ident("odd[1 OR 1=1]"), r#""odd[1 OR 1=1]""#);
+        assert_eq!(field_ident("plain"), r#""plain""#);
+    }
 
     #[test]
     fn identifiers_with_quotes_cannot_break_out() {

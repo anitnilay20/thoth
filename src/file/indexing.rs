@@ -393,8 +393,13 @@ impl QueryJob {
                     elapsed: started.elapsed(),
                 })
                 // The engine's message is the useful part — it names the column
-                // or the type that did not work out.
-                .map_err(|error| error.to_string());
+                // or the type that did not work out. The SQL it was wrapped in
+                // is not: the user is looking at the query, and echoing it back
+                // pushes the reason off the end of the status line (#53).
+                .map_err(|error| match error {
+                    crate::error::ThothError::DatabaseQueryError { reason, .. } => reason,
+                    other => other.to_string(),
+                });
             *worker_outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
             worker_done.store(true, Ordering::Release);
             if let Some(ctx) = crate::EGUI_CTX.get() {

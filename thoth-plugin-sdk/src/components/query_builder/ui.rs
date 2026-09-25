@@ -221,13 +221,21 @@ impl QueryBuilder {
                                 .size(Size::Small)
                                 .build(),
                         );
-                        if let Some(status) = self.status.as_deref() {
-                            ui.add(
+                        // The head is on screen even when the lanes are
+                        // collapsed, so a failure has to be legible here and
+                        // not only in the foot — in the error colour, because
+                        // "0 rows" and "no such column" must not read alike.
+                        if let Some(status) = &self.status {
+                            let response = ui.add(
                                 Typography::builder()
-                                    .text(status)
+                                    .text(status.headline())
                                     .variant(TypographyVariant::Caption)
+                                    .maybe_color(status.is_failure().then_some("error"))
                                     .build(),
                             );
+                            if let Some(detail) = status.detail() {
+                                hover_text(response, detail);
+                            }
                         }
                     });
                 });
@@ -789,6 +797,11 @@ impl QueryBuilder {
                         // reports what the last run returned, and saying it
                         // twice on one screen is noise, not emphasis.
                         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                            // A lane that cannot compile comes first: it is
+                            // why nothing ran, and the run before it is stale
+                            // news. Otherwise a failed run says why here,
+                            // where the strip is wide enough to read it — the
+                            // head only has room for the headline.
                             if let Err(error) = compiled {
                                 ui.add(
                                     Typography::builder()
@@ -797,6 +810,19 @@ impl QueryBuilder {
                                         .color("error")
                                         .build(),
                                 );
+                            } else if let Some(status) =
+                                self.status.as_ref().filter(|s| s.is_failure())
+                            {
+                                let response = ui.add(
+                                    Typography::builder()
+                                        .text(status.headline())
+                                        .variant(TypographyVariant::Caption)
+                                        .color("error")
+                                        .build(),
+                                );
+                                if let Some(detail) = status.detail() {
+                                    hover_text(response, detail);
+                                }
                             }
                         });
                     });
