@@ -1777,6 +1777,65 @@ mod tests {
     }
 
     #[test]
+    fn the_aggregates_the_editor_promises_all_run() {
+        // #55's list, run the way the editor runs it — as a view over the
+        // file. The engine is a bundled build, so "DuckDB supports it" is a
+        // claim about *this* binary and worth a test rather than a comment.
+        let file = ndjson_file(
+            "{\"ts\":\"2024-01-01T10:15:00\",\"service\":\"api\",\"user_id\":1,\"ms\":120}\n\
+             {\"ts\":\"2024-01-01T10:45:00\",\"service\":\"api\",\"user_id\":2,\"ms\":300}\n\
+             {\"ts\":\"2024-01-01T11:05:00\",\"service\":\"web\",\"user_id\":1,\"ms\":8}\n\
+             {\"ts\":\"2024-01-01T11:30:00\",\"service\":\"web\",\"user_id\":3,\"ms\":450}\n",
+        );
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+        let alias = crate::file::loaders::duck_db::alias_for(file.path());
+
+        for (what, sql, rows) in [
+            (
+                "GROUP BY with HAVING",
+                format!(
+                    "SELECT service, count(*) AS n FROM {alias} \
+                     GROUP BY service HAVING count(*) > 1"
+                ),
+                2,
+            ),
+            (
+                "COUNT(DISTINCT)",
+                format!("SELECT count(DISTINCT user_id) AS users FROM {alias}"),
+                1,
+            ),
+            (
+                "a percentile",
+                format!(
+                    "SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY ms) AS p95 FROM {alias}"
+                ),
+                1,
+            ),
+            (
+                "DATE_TRUNC bucketing",
+                format!(
+                    "SELECT date_trunc('hour', ts::TIMESTAMP) AS hour, count(*) AS events \
+                     FROM {alias} GROUP BY hour ORDER BY hour"
+                ),
+                2,
+            ),
+            (
+                "a window function",
+                format!(
+                    "SELECT service, rank() OVER (PARTITION BY service ORDER BY ms DESC) AS r \
+                     FROM {alias}"
+                ),
+                4,
+            ),
+        ] {
+            let counted = db
+                .define_view("__test_result", &sql)
+                .unwrap_or_else(|e| panic!("{what} did not run: {e}"));
+            assert_eq!(counted, rows, "{what} returned the wrong number of rows");
+        }
+    }
+
+    #[test]
     fn a_hostile_value_is_data_not_syntax_when_it_reaches_duckdb() {
         use thoth_plugin_sdk::components::{ColumnType, Filter, Operator, QuerySpec};
 

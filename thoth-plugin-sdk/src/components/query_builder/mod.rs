@@ -110,7 +110,58 @@ pub struct QueryBuilder {
     pub sql_override: Option<String>,
 }
 
+/// Whether `sql` groups — a `GROUP BY` that is SQL rather than part of a
+/// string, a quoted identifier or a comment.
+///
+/// Only the *noun* in the status line rests on this, so it errs towards
+/// "rows": a query that groups and is reported in rows is a smaller lie than
+/// one that does not and is reported in groups.
+fn mentions_group_by(sql: &str) -> bool {
+    let mut bare = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            // A literal or a quoted identifier: skip to its close, minding the
+            // doubled quote that escapes one inside it.
+            '\'' | '"' => {
+                while let Some(end) = chars.next() {
+                    if end == c {
+                        if chars.peek() == Some(&c) {
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                bare.push(' ');
+            }
+            '-' if chars.peek() == Some(&'-') => {
+                for rest in chars.by_ref() {
+                    if rest == '\n' {
+                        break;
+                    }
+                }
+                bare.push(' ');
+            }
+            _ => bare.push(c.to_ascii_lowercase()),
+        }
+    }
+    bare.split_whitespace()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .any(|pair| pair[0] == "group" && pair[1] == "by")
+}
+
 impl QueryBuilder {
+    /// Whether the query that would run returns *groups* rather than rows, so
+    /// the status line can name what it actually produced (#55).
+    pub fn returns_groups(&self) -> bool {
+        match &self.sql_override {
+            Some(sql) => mentions_group_by(sql),
+            None => !self.spec.group_by.is_empty(),
+        }
+    }
+
     /// The SQL that should run: what the user typed, or what the lanes compile
     /// to.
     ///
@@ -183,4 +234,30 @@ mod tests {
         assert!(!status.is_failure());
     }
 
+    #[test]
+    fn a_grouped_query_is_counted_in_groups() {
+        // From the lanes, the group lane says so outright.
+        let mut builder = QueryBuilder::default();
+        assert!(!builder.returns_groups());
+        builder.spec.group_by = vec!["service".to_string()];
+        assert!(builder.returns_groups());
+    }
+
+    #[test]
+    fn typed_sql_is_read_for_a_group_by_without_being_fooled_by_one_in_quotes() {
+        let grouping = |sql: &str| {
+            let mut builder = QueryBuilder::default();
+            builder.sql_override = Some(sql.to_string());
+            builder.returns_groups()
+        };
+        assert!(grouping("SELECT status, count(*) FROM d GROUP BY status"));
+        assert!(grouping("select a\nfrom d\ngroup  by a"));
+        // A string, a quoted identifier and a comment are not clauses.
+        assert!(!grouping("SELECT * FROM d WHERE note = 'group by hand'"));
+        assert!(!grouping(r#"SELECT "group by" FROM d"#));
+        assert!(!grouping("SELECT * FROM d -- group by status\n"));
+        assert!(!grouping("SELECT * FROM d"));
+        // A doubled quote closes nothing, so what follows is still a literal.
+        assert!(!grouping("SELECT * FROM d WHERE n = 'it''s group by'"));
+    }
 }

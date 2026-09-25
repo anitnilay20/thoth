@@ -2452,6 +2452,14 @@ impl ThothApp {
         };
         let source = meta.source_plugin.clone();
 
+        // A built-in format is written by the host from the dataset it already
+        // holds — the same read Copy makes — so there is no plugin to hand it
+        // to and nothing to consent to.
+        if let Some(format) = exporter_id.strip_prefix("builtin:") {
+            Self::export_builtin(handle, format, &meta.name);
+            return;
+        }
+
         // Consent-gate handing *another* producer's data to the exporter plugin
         // (exporting your own plugin's dataset needs no prompt). On approval the
         // export runs automatically (queued for the app to drain).
@@ -2492,6 +2500,46 @@ impl ThothApp {
                 continue;
             };
             self.perform_export(&handle, &exporter_id, &meta.name);
+        }
+    }
+
+    /// Write a dataset out in one of the host's own formats (#55).
+    ///
+    /// The whole result, not the page on screen: `dataset_pages` walks the
+    /// registry to the end, so exporting an aggregate keeps every group rather
+    /// than the first screenful of them.
+    fn export_builtin(handle: &str, format: &str, name: &str) {
+        let Some((columns, rows)) = dataset_grid(handle) else {
+            Self::notify_dataset_unavailable();
+            return;
+        };
+        let (bytes, ext) = match format {
+            "csv" => (csv_bytes(&columns, &rows), "csv"),
+            _ => (json_records(&columns, &rows), "json"),
+        };
+        Self::save_export(&bytes, name, ext);
+    }
+
+    /// Offer a save dialog and write `bytes`, reporting either way.
+    fn save_export(bytes: &[u8], name: &str, ext: &str) {
+        use crate::notification::{Notification, NotificationManager};
+
+        let default_name = format!("{}.{}", sanitize_filename(name), ext);
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter(ext, &[ext])
+            .save_file()
+        {
+            match std::fs::write(&path, bytes) {
+                Ok(()) => NotificationManager::notify(
+                    Notification::new("Exported", &format!("Saved to {}", path.display()))
+                        .with_toast(true),
+                ),
+                Err(e) => NotificationManager::notify_error(Notification::new(
+                    "Export failed",
+                    &e.to_string(),
+                )),
+            };
         }
     }
 
@@ -2546,24 +2594,7 @@ impl ThothApp {
             }
         };
 
-        // Save via a native dialog.
-        let default_name = format!("{}.{}", sanitize_filename(name), ext);
-        if let Some(path) = rfd::FileDialog::new()
-            .set_file_name(&default_name)
-            .add_filter(&ext, &[ext.as_str()])
-            .save_file()
-        {
-            match std::fs::write(&path, &bytes) {
-                Ok(()) => NotificationManager::notify(
-                    Notification::new("Exported", &format!("Saved to {}", path.display()))
-                        .with_toast(true),
-                ),
-                Err(e) => NotificationManager::notify_error(Notification::new(
-                    "Export failed",
-                    &e.to_string(),
-                )),
-            };
-        }
+        Self::save_export(&bytes, name, &ext);
     }
 
     /// Activate an existing tab by id.
@@ -2769,6 +2800,107 @@ pub fn list_renderers_for_view() -> Vec<thoth_plugin_sdk::dataset::RendererInfo>
 
 /// Serialize a dataset (paged reads) into the `{columns, rows}` records-json the
 /// exporter/renderer plugins consume.
+/// A whole dataset as `(column names, rows of cells)`, or `None` when the
+/// handle no longer resolves.
+///
+/// A cell that was NULL comes back as `None`, which is the distinction the
+/// encoders need: in JSON it is `null` rather than `""`, and the two mean very
+/// different things about the record.
+type Cell = Option<String>;
+fn dataset_grid(handle: &str) -> Option<(Vec<String>, Vec<Vec<Cell>>)> {
+    let mut columns: Vec<String> = Vec::new();
+    let mut rows: Vec<Vec<Cell>> = Vec::new();
+    let mut offset: u64 = 0;
+    let mut seen = false;
+    while let Some(page) = crate::papyrus::read(handle, offset, crate::papyrus::MAX_READ_LIMIT) {
+        seen = true;
+        if columns.is_empty() {
+            columns = page.columns.iter().map(|c| c.name.clone()).collect();
+        }
+        let got = page.rows.len() as u64;
+        for (r, row) in page.rows.iter().enumerate() {
+            rows.push(
+                row.iter()
+                    .enumerate()
+                    .map(|(c, cell)| {
+                        // `nulls` is empty for sources that cannot tell a NULL
+                        // from an empty string, and then nothing is null.
+                        let is_null = page
+                            .nulls
+                            .get(r)
+                            .and_then(|mask| mask.get(c))
+                            .copied()
+                            .unwrap_or(false);
+                        (!is_null).then(|| cell.clone())
+                    })
+                    .collect(),
+            );
+        }
+        offset += got;
+        if got == 0 || offset >= page.total {
+            break;
+        }
+    }
+    seen.then_some((columns, rows))
+}
+
+/// A grid as RFC 4180 CSV. A field is quoted when it has to be — a comma, a
+/// quote or a newline in it — because quoting everything makes a file that is
+/// correct and unreadable.
+fn csv_bytes(columns: &[String], rows: &[Vec<Cell>]) -> Vec<u8> {
+    fn field(value: &str) -> String {
+        if value.contains([',', '"', '\n', '\r']) {
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_string()
+        }
+    }
+    let mut out = String::new();
+    out.push_str(
+        &columns
+            .iter()
+            .map(|c| field(c))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    out.push('\n');
+    for row in rows {
+        out.push_str(
+            &row.iter()
+                .map(|cell| field(cell.as_deref().unwrap_or("")))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        out.push('\n');
+    }
+    out.into_bytes()
+}
+
+/// A grid as an array of JSON objects — one per row, keyed by column.
+///
+/// Values are the strings the registry holds, except a NULL, which is `null`.
+/// The registry stores display text, so a number exports as `"42"`; making it
+/// a JSON number here would mean guessing a type the page no longer carries.
+fn json_records(columns: &[String], rows: &[Vec<Cell>]) -> Vec<u8> {
+    let records: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            let mut object = serde_json::Map::new();
+            for (name, cell) in columns.iter().zip(row) {
+                object.insert(
+                    name.clone(),
+                    match cell {
+                        Some(value) => serde_json::Value::String(value.clone()),
+                        None => serde_json::Value::Null,
+                    },
+                );
+            }
+            serde_json::Value::Object(object)
+        })
+        .collect();
+    serde_json::to_vec_pretty(&records).unwrap_or_default()
+}
+
 fn dataset_records_json(handle: &str) -> String {
     let mut columns: Vec<String> = Vec::new();
     let mut rows: Vec<Vec<String>> = Vec::new();
@@ -2991,4 +3123,58 @@ fn column_is_numeric(rows: &[Vec<String>], c: usize) -> bool {
         })
         .count();
     ok * 2 >= sample
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    fn cell(value: &str) -> Cell {
+        Some(value.to_string())
+    }
+
+    #[test]
+    fn a_csv_field_is_quoted_only_when_it_has_to_be() {
+        let columns = vec!["name".to_string(), "note".to_string()];
+        let rows = vec![
+            vec![cell("ada"), cell("plain")],
+            // A comma, a quote and a newline are each a reason to quote, and
+            // an embedded quote is doubled rather than escaped.
+            vec![cell("bob, jr"), cell("said \"hi\"\nthen left")],
+            vec![cell(""), None],
+        ];
+        let csv = String::from_utf8(csv_bytes(&columns, &rows)).unwrap();
+        assert_eq!(
+            csv,
+            "name,note\n\
+             ada,plain\n\
+             \"bob, jr\",\"said \"\"hi\"\"\nthen left\"\n\
+             ,\n"
+        );
+    }
+
+    #[test]
+    fn a_null_exports_as_null_and_an_empty_string_as_a_string() {
+        // The mask is the only thing that separates a field the record does
+        // not carry from one that carries "", and an export that loses it
+        // cannot be read back into the same records.
+        let columns = vec!["a".to_string(), "b".to_string()];
+        let rows = vec![vec![cell(""), None]];
+        let json = String::from_utf8(json_records(&columns, &rows)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed[0]["a"], serde_json::json!(""));
+        assert_eq!(parsed[0]["b"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn an_empty_result_still_exports_its_header() {
+        // A query that matched nothing is an answer; a zero-byte file is not.
+        let csv =
+            String::from_utf8(csv_bytes(&["hour".to_string(), "events".to_string()], &[])).unwrap();
+        assert_eq!(csv, "hour,events\n");
+        assert_eq!(
+            String::from_utf8(json_records(&["hour".to_string()], &[])).unwrap(),
+            "[]"
+        );
+    }
 }

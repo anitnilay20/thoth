@@ -40,3 +40,10 @@ pub const SELECT_TABLE: &str = "thoth:select-table";
 /// data. Re-running the query is the producer's work, exactly as with
 /// [`SELECT_TABLE`].
 pub const SORT_COLUMN: &str = "thoth:sort-column";
+
+/// The exporters the host provides itself, as `(event value, menu label)`.
+///
+/// A `builtin:` id is written by the host from the dataset it already holds,
+/// so it needs no plugin and no consent prompt — it is the same read the Copy
+/// button makes, landing in a file instead of the clipboard.
+pub const BUILTIN_EXPORTERS: &[(&str, &str)] = &[("builtin:csv", "CSV"), ("builtin:json", "JSON")];

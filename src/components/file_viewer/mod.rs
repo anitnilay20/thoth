@@ -914,10 +914,17 @@ impl FileViewer {
                     ));
                     return;
                 }
+                // A grouped query returns groups, and calling them rows
+                // invites reading the figure as the size of the file (#55).
+                let noun = match (self.query.returns_groups(), result.rows) {
+                    (true, 1) => "group",
+                    (true, _) => "groups",
+                    (false, 1) => "row",
+                    (false, _) => "rows",
+                };
                 self.query.status = Some(QueryStatus::Report(format!(
-                    "{} {} · {} ms",
+                    "{} {noun} · {} ms",
                     grouped(result.rows),
-                    if result.rows == 1 { "row" } else { "rows" },
                     result.elapsed.as_millis()
                 )));
                 self.handle = crate::papyrus::publish_arrow_with_total(

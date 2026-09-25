@@ -368,16 +368,23 @@ impl DataView {
             // Value stays empty so the trigger always reads "Export" (it's an
             // action menu, not a persisted selection).
             let exporters = crate::dataset::exporters();
-            if !exporters.is_empty() {
-                let options = exporters
+            {
+                // CSV and JSON come first and are always there: a result the
+                // host can read is a result it can write, and hiding the whole
+                // menu until a plugin is installed made an aggregate query
+                // something you could look at but not keep (#55).
+                let mut options: Vec<SelectOption> = crate::actions::BUILTIN_EXPORTERS
                     .iter()
-                    .map(|e| {
-                        SelectOption::builder()
-                            .value(e.id.clone())
-                            .label(format!("{} (.{})", e.label, e.extension))
-                            .build()
+                    .map(|(value, label)| {
+                        SelectOption::builder().value(*value).label(*label).build()
                     })
                     .collect();
+                options.extend(exporters.iter().map(|e| {
+                    SelectOption::builder()
+                        .value(e.id.clone())
+                        .label(format!("{} (.{})", e.label, e.extension))
+                        .build()
+                }));
                 let selected = Select::builder()
                     .id(format!("{node_id}_export"))
                     .value("")
