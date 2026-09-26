@@ -25,7 +25,14 @@ pub const CONFIG_DIR_ENV: &str = "THOTH_CONFIG_DIR";
 /// failure in their own terms. `None` only when the platform has no config
 /// directory *and* no override is set.
 pub fn config_root() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os(CONFIG_DIR_ENV).filter(|d| !d.is_empty()) {
+    resolve_root(std::env::var_os(CONFIG_DIR_ENV))
+}
+
+/// The root an override value resolves to, with the environment factored out
+/// so the rule can be tested without a test writing a process-global variable
+/// that every other test reads.
+fn resolve_root(override_dir: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    if let Some(dir) = override_dir.filter(|d| !d.is_empty()) {
         return Some(PathBuf::from(dir));
     }
     Some(dirs::config_dir()?.join("thoth"))
@@ -45,10 +52,15 @@ pub fn config_root() -> Option<PathBuf> {
 pub fn isolate_for_tests() {
     use std::sync::OnceLock;
     static SCRATCH: OnceLock<tempfile::TempDir> = OnceLock::new();
-    let dir = SCRATCH.get_or_init(|| tempfile::tempdir().expect("scratch config dir"));
-    // SAFETY: every caller in a process sets this to the same value, and the
-    // first call happens before any thread reads it.
-    unsafe { std::env::set_var(CONFIG_DIR_ENV, dir.path()) };
+    SCRATCH.get_or_init(|| {
+        let dir = tempfile::tempdir().expect("scratch config dir");
+        // SAFETY: runs exactly once per process, and `OnceLock` blocks every
+        // other caller until it has finished. Writing on each call instead
+        // would race a thread already reading it — Rust's env lock covers std
+        // readers, and bundled C code calling `getenv` is not one of them.
+        unsafe { std::env::set_var(CONFIG_DIR_ENV, dir.path()) };
+        dir
+    });
 }
 
 #[cfg(test)]
@@ -57,27 +69,23 @@ mod tests {
 
     #[test]
     fn the_override_replaces_the_platform_directory() {
-        // Serialised against the other env-touching test below by running the
-        // whole check under one lock-free sequence: both only read/write this
-        // one variable and restore it.
-        let before = std::env::var_os(CONFIG_DIR_ENV);
-
-        // SAFETY: test-local, restored below.
-        unsafe { std::env::set_var(CONFIG_DIR_ENV, "/tmp/thoth-root-test") };
-        assert_eq!(config_root(), Some(PathBuf::from("/tmp/thoth-root-test")));
-
-        // An empty value is not an override — it would silently point the app
-        // at the process's working directory.
-        unsafe { std::env::set_var(CONFIG_DIR_ENV, "") };
         assert_eq!(
-            config_root(),
-            dirs::config_dir().map(|d| d.join("thoth")),
-            "an empty override should fall back to the platform directory"
+            resolve_root(Some("/tmp/thoth-root-test".into())),
+            Some(PathBuf::from("/tmp/thoth-root-test"))
         );
+    }
 
-        match before {
-            Some(v) => unsafe { std::env::set_var(CONFIG_DIR_ENV, v) },
-            None => unsafe { std::env::remove_var(CONFIG_DIR_ENV) },
-        }
+    #[test]
+    fn an_empty_override_is_not_an_override() {
+        // It would otherwise point the whole app at the process's working
+        // directory, which is wherever the user happened to launch it.
+        assert_eq!(
+            resolve_root(Some("".into())),
+            dirs::config_dir().map(|d| d.join("thoth")),
+        );
+        assert_eq!(
+            resolve_root(None),
+            dirs::config_dir().map(|d| d.join("thoth")),
+        );
     }
 }

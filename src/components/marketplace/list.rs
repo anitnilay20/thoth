@@ -517,7 +517,6 @@ fn render_readers(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: &Th
 
     state.poll_extension_installs();
 
-    let probe = duckdb::Connection::open_in_memory().ok();
     let query = state.search_query.to_lowercase();
 
     struct Reader {
@@ -527,17 +526,23 @@ fn render_readers(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: &Th
         error: Option<String>,
     }
 
-    let readers: Vec<Reader> = extensions::catalog()
+    let offered: Vec<extensions::Extension> = extensions::catalog()
         .into_iter()
         .filter(|e| {
             query.is_empty()
                 || e.name.to_lowercase().contains(&query)
                 || e.unlocks.to_lowercase().contains(&query)
         })
+        .collect();
+    // Read once and cached: asking DuckDB costs an engine start-up and a query
+    // per reader, and this runs on every frame the category is open.
+    let names: Vec<String> = offered.iter().map(|e| e.name.clone()).collect();
+    let installed = state.installed_readers(&names).clone();
+
+    let readers: Vec<Reader> = offered
+        .into_iter()
         .map(|extension| Reader {
-            installed: probe
-                .as_ref()
-                .is_some_and(|c| extensions::is_installed(c, &extension.name)),
+            installed: installed.get(&extension.name).copied().unwrap_or(false),
             installing: state.extension_jobs.contains_key(&extension.name),
             error: state.extension_errors.get(&extension.name).cloned(),
             extension,
@@ -586,12 +591,16 @@ fn render_readers(ui: &mut egui::Ui, state: &mut MarketplaceUiState, colors: &Th
         })
         .collect();
 
-    if let Some(ListEvent::ItemClicked(idx)) = List::builder()
+    // The Install control is a postfix button, so a click on it arrives as
+    // `PostfixClicked` — handling only `ItemClicked` meant the button itself
+    // did nothing and only the row around it started a fetch.
+    let event = List::builder()
         .items(items)
         .style(ListStyle::Flush)
         .shrink_to_fit(true)
         .build()
-        .show(ui)
+        .show(ui);
+    if let Some(ListEvent::ItemClicked(idx) | ListEvent::PostfixClicked(idx)) = event
         && let Some(reader) = readers.get(idx)
         && !reader.installed
         && !reader.installing

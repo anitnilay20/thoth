@@ -35,6 +35,29 @@ impl std::fmt::Debug for PluginManager {
     }
 }
 
+/// The directory to remove when uninstalling the plugin recorded at
+/// `location`, or `None` when that cannot be established.
+///
+/// `location` names a file *inside* the plugin's own directory — `plugin.wasm`
+/// for a runtime plugin, `theme.json` or `plugin.toml` for one that is only
+/// metadata — so the directory is its parent. Two things are checked before
+/// anything is deleted, because the blast radius of getting this wrong is
+/// every other installed plugin:
+///
+/// - a `location` that is itself a directory is taken as the directory, not as
+///   something to take the parent of;
+/// - the result must hold a `plugin.toml`, which the installs root and
+///   `assets/plugins` do not.
+pub fn plugin_directory(location: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(location);
+    let dir = if path.is_dir() {
+        path
+    } else {
+        path.parent()?.to_path_buf()
+    };
+    (dir.join("plugin.toml").is_file()).then_some(dir)
+}
+
 impl PluginManager {
     pub fn init(plugin_settings: &HashMap<String, Vec<PluginSettingData>>) -> Result<Self> {
         let notification_id = NotificationManager::notify(
@@ -119,16 +142,10 @@ impl PluginManager {
             });
         }
 
-        // location holds the full path to plugin.wasm — delete the parent dir
-        if let Some(location) = &plugin.location {
-            let wasm_path = std::path::Path::new(location);
-            if let Some(plugin_dir) = wasm_path.parent()
-                && plugin_dir.exists()
-            {
-                std::fs::remove_dir_all(plugin_dir).map_err(|e| ThothError::Unknown {
-                    message: format!("Failed to delete plugin directory: {e}"),
-                })?;
-            }
+        if let Some(plugin_dir) = plugin.location.as_deref().and_then(plugin_directory) {
+            std::fs::remove_dir_all(&plugin_dir).map_err(|e| ThothError::Unknown {
+                message: format!("Failed to delete plugin directory: {e}"),
+            })?;
         }
 
         self.registry.remove_plugin(id);
@@ -477,10 +494,14 @@ impl PluginManager {
                 .any(crate::plugin::Capability::needs_runtime);
 
             if !runtime {
+                // A *file* inside the plugin's directory, never the directory
+                // itself: `location` is what uninstall takes the parent of, and
+                // the parent of the directory is the installs root — removing
+                // that would take every other plugin with it.
                 plugin.location = Some(if theme_path.exists() {
                     theme_path.display().to_string()
                 } else {
-                    path.display().to_string()
+                    toml_path.display().to_string()
                 });
                 self.registry.add_plugin(plugin);
             } else if let Err(e) = self.load_plugin(plugin_path.clone(), plugin) {
@@ -574,5 +595,60 @@ impl PluginManager {
         meta.location = Some(wasm_path.display().to_string());
         self.registry.add_plugin(meta);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plugin_directory;
+
+    /// An install root holding two plugins, as the marketplace lays them out.
+    fn installs() -> tempfile::TempDir {
+        let root = tempfile::tempdir().expect("scratch installs root");
+        for id in ["com.thoth.one", "com.thoth.two"] {
+            let dir = root.path().join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("plugin.toml"), "id = \"x\"\n").unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn a_plugin_directory_is_the_one_holding_its_manifest() {
+        let root = installs();
+        let one = root.path().join("com.thoth.one");
+        // Whichever file inside it `location` happens to name.
+        for file in ["plugin.wasm", "theme.json", "plugin.toml"] {
+            assert_eq!(
+                plugin_directory(&one.join(file).display().to_string()),
+                Some(one.clone())
+            );
+        }
+    }
+
+    #[test]
+    fn a_location_that_is_the_directory_does_not_resolve_to_its_parent() {
+        // The bug this guards: a metadata-only plugin recorded its directory
+        // as `location`, and uninstall took the parent — the installs root,
+        // whose removal takes every other installed plugin with it.
+        let root = installs();
+        let one = root.path().join("com.thoth.one");
+        assert_eq!(
+            plugin_directory(&one.display().to_string()),
+            Some(one),
+            "the directory is the directory, not something to take the parent of"
+        );
+    }
+
+    #[test]
+    fn a_directory_with_no_manifest_is_never_offered_for_removal() {
+        // The installs root, `assets/plugins`, the source tree: none of them
+        // hold a `plugin.toml`, and none of them are a plugin.
+        let root = installs();
+        assert_eq!(plugin_directory(&root.path().display().to_string()), None);
+        assert_eq!(
+            plugin_directory(&root.path().join("nothing-here").display().to_string()),
+            None
+        );
     }
 }

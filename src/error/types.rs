@@ -313,8 +313,11 @@ impl From<arrow::error::ArrowError> for ThothError {
 impl From<duckdb::Error> for ThothError {
     fn from(value: duckdb::Error) -> Self {
         match value {
-            duckdb::Error::DuckDBFailure(error, _reason) => ThothError::DatabaseError {
-                reason: error.to_string(),
+            // The second field is where DuckDB puts the sentence that names
+            // the column or the type; `ffi::Error` alone prints the generic
+            // description of the code, which tells the user nothing.
+            duckdb::Error::DuckDBFailure(error, reason) => ThothError::DatabaseError {
+                reason: reason.unwrap_or_else(|| error.to_string()),
             },
             duckdb::Error::FromSqlConversionFailure(_, _, error) => {
                 ThothError::DatabaseConversionError {

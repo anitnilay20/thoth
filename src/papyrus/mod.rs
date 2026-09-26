@@ -817,10 +817,20 @@ pub fn retain_instances(open: &std::collections::HashSet<String>) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
+    /// The registry is process-wide, and these tests assert exact `list()`
+    /// lengths — so anything that publishes into it takes turns.
     static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Take the registry for the duration of a test, without clearing it.
+    ///
+    /// For tests elsewhere that *publish* — opening a file does — which would
+    /// otherwise race the counting assertions here.
+    pub(crate) fn exclusive() -> std::sync::MutexGuard<'static, ()> {
+        TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     fn reset() -> std::sync::MutexGuard<'static, ()> {
         let guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());

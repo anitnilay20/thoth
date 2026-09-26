@@ -1010,6 +1010,16 @@ mod tests {
         let Indexed::Engine { engine, .. } = indexed else {
             panic!("expected tables");
         };
+        // The grid reads the *primary* relation, so it is not enough that
+        // `users` is queryable by name: the reopened cache must open on a
+        // collection. `__thoth_layout` sorts ahead of every lowercase name,
+        // and left in the list it became the primary — the grid then showed
+        // the document's own metadata and no collection had a row count.
+        assert_eq!(
+            engine.primary_alias().as_deref(),
+            Some("users"),
+            "a reopened envelope opens on a collection, not on its bookkeeping"
+        );
         use crate::file::loaders::FileLoader as _;
         let rows = crate::file::loaders::batches_to_values(
             &engine.query("SELECT name FROM users").unwrap(),

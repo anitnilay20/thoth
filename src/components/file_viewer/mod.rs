@@ -100,6 +100,36 @@ fn document_note(ui: &mut Ui, text: &str) {
     );
 }
 
+/// Read a text-index handle back into the document it holds, up to
+/// [`FileViewer::DOCUMENT_LINES`].
+///
+/// Paged, because a single `papyrus::read` is capped at `MAX_READ_LIMIT`
+/// lines however many are asked for.
+fn read_document(handle: &str) -> String {
+    let wanted = crate::papyrus::total(handle).min(u64::from(FileViewer::DOCUMENT_LINES));
+    let mut lines: Vec<String> = Vec::with_capacity(wanted as usize);
+    while (lines.len() as u64) < wanted {
+        let remaining = (wanted - lines.len() as u64).min(u64::from(u32::MAX)) as u32;
+        let Some(page) = crate::papyrus::read(handle, lines.len() as u64, remaining) else {
+            break;
+        };
+        if page.rows.is_empty() {
+            break;
+        }
+        // A text index publishes one row per line, numbered. The line number
+        // is chrome the file never had.
+        let col = page.columns.len().saturating_sub(1);
+        lines.extend(page.rows.into_iter().map(|mut row| {
+            if col < row.len() {
+                row.swap_remove(col)
+            } else {
+                String::new()
+            }
+        }));
+    }
+    lines.join("\n")
+}
+
 /// A byte count at the coarsest unit that still reads precisely.
 fn human_size(bytes: u64) -> String {
     const KB: u64 = 1024;
@@ -136,9 +166,17 @@ fn default_view(path: &Path) -> &'static str {
     }
 }
 
-/// Prefix of the temporary view a tab's query result is defined as. Per-tab,
+/// Prefix of the temporary relation a tab's query result is held as. Per-tab,
 /// so two tabs querying the same file never overwrite each other's result.
 const QUERY_VIEW_PREFIX: &str = "__thoth_result_";
+
+/// Most rows a *typed* query may materialize.
+///
+/// The lanes bound themselves with the limit lane. Typed SQL does not have to,
+/// and the result is held rather than streamed, so an unbounded `SELECT *` over
+/// a large file would copy the file. A million rows is far past what anyone
+/// reads and still a fraction of a second to hold; the status says when it bit.
+const TYPED_SQL_ROW_CAP: usize = 1_000_000;
 
 /// The lightweight tag a tab carries for a file the engine opened.
 ///
@@ -266,6 +304,10 @@ pub struct FileViewer {
     /// than one that takes a moment.
     query_job: Option<crate::file::indexing::QueryJob>,
 
+    /// The document's text as last read, with the handle and the revision it
+    /// was read at. See [`FileViewer::document_text`].
+    document: Option<(String, u64, String)>,
+
     /// A header click that arrived while a query was already running, to run
     /// once the engine is free. Without it the arrow in the header and the
     /// rows under it would disagree until the user pressed Run.
@@ -306,6 +348,7 @@ impl FileViewer {
             tree_action: None,
             query: QueryBuilder::default(),
             query_job: None,
+            document: None,
             sort_queued: false,
         }
     }
@@ -352,6 +395,21 @@ impl FileViewer {
             }
         });
 
+        // Everything the previous file left behind. Opening is how a tab is
+        // reused — `poll_extension_install` reopens the same viewer once a
+        // reader arrives — so a field that is not reset here is a field that
+        // keeps the old file's answer. `index_announced` was the sharp one:
+        // left set, `poll_index` returned `None` forever and the tab kept
+        // showing the 1 MB preview while the engine result sat unread.
+        self.cancel_indexing();
+        self.index_announced = false;
+        self.showing_preview = false;
+        self.query = QueryBuilder::default();
+        self.query_job = None;
+        self.document = None;
+        self.sort_queued = false;
+        self.tree_action = None;
+        self.pending_events.clear();
         self.handle = None;
         self.engine = None;
         self.loader = None;
@@ -396,6 +454,7 @@ impl FileViewer {
                     self.showing_preview = true;
                 }
                 self.index_job = Some(crate::file::indexing::IndexJob::spawn(path));
+
                 self.default_view = default_view(path);
                 detect_kind(path)
             }
@@ -881,6 +940,15 @@ impl FileViewer {
                 return;
             }
         };
+        // The result is materialized so later reads are cheap, which makes its
+        // size this tab's problem. The lanes always compile a `LIMIT`; typed
+        // SQL is the user's own statement and may have none, so it is bounded
+        // here rather than allowed to copy the whole file into the session.
+        let sql = if self.query.is_overridden() {
+            format!("SELECT * FROM (\n{sql}\n) LIMIT {TYPED_SQL_ROW_CAP}")
+        } else {
+            sql
+        };
         self.query.status = Some(QueryStatus::Report("running…".to_string()));
         self.query_job = Some(crate::file::indexing::QueryJob::spawn(
             engine,
@@ -908,12 +976,10 @@ impl FileViewer {
         };
         match outcome {
             Ok(result) => {
-                if engine.set_primary(&result.view).is_err() {
-                    self.query.status = Some(QueryStatus::Failure(
-                        "the result could not be read".to_string(),
-                    ));
-                    return;
-                }
+                // The worker counted the result as it built it, so the frame
+                // must not count it again — over an aggregate that would mean
+                // running the whole query a second time.
+                engine.set_primary_with_rows(&result.view, result.rows);
                 // A grouped query returns groups, and calling them rows
                 // invites reading the figure as the size of the file (#55).
                 let noun = match (self.query.returns_groups(), result.rows) {
@@ -922,8 +988,15 @@ impl FileViewer {
                     (false, 1) => "row",
                     (false, _) => "rows",
                 };
+                // Say so when the cap bit, rather than letting the user read a
+                // round million as the answer to their question.
+                let capped = if self.query.is_overridden() && result.rows >= TYPED_SQL_ROW_CAP {
+                    " (capped)"
+                } else {
+                    ""
+                };
                 self.query.status = Some(QueryStatus::Report(format!(
-                    "{} {noun} · {} ms",
+                    "{} {noun}{capped} · {} ms",
                     grouped(result.rows),
                     result.elapsed.as_millis()
                 )));
@@ -1095,19 +1168,12 @@ impl FileViewer {
         use thoth_plugin_sdk::components::{Markdown, TextView};
 
         let total = crate::papyrus::total(handle);
-        let page = crate::papyrus::read(handle, 0, Self::DOCUMENT_LINES);
-        let text = page
-            .map(|page| {
-                // A text index publishes one row per line, numbered. The line
-                // number is chrome the file never had.
-                let col = page.columns.len().saturating_sub(1);
-                page.rows
-                    .iter()
-                    .map(|row| row.get(col).map(String::as_str).unwrap_or(""))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default();
+        let shown = self.document_text(handle).to_string();
+        let shown_lines = if shown.is_empty() {
+            0
+        } else {
+            shown.lines().count() as u64
+        };
 
         self.draw_extension_offer(ui);
 
@@ -1120,15 +1186,8 @@ impl FileViewer {
             // Markdown has no honest partial rendering — a heading means
             // nothing without the section under it — so a truncated document
             // says so before it is read, not after.
-            if total > u64::from(Self::DOCUMENT_LINES) {
-                document_note(
-                    ui,
-                    &format!(
-                        "first {} of {} lines",
-                        grouped(Self::DOCUMENT_LINES as usize),
-                        grouped(total as usize)
-                    ),
-                );
+            if let Some(note) = Self::document_note_text(shown_lines, total) {
+                document_note(ui, &note);
             }
             egui::ScrollArea::vertical()
                 .id_salt(("file_markdown", self.tab_id))
@@ -1136,7 +1195,7 @@ impl FileViewer {
                     ui.set_width(ui.available_width());
                     Markdown::builder()
                         .id(format!("file_markdown_{}", self.tab_id))
-                        .value(text)
+                        .value(shown)
                         .build()
                         .show(ui);
                 });
@@ -1145,16 +1204,53 @@ impl FileViewer {
 
         TextView::builder()
             .id(format!("file_text_{}", self.tab_id))
-            .value(text)
-            .maybe_caption((total > u64::from(Self::DOCUMENT_LINES)).then(|| {
-                format!(
-                    "first {} of {} lines",
-                    grouped(Self::DOCUMENT_LINES as usize),
-                    grouped(total as usize)
-                )
-            }))
+            .value(shown)
+            .maybe_caption(Self::document_note_text(shown_lines, total))
             .build()
             .show(ui);
+    }
+
+    /// The document's text, read once and kept.
+    ///
+    /// Reading it means paging the handle — `papyrus::read` caps a single read
+    /// at [`MAX_READ_LIMIT`](crate::papyrus::MAX_READ_LIMIT), so asking for
+    /// 5,000 lines in one call silently returned 1,000 and the caption
+    /// promised 5,000 that were never there. Doing it on every frame would
+    /// also re-join a five-thousand-line string, and re-parse it as Markdown,
+    /// sixty times a second.
+    ///
+    /// Held against the handle's revision, so the preview a tab opens on is
+    /// replaced the frame the real index lands.
+    fn document_text(&mut self, handle: &str) -> &str {
+        let revision = crate::papyrus::meta(handle)
+            .map(|m| m.revision)
+            .unwrap_or(0);
+        let fresh = self
+            .document
+            .as_ref()
+            .is_some_and(|(id, rev, _)| id == handle && *rev == revision);
+        if !fresh {
+            self.document = Some((handle.to_string(), revision, read_document(handle)));
+        }
+        self.document
+            .as_ref()
+            .map(|(_, _, text)| text.as_str())
+            .unwrap_or_default()
+    }
+
+    /// The line the view shows above a document it had to cut short, or `None`
+    /// when it is showing all of it.
+    ///
+    /// Counts what is actually on screen rather than what was asked for: the
+    /// two were different, and the caption was the one that lied.
+    fn document_note_text(shown: u64, total: u64) -> Option<String> {
+        (total > shown).then(|| {
+            format!(
+                "first {} of {} lines",
+                grouped(shown as usize),
+                grouped(total as usize)
+            )
+        })
     }
 
     fn draw_data_view(&mut self, ui: &mut Ui, handle: &str) {
@@ -1508,6 +1604,158 @@ mod tests {
         // Natively-read files (CSV, NDJSON, Parquet) yield no collections, and
         // the picker is hidden rather than showing the file back to itself.
         assert!(FileViewer::new().table_options().is_empty());
+    }
+
+    /// Settle a freshly-opened tab's index, returning what `poll_index` said.
+    fn settle(viewer: &mut FileViewer, tab: usize) -> Option<(String, usize)> {
+        for _ in 0..2000 {
+            if let Some(done) = viewer.poll_index(tab) {
+                return Some(done);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        None
+    }
+
+    #[test]
+    fn a_document_longer_than_one_page_is_read_whole_and_the_note_matches() {
+        use std::io::Write;
+
+        let _cache = crate::file::index_cache::tests::exclusive();
+        crate::file::index_cache::tests::isolate();
+        let _papyrus = crate::papyrus::tests::exclusive();
+
+        // `papyrus::read` caps one read at MAX_READ_LIMIT, so asking for
+        // DOCUMENT_LINES in a single call returned 1,000 lines however long
+        // the file was — under a caption promising 5,000.
+        let lines = 2_500;
+        let mut tmp = tempfile::Builder::new().suffix(".log").tempfile().unwrap();
+        for i in 0..lines {
+            writeln!(tmp, "line {i}").unwrap();
+        }
+        tmp.flush().unwrap();
+
+        let mut viewer = FileViewer::new();
+        let mut kind = FileKind::Json;
+        viewer.open(tmp.path(), 21, &mut kind).expect("opened");
+        assert!(settle(&mut viewer, 21).is_some(), "the index landed");
+        let handle = viewer.handle.clone().expect("a text handle");
+
+        let text = viewer.document_text(&handle).to_string();
+        assert_eq!(
+            text.lines().count(),
+            lines,
+            "the whole document was read, not the first page of it"
+        );
+        assert!(text.starts_with("line 0"));
+        assert!(text.ends_with(&format!("line {}", lines - 1)));
+
+        // All of it is on screen, so there is nothing to apologise for.
+        assert_eq!(
+            FileViewer::document_note_text(lines as u64, lines as u64),
+            None
+        );
+        // And a longer one counts what it showed, not what it asked for.
+        assert_eq!(
+            FileViewer::document_note_text(5_000, 12_345).as_deref(),
+            Some("first 5,000 of 12,345 lines")
+        );
+    }
+
+    #[test]
+    fn a_document_is_read_once_and_not_on_every_frame() {
+        use std::io::Write;
+
+        let _cache = crate::file::index_cache::tests::exclusive();
+        crate::file::index_cache::tests::isolate();
+        let _papyrus = crate::papyrus::tests::exclusive();
+
+        let mut tmp = tempfile::Builder::new().suffix(".log").tempfile().unwrap();
+        for i in 0..1_200 {
+            writeln!(tmp, "line {i}").unwrap();
+        }
+        tmp.flush().unwrap();
+
+        let mut viewer = FileViewer::new();
+        let mut kind = FileKind::Json;
+        viewer.open(tmp.path(), 22, &mut kind).expect("opened");
+        assert!(settle(&mut viewer, 22).is_some());
+        let handle = viewer.handle.clone().expect("a text handle");
+
+        let first = std::time::Instant::now();
+        let length = viewer.document_text(&handle).len();
+        let cold = first.elapsed();
+
+        let again = std::time::Instant::now();
+        for _ in 0..100 {
+            assert_eq!(viewer.document_text(&handle).len(), length);
+        }
+        let hundred_frames = again.elapsed();
+
+        // A hundred frames off the cache cost less than the one read that
+        // filled it — which is the difference between re-joining a document
+        // sixty times a second and not.
+        assert!(
+            hundred_frames < cold,
+            "100 cached reads took {hundred_frames:?}, one cold read took {cold:?}"
+        );
+    }
+
+    #[test]
+    fn reopening_a_tab_adopts_the_new_index_rather_than_the_old_one() {
+        use std::io::Write;
+
+        let _cache = crate::file::index_cache::tests::exclusive();
+        crate::file::index_cache::tests::isolate();
+        let _papyrus = crate::papyrus::tests::exclusive();
+
+        // Opening is how a tab is *reused*: installing a reader reopens the
+        // same viewer in place. `index_announced` is set once per file, and
+        // left set across an open it made `poll_index` return `None` forever —
+        // the tab kept its 1 MB text preview and never adopted the result.
+        let mut first = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        first.write_all(b"a,b\n1,x\n2,y\n").unwrap();
+        first.flush().unwrap();
+
+        let mut viewer = FileViewer::new();
+        let mut kind = FileKind::Json;
+        viewer.open(first.path(), 11, &mut kind).expect("opened");
+        assert!(settle(&mut viewer, 11).is_some(), "the first index landed");
+        assert!(viewer.engine.is_some());
+
+        let mut second = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        second.write_all(b"a,b\n1,x\n2,y\n3,z\n4,w\n").unwrap();
+        second.flush().unwrap();
+
+        viewer.open(second.path(), 11, &mut kind).expect("reopened");
+        assert!(
+            !viewer.index_announced,
+            "a reopened tab has nothing announced yet"
+        );
+        let (_, rows) = settle(&mut viewer, 11).expect("the second index landed too");
+        assert_eq!(rows, 4, "the tab adopted the file it was just given");
+        assert!(!viewer.showing_preview, "it is no longer a prefix");
+    }
+
+    #[test]
+    fn reopening_clears_the_query_the_previous_file_was_asked() {
+        // The lanes name columns of a relation that is no longer open, and a
+        // running job would land on the new tab with the old file's result.
+        let mut viewer = FileViewer::new();
+        viewer.query.spec.sort = vec![thoth_plugin_sdk::components::Sort {
+            field: "ts".to_string(),
+            descending: true,
+        }];
+        viewer.query.sql_override = Some("SELECT 1".to_string());
+        viewer.sort_queued = true;
+
+        let mut kind = FileKind::Json;
+        let tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        viewer.open(tmp.path(), 3, &mut kind).expect("opened");
+
+        assert!(viewer.query.spec.sort.is_empty());
+        assert!(!viewer.query.is_overridden());
+        assert!(!viewer.sort_queued);
     }
 
     #[test]

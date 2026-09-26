@@ -71,6 +71,13 @@ pub struct DuckdbConnection {
     /// The envelope document behind a cache, so a query naming a collection
     /// that was never staged can stage it and carry on.
     document: Mutex<Option<PathBuf>>,
+    /// The attached database, as `(view alias, schema alias)`.
+    ///
+    /// Held rather than derived from the primary alias, because the primary
+    /// alias moves: running a query replaces it with the result's, and
+    /// `"{primary}__db"` then names a schema that was never attached — which
+    /// silently broke the table picker for the rest of the tab's life.
+    database: Mutex<Option<(String, String)>>,
 }
 
 impl DuckdbConnection {
@@ -85,6 +92,7 @@ impl DuckdbConnection {
             row_count: Mutex::new(None),
             staged: Mutex::new(HashMap::new()),
             document: Mutex::new(None),
+            database: Mutex::new(None),
         })
     }
 
@@ -235,10 +243,9 @@ impl DuckdbConnection {
     /// Names only: counting rows in each would be a scan per table, and this
     /// is read while drawing.
     pub fn database_tables(&self) -> Vec<String> {
-        let Some(alias) = self.primary_alias() else {
+        let Some((_, db_alias)) = self.database() else {
             return Vec::new();
         };
-        let db_alias = format!("{alias}__db");
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let Ok(mut stmt) = conn.prepare(
             "SELECT table_name FROM duckdb_tables() WHERE database_name = ? ORDER BY table_name",
@@ -256,20 +263,29 @@ impl DuckdbConnection {
     /// Returns its row count, which is only counted once the user has actually
     /// asked for the table — never for all of them at once.
     pub fn show_database_table(&self, table: &str) -> Result<usize> {
-        let alias = self
-            .primary_alias()
-            .ok_or_else(|| ThothError::DatabaseError {
-                reason: "No file is open on this connection".to_string(),
-            })?;
-        let db_alias = format!("{alias}__db");
+        let (alias, db_alias) = self.database().ok_or_else(|| ThothError::DatabaseError {
+            reason: "No database is open on this connection".to_string(),
+        })?;
         self.execute(&format!(
             "CREATE OR REPLACE VIEW {} AS SELECT * FROM {}.{}",
             quote_ident(&alias),
             quote_ident(&db_alias),
             quote_ident(table)
         ))?;
-        *self.row_count.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        self.row_count_of(&alias)
+        // A query may have pointed the primary at its result view; picking a
+        // table is a request to look at the file again, so the grid goes back
+        // to the database's own relation.
+        let rows = self.row_count_of(&alias)?;
+        self.set_primary_with_rows(&alias, rows);
+        Ok(rows)
+    }
+
+    /// The attached database, as `(view alias, schema alias)`.
+    fn database(&self) -> Option<(String, String)> {
+        self.database
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Attach a SQLite/DuckDB database and point the alias at its first table.
@@ -306,7 +322,10 @@ impl DuckdbConnection {
             quote_ident(alias),
             quote_ident(&db_alias),
             quote_ident(&table)
-        ))
+        ))?;
+        *self.database.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((alias.to_string(), db_alias));
+        Ok(())
     }
 
     /// Attach a cache database, so a document's collections become tables
@@ -337,7 +356,14 @@ impl DuckdbConnection {
                 .map_err(|e| ThothError::DatabaseError {
                     reason: e.to_string(),
                 })?;
-            rows.flatten().filter(|t| t != STAMP_TABLE).collect()
+            // Both bookkeeping tables are excluded. `__thoth_layout` sorts
+            // ahead of every lowercase collection name, so leaving it in makes
+            // it the primary source of a reopened envelope — the grid then
+            // shows the document's own metadata and no collection reports a
+            // row count.
+            rows.flatten()
+                .filter(|t| t != STAMP_TABLE && t != LAYOUT_TABLE)
+                .collect()
         };
 
         for table in &tables {
@@ -590,6 +616,16 @@ impl DuckdbConnection {
     /// disturbing the others, so a query can still join across them.
     pub fn set_primary(&self, alias: &str) -> Result<()> {
         let rows = self.row_count_of(alias)?;
+        self.set_primary_with_rows(alias, rows);
+        Ok(())
+    }
+
+    /// Point the primary alias at `alias` when its row count is already known.
+    ///
+    /// Counting is the expensive half — over a query result it means running
+    /// the query — so a caller that has just counted, on a worker, must not
+    /// make the frame do it again.
+    pub fn set_primary_with_rows(&self, alias: &str, rows: usize) {
         let mut sources = self.sources.lock().unwrap_or_else(|e| e.into_inner());
         let entry = Source {
             alias: alias.to_string(),
@@ -605,7 +641,6 @@ impl DuckdbConnection {
             sources[0] = entry;
         }
         *self.row_count.lock().unwrap_or_else(|e| e.into_inner()) = Some(rows);
-        Ok(())
     }
 
     /// Rows in a named relation.
@@ -619,18 +654,28 @@ impl DuckdbConnection {
         Ok(count.max(0) as usize)
     }
 
-    /// Define `alias` as a view over `sql`, and report how many rows it has.
+    /// Run `sql` and hold its result as `alias`, reporting how many rows it
+    /// has.
     ///
-    /// A query result is a relation, not a copy: the view is what
-    /// [`set_primary`](Self::set_primary) is then pointed at, so the grid pages
-    /// through the result the same way it pages through a table and a query
-    /// over a large file costs one window rather than the whole result set.
+    /// The result is *materialized*, on whatever thread calls this — which is
+    /// meant to be a worker. [`set_primary_with_rows`](Self::set_primary_with_rows)
+    /// then points the grid at it, and every read afterwards pages through a
+    /// finished relation rather than re-running the query.
     ///
-    /// The view is temporary — it belongs to this session, not to the cache
+    /// The caller owns the size of what it asks for: the builder compiles a
+    /// `LIMIT`, and typed SQL is bounded by the viewer before it gets here.
+    ///
+    /// It is temporary — it belongs to this session, not to the cache
     /// database, which holds the file's collections and nothing derived.
     pub fn define_view(&self, alias: &str, sql: &str) -> Result<usize> {
+        // A table, not a view. A view re-runs `sql` on every later read, and
+        // a `GROUP BY` or `ORDER BY` has to run in full before it yields a
+        // single row — so the work the worker moved off the frame would land
+        // back on it, once for the row count and again for each window the
+        // grid scrolls to. Materializing here costs one pass on the worker and
+        // makes every read afterwards a scan of a finished result.
         let statement = format!(
-            "CREATE OR REPLACE TEMP VIEW {} AS {sql}",
+            "CREATE OR REPLACE TEMP TABLE {} AS {sql}",
             quote_ident(alias)
         );
         // A query may be the first thing to name a collection, so an unknown
@@ -1229,6 +1274,26 @@ mod tests {
         assert_eq!(db.show_database_table("order_items").unwrap(), 3);
         // And back again — switching is not one-way.
         assert_eq!(db.show_database_table("customers").unwrap(), 1);
+
+        // Running a query replaces the primary alias with the result's. The
+        // picker has to keep working after that: deriving the schema name from
+        // whatever the primary alias currently is produced
+        // `"__thoth_result_7__db"`, a schema that was never attached, and the
+        // picker then failed silently for the rest of the tab's life.
+        db.define_view("__thoth_result_test", "SELECT 1 AS n")
+            .unwrap();
+        db.set_primary("__thoth_result_test").unwrap();
+        assert_eq!(
+            db.database_tables(),
+            ["customers", "order_items", "orders"],
+            "the tables are the database's, not the current relation's"
+        );
+        assert_eq!(db.show_database_table("orders").unwrap(), 2);
+        assert_eq!(
+            db.primary_alias().as_deref(),
+            Some(crate::file::loaders::duck_db::alias_for(&path).as_str()),
+            "picking a table points the grid back at the file"
+        );
     }
 
     #[test]

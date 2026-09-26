@@ -157,6 +157,19 @@ pub struct MarketplaceUiState {
     /// The last failure per extension, so the row can say what went wrong
     /// rather than silently returning to "Install".
     pub extension_errors: HashMap<String, String>,
+    /// Which readers DuckDB already holds, and the extension revision that was
+    /// read at. See [`MarketplaceUiState::installed_readers`].
+    installed_readers: Option<InstalledReaders>,
+}
+
+/// A cached answer to "which readers are present", with the revision it was
+/// true at.
+#[derive(Clone)]
+struct InstalledReaders {
+    /// [`crate::file::extensions::revision`] when this was read.
+    revision: u64,
+    /// Reader name → whether DuckDB has it.
+    present: HashMap<String, bool>,
 }
 
 impl Default for MarketplaceUiState {
@@ -176,6 +189,7 @@ impl Default for MarketplaceUiState {
             sort: SortOrder::default(),
             extension_jobs: HashMap::new(),
             extension_errors: HashMap::new(),
+            installed_readers: None,
         }
     }
 }
@@ -206,6 +220,38 @@ impl MarketplaceUiState {
                 }
             }
         }
+    }
+
+    /// Which of `names` DuckDB already holds.
+    ///
+    /// Answering it costs an engine start-up and a catalog query per reader,
+    /// which is not something to spend a frame on — and `render_readers` runs
+    /// on every one of them, including the repaints while a download is in
+    /// flight. So it is read once and kept until it could have changed: the
+    /// install revision moves, or a reader appears in the catalog that was not
+    /// asked about before (a reader plugin was just installed).
+    pub fn installed_readers(&mut self, names: &[String]) -> &HashMap<String, bool> {
+        let revision = crate::file::extensions::revision();
+        let stale = self.installed_readers.as_ref().is_none_or(|cached| {
+            cached.revision != revision || names.iter().any(|n| !cached.present.contains_key(n))
+        });
+        if stale {
+            let probe = duckdb::Connection::open_in_memory().ok();
+            let present = names
+                .iter()
+                .map(|name| {
+                    let installed = probe
+                        .as_ref()
+                        .is_some_and(|c| crate::file::extensions::is_installed(c, name));
+                    (name.clone(), installed)
+                })
+                .collect();
+            self.installed_readers = Some(InstalledReaders { revision, present });
+        }
+        self.installed_readers
+            .as_ref()
+            .map(|cached| &cached.present)
+            .expect("just filled when stale")
     }
 
     /// Start fetching a reader, unless one is already on its way.
