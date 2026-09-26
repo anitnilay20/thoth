@@ -74,6 +74,10 @@ enum Kind<'a> {
     },
 }
 
+/// Most records `ExpandAll` opens on a lazily-read source. See
+/// [`Source::expand_all_limit`].
+const EXPAND_ALL_MAX_RECORDS: u64 = 1_000;
+
 struct Source<'a> {
     kind: Kind<'a>,
     /// Memoized answer for handle sources, where expandability comes from the
@@ -101,6 +105,21 @@ impl<'a> Source<'a> {
             Kind::Inline(Value::Array(items)) => items.len() as u64,
             Kind::Inline(_) => 1,
             Kind::Handle { handle, access } => (access.total)(handle),
+        }
+    }
+
+    /// How many records "expand everything" actually opens.
+    ///
+    /// An inline value is whatever the caller handed over — it is already in
+    /// memory, so opening all of it costs nothing new. A handle is file-sized
+    /// and read lazily: every expanded record is a read on each rebuild of the
+    /// row index, so expanding all of them turns one keypress into reading the
+    /// whole document, over and over. The cap is far more rows than anyone
+    /// scrolls and still bounded.
+    fn expand_all_limit(&self) -> u64 {
+        match &self.kind {
+            Kind::Inline(_) => self.records(),
+            Kind::Handle { .. } => self.records().min(EXPAND_ALL_MAX_RECORDS),
         }
     }
 
@@ -271,6 +290,7 @@ fn scalar_token(val: &Value) -> TextToken {
 // ── Lazy row index ───────────────────────────────────────────────────────────
 
 /// One expanded record's materialized rows and where they start.
+#[derive(Clone)]
 struct Expanded {
     /// Position in the visible-record list, so a path can be located without
     /// walking the rows.
@@ -280,6 +300,7 @@ struct Expanded {
 }
 
 /// Maps row indices to rows, materializing only expanded records.
+#[derive(Clone)]
 struct RowIndex {
     /// The records on show, in order. `None` means "all of them", which avoids
     /// allocating a list of a million indices just to say so.
@@ -287,6 +308,67 @@ struct RowIndex {
     records: u64,
     expanded: Vec<Expanded>,
     total_rows: usize,
+}
+
+/// The row index for this frame, reusing the last one when nothing that
+/// shapes it has changed.
+///
+/// [`RowIndex::build`] calls `children` once per expanded record, and for a
+/// handle source each of those is a read from the host. Rebuilding it on every
+/// frame is what turned an expanded file-sized document into a frozen window —
+/// the "O(expanded)" design holds per *change*, not per frame.
+///
+/// Only handle sources are cached. Building an inline index reads nothing, and
+/// an inline value can be swapped by the caller between frames with no key to
+/// notice it by.
+#[cfg(feature = "egui")]
+fn build_index(
+    tree: &JsonTree,
+    source: &Source<'_>,
+    state: &TreeState,
+    ctx: &egui::Context,
+    base_id: egui::Id,
+) -> RowIndex {
+    let Some(key) = index_key(tree, source, state) else {
+        return RowIndex::build(tree, source, state);
+    };
+    let cache_id = base_id.with("json_tree_index");
+    if let Some((cached_key, index)) = ctx.data(|d| d.get_temp::<(u64, RowIndex)>(cache_id))
+        && cached_key == key
+    {
+        return index;
+    }
+    let index = RowIndex::build(tree, source, state);
+    ctx.data_mut(|d| d.insert_temp(cache_id, (key, index.clone())));
+    index
+}
+
+/// What the cached index is keyed on, or `None` for a source that is not
+/// cached.
+///
+/// Everything [`RowIndex::build`] reads: which records exist, which are on
+/// show, and which are expanded. The expanded set is hashed order-independently
+/// because it is a `HashSet` and its iteration order is not stable.
+#[cfg(feature = "egui")]
+fn index_key(tree: &JsonTree, source: &Source<'_>, state: &TreeState) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+
+    let Kind::Handle { handle, .. } = &source.kind else {
+        return None;
+    };
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    handle.hash(&mut hasher);
+    source.records().hash(&mut hasher);
+    tree.visible_roots.hash(&mut hasher);
+    let mut expanded = 0u64;
+    for path in &state.expanded {
+        let mut one = std::collections::hash_map::DefaultHasher::new();
+        path.hash(&mut one);
+        expanded ^= one.finish();
+    }
+    expanded.hash(&mut hasher);
+    state.expanded.len().hash(&mut hasher);
+    Some(hasher.finish())
 }
 
 impl RowIndex {
@@ -552,14 +634,14 @@ impl JsonTree {
             // Expanding everything is opt-in: on a file-sized source it would
             // read the entire dataset just to lay out the first frame.
             if self.expand_all_initially {
-                for root in 0..source.records() {
+                for root in 0..source.expand_all_limit() {
                     fresh.expanded.insert(root.to_string());
                 }
             }
             fresh
         };
 
-        let mut index = RowIndex::build(self, &source, &state);
+        let mut index = build_index(self, &source, &state, ui.ctx(), base_id);
         let mut toggle: Option<String> = None;
         let mut copied: Option<String> = None;
 
@@ -567,78 +649,86 @@ impl JsonTree {
         let stripe = color_to_hex(with_alpha(colors.fg, ZEBRA_ALPHA));
         let guide = with_alpha(colors.fg, GUIDE_ALPHA);
 
-        container(ui, self.framed, &colors, |ui| {
-            ui.spacing_mut().item_spacing.y = 0.0;
-            egui::ScrollArea::both()
-                .auto_shrink([false, false])
-                .show_rows(ui, ROW_HEIGHT, index.total_rows, |ui, range| {
-                    for idx in range {
-                        let Some(row) = index.row(idx, &source) else {
-                            continue;
-                        };
-                        let selected = state.selected.as_deref() == Some(row.path.as_str());
-                        let background = if selected {
-                            Some(color_to_hex(with_alpha(colors.fg, ZEBRA_ALPHA * 3)))
-                        } else if idx % 2 == 1 {
-                            Some(stripe.clone())
-                        } else {
-                            None
-                        };
+        let drawn = ui
+            .scope(|ui| {
+                container(ui, self.framed, &colors, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    egui::ScrollArea::both()
+                        .auto_shrink([false, false])
+                        .show_rows(ui, ROW_HEIGHT, index.total_rows, |ui, range| {
+                            for idx in range {
+                                let Some(row) = index.row(idx, &source) else {
+                                    continue;
+                                };
+                                let selected = state.selected.as_deref() == Some(row.path.as_str());
+                                let background = if selected {
+                                    Some(color_to_hex(with_alpha(colors.fg, ZEBRA_ALPHA * 3)))
+                                } else if idx % 2 == 1 {
+                                    Some(stripe.clone())
+                                } else {
+                                    None
+                                };
 
-                        // Indent guides, drawn before the row claims its rect.
-                        if row.indent > 0 {
-                            let rect = ui.available_rect_before_wrap();
-                            let painter = ui.painter();
-                            for level in 0..row.indent {
-                                let x = rect.min.x + (level as f32 * INDENT_STEP) + 8.0;
-                                painter.line_segment(
-                                    [
-                                        egui::pos2(x, rect.min.y),
-                                        egui::pos2(x, rect.min.y + ROW_HEIGHT),
-                                    ],
-                                    egui::Stroke::new(1.0, guide),
-                                );
-                            }
-                        }
+                                // Indent guides, drawn before the row claims its rect.
+                                if row.indent > 0 {
+                                    let rect = ui.available_rect_before_wrap();
+                                    let painter = ui.painter();
+                                    for level in 0..row.indent {
+                                        let x = rect.min.x + (level as f32 * INDENT_STEP) + 8.0;
+                                        painter.line_segment(
+                                            [
+                                                egui::pos2(x, rect.min.y),
+                                                egui::pos2(x, rect.min.y + ROW_HEIGHT),
+                                            ],
+                                            egui::Stroke::new(1.0, guide),
+                                        );
+                                    }
+                                }
 
-                        let out = DataRow::builder()
-                            .display_text(row.text.clone())
-                            .row_id(row.path.clone())
-                            .key_token(row.key_token)
-                            .maybe_value_token(row.value_token)
-                            .maybe_caret(row.caret)
-                            .maybe_background(background)
-                            .highlights(
-                                self.highlights
-                                    .get(&row.path)
-                                    .cloned()
-                                    .unwrap_or_else(RowHighlights::default),
-                            )
-                            .syntax_highlighting(true)
-                            .summary_value(row.summary)
-                            .indent(row.indent)
-                            .build()
-                            .show(ui);
+                                let out = DataRow::builder()
+                                    .display_text(row.text.clone())
+                                    .row_id(row.path.clone())
+                                    .key_token(row.key_token)
+                                    .maybe_value_token(row.value_token)
+                                    .maybe_caret(row.caret)
+                                    .maybe_background(background)
+                                    .highlights(
+                                        self.highlights
+                                            .get(&row.path)
+                                            .cloned()
+                                            .unwrap_or_else(RowHighlights::default),
+                                    )
+                                    .syntax_highlighting(true)
+                                    .summary_value(row.summary)
+                                    .indent(row.indent)
+                                    .build()
+                                    .show(ui);
 
-                        if out.caret_clicked {
-                            toggle = Some(row.path.clone());
-                        } else if out.clicked {
-                            state.selected = Some(row.path.clone());
-                        }
-                        // The menu reads the node, not the row: a rendered value
-                        // is truncated for display, and copying the truncation
-                        // would be quietly wrong.
-                        out.response.context_menu(|ui| {
-                            if let Some(text) = node_menu(ui, &row, &source) {
-                                copied = Some(text);
+                                if out.caret_clicked {
+                                    toggle = Some(row.path.clone());
+                                } else if out.clicked {
+                                    state.selected = Some(row.path.clone());
+                                }
+                                // The menu reads the node, not the row: a rendered value
+                                // is truncated for display, and copying the truncation
+                                // would be quietly wrong.
+                                out.response.context_menu(|ui| {
+                                    if let Some(text) = node_menu(ui, &row, &source) {
+                                        copied = Some(text);
+                                    }
+                                });
+                                if out.right_clicked {
+                                    state.selected = Some(row.path.clone());
+                                }
                             }
                         });
-                        if out.right_clicked {
-                            state.selected = Some(row.path.clone());
-                        }
-                    }
                 });
-        });
+            })
+            .response
+            .rect;
+        // Recorded for the next frame, when this tree has to decide whether an
+        // arrow key was meant for it.
+        crate::theme::claim_navigation_keys(ui, nav_id(ui), drawn);
 
         if let Some(path) = toggle
             && !state.expanded.remove(&path)
@@ -649,7 +739,7 @@ impl JsonTree {
         // Keyboard navigation, after the rows are known so a move can resolve
         // against what is actually on screen.
         if navigate(ui, &mut state, &index, &source) {
-            index = RowIndex::build(self, &source, &state);
+            index = build_index(self, &source, &state, ui.ctx(), base_id);
         }
 
         // A command from the host's configurable shortcuts. Same behaviour as
@@ -657,7 +747,7 @@ impl JsonTree {
         if let Some(action) = self.action {
             let (rebuilt, text) = self.apply(action, &mut state, &index, &source);
             if rebuilt {
-                index = RowIndex::build(self, &source, &state);
+                index = build_index(self, &source, &state, ui.ctx(), base_id);
             }
             if text.is_some() {
                 copied = text;
@@ -738,8 +828,12 @@ impl JsonTree {
             TreeAction::ExpandAll => {
                 // Records only: expanding every node of every record would read
                 // the whole document, which is what lazy reading exists to
-                // avoid.
-                for root in 0..source.records() {
+                // avoid. And bounded, for the same reason one level down — an
+                // expanded record is a host read on every rebuild, so "expand
+                // everything" on a file-sized source means reading the file,
+                // repeatedly. What is expanded is what a person could plausibly
+                // scroll through.
+                for root in 0..source.expand_all_limit() {
                     state.expanded.insert(root.to_string());
                 }
                 return (true, None);
@@ -838,6 +932,13 @@ fn node_menu(ui: &mut egui::Ui, row: &TreeRow, source: &Source<'_>) -> Option<St
 /// container and otherwise descends, left closes an open one and otherwise
 /// climbs to its parent — which is what makes a keyboard walk feel like a tree
 /// and not a table.
+///
+/// The id this tree claims the keyboard under — its own, so two trees on one
+/// screen are told apart.
+fn nav_id(ui: &egui::Ui) -> egui::Id {
+    ui.id().with("json-tree-keys")
+}
+
 fn navigate(
     ui: &mut egui::Ui,
     state: &mut TreeState,
@@ -845,6 +946,13 @@ fn navigate(
     source: &Source<'_>,
 ) -> bool {
     use egui::Key;
+
+    // Arrow keys belong to whoever the user is working in. Without this, Left
+    // pressed in a query-builder value field also collapses a node here, and
+    // in a split dock it collapses one in every visible tree at once.
+    if !crate::theme::owns_navigation_keys(ui.ctx(), nav_id(ui)) {
+        return false;
+    }
 
     let keys: Vec<Key> = ui.input(|i| {
         [
@@ -1156,6 +1264,8 @@ mod tests {
 
     #[test]
     fn a_path_resolves_to_its_row_without_searching() {
+        // Shares the process-wide call counters with the tests above.
+        let _guard = HUGE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // The cheap-lookup property: a keypress on a ten-million-record file
         // must not synthesize rows to find the selection.
         let (tree, state) = huge_tree(&["5"]);
@@ -1174,6 +1284,8 @@ mod tests {
 
     #[test]
     fn an_unknown_path_resolves_to_nothing() {
+        // Shares the process-wide call counters with the tests above.
+        let _guard = HUGE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let (tree, state) = huge_tree(&[]);
         let source = Source::new(&tree);
         let index = RowIndex::build(&tree, &source, &state);
@@ -1182,6 +1294,64 @@ mod tests {
         assert_eq!(index.position_of(""), None);
         // Past the end of the dataset.
         assert_eq!(index.position_of("99999999999"), None);
+    }
+
+    #[test]
+    fn expand_all_is_bounded_on_a_source_that_is_read_lazily() {
+        // Every expanded record is a host read on each rebuild of the index,
+        // so "expand everything" on a ten-million-record file would read the
+        // file — and keep reading it. An inline value is already in memory and
+        // is not capped.
+        let _guard = HUGE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (tree, _) = huge_tree(&[]);
+        let source = Source::new(&tree);
+        assert_eq!(source.records(), 10_000_000);
+        assert_eq!(source.expand_all_limit(), EXPAND_ALL_MAX_RECORDS);
+
+        let value = serde_json::json!([{"a": 1}, {"a": 2}, {"a": 3}]);
+        let inline = JsonTree::builder().value(value).build();
+        let inline_source = Source::new(&inline);
+        assert_eq!(inline_source.expand_all_limit(), 3);
+    }
+
+    #[test]
+    fn a_source_smaller_than_the_cap_is_not_cut_short_by_it() {
+        let value = serde_json::json!([{"a": 1}, {"a": 2}]);
+        let tree = JsonTree::builder().value(value).build();
+        assert_eq!(Source::new(&tree).expand_all_limit(), 2);
+    }
+
+    #[test]
+    fn the_index_key_moves_only_when_the_index_would() {
+        let _guard = HUGE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (tree, state) = huge_tree(&["5"]);
+        let source = Source::new(&tree);
+        let base = index_key(&tree, &source, &state).expect("a handle source is cached");
+
+        // The same state, read again, is the same index.
+        assert_eq!(index_key(&tree, &source, &state), Some(base));
+
+        // Expanding something is a different index.
+        let (tree2, state2) = huge_tree(&["5", "6"]);
+        let source2 = Source::new(&tree2);
+        assert_ne!(index_key(&tree2, &source2, &state2), Some(base));
+
+        // And the set is hashed order-independently, because it is a HashSet.
+        let (tree3, state3) = huge_tree(&["6", "5"]);
+        let source3 = Source::new(&tree3);
+        assert_eq!(
+            index_key(&tree3, &source3, &state3),
+            index_key(&tree2, &source2, &state2)
+        );
+
+        // An inline value is never cached: nothing here could notice it change.
+        let inline = JsonTree::builder()
+            .value(serde_json::json!([{"a": 1}]))
+            .build();
+        assert_eq!(
+            index_key(&inline, &Source::new(&inline), &TreeState::default()),
+            None
+        );
     }
 
     #[test]

@@ -104,8 +104,8 @@ impl ContextMenu {
             ui.painter().text(
                 egui::pos2(rect.right() - ROW_PAD_X, rect.center().y),
                 egui::Align2::RIGHT_CENTER,
-                "✓",
-                egui::FontId::proportional(FONT_CONTROL),
+                egui_phosphor::regular::CHECK,
+                crate::theme::phosphor_font_id(FONT_CONTROL),
                 colors.accent,
             );
         }

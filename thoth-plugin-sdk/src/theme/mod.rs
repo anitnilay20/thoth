@@ -704,3 +704,54 @@ mod tests {
         );
     }
 }
+
+// ── Keyboard ownership for widgets that read raw keys ────────────────────────
+
+/// Where the last claim is recorded, so two grids on one screen can tell which
+/// of them the user is working in.
+#[cfg(feature = "egui")]
+fn keyboard_owner() -> egui::Id {
+    egui::Id::new("thoth-navigation-key-owner")
+}
+
+/// Whether the widget `id` should act on arrow / Home / End / Page keys.
+///
+/// A widget that reads key presses straight from the input queue has no focus
+/// of its own, so it must ask before it acts — otherwise Left in a query
+/// builder's value field also collapses a node in whatever JSON tree happens
+/// to be on screen, and in a split dock *every* visible tree and grid reacts
+/// to one keypress. Two things have to hold:
+///
+/// - no text field owns the keyboard;
+/// - this is the widget the user is working in — the pointer is over it, or it
+///   was the last one clicked in.
+///
+/// The area is the one the widget occupied on the *previous* frame, recorded by
+/// [`claim_navigation_keys`], because keys are read before anything is laid
+/// out. A widget that has never been drawn or interacted with does not act,
+/// which is the safe side of the trade: nothing happens rather than the wrong
+/// thing happening somewhere the user is not looking.
+#[cfg(feature = "egui")]
+pub fn owns_navigation_keys(ctx: &egui::Context, id: egui::Id) -> bool {
+    if ctx.egui_wants_keyboard_input() {
+        return false;
+    }
+    let hovered = ctx
+        .data(|d| d.get_temp::<egui::Rect>(id.with("nav-rect")))
+        .zip(ctx.pointer_latest_pos())
+        .is_some_and(|(rect, pos)| rect.contains(pos));
+    hovered || ctx.data(|d| d.get_temp::<egui::Id>(keyboard_owner())) == Some(id)
+}
+
+/// Record where the widget `id` is, and take the keyboard if it was clicked in.
+///
+/// Called after the widget has drawn, when its rect is known. See
+/// [`owns_navigation_keys`].
+#[cfg(feature = "egui")]
+pub fn claim_navigation_keys(ui: &egui::Ui, id: egui::Id, rect: egui::Rect) {
+    if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(rect) {
+        ui.ctx().data_mut(|d| d.insert_temp(keyboard_owner(), id));
+    }
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(id.with("nav-rect"), rect));
+}

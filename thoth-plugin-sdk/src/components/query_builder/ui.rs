@@ -83,18 +83,32 @@ impl QueryBuilder {
         let sql_id = ui.make_persistent_id((self.id.as_str(), "qb_sql"));
         let mut lanes_open: bool = ui.ctx().data(|d| d.get_temp(lanes_id).unwrap_or(true));
         let mut sql_open: bool = ui.ctx().data(|d| d.get_temp(sql_id).unwrap_or(false));
+        // The id this builder claims ⌘↵ and ⌘/ under — its own, so two
+        // builders on one screen are told apart.
+        let keys_id = ui.id().with("query-builder-keys");
 
         // Consumed before the lanes draw, so a focused value field inside a pill
         // does not swallow ⌘↵ on its way past. Only these two: the design also
         // marks the filter button ⌘F, but a host is likely to have spent that
         // key already, and a component that takes one out from under its host
         // breaks something the user cannot see from here.
-        let (toggle_key, run_key) = ui.input_mut(|i| {
-            (
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Slash),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter),
-            )
-        });
+        //
+        // And only when this builder is the one the user is working in.
+        // `draw_data_view` puts a builder in every engine-backed tab, so a
+        // split dock draws several on one frame: without this the first one
+        // rendered took ⌘↵ whichever pane the user was in, and a `CodeEditor`
+        // elsewhere — a plugin's SQL pane — never saw the key at all.
+        let owns_keys = crate::theme::owns_navigation_keys(ui.ctx(), keys_id);
+        let (toggle_key, run_key) = if owns_keys {
+            ui.input_mut(|i| {
+                (
+                    i.consume_key(egui::Modifiers::COMMAND, egui::Key::Slash),
+                    i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter),
+                )
+            })
+        } else {
+            (false, false)
+        };
         if toggle_key {
             lanes_open = !lanes_open;
         }
@@ -103,57 +117,65 @@ impl QueryBuilder {
         let mut sql_edited = false;
         let mut changed = false;
 
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
+        let drawn = ui
+            .vertical(|ui| {
+                ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
 
-            if self.head(ui, &colors, lanes_open) {
-                lanes_open = !lanes_open;
-            }
-
-            if lanes_open {
-                // Compiled once per frame and shared: the foot names an
-                // incomplete lane as soon as it is incomplete, and the SQL box
-                // shows the statement that same failure is holding back.
-                //
-                // When the user has typed their own SQL it is that, not the
-                // lanes, that will run — so it is that the foot judges and the
-                // pane shows.
-                let compiled = self.sql();
-                let overridden = self.sql_override.is_some();
-
-                // Shown, so the query the typed SQL grew out of is still
-                // readable, but not editable: two editable copies of one query
-                // means the last one touched wins invisibly.
-                ui.add_enabled_ui(!overridden, |ui| {
-                    add_filter |= self.lanes(ui, &colors, &mut changed);
-                });
-                let (ran, revert) = self.foot(
-                    ui,
-                    &colors,
-                    &compiled,
-                    &mut sql_open,
-                    &mut changed,
-                    overridden,
-                );
-                run |= ran;
-                if revert {
-                    self.sql_override = None;
-                    changed = true;
-                    sql_edited = true;
+                if self.head(ui, &colors, lanes_open) {
+                    lanes_open = !lanes_open;
                 }
-                if sql_open {
-                    let edited = sql_box(ui, &self.id, &compiled, &mut self.sql_override);
-                    if let Some(request) = edited.run {
-                        let _ = request;
-                        run = true;
-                    }
-                    if edited.changed {
+
+                if lanes_open {
+                    // Compiled once per frame and shared: the foot names an
+                    // incomplete lane as soon as it is incomplete, and the SQL box
+                    // shows the statement that same failure is holding back.
+                    //
+                    // When the user has typed their own SQL it is that, not the
+                    // lanes, that will run — so it is that the foot judges and the
+                    // pane shows.
+                    let compiled = self.sql();
+                    let overridden = self.sql_override.is_some();
+
+                    // Shown, so the query the typed SQL grew out of is still
+                    // readable, but not editable: two editable copies of one query
+                    // means the last one touched wins invisibly.
+                    ui.add_enabled_ui(!overridden, |ui| {
+                        add_filter |= self.lanes(ui, &colors, &mut changed);
+                    });
+                    let (ran, revert) = self.foot(
+                        ui,
+                        &colors,
+                        &compiled,
+                        &mut sql_open,
+                        &mut changed,
+                        overridden,
+                    );
+                    run |= ran;
+                    if revert {
+                        self.sql_override = None;
                         changed = true;
                         sql_edited = true;
                     }
+                    if sql_open {
+                        let edited = sql_box(ui, &self.id, &compiled, &mut self.sql_override);
+                        if let Some(request) = edited.run {
+                            let _ = request;
+                            run = true;
+                        }
+                        if edited.changed {
+                            changed = true;
+                            sql_edited = true;
+                        }
+                    }
                 }
-            }
-        });
+            })
+            .response
+            .rect;
+        // Recorded for the next frame, when this builder has to decide whether
+        // ⌘↵ was meant for it. A builder that has never been in the pointer's
+        // way or clicked in does not take the key — a shortcut that fires in a
+        // pane the user is not looking at is worse than one that does nothing.
+        crate::theme::claim_navigation_keys(ui, keys_id, drawn);
 
         if add_filter && let Some(filter) = self.new_filter() {
             self.spec.filters.push(filter);
@@ -581,7 +603,7 @@ impl QueryBuilder {
     }
 
     fn sort_lane(&mut self, ui: &mut egui::Ui, colors: &ThemeColors, edited: &mut bool) {
-        let fields = self.fields.clone();
+        let fields = self.sort_keys();
         let id = self.id.clone();
         let mut remove = None;
 
@@ -643,7 +665,7 @@ impl QueryBuilder {
         }
         if add {
             let used: Vec<String> = self.spec.sort.iter().map(|s| s.field.clone()).collect();
-            if let Some(field) = unused_field(&self.fields, &used) {
+            if let Some(field) = unused_field(&self.sort_keys(), &used) {
                 self.spec.sort.push(Sort {
                     field,
                     descending: false,
@@ -651,6 +673,49 @@ impl QueryBuilder {
                 *edited = true;
             }
         }
+    }
+
+    /// The columns the sort lane may be pointed at.
+    ///
+    /// A grouped query does not return the file's columns — it returns the
+    /// group keys and the aggregates, under the names `compile` gives them.
+    /// Offering the raw fields there produced `ORDER BY "amount"` beside
+    /// `GROUP BY "level"`, which DuckDB rejects at run time with nothing said
+    /// beforehand, and left "count per service, largest first" — the main
+    /// question anyone groups to ask — impossible to build.
+    fn sort_keys(&self) -> Vec<QueryField> {
+        if self.spec.group_by.is_empty() && self.spec.aggregates.is_empty() {
+            return self.fields.clone();
+        }
+        let typed = |name: &str| {
+            self.fields
+                .iter()
+                .find(|f| f.name == name)
+                .map(|f| f.column_type)
+                .unwrap_or_default()
+        };
+        self.spec
+            .group_by
+            .iter()
+            .map(|name| {
+                QueryField::builder()
+                    .name(name.clone())
+                    .column_type(typed(name))
+                    .build()
+            })
+            .chain(self.spec.aggregates.iter().map(|aggregate| {
+                // A count is a number whatever it counted; the others carry
+                // the type of the column they were computed over.
+                let column_type = match aggregate.function {
+                    AggregateFn::Count | AggregateFn::DistinctCount => ColumnType::Integer,
+                    _ => typed(&aggregate.field),
+                };
+                QueryField::builder()
+                    .name(aggregate.output_name())
+                    .column_type(column_type)
+                    .build()
+            }))
+            .collect()
     }
 
     /// The footer: SQL disclosure, status, limit, Reset and Run. Returns
@@ -1194,6 +1259,62 @@ fn unused_field(fields: &[QueryField], used: &[String]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_grouped_query_sorts_by_what_it_returns() {
+        // A grouped result has the group keys and the aggregates, not the
+        // file's columns — `ORDER BY "amount"` beside `GROUP BY "service"` is
+        // rejected by the engine, and "count per service, largest first" was
+        // impossible to build because `count` was not offered.
+        let mut builder = QueryBuilder::builder()
+            .fields(vec![
+                QueryField::builder()
+                    .name("service")
+                    .column_type(ColumnType::Text)
+                    .build(),
+                QueryField::builder()
+                    .name("amount")
+                    .column_type(ColumnType::Float)
+                    .build(),
+            ])
+            .build();
+
+        // Ungrouped, the lane offers the file's columns, as before.
+        let names = |b: &QueryBuilder| -> Vec<String> {
+            b.sort_keys().into_iter().map(|f| f.name).collect()
+        };
+        assert_eq!(names(&builder), ["service", "amount"]);
+
+        builder.spec.group_by = vec!["service".to_string()];
+        builder.spec.aggregates = vec![
+            Aggregate {
+                function: AggregateFn::Count,
+                field: String::new(),
+            },
+            Aggregate {
+                function: AggregateFn::Sum,
+                field: "amount".to_string(),
+            },
+        ];
+        assert_eq!(names(&builder), ["service", "count", "sum_amount"]);
+
+        // And each carries a type, so the direction control and any future
+        // type-led behaviour read the same as they do elsewhere.
+        let keys = builder.sort_keys();
+        assert_eq!(keys[0].column_type, ColumnType::Text);
+        assert_eq!(keys[1].column_type, ColumnType::Integer);
+        assert_eq!(keys[2].column_type, ColumnType::Float);
+
+        // The names it offers are the ones the compiler emits.
+        builder.relation = "data".to_string();
+        builder.spec.sort = vec![Sort {
+            field: "count".to_string(),
+            descending: true,
+        }];
+        let sql = builder.sql().expect("compiles");
+        assert!(sql.contains(r#"count(*) AS "count""#), "{sql}");
+        assert!(sql.contains(r#"ORDER BY "count" DESC"#), "{sql}");
+    }
 
     /// Run one headless frame and hand the closure a real `Ui`, so the widget
     /// is measured and laid out against live font data like it is in the app.

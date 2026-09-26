@@ -68,122 +68,153 @@ impl TableView {
 
         let mut clicked_row: Option<usize> = None;
 
-        container(ui, self.framed, &colors, |ui| {
-            ui.set_min_width(ui.available_width());
+        let drawn = ui
+            .scope(|ui| {
+                container(ui, self.framed, &colors, |ui| {
+                    ui.set_min_width(ui.available_width());
 
-            egui::ScrollArea::horizontal()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::NONE;
-                    ui.style_mut().spacing.item_spacing.x = 0.0;
-                    // Zebra wash, painted *under* the hover/selection fills by
-                    // `egui_extras` (design `tbody tr:nth-child(even)`).
-                    ui.style_mut().visuals.faint_bg_color = with_alpha(colors.fg, ZEBRA_ALPHA);
-                    let mut table = TableBuilder::new(ui)
-                        .striped(true)
-                        .sense(egui::Sense::click())
-                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .column(Column::exact(NUM_COL_W));
-                    for col in 0..num_cols {
-                        table = table.column(
-                            Column::auto_with_initial_suggestion(min_col_width)
-                                .at_least(min_col_width)
-                                .clip(true)
-                                .resizable(true)
-                                .auto_size_this_frame(auto_fit_column == Some(col)),
-                        );
-                    }
-                    table
-                        .header(HEADER_H, |header_row| {
-                            let hit = paint_header_row(
-                                header_row,
-                                &headers,
-                                &colors,
-                                sort.as_ref(),
-                                sortable,
-                            );
-                            requested_auto_fit.set(hit.auto_fit);
-                            requested_sort.set(hit.sorted);
-                        })
-                        .body(|body| {
-                            body.rows(ROW_H, rows.len(), |mut row| {
-                                let idx = row.index();
-
-                                let is_selected = selected == Some(idx);
-                                let mut row_clicked = false;
-                                let (_, number_resp) = row.col(|ui| {
-                                    if is_selected {
-                                        ui.painter().rect_filled(
-                                            ui.max_rect(),
-                                            0.0,
-                                            with_alpha(colors.accent, SELECTED_ROW_ALPHA),
-                                        );
-                                    }
-                                    paint_row_number(ui, &colors, &(idx + 1).to_string());
-                                    paint_cell_borders(ui, grid, grid);
-                                });
-                                // The # gutter paints its text (no widget), so its
-                                // cell response catches the right-click directly.
-                                number_resp.context_menu(|ui| {
-                                    copy_menu(ui, &copy_action, idx, None);
-                                });
-                                if number_resp.clicked() {
-                                    row_clicked = true;
-                                }
-
-                                for col in 0..num_cols {
-                                    let align_right =
-                                        right_aligned.get(col).copied().unwrap_or(false);
-                                    // Interactive JSON-tree cells handle their own clicks,
-                                    // so we don't overlay a right-click target on them.
-                                    let is_tree = matches!(
-                                        rows.get(idx).and_then(|r| r.get(col)),
-                                        Some(crate::render_node::RenderNode::JsonTree(_))
+                    egui::ScrollArea::horizontal()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::NONE;
+                            ui.style_mut().spacing.item_spacing.x = 0.0;
+                            // Zebra wash, painted *under* the hover/selection fills by
+                            // `egui_extras` (design `tbody tr:nth-child(even)`).
+                            ui.style_mut().visuals.faint_bg_color =
+                                with_alpha(colors.fg, ZEBRA_ALPHA);
+                            let mut table = TableBuilder::new(ui)
+                                .striped(true)
+                                .sense(egui::Sense::click())
+                                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                                .column(Column::exact(NUM_COL_W));
+                            for col in 0..num_cols {
+                                table = table.column(
+                                    Column::auto_with_initial_suggestion(min_col_width)
+                                        .at_least(min_col_width)
+                                        .clip(true)
+                                        .resizable(true)
+                                        .auto_size_this_frame(auto_fit_column == Some(col)),
+                                );
+                            }
+                            table
+                                .header(HEADER_H, |header_row| {
+                                    let hit = paint_header_row(
+                                        header_row,
+                                        &headers,
+                                        &colors,
+                                        sort.as_ref(),
+                                        sortable,
                                     );
-                                    let (_, response) = row.col(|ui| {
-                                        cell_frame(ui, align_right, |ui| {
-                                            if let Some(cell) =
-                                                rows.get_mut(idx).and_then(|r| r.get_mut(col))
-                                            {
-                                                cell.show(ui, events);
+                                    requested_auto_fit.set(hit.auto_fit);
+                                    requested_sort.set(hit.sorted);
+                                })
+                                .body(|body| {
+                                    body.rows(ROW_H, rows.len(), |mut row| {
+                                        let idx = row.index();
+
+                                        let is_selected = selected == Some(idx);
+                                        let mut row_clicked = false;
+                                        let (_, number_resp) = row.col(|ui| {
+                                            if is_selected {
+                                                ui.painter().rect_filled(
+                                                    ui.max_rect(),
+                                                    0.0,
+                                                    with_alpha(colors.accent, SELECTED_ROW_ALPHA),
+                                                );
                                             }
+                                            paint_row_number(ui, &colors, &(idx + 1).to_string());
+                                            paint_cell_borders(ui, grid, grid);
                                         });
-                                        paint_cell_borders(ui, grid, grid);
-                                        // The cell's text widget senses only hover but
-                                        // still swallows the right-click before the cell
-                                        // response sees it, so overlay a full-cell click
-                                        // target on top to catch it. Skipped for JSON-tree
-                                        // cells, which need their own clicks (their blank
-                                        // area is still covered by the outer menu below).
-                                        if !is_tree {
-                                            let menu_resp = ui.interact(
-                                                ui.max_rect(),
-                                                ui.id().with("cell-copy-menu"),
-                                                egui::Sense::click(),
+                                        // The # gutter paints its text (no widget), so its
+                                        // cell response catches the right-click directly.
+                                        number_resp.context_menu(|ui| {
+                                            copy_menu(ui, &copy_action, idx, None);
+                                        });
+                                        if number_resp.clicked() {
+                                            row_clicked = true;
+                                        }
+
+                                        for col in 0..num_cols {
+                                            let align_right =
+                                                right_aligned.get(col).copied().unwrap_or(false);
+                                            // Interactive JSON-tree cells handle their own clicks,
+                                            // so we don't overlay a right-click target on them.
+                                            let is_tree = matches!(
+                                                rows.get(idx).and_then(|r| r.get(col)),
+                                                Some(crate::render_node::RenderNode::JsonTree(_))
                                             );
-                                            menu_resp.context_menu(|ui| {
-                                                copy_menu(ui, &copy_action, idx, Some(col));
+                                            let (_, response) = row.col(|ui| {
+                                                // The wash runs across the row,
+                                                // not just the `#` gutter — a
+                                                // selection that lights only
+                                                // the row number does not read
+                                                // as a selected row.
+                                                if is_selected {
+                                                    ui.painter().rect_filled(
+                                                        ui.max_rect(),
+                                                        0.0,
+                                                        with_alpha(
+                                                            colors.accent,
+                                                            SELECTED_ROW_ALPHA,
+                                                        ),
+                                                    );
+                                                }
+                                                cell_frame(ui, align_right, |ui| {
+                                                    if let Some(cell) = rows
+                                                        .get_mut(idx)
+                                                        .and_then(|r| r.get_mut(col))
+                                                    {
+                                                        cell.show(ui, events);
+                                                    }
+                                                });
+                                                paint_cell_borders(ui, grid, grid);
+                                                // The cell's text widget senses only hover but
+                                                // still swallows the right-click before the cell
+                                                // response sees it, so overlay a full-cell click
+                                                // target on top to catch it. Skipped for JSON-tree
+                                                // cells, which need their own clicks (their blank
+                                                // area is still covered by the outer menu below).
+                                                if !is_tree {
+                                                    let menu_resp = ui.interact(
+                                                        ui.max_rect(),
+                                                        ui.id().with("cell-copy-menu"),
+                                                        egui::Sense::click(),
+                                                    );
+                                                    menu_resp.context_menu(|ui| {
+                                                        copy_menu(ui, &copy_action, idx, Some(col));
+                                                    });
+                                                }
                                             });
+                                            // JSON-tree cells have no overlay; let the cell
+                                            // response catch right-clicks on their blank area.
+                                            if is_tree {
+                                                response.context_menu(|ui| {
+                                                    copy_menu(ui, &copy_action, idx, Some(col));
+                                                });
+                                            }
+                                            if response.clicked() {
+                                                row_clicked = true;
+                                            }
+                                        }
+                                        if row_clicked {
+                                            clicked_row = Some(idx);
+                                            // Clicking a row selects it, as it
+                                            // does in `show_rows`. `DataView`'s
+                                            // grid comes through here, so
+                                            // without this a click in the main
+                                            // file grid selected nothing.
+                                            selected = Some(idx);
                                         }
                                     });
-                                    // JSON-tree cells have no overlay; let the cell
-                                    // response catch right-clicks on their blank area.
-                                    if is_tree {
-                                        response.context_menu(|ui| {
-                                            copy_menu(ui, &copy_action, idx, Some(col));
-                                        });
-                                    }
-                                    if response.clicked() {
-                                        row_clicked = true;
-                                    }
-                                }
-                                if row_clicked {
-                                    clicked_row = Some(idx);
-                                }
-                            });
+                                });
                         });
                 });
-        });
+            })
+            .response
+            .rect;
+        // Recorded for the next frame, when this grid has to decide whether an
+        // arrow key was meant for it.
+        crate::theme::claim_navigation_keys(ui, nav_id(ui), drawn);
 
         // The table's columns are configured before its header responses are
         // available. Queue a header double-click for the next frame, when the
@@ -278,88 +309,101 @@ impl TableView {
 
         let mut clicked_row: Option<usize> = None;
 
-        container(ui, framed, &colors, |ui| {
-            ui.set_min_width(ui.available_width());
+        let drawn = ui
+            .scope(|ui| {
+                container(ui, framed, &colors, |ui| {
+                    ui.set_min_width(ui.available_width());
 
-            egui::ScrollArea::horizontal()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::NONE;
-                    ui.style_mut().spacing.item_spacing.x = 0.0;
-                    ui.style_mut().visuals.faint_bg_color = with_alpha(colors.fg, ZEBRA_ALPHA);
-                    let mut table = TableBuilder::new(ui)
-                        .striped(true)
-                        .sense(egui::Sense::click())
-                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                        .column(Column::exact(NUM_COL_W));
-                    for col in 0..num_cols {
-                        table = table.column(
-                            Column::auto_with_initial_suggestion(min_col_width)
-                                .at_least(min_col_width)
-                                .clip(true)
-                                .resizable(true)
-                                .auto_size_this_frame(auto_fit_column == Some(col)),
-                        );
-                    }
-                    table
-                        .header(HEADER_H, |header_row| {
-                            // Rows built on demand come from somewhere this
-                            // view cannot reorder, so the header only fits.
-                            let hit = paint_header_row(header_row, headers, &colors, None, false);
-                            requested_auto_fit.set(hit.auto_fit);
-                        })
-                        .body(|body| {
-                            body.rows(ROW_H, row_count, |mut row| {
-                                let idx = row.index();
-                                let mut cells = build_row(idx);
-                                cells.truncate(num_cols);
-                                while cells.len() < num_cols {
-                                    cells.push(crate::render_node::RenderNode::text(""));
-                                }
-
-                                let is_selected = selected == Some(idx);
-                                let mut row_clicked = false;
-                                let (_, number_resp) = row.col(|ui| {
-                                    if is_selected {
-                                        ui.painter().rect_filled(
-                                            ui.max_rect(),
-                                            0.0,
-                                            with_alpha(colors.accent, SELECTED_ROW_ALPHA),
-                                        );
-                                    }
-                                    paint_row_number(ui, &colors, &(idx + 1).to_string());
-                                    paint_cell_borders(ui, grid, grid);
-                                });
-                                if number_resp.clicked() {
-                                    row_clicked = true;
-                                }
-
-                                for cell in &mut cells {
-                                    let (_, response) = row.col(|ui| {
-                                        if is_selected {
-                                            ui.painter().rect_filled(
-                                                ui.max_rect(),
-                                                0.0,
-                                                with_alpha(colors.accent, SELECTED_ROW_ALPHA),
-                                            );
+                    egui::ScrollArea::horizontal()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::NONE;
+                            ui.style_mut().spacing.item_spacing.x = 0.0;
+                            ui.style_mut().visuals.faint_bg_color =
+                                with_alpha(colors.fg, ZEBRA_ALPHA);
+                            let mut table = TableBuilder::new(ui)
+                                .striped(true)
+                                .sense(egui::Sense::click())
+                                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                                .column(Column::exact(NUM_COL_W));
+                            for col in 0..num_cols {
+                                table = table.column(
+                                    Column::auto_with_initial_suggestion(min_col_width)
+                                        .at_least(min_col_width)
+                                        .clip(true)
+                                        .resizable(true)
+                                        .auto_size_this_frame(auto_fit_column == Some(col)),
+                                );
+                            }
+                            table
+                                .header(HEADER_H, |header_row| {
+                                    // Rows built on demand come from somewhere this
+                                    // view cannot reorder, so the header only fits.
+                                    let hit =
+                                        paint_header_row(header_row, headers, &colors, None, false);
+                                    requested_auto_fit.set(hit.auto_fit);
+                                })
+                                .body(|body| {
+                                    body.rows(ROW_H, row_count, |mut row| {
+                                        let idx = row.index();
+                                        let mut cells = build_row(idx);
+                                        cells.truncate(num_cols);
+                                        while cells.len() < num_cols {
+                                            cells.push(crate::render_node::RenderNode::text(""));
                                         }
-                                        cell_frame(ui, false, |ui| {
-                                            cell.show(ui, events);
+
+                                        let is_selected = selected == Some(idx);
+                                        let mut row_clicked = false;
+                                        let (_, number_resp) = row.col(|ui| {
+                                            if is_selected {
+                                                ui.painter().rect_filled(
+                                                    ui.max_rect(),
+                                                    0.0,
+                                                    with_alpha(colors.accent, SELECTED_ROW_ALPHA),
+                                                );
+                                            }
+                                            paint_row_number(ui, &colors, &(idx + 1).to_string());
+                                            paint_cell_borders(ui, grid, grid);
                                         });
-                                        paint_cell_borders(ui, grid, grid);
+                                        if number_resp.clicked() {
+                                            row_clicked = true;
+                                        }
+
+                                        for cell in &mut cells {
+                                            let (_, response) = row.col(|ui| {
+                                                if is_selected {
+                                                    ui.painter().rect_filled(
+                                                        ui.max_rect(),
+                                                        0.0,
+                                                        with_alpha(
+                                                            colors.accent,
+                                                            SELECTED_ROW_ALPHA,
+                                                        ),
+                                                    );
+                                                }
+                                                cell_frame(ui, false, |ui| {
+                                                    cell.show(ui, events);
+                                                });
+                                                paint_cell_borders(ui, grid, grid);
+                                            });
+                                            if response.clicked() {
+                                                row_clicked = true;
+                                            }
+                                        }
+                                        if row_clicked {
+                                            clicked_row = Some(idx);
+                                            selected = Some(idx);
+                                        }
                                     });
-                                    if response.clicked() {
-                                        row_clicked = true;
-                                    }
-                                }
-                                if row_clicked {
-                                    clicked_row = Some(idx);
-                                    selected = Some(idx);
-                                }
-                            });
+                                });
                         });
                 });
-        });
+            })
+            .response
+            .rect;
+        // Recorded for the next frame, when this grid has to decide whether an
+        // arrow key was meant for it.
+        crate::theme::claim_navigation_keys(ui, nav_id(ui), drawn);
 
         if let Some(col) = requested_auto_fit.get() {
             ui.data_mut(|data| data.insert_temp(auto_fit_id, col));
@@ -376,6 +420,12 @@ impl TableView {
     }
 }
 
+/// The id this grid claims the keyboard under — its own, so two grids on one
+/// screen are told apart.
+fn nav_id(ui: &egui::Ui) -> egui::Id {
+    ui.id().with("table-view-keys")
+}
+
 /// Move the selected row in response to the keyboard.
 ///
 /// Returns whether anything moved. A grid with no selection starts at the top
@@ -385,6 +435,12 @@ fn move_selection(ui: &egui::Ui, selected: &mut Option<usize>, row_count: usize)
     use egui::Key;
 
     if row_count == 0 {
+        return false;
+    }
+    // These keys belong to whoever the user is working in. Without this, an
+    // arrow pressed in a query-builder value field also moves the selection
+    // here, and in a split dock it moves it in every visible grid at once.
+    if !crate::theme::owns_navigation_keys(ui.ctx(), nav_id(ui)) {
         return false;
     }
     let last = row_count - 1;

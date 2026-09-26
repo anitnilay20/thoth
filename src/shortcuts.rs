@@ -426,13 +426,22 @@ mod mark_tests {
 
     /// Unicode symbols that render as an empty box wherever the machine's
     /// fonts happen not to carry them. Phosphor has a glyph for each.
-    const TOFU_RISK: [(&str, &str); 6] = [
-        ("\u{21B5}", "marks::RETURN"),    // ↵
-        ("\u{23CE}", "marks::RETURN"),    // ⏎
-        ("\u{2318}", "marks::command()"), // ⌘
-        ("\u{2325}", "marks::OPTION"),    // ⌥
-        ("\u{21E7}", "marks::SHIFT"),     // ⇧
-        ("\u{2303}", "marks::CONTROL"),   // ⌃
+    ///
+    /// The list is the *tofu* risk, not every character that could have been
+    /// an icon. A dash or an arrow inside a sentence ("v1.2 → v1.3") is
+    /// punctuation and stays; a mark standing on its own as a tick, a
+    /// direction or a key is an icon and belongs to Phosphor.
+    const TOFU_RISK: [(&str, &str); 10] = [
+        ("\u{21B5}", "marks::RETURN"),                 // ↵
+        ("\u{23CE}", "marks::RETURN"),                 // ⏎
+        ("\u{2318}", "marks::command()"),              // ⌘
+        ("\u{2325}", "marks::OPTION"),                 // ⌥
+        ("\u{21E7}", "marks::SHIFT"),                  // ⇧
+        ("\u{2303}", "marks::CONTROL"),                // ⌃
+        ("\u{2713}", "egui_phosphor::regular::CHECK"), // ✓
+        ("\u{2714}", "egui_phosphor::regular::CHECK"), // ✔
+        ("\u{2717}", "egui_phosphor::regular::X"),     // ✗
+        ("\u{2718}", "egui_phosphor::regular::X"),     // ✘
     ];
 
     /// Every mark the app writes shortcuts with must be a Phosphor glyph.

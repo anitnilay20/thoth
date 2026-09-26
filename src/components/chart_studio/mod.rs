@@ -181,13 +181,19 @@ impl SortMode {
         SortMode::LabelDesc,
     ];
 
-    pub fn label(self) -> &'static str {
+    /// How the mode reads in the menu.
+    ///
+    /// The direction is a Phosphor arrow, not a Unicode one: whether a machine
+    /// has a glyph for U+2191 depends on the fonts it happens to carry, and
+    /// Phosphor is bundled.
+    pub fn label(self) -> String {
+        use egui_phosphor::regular::{ARROW_DOWN, ARROW_UP};
         match self {
-            SortMode::None => "None",
-            SortMode::ValueDesc => "Value ↓",
-            SortMode::ValueAsc => "Value ↑",
-            SortMode::LabelAsc => "Label A–Z",
-            SortMode::LabelDesc => "Label Z–A",
+            SortMode::None => "None".to_string(),
+            SortMode::ValueDesc => format!("Value {ARROW_DOWN}"),
+            SortMode::ValueAsc => format!("Value {ARROW_UP}"),
+            SortMode::LabelAsc => "Label A–Z".to_string(),
+            SortMode::LabelDesc => "Label Z–A".to_string(),
         }
     }
 }
