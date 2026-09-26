@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 use crate::error::Result;
+use crate::file::FileType;
 use crate::file::loaders::{DuckdbConnection, FileLoader, RecordSource, RecordWindow};
-use crate::file::{FileKind, FileType};
 
 /// A single file opened by the MCP server, backed by the DuckDB engine.
 ///
@@ -63,9 +63,16 @@ impl OpenFile {
         self.engine.column_names()
     }
 
-    /// Run SQL against this file. The alias is the file's stem.
-    pub fn query(&self, sql: &str) -> Result<Vec<Value>> {
-        crate::file::loaders::batches_to_values(&self.engine.query(sql)?)
+    /// Run a read-only statement against this file, returning at most
+    /// `max_rows` rows. The alias is the file's stem.
+    ///
+    /// The bound is applied to the Arrow stream, not to the JSON: converting
+    /// the whole of `SELECT * FROM sales` over a multi-gigabyte file and then
+    /// keeping the first hundred rows builds millions of `serde_json::Value`s
+    /// in the server process, while the state mutex is held.
+    pub fn query(&self, sql: &str, max_rows: usize) -> Result<Vec<Value>> {
+        read_only(sql)?;
+        crate::file::loaders::batches_to_values(&self.engine.collect_bounded(sql, Some(max_rows))?)
     }
 
     /// The alias SQL should reference this file by.
@@ -73,19 +80,104 @@ impl OpenFile {
         self.engine.primary_alias().unwrap_or_default()
     }
 
-    /// Return the file type as a human-readable string.
+    /// The file's format, as the tools report it.
+    ///
+    /// Read from [`FileType`] directly. Going through `FileKind` lost the
+    /// distinctions it does not carry: it maps Excel, Arrow and databases all
+    /// to `Json`, and never produces `Ndjson` at all, so the `"ndjson"` arm
+    /// was unreachable and half the formats reported as `"json"`.
     pub fn type_name(&self) -> &'static str {
-        match FileKind::from(self.file_type) {
-            FileKind::Ndjson => "ndjson",
-            FileKind::Json => match self.file_type {
-                FileType::Csv => "csv",
-                FileType::Parquet => "parquet",
-                FileType::DB => "database",
-                _ => "json",
-            },
-            FileKind::Plugin | FileKind::PluginTable => "plugin",
+        let ndjson = self
+            .path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("ndjson") || e.eq_ignore_ascii_case("jsonl"));
+        match self.file_type {
+            FileType::Json if ndjson => "ndjson",
+            FileType::Json | FileType::Unknown => "json",
+            FileType::Csv => "csv",
+            FileType::Parquet => "parquet",
+            FileType::Excel => "excel",
+            FileType::Arrow => "arrow",
+            FileType::DB => "database",
+            FileType::Plugin => "plugin",
         }
     }
+}
+
+/// Reject anything that is not a read.
+///
+/// The engine a tool runs against has the user's own file system and network
+/// reach: `COPY … TO`, `ATTACH`, `INSTALL` and `CREATE` all work, and an MCP
+/// client is not the user. Disabling extension autoload closes one door of
+/// several, so the statement itself is checked — one statement, and it must be
+/// a `SELECT`, a `WITH … SELECT`, a `DESCRIBE`, a `SHOW` or an `EXPLAIN`.
+fn read_only(sql: &str) -> Result<()> {
+    let refuse = |reason: &str| {
+        Err(crate::error::ThothError::DatabaseQueryError {
+            query: sql.to_string(),
+            reason: reason.to_string(),
+        })
+    };
+
+    // Strip comments and string literals before looking at the shape of it, so
+    // neither a `--` nor a quoted `;` can hide a second statement.
+    let mut bare = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' | '"' => {
+                while let Some(end) = chars.next() {
+                    if end == c {
+                        if chars.peek() == Some(&c) {
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                bare.push(' ');
+            }
+            '-' if chars.peek() == Some(&'-') => {
+                for rest in chars.by_ref() {
+                    if rest == '\n' {
+                        break;
+                    }
+                }
+                bare.push(' ');
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut last = ' ';
+                for rest in chars.by_ref() {
+                    if last == '*' && rest == '/' {
+                        break;
+                    }
+                    last = rest;
+                }
+                bare.push(' ');
+            }
+            _ => bare.push(c),
+        }
+    }
+
+    // One statement. A trailing `;` is ordinary; a second statement is not.
+    if bare.trim_end().trim_end_matches(';').contains(';') {
+        return refuse("only one statement at a time");
+    }
+    let first = bare
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    const READS: [&str; 5] = ["select", "with", "describe", "show", "explain"];
+    if !READS.contains(&first.as_str()) {
+        return refuse(&format!(
+            "only read-only statements are allowed here ({}), not '{first}'",
+            READS.join(", ")
+        ));
+    }
+    Ok(())
 }
 
 /// Thread-safe shared state for the MCP server.

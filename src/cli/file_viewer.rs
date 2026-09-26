@@ -98,12 +98,14 @@ pub fn action(files: &[String], sql: &str) -> CliOutput {
         }
     }
 
-    match db.query(sql) {
-        Ok(result) => CliOutput {
+    match db.query(sql).and_then(super::table_output::print_arrow) {
+        Ok(stdout) => CliOutput {
             exit_code: 0,
-            stdout: super::table_output::print_arrow(result),
+            stdout,
             stderr: String::new(),
         },
+        // A result this build cannot format is a failure to report, not a
+        // reason to take the CLI down with a panic.
         Err(e) => failure(e.to_string()),
     }
 }

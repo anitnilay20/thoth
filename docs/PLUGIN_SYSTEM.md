@@ -555,7 +555,7 @@ Each WIT call replenishes fuel to **5,000,000,000 units** (`PLUGIN_FUEL_BUDGET`)
 > binary log, an instrument's export format. The worked example below is an XML
 > loader for exactly that reason.
 
-This walkthrough creates a CSV plugin in Rust using `cargo-component`.
+This walkthrough creates an XML loader plugin in Rust using `cargo-component`.
 
 ### 1. Install tooling
 
@@ -608,18 +608,18 @@ use bindings::exports::thoth::plugin::{
 };
 use bindings::thoth::plugin::types::{Capability, PluginError};
 
-struct CsvPlugin;
+struct XmlPlugin;
 
 struct State {
-    headers: Vec<String>,
-    records: Vec<Vec<String>>,
+    /// Each element of the document, as the JSON object it will be served as.
+    records: Vec<String>,
 }
 
 thread_local! {
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
 }
 
-impl MetaGuest for CsvPlugin {
+impl MetaGuest for XmlPlugin {
     fn get_info() -> bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
         bindings::exports::thoth::plugin::plugin_meta::PluginInfo {
             id:           "com.example.xml-loader".to_string(),
@@ -634,7 +634,7 @@ impl MetaGuest for CsvPlugin {
     }
 }
 
-impl LifecycleGuest for CsvPlugin {
+impl LifecycleGuest for XmlPlugin {
     fn on_load(_setting: String) {}   // no saved settings for this plugin
     fn on_close() {
         STATE.with(|s| *s.borrow_mut() = None);
@@ -642,7 +642,7 @@ impl LifecycleGuest for CsvPlugin {
     fn on_setting_change(_setting: String) {}
 }
 
-impl SettingsGuest for CsvPlugin {
+impl SettingsGuest for XmlPlugin {
     fn render_settings() -> Result<SettingsOutput, PluginError> {
         Ok(SettingsOutput {
             node_json: r#"{"type":"text","value":"No configurable settings.","muted":true}"#.into(),
@@ -651,7 +651,7 @@ impl SettingsGuest for CsvPlugin {
     }
 }
 
-impl FileLoaderGuest for CsvPlugin {
+impl FileLoaderGuest for XmlPlugin {
     fn supported_extensions() -> Vec<String> {
         vec!["xml".to_string()]
     }
@@ -674,7 +674,7 @@ impl FileLoaderGuest for CsvPlugin {
     }
 }
 
-bindings::export!(CsvPlugin with_types_in bindings);
+bindings::export!(XmlPlugin with_types_in bindings);
 ```
 
 ### 5. Build and install

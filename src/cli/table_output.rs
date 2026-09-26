@@ -94,7 +94,12 @@ pub fn print_json(records: &[Value]) -> String {
 }
 
 /// Render headers + rows as a simple aligned ASCII table.
-pub fn print_arrow(batches: Vec<RecordBatch>) -> String {
+///
+/// Padded by *display* width, not byte or `char` count: a column holding
+/// `José` or `你好` lines up with the rest rather than being padded short or
+/// long. Cells are flattened to one line, because a value with a newline in it
+/// splits the row it is in and the table stops being a table.
+pub fn print_arrow(batches: Vec<RecordBatch>) -> Result<String, crate::error::ThothError> {
     let headers: Vec<String> = match batches.first() {
         Some(b) => b
             .schema()
@@ -102,11 +107,13 @@ pub fn print_arrow(batches: Vec<RecordBatch>) -> String {
             .iter()
             .map(|f| f.name().to_string())
             .collect(),
-        None => return "".to_string(),
+        // A query that matched nothing usually yields no batches at all. That
+        // is an answer, and printing nothing is not one.
+        None => return Ok("No results.\n".to_string()),
     };
 
     if headers.is_empty() {
-        return "No results.\n".to_string();
+        return Ok("No results.\n".to_string());
     }
 
     let opts = FormatOptions::default().with_null("NULL");
@@ -119,26 +126,35 @@ pub fn print_arrow(batches: Vec<RecordBatch>) -> String {
             .iter()
             .map(|col| ArrayFormatter::try_new(col.as_ref(), &opts))
             .collect::<Result<_, _>>()
-            .expect("failed to build formatters");
+            .map_err(|e| crate::error::ThothError::DatabaseConversionError {
+                reason: e.to_string(),
+            })?;
 
         // Walk each row index, format every column at that index.
         for row_idx in 0..batch.num_rows() {
             let record: Vec<String> = formatters
                 .iter()
-                .map(|f| f.value(row_idx).to_string())
+                .map(|f| crate::cli::utils::single_line(&f.value(row_idx).to_string()))
                 .collect();
             rows.push(record);
         }
     }
 
     // Compute each column's width = max(header, widest cell).
-    let mut widths: Vec<usize> = headers.iter().map(|h| h.len()).collect();
+    let mut widths: Vec<usize> = headers.iter().map(|h| display_width(h)).collect();
     for row in &rows {
         for (i, cell) in row.iter().enumerate() {
-            if cell.len() > widths[i] {
-                widths[i] = cell.len();
+            if let Some(width) = widths.get_mut(i) {
+                *width = (*width).max(display_width(cell));
             }
         }
+    }
+
+    /// One cell, padded to `width` columns on the terminal.
+    fn pad(cell: &str, width: usize) -> String {
+        let mut out = cell.to_string();
+        out.push_str(&" ".repeat(width.saturating_sub(display_width(cell))));
+        out
     }
 
     let mut output = String::new();
@@ -147,10 +163,9 @@ pub fn print_arrow(batches: Vec<RecordBatch>) -> String {
     let header_line = headers
         .iter()
         .enumerate()
-        .map(|(i, h)| format!("{:<width$}", h, width = widths[i]))
+        .map(|(i, h)| pad(h, widths[i]))
         .collect::<Vec<_>>()
         .join(" | ");
-    // println!("{header_line}");
     output += &(header_line + "\n");
 
     // Separator.
@@ -166,17 +181,73 @@ pub fn print_arrow(batches: Vec<RecordBatch>) -> String {
         let line = row
             .iter()
             .enumerate()
-            .map(|(i, cell)| format!("{:<width$}", cell, width = widths[i]))
+            .map(|(i, cell)| pad(cell, widths[i]))
             .collect::<Vec<_>>()
             .join(" | ");
 
         output += &(line + "\n");
     }
 
-    output
+    Ok(output
         + &format!(
             "\n({} row{})",
             rows.len(),
             if rows.len() == 1 { "" } else { "s" }
-        )
+        ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use duckdb::Connection;
+
+    /// The table `sql` prints, run through the same path the CLI takes.
+    fn table(sql: &str) -> String {
+        let conn = Connection::open_in_memory().expect("in-memory duckdb");
+        let mut stmt = conn.prepare(sql).expect("prepared");
+        let batches: Vec<RecordBatch> = stmt.query_arrow([]).expect("ran").collect();
+        print_arrow(batches).expect("formatted")
+    }
+
+    #[test]
+    fn a_query_that_matched_nothing_says_so() {
+        // No rows usually means no batches at all, and printing an empty
+        // string leaves the user unable to tell it from a crash. `print_json`
+        // has always said "No results."; this now agrees with it.
+        assert_eq!(table("SELECT 1 AS n WHERE false"), "No results.\n");
+    }
+
+    #[test]
+    fn columns_line_up_when_the_text_is_not_ascii() {
+        // Widths counted in bytes pad a multi-byte cell short, and widths
+        // counted in `char`s pad a double-width one long. Either way the
+        // columns stop being columns.
+        let out = table("SELECT * FROM (VALUES ('José', 1), ('你好', 22), ('ab', 333)) t(name, n)");
+        let widths: Vec<usize> = out
+            .lines()
+            .take_while(|l| !l.is_empty())
+            .map(display_width)
+            .collect();
+        assert!(
+            widths.windows(2).all(|w| w[0] == w[1]),
+            "rows are different widths on screen:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_cell_with_a_newline_does_not_split_its_row() {
+        let out = table("SELECT 'a\nb' AS s, 1 AS n");
+        // Header, separator, one row, a blank line and the count — and the
+        // row is one line, however many the value had.
+        let body: Vec<&str> = out.lines().take_while(|l| !l.is_empty()).collect();
+        assert_eq!(body.len(), 3, "{out}");
+        assert!(out.contains("(1 row)"));
+    }
+
+    #[test]
+    fn the_row_count_agrees_with_the_rows() {
+        let out = table("SELECT * FROM (VALUES (1), (2), (3)) t(n)");
+        assert!(out.ends_with("(3 rows)"), "{out}");
+        assert!(table("SELECT 1 AS n").ends_with("(1 row)"));
+    }
 }

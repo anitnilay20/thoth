@@ -1510,6 +1510,8 @@ mod tests {
     fn an_envelope_reaches_the_picker_with_every_collection_it_holds() {
         use std::io::Write;
 
+        let _cache = crate::file::index_cache::tests::exclusive();
+        let _papyrus = crate::papyrus::tests::exclusive();
         crate::file::index_cache::tests::isolate();
 
         let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
@@ -1569,6 +1571,8 @@ mod tests {
     fn a_document_is_drawn_as_a_document_not_as_a_dataset() {
         use std::io::Write;
 
+        let _cache = crate::file::index_cache::tests::exclusive();
+        let _papyrus = crate::papyrus::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         // A file DuckDB declines is text, and a text tab has no engine — which
         // is what routes it to `TextView` instead of `DataView` and its table

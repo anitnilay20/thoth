@@ -627,6 +627,9 @@ mod tests {
 
     #[test]
     fn a_job_finishes_and_yields_its_index() {
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let file = source(500);
         let job = IndexJob::spawn(file.path());
@@ -640,6 +643,9 @@ mod tests {
 
     #[test]
     fn progress_is_a_fraction_that_reaches_one() {
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let file = source(200);
         let job = IndexJob::spawn(file.path());
@@ -652,6 +658,9 @@ mod tests {
 
     #[test]
     fn a_cancelled_job_yields_nothing() {
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let file = source(100);
         let job = IndexJob::spawn(file.path());
@@ -671,6 +680,9 @@ mod tests {
 
     #[test]
     fn a_missing_file_fails_rather_than_hanging() {
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let job = IndexJob::spawn(Path::new("/definitely/not/here.log"));
         assert_eq!(settle(&job), Progress::Failed);
@@ -720,6 +732,9 @@ mod tests {
 
     #[test]
     fn an_envelope_document_comes_back_as_queryable_tables() {
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         // The shape DuckDB cannot read at all: one top-level object. Indexing
         // it must yield tables, not text -- that is the whole point.
@@ -787,6 +802,9 @@ mod tests {
 
     #[test]
     fn an_object_with_nothing_tabular_falls_back_to_text() {
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(tmp, r#"{{"a":1,"b":"x","c":{{"d":2}}}}"#).unwrap();
@@ -805,6 +823,9 @@ mod tests {
         // The rule: what DuckDB can read, DuckDB reads — the extension is not
         // the decider. Before this, a `.log` had to be claimed by a plugin or
         // it fell all the way to a text index.
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let mut tmp = tempfile::Builder::new().suffix(".log").tempfile().unwrap();
         write!(tmp, "{{\"a\":1}}\n{{\"a\":2}}\n{{\"a\":3}}\n").unwrap();
@@ -824,6 +845,9 @@ mod tests {
         // Every one of these used to land in a text index: a leading `{` was
         // read as "single object", which sent them down the envelope path,
         // found nothing tabular, and gave up.
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         for suffix in [".ndjson", ".json", ".jsonl", ".log", ".dat"] {
             let mut tmp = tempfile::Builder::new().suffix(suffix).tempfile().unwrap();
@@ -841,6 +865,9 @@ mod tests {
 
     #[test]
     fn a_json_array_reaches_the_engine_too() {
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(tmp, "[{{\"a\":1}},{{\"a\":2}}]").unwrap();
@@ -858,6 +885,9 @@ mod tests {
     fn an_envelope_is_still_an_envelope() {
         // The counterpart: a genuine single top-level object must keep going
         // down the envelope path, or the collections feature disappears.
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         write!(tmp, "{{\"users\":[{{\"id\":1}}],\"logs\":[{{\"n\":2}}]}}").unwrap();
@@ -875,8 +905,10 @@ mod tests {
         // not: the first open fell back to text and *cached* that, and every
         // open after it was served the cache before the engine was even
         // asked — so a file that became readable stayed text forever.
-        crate::file::index_cache::tests::isolate();
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
         let _cache = crate::file::index_cache::tests::exclusive();
+        crate::file::index_cache::tests::isolate();
 
         let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
         tmp.write_all(b"a,b\n1,x\n2,y\n").unwrap();
@@ -953,6 +985,9 @@ mod tests {
     fn a_markdown_file_is_read_as_a_document() {
         // Markdown is prose. DuckDB would happily make a one-column table of
         // its lines, which is why it never gets the chance.
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let mut tmp = tempfile::Builder::new().suffix(".md").tempfile().unwrap();
         write!(tmp, "# Title\n\nSome **bold** text.\n\n- one\n- two\n").unwrap();
@@ -969,6 +1004,9 @@ mod tests {
 
     #[test]
     fn a_plain_log_file_is_indexed_as_text() {
+        // A job writes into the one shared scratch directory, which the
+        // cache's own tests clear wholesale — so they take turns.
+        let _cache = crate::file::index_cache::tests::exclusive();
         crate::file::index_cache::tests::isolate();
         let file = source(40);
         let job = IndexJob::spawn(file.path());

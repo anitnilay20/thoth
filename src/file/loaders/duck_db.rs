@@ -129,6 +129,16 @@ impl DuckdbConnection {
 
     /// Run `sql` and collect every Arrow batch it produces.
     fn collect(&self, sql: &str) -> Result<Vec<RecordBatch>> {
+        self.collect_bounded(sql, None)
+    }
+
+    /// Run `sql` and collect at most `max_rows` rows, stopping as soon as that
+    /// many have arrived.
+    ///
+    /// `None` takes the whole result. The bound is applied to the *stream*
+    /// rather than to what comes out of it: a caller that wants a hundred rows
+    /// of a multi-gigabyte file should not first hold all of it in Arrow.
+    pub fn collect_bounded(&self, sql: &str, max_rows: Option<usize>) -> Result<Vec<RecordBatch>> {
         let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn
             .prepare(sql)
@@ -136,14 +146,30 @@ impl DuckdbConnection {
                 query: sql.to_string(),
                 reason: e.to_string(),
             })?;
-        let batches = stmt
+        let stream = stmt
             .stream_arrow([])
             .map_err(|e| ThothError::DatabaseQueryError {
                 query: sql.to_string(),
                 reason: e.to_string(),
-            })?
-            .collect();
-        Ok(batches)
+            })?;
+        let Some(max_rows) = max_rows else {
+            return Ok(stream.collect());
+        };
+        let mut remaining = max_rows;
+        let mut kept = Vec::new();
+        for batch in stream {
+            if remaining == 0 {
+                break;
+            }
+            let take = remaining.min(batch.num_rows());
+            remaining -= take;
+            kept.push(if take == batch.num_rows() {
+                batch
+            } else {
+                batch.slice(0, take)
+            });
+        }
+        Ok(kept)
     }
 
     fn execute(&self, sql: &str) -> Result<()> {

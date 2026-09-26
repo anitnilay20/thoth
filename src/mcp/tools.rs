@@ -41,7 +41,8 @@ pub struct OpenFileResult {
     pub handle: String,
     /// The resolved file path.
     pub path: String,
-    /// Detected format: "ndjson", "json", "csv", "parquet", "database" or "plugin".
+    /// Detected format: "ndjson", "json", "csv", "parquet", "excel", "arrow",
+    /// "database" or "plugin".
     pub file_type: String,
     /// Number of top-level records in the file.
     pub record_count: usize,
@@ -481,7 +482,7 @@ impl ThothMcpServer {
 
     #[tool(
         name = "query_file",
-        description = "Run SQL against an open file. Supports WHERE, ORDER BY, GROUP BY, aggregates and window functions. Reference the file by the alias returned here or by open_file."
+        description = "Run a read-only SQL query against an open file. SELECT / WITH / DESCRIBE / SHOW / EXPLAIN only, one statement at a time. Supports WHERE, ORDER BY, GROUP BY, aggregates and window functions. Reference the file by the alias returned here or by open_file."
     )]
     fn query_file(&self, Parameters(params): Parameters<QueryFileParams>) -> Json<QueryFileResult> {
         let max_rows = params.max_rows.unwrap_or(100);
@@ -489,9 +490,8 @@ impl ThothMcpServer {
         let result = self.state.with_file(&params.handle, |file| {
             let alias = file.alias();
             let columns = file.columns().unwrap_or_default();
-            match file.query(&params.sql) {
-                Ok(mut rows) => {
-                    rows.truncate(max_rows);
+            match file.query(&params.sql, max_rows) {
+                Ok(rows) => {
                     let row_count = rows.len();
                     QueryFileResult {
                         alias,

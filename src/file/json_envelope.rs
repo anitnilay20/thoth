@@ -40,6 +40,18 @@ pub enum ValueKind {
     Scalar,
 }
 
+/// A raw key's bytes as the name it spells.
+///
+/// The bytes are UTF-8 as they appeared in the document, still carrying JSON's
+/// own escapes — `\u00e9` is six characters there and one in the name. Read
+/// back as a JSON string so every escape is handled by the same rules as the
+/// rest of the file; a key that is not valid UTF-8, or whose escapes do not
+/// parse, falls back to a lossy reading rather than losing the collection.
+fn decode_key(raw: Vec<u8>) -> String {
+    let text = String::from_utf8_lossy(&raw);
+    serde_json::from_str::<String>(&format!("\"{text}\"")).unwrap_or_else(|_| text.into_owned())
+}
+
 /// A top-level key and the byte range of its value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Collection {
@@ -199,7 +211,9 @@ struct Scanner {
     in_string: bool,
     /// The previous byte was a backslash inside a string.
     escaped: bool,
-    key: String,
+    /// The current key's bytes as they appear in the document — UTF-8, still
+    /// carrying JSON's own escapes. Decoded once, when the key closes.
+    key: Vec<u8>,
     value_start: u64,
     value_first: u8,
     /// Bytes consumed, so a value left open by a truncated document can still
@@ -254,16 +268,23 @@ impl Scanner {
                     _ => {} // whitespace and commas
                 },
                 State::InKey => {
+                    // Bytes, not `byte as char`: that reads each UTF-8 byte as
+                    // a Latin-1 code point, so `"café"` became `"cafÃ©"` — and
+                    // that wrong name went into the layout table, the picker
+                    // and `alias_for_name`.
                     if self.escaped {
-                        self.key.push(byte as char);
+                        self.key.push(byte);
                         self.escaped = false;
                     } else if byte == b'\\' {
+                        // Kept, so the key is still valid JSON string content
+                        // when it is decoded.
+                        self.key.push(byte);
                         self.escaped = true;
                     } else if byte == b'"' {
                         self.in_string = false;
                         self.state = State::ExpectColon;
                     } else {
-                        self.key.push(byte as char);
+                        self.key.push(byte);
                     }
                 }
                 State::ExpectColon => {
@@ -340,7 +361,7 @@ impl Scanner {
             _ => ValueKind::Scalar,
         };
         self.found.push(Collection {
-            name: std::mem::take(&mut self.key),
+            name: decode_key(std::mem::take(&mut self.key)),
             kind,
             start: self.value_start,
             end,
@@ -387,6 +408,36 @@ mod tests {
     /// The exact bytes a collection spans, to prove the ranges are usable.
     fn slice<'a>(contents: &'a str, c: &Collection) -> &'a str {
         &contents[c.start as usize..c.end as usize]
+    }
+
+    #[test]
+    fn a_key_that_is_not_ascii_keeps_its_own_letters() {
+        // Pushing each UTF-8 byte as a `char` reads it as Latin-1: "café"
+        // became "cafÃ©", and that wrong name reached the layout table, the
+        // picker and the SQL alias derived from it.
+        let env = scan(r#"{"café":[{"a":1}],"日本語":[{"b":2}],"naïve":7}"#);
+        assert_eq!(
+            env.collections
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            ["café", "日本語", "naïve"]
+        );
+    }
+
+    #[test]
+    fn an_escaped_key_is_the_name_it_spells() {
+        // JSON's escapes are part of the name, not part of the text: `\u00e9`
+        // is one letter, and a key with a quote or a backslash in it must come
+        // back as that key rather than as its source.
+        let env = scan(r#"{"caf\u00e9":[{"a":1}],"a\"b":[{"b":2}],"c\\d":3,"e\nf":4}"#);
+        assert_eq!(
+            env.collections
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect::<Vec<_>>(),
+            ["café", "a\"b", "c\\d", "e\nf"]
+        );
     }
 
     #[test]

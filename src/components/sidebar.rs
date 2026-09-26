@@ -234,8 +234,22 @@ impl Sidebar {
                 }
             }
             Some(SidebarSection::Search) => {
-                // Search is parked while it is rebuilt as a DuckDB filter (#53).
-                ui.label("Search is being rebuilt on the query engine.");
+                // Search is parked while it is rebuilt as a DuckDB filter
+                // (#53). The rail button and `FocusSearch` still open this
+                // section, so the empty state is on screen until then and
+                // reads in the design system's own muted body, not egui's
+                // default label.
+                egui::Frame::NONE
+                    .inner_margin(egui::Margin::symmetric(12, 10))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.add(
+                            thoth_plugin_sdk::components::Typography::builder()
+                                .text("Search is being rebuilt on the query engine.")
+                                .variant(thoth_plugin_sdk::components::TypographyVariant::BodyMuted)
+                                .build(),
+                        );
+                    });
             }
             Some(SidebarSection::Bookmarks) => {
                 let output = self.bookmarks.render(
