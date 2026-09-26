@@ -426,6 +426,11 @@ svg {
   color: var(--fg-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
 }
+/* `direction: rtl` puts the ellipsis on the left, where a path should lose its
+   head rather than its tail. It also hands the leading neutrals of `~/` the
+   RTL direction, which renders `~/data/telemetry` as `data/telemetry/~`, so
+   the path itself is isolated back to LTR inside the RTL box. */
+.frow .pth > bdi { unicode-bidi: isolate; direction: ltr; }
 .frow .sz { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted); }
 
 /* ── Main pane ───────────────────────────────────────────────────────────── */

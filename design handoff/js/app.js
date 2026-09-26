@@ -665,7 +665,9 @@ function cellClass(type) {
 function cellText(value, type) {
   if (value === null || value === undefined) return '';
   if (type === 'JSON' || typeof value === 'object') return JSON.stringify(value);
-  if (type === 'DOUBLE') return value.toFixed(1);
+  // Not rounded: a data viewer that shows 523.47 as "523.5" is showing a
+  // number the file does not contain, and the real grid does not do it either.
+  if (type === 'DOUBLE') return String(value);
   if (type === 'BIGINT' || type === 'INTEGER') return String(value);
   return String(value);
 }
@@ -691,8 +693,11 @@ function renderTable(result) {
           + `<span class="jchip">${glyph}</span></td>`;
       }
       const text = cellText(raw, c.type);
+      // The quick-filter carries the *value*, not what the cell displays.
+      // `cellText` rounds a DOUBLE for the eye, and filtering to 523.5 when
+      // the row holds 523.47 matches nothing and excludes nothing.
       const q = COLNAMES.includes(c.name) && text !== ''
-        ? ` data-f="${c.name}" data-v="${escAttr(text)}"` : '';
+        ? ` data-f="${c.name}" data-v="${escAttr(asText(raw))}"` : '';
       if (c.name === 'level') {
         return `<td${q}><span class="lvl lvl-${escAttr(String(raw))}">${esc(text)}</span></td>`;
       }
@@ -1104,6 +1109,10 @@ function renderHead() {
 /* ---- Facets ------------------------------------------------------------ */
 
 function facetActive(field, value) {
+  // "(empty)" is a missing field, which is `is null` rather than `= ''`.
+  if (value === '') {
+    return state.spec.filters.some(x => x.field === field && x.op === 'is null');
+  }
   return state.spec.filters.some(x => x.field === field
     && ((x.op === '=' && asText(x.value) === value)
       || (x.op === 'in' && listOf(x.value).includes(value))));
@@ -1113,6 +1122,16 @@ function facetActive(field, value) {
    checkbox list behaves — rather than replacing the first choice. */
 function toggleFacet(field, value) {
   const s = state.spec;
+  // `renderFacets` counts rows that lack the field as `''` and shows them as
+  // "(empty)". Filtering to that is asking for the rows where the field is
+  // absent — `= ''` has no value to compile and fails the whole query.
+  if (value === '') {
+    const at = s.filters.findIndex(x => x.field === field && x.op === 'is null');
+    if (at >= 0) s.filters.splice(at, 1);
+    else s.filters.push({ field, op: 'is null', value: '', value2: '' });
+    commitSpec();
+    return;
+  }
   const f = s.filters.find(x => x.field === field && (x.op === '=' || x.op === 'in'));
   if (!f) {
     s.filters.push({ field, op: '=', value, value2: '' });
@@ -1373,10 +1392,15 @@ function drillInto(i) {
   if (!row) return;
   const s = state.spec;
   for (const field of s.groupBy) {
-    const v = asText(row[field]);
-    const f = s.filters.find(x => x.field === field && (x.op === '=' || x.op === 'in'));
-    if (f) { f.op = '='; f.value = v; f.value2 = ''; }
-    else s.filters.push({ field, op: '=', value: v, value2: '' });
+    // A group whose key is absent drills into "where this field is missing",
+    // not into `= ''`, which has no value to compile.
+    const raw = row[field];
+    const absent = raw === null || raw === undefined;
+    s.filters = s.filters.filter(x => !(x.field === field
+      && (x.op === '=' || x.op === 'in' || x.op === 'is null')));
+    s.filters.push(absent
+      ? { field, op: 'is null', value: '', value2: '' }
+      : { field, op: '=', value: asText(raw), value2: '' });
   }
   s.groupBy = [];
   s.aggs = [];
@@ -1547,8 +1571,11 @@ function renderChrome() {
   const r = state.result;
   const filtered = state.spec.filters.length > 0;
   el.stMode.textContent = r && r.grouped ? 'Grouped' : 'Rows';
+  // For a grouped result `matched` counts groups, not items — "12 of 4,812
+  // items" after a group by is the wrong noun on the wrong number. `scanned`
+  // is the records behind those groups.
   el.stItems.innerHTML = r && (filtered || r.grouped)
-    ? `<svg width="13" height="13"><use href="#i-funnel"/></svg> <span class="v">${nf.format(r.matched)}</span>`
+    ? `<svg width="13" height="13"><use href="#i-funnel"/></svg> <span class="v">${nf.format(r.grouped ? r.scanned : r.matched)}</span>`
       + ` of ${nf.format(RECORDS.length)} items`
     : `<svg width="13" height="13"><use href="#i-list"/></svg> <span class="v">${nf.format(RECORDS.length)}</span> items`;
   el.stSig.classList.toggle('live', state.running);
@@ -1659,7 +1686,10 @@ function exportRows(format) {
 function addItem(kind) {
   const s = state.spec;
   if (kind === 'filter') {
-    s.filters.push({ field: 'level', op: '=', value: '', value2: '' });
+    // Seeded with the column's own first value: `commitSpec` runs the spec
+    // as soon as it changes, and an empty value fails `compileFilter` — so an
+    // empty default replaced the grid with "Query failed" on every + Filter.
+    s.filters.push({ field: 'level', op: '=', value: EXAMPLE.level || '', value2: '' });
   } else if (kind === 'group') {
     const next = PLAIN_FIELDS.find(f => !s.groupBy.includes(f));
     if (!next) return;
@@ -1916,16 +1946,16 @@ el.dvbody.addEventListener('click', e => {
 const PANES = {
   bookmarks: ['Bookmarks', `
     <div class="sgroup"><h3>events.ndjson</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[0].trace.trace_id</span><span class="pth">record 0</span></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[1633].decline_code</span><span class="pth">record 1633</span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[0].trace.trace_id</span><span class="pth"><bdi>record 0</bdi></span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[1633].decline_code</span><span class="pth"><bdi>record 1633</bdi></span></div>
     <div class="sgroup"><h3>spans.ndjson</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[88].trace_id</span><span class="pth">record 88</span></div>`],
+    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[88].trace_id</span><span class="pth"><bdi>record 88</bdi></span></div>`],
   seshat: ['Seshat — databases', `
     <div class="sgroup"><h3>Connections</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-db"/></svg><span class="nm">analytics</span><span class="pth">postgres · read-only</span></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-db"/></svg><span class="nm">local.duckdb</span><span class="pth">~/data/local.duckdb</span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-db"/></svg><span class="nm">analytics</span><span class="pth"><bdi>postgres · read-only</bdi></span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-db"/></svg><span class="nm">local.duckdb</span><span class="pth"><bdi>~/data/local.duckdb</bdi></span></div>
     <div class="sgroup"><h3>Saved queries</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-code"/></svg><span class="nm">errors_by_service</span><span class="pth">2 params</span></div>`],
+    <div class="frow"><svg width="14" height="14"><use href="#i-code"/></svg><span class="nm">errors_by_service</span><span class="pth"><bdi>2 params</bdi></span></div>`],
   url: ['url-source — fetch', `
     <div style="padding:10px 12px 4px">
       <label class="field" style="width:100%"><svg width="14" height="14"><use href="#i-plug"/></svg>
@@ -1933,8 +1963,8 @@ const PANES = {
     </div>
     <div style="padding:0 12px 10px"><button class="btn btn-solid" style="width:100%;justify-content:center">Fetch</button></div>
     <div class="sgroup"><h3>Recent endpoints</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-plug"/></svg><span class="nm">/v2/events</span><span class="pth">200 · 41 KB</span></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-plug"/></svg><span class="nm">/v2/services</span><span class="pth">200 · 2 KB</span></div>`],
+    <div class="frow"><svg width="14" height="14"><use href="#i-plug"/></svg><span class="nm">/v2/events</span><span class="pth"><bdi>200 · 41 KB</bdi></span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-plug"/></svg><span class="nm">/v2/services</span><span class="pth"><bdi>200 · 2 KB</bdi></span></div>`],
 };
 const recentPane = $('#sideBody').innerHTML;
 

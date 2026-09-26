@@ -5,6 +5,15 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
+/// How long a release download may go without receiving a byte.
+///
+/// This is reqwest's blocking `timeout`, which applies per `read` — so it is a
+/// stall, not a total. A minute of silence is a server that has gone away.
+const STALL_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// And how long the whole download may take, however steadily it trickles.
+const DOWNLOAD_DEADLINE: Duration = Duration::from_secs(30 * 60);
+
 const GITHUB_REPO: &str = "anitnilay20/thoth";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -161,13 +170,19 @@ impl UpdateManager {
         // Determine the correct asset based on platform
         let asset = Self::get_platform_asset(release)?;
 
-        // The release binary is tens of megabytes: 30 seconds is nowhere near
-        // enough on an ordinary connection, and the failure reads as a network
-        // error rather than as the deadline it is.
+        // Two deadlines, because reqwest's blocking `timeout` is applied to
+        // each `read` rather than to the download: a single value large enough
+        // for tens of megabytes on an ordinary connection is also a server
+        // that stops sending bytes and is not given up on for that long, and
+        // a trickle of bytes never times out at all.
+        //
+        // So `timeout` is the *stall* — a minute with nothing arriving means
+        // the far end has gone — and the whole download is bounded separately
+        // in the read loop below.
         let client = reqwest::blocking::Client::builder()
             .user_agent("thoth-updater")
             .connect_timeout(Duration::from_secs(20))
-            .timeout(Duration::from_secs(30 * 60))
+            .timeout(STALL_TIMEOUT)
             .build()?;
 
         // Create temp directory for download
@@ -199,8 +214,23 @@ impl UpdateManager {
             })?;
         let mut downloaded: u64 = 0;
 
+        let started = std::time::Instant::now();
         let mut buffer = vec![0; 8192];
         loop {
+            // The overall bound. Without it a connection that delivers a
+            // trickle of bytes — enough to reset the stall timeout, never
+            // enough to finish — downloads forever.
+            if started.elapsed() > DOWNLOAD_DEADLINE {
+                return Err(ThothError::UpdateDownloadError {
+                    version: release.tag_name.clone(),
+                    reason: format!(
+                        "download gave up after {} minutes ({} of {} bytes)",
+                        DOWNLOAD_DEADLINE.as_secs() / 60,
+                        downloaded,
+                        total_size
+                    ),
+                });
+            }
             let n = response.read(&mut buffer)?;
             if n == 0 {
                 break;
