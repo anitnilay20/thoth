@@ -209,10 +209,16 @@ fn only_read_only_statements_reach_the_engine() {
             .expect("handle resolves")
     };
 
+    // Somewhere writable on every platform, so "the COPY did not happen" is
+    // an assertion rather than an accident of where /tmp is.
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let written = scratch.path().join("thoth-mcp-should-not-exist.csv");
+    let target = written.display().to_string().replace('\'', "''");
+
     // The engine a tool runs against has the user's file system and network
     // reach. An MCP client is not the user.
     for hostile in [
-        format!("COPY (SELECT * FROM {alias}) TO '/tmp/thoth-mcp-should-not-exist.csv'"),
+        format!("COPY (SELECT * FROM {alias}) TO '{target}'"),
         "ATTACH 'http://example.invalid/x.db' AS remote".to_string(),
         "INSTALL httpfs".to_string(),
         "CREATE TABLE pwned (x INT)".to_string(),
@@ -226,10 +232,7 @@ fn only_read_only_statements_reach_the_engine() {
             "{hostile:?} was allowed through"
         );
     }
-    assert!(
-        !std::path::Path::new("/tmp/thoth-mcp-should-not-exist.csv").exists(),
-        "a refused COPY still wrote a file"
-    );
+    assert!(!written.exists(), "a refused COPY still wrote a file");
 
     // And the reads a client is actually for still work, including a trailing
     // semicolon and a literal that happens to contain one.

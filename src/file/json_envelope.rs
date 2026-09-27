@@ -581,10 +581,10 @@ mod tests {
     #[test]
     #[ignore = "requires ~/Downloads/data_2gb.json"]
     fn scans_the_2gb_envelope() {
-        let path = std::path::Path::new(concat!(env!("HOME"), "/Downloads/data_2gb.json"));
-        if !path.exists() {
+        let Some(path) = crate::file::downloaded("data_2gb.json") else {
             return;
-        }
+        };
+        let path = path.as_path();
         let started = std::time::Instant::now();
         let env = JsonEnvelope::scan(path).unwrap().expect("an envelope");
         println!("scan time: {:?}", started.elapsed());
@@ -609,10 +609,10 @@ mod phase_timing {
     #[test]
     #[ignore = "requires ~/Downloads/data_500mb.json"]
     fn scan_versus_stage() {
-        let path = std::path::Path::new(concat!(env!("HOME"), "/Downloads/data_500mb.json"));
-        if !path.exists() {
+        let Some(path) = crate::file::downloaded("data_500mb.json") else {
             return;
-        }
+        };
+        let path = path.as_path();
         let t = std::time::Instant::now();
         let env = JsonEnvelope::scan(path).unwrap().expect("envelope");
         println!("SCAN:  {:?}", t.elapsed());

@@ -1109,10 +1109,10 @@ mod real_file {
     #[test]
     #[ignore = "requires ~/Downloads/data_500mb.json"]
     fn cached_reopen_is_faster() {
-        let path = Path::new(concat!(env!("HOME"), "/Downloads/data_500mb.json"));
-        if !path.exists() {
+        let Some(path) = crate::file::downloaded("data_500mb.json") else {
             return;
-        }
+        };
+        let path = path.as_path();
         let db = crate::file::index_cache::database_path(path).unwrap();
         let _ = std::fs::remove_file(&db);
 
@@ -1154,11 +1154,11 @@ mod real_file {
     #[test]
     #[ignore = "requires ~/Downloads/data_500mb.json"]
     fn opens_the_downloaded_document() {
-        let path = Path::new(concat!(env!("HOME"), "/Downloads/data_500mb.json"));
-        if !path.exists() {
+        let Some(path) = crate::file::downloaded("data_500mb.json") else {
             println!("absent; skipping");
             return;
-        }
+        };
+        let path = path.as_path();
         let started = std::time::Instant::now();
         let job = IndexJob::spawn(path);
         while !job.progress().is_finished() {

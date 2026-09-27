@@ -407,17 +407,16 @@ mod tests {
 #[cfg(test)]
 mod real_file_tests {
     use super::*;
-    use std::path::Path;
 
     /// Indexing the 500MB envelope file that motivated this fallback. Ignored
     /// by default because it depends on a local file.
     #[test]
     #[ignore = "requires ~/Downloads/data_2gb.json"]
     fn indexes_a_2gb_document() {
-        let path = Path::new(concat!(env!("HOME"), "/Downloads/data_2gb.json"));
-        if !path.exists() {
+        let Some(path) = crate::file::downloaded("data_2gb.json") else {
             return;
-        }
+        };
+        let path = path.as_path();
         let started = std::time::Instant::now();
         let index = TextIndex::build(path).unwrap();
         println!("lines: {}", index.len());
@@ -439,10 +438,10 @@ mod real_file_tests {
     #[test]
     #[ignore = "requires ~/Downloads/data_500mb.json"]
     fn indexes_a_500mb_document() {
-        let path = Path::new(concat!(env!("HOME"), "/Downloads/data_500mb.json"));
-        if !path.exists() {
+        let Some(path) = crate::file::downloaded("data_500mb.json") else {
             return;
-        }
+        };
+        let path = path.as_path();
         let started = std::time::Instant::now();
         let index = TextIndex::build(path).unwrap();
         let elapsed = started.elapsed();

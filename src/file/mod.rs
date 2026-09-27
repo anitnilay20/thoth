@@ -150,3 +150,17 @@ fn has_trailing_par1(file: &mut File) -> bool {
     let mut tail = [0u8; 4];
     file.read_exact(&mut tail).is_ok() && &tail == b"PAR1"
 }
+
+/// A file in the user's Downloads that a measurement test wants, or `None`
+/// when it is not there.
+///
+/// Resolved at *run* time, and through `dirs` rather than `HOME`. These tests
+/// are `#[ignore]`d and skip themselves when the file is absent, but
+/// `env!("HOME")` is read when the crate is compiled and Windows has no such
+/// variable — so six of them failed the whole test build on a platform where
+/// they never run.
+#[cfg(test)]
+pub(crate) fn downloaded(name: &str) -> Option<std::path::PathBuf> {
+    let path = dirs::home_dir()?.join("Downloads").join(name);
+    path.exists().then_some(path)
+}
