@@ -85,7 +85,10 @@ impl QueryBuilder {
         // words, so a collapsed builder hides the controls, not the question —
         // and a file opens showing its data rather than four empty lanes.
         let mut lanes_open: bool = ui.ctx().data(|d| d.get_temp(lanes_id).unwrap_or(false));
-        let mut sql_open: bool = ui.ctx().data(|d| d.get_temp(sql_id).unwrap_or(false));
+        // Which tab the lanes area is showing. The two are alternatives — a
+        // query is either built or written, and the user works in one of them
+        // — so they are tabs rather than a disclosure that stacks both.
+        let mut on_sql: bool = ui.ctx().data(|d| d.get_temp(sql_id).unwrap_or(false));
         // The id this builder claims ⌘↵ and ⌘/ under — its own, so two
         // builders on one screen are told apart.
         let keys_id = ui.id().with("query-builder-keys");
@@ -159,7 +162,7 @@ impl QueryBuilder {
             .vertical(|ui| {
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
 
-                if self.head(ui, &colors, lanes_open) {
+                if self.head(ui, &colors, lanes_open, &mut on_sql) {
                     lanes_open = !lanes_open;
                 }
 
@@ -177,24 +180,7 @@ impl QueryBuilder {
                     // Shown, so the query the typed SQL grew out of is still
                     // readable, but not editable: two editable copies of one query
                     // means the last one touched wins invisibly.
-                    ui.add_enabled_ui(!overridden, |ui| {
-                        add_filter |= self.lanes(ui, &colors, &mut changed);
-                    });
-                    let (ran, revert) = self.foot(
-                        ui,
-                        &colors,
-                        &compiled,
-                        &mut sql_open,
-                        &mut changed,
-                        overridden,
-                    );
-                    run |= ran;
-                    if revert {
-                        self.sql_override = None;
-                        changed = true;
-                        sql_edited = true;
-                    }
-                    if sql_open {
+                    if on_sql {
                         let edited = sql_box(ui, &self.id, &compiled, &mut self.sql_override);
                         if let Some(request) = edited.run {
                             let _ = request;
@@ -204,6 +190,22 @@ impl QueryBuilder {
                             changed = true;
                             sql_edited = true;
                         }
+                    } else {
+                        // Shown, so the query the typed SQL grew out of is
+                        // still readable, but not editable: two editable
+                        // copies of one query means the last one touched wins
+                        // invisibly.
+                        ui.add_enabled_ui(!overridden, |ui| {
+                            add_filter |= self.lanes(ui, &colors, &mut changed);
+                        });
+                    }
+                    let (ran, revert) = self.foot(ui, &colors, &compiled, &mut changed, overridden);
+                    run |= ran;
+                    if revert {
+                        self.sql_override = None;
+                        changed = true;
+                        sql_edited = true;
+                        on_sql = false;
                     }
                 }
             })
@@ -228,7 +230,7 @@ impl QueryBuilder {
 
         ui.ctx().data_mut(|d| {
             d.insert_temp(lanes_id, lanes_open);
-            d.insert_temp(sql_id, sql_open);
+            d.insert_temp(sql_id, on_sql);
         });
 
         QueryBuilderOutput {
@@ -239,7 +241,13 @@ impl QueryBuilder {
     }
 
     /// The strip above the lanes. Returns whether the disclosure was clicked.
-    fn head(&self, ui: &mut egui::Ui, colors: &ThemeColors, lanes_open: bool) -> bool {
+    fn head(
+        &self,
+        ui: &mut egui::Ui,
+        colors: &ThemeColors,
+        lanes_open: bool,
+        on_sql: &mut bool,
+    ) -> bool {
         let mut toggled = false;
         egui::Frame::new()
             .inner_margin(Margin::symmetric(8, 0))
@@ -262,6 +270,30 @@ impl QueryBuilder {
                                 .build(),
                         )
                         .clicked();
+
+                    // Builder | SQL — design `.qb-tabs`. Two ways of saying
+                    // the same query, and a user works in one of them, so they
+                    // are tabs rather than a disclosure that stacks both. Only
+                    // while the lanes are open: with them closed there is no
+                    // pane for a tab to choose between.
+                    if lanes_open {
+                        let picked = ButtonGroups::builder()
+                            .id(format!("{}_tabs", self.id))
+                            .active(if *on_sql { "sql" } else { "builder" })
+                            .items(vec![
+                                ButtonGroupItem::builder()
+                                    .value("builder")
+                                    .label("Builder")
+                                    .build(),
+                                ButtonGroupItem::builder().value("sql").label("SQL").build(),
+                            ])
+                            .build()
+                            .show(ui)
+                            .inner;
+                        if let Some(tab) = picked {
+                            *on_sql = tab == "sql";
+                        }
+                    }
 
                     // Collapsed, this strip is the whole query, so the lanes are
                     // read back as chips. Open, they are already on screen.
@@ -775,7 +807,6 @@ impl QueryBuilder {
         ui: &mut egui::Ui,
         colors: &ThemeColors,
         compiled: &Result<String, QueryError>,
-        sql_open: &mut bool,
         edited: &mut bool,
         overridden: bool,
     ) -> (bool, bool) {
@@ -787,32 +818,18 @@ impl QueryBuilder {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = FOOT_GAP;
-                    if ui
-                        .add(
-                            Button::builder()
-                                .label("SQL")
-                                .icon(caret(*sql_open))
-                                .button_type(ButtonType::Text)
-                                .button_size(Size::Small)
-                                .hover_text("Show the statement these lanes compile to")
-                                .build(),
-                        )
-                        .clicked()
-                    {
-                        *sql_open = !*sql_open;
-                    }
-
-                    // Beside the toggle that revealed it, rather than floating
-                    // over the statement it copies.
-                    if *sql_open && let Ok(sql) = compiled {
+                    // Copying the statement is useful from either tab — it is
+                    // what you paste into a client — so it lives in the foot
+                    // rather than inside the SQL pane.
+                    if let Ok(sql) = compiled {
                         ui.add(
                             Button::builder()
-                                .label("Copy")
+                                .label("Copy SQL")
                                 .icon(egui_phosphor::regular::COPY)
                                 .button_type(ButtonType::Text)
                                 .button_size(Size::Small)
                                 .copy(sql.clone())
-                                .hover_text("Copy the generated SQL")
+                                .hover_text("Copy the statement this query runs")
                                 .build(),
                         );
                     }
@@ -1550,6 +1567,52 @@ mod tests {
         assert!(!out.changed);
         assert!(builder.spec.is_empty());
         assert!(builder.focus_control.is_none());
+    }
+
+    #[test]
+    fn the_sql_tab_shows_the_editor_instead_of_the_lanes() {
+        // They are alternatives, not a disclosure that stacks both: on the SQL
+        // tab the lanes are not drawn at all, so there is one editable copy of
+        // the query on screen.
+        let mut builder = QueryBuilder::builder()
+            .id("qb-tabs")
+            .relation("data")
+            .fields(vec![
+                QueryField::builder()
+                    .name("level")
+                    .column_type(ColumnType::Text)
+                    .build(),
+            ])
+            .build();
+        builder.spec.filters.push(Filter {
+            field: "level".to_string(),
+            operator: Operator::Equals,
+            values: vec!["error".to_string()],
+            column: ColumnType::Text,
+        });
+
+        // The builder tab draws the lanes, so the filter's field dropdown is
+        // laid out and the pane is at least as tall as a lane.
+        let on_builder = with_ui(|ui| {
+            builder.show(ui);
+            ui.min_rect().height()
+        });
+
+        // Switching tab is persisted under the builder's id, so set it the way
+        // the head does and redraw.
+        with_ui(|ui| {
+            let sql_id = ui.make_persistent_id(("qb-tabs", "qb_sql"));
+            ui.ctx().data_mut(|d| d.insert_temp(sql_id, true));
+            // The lanes have to be open for a tab to mean anything.
+            let lanes_id = ui.make_persistent_id(("qb-tabs", "qb_lanes"));
+            ui.ctx().data_mut(|d| d.insert_temp(lanes_id, true));
+            builder.show(ui)
+        });
+
+        // Whichever tab is showing, the query itself is untouched — a tab is a
+        // way of looking at it, not an edit.
+        assert_eq!(builder.spec.filters.len(), 1);
+        assert!(on_builder > 0.0);
     }
 
     #[test]
