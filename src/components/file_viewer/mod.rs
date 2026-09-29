@@ -18,7 +18,7 @@ use crate::file::{FileKind, FileType};
 use crate::plugin::Capability;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
 use thoth_plugin_sdk::components::{
-    ColumnType, DataView, QueryBuilder, QueryField, QueryStatus, SortBy, TreeAction,
+    ColumnType, DataView, QueryAction, QueryBuilder, QueryField, QueryStatus, SortBy, TreeAction,
 };
 
 /// Wrapper for WasmFileViewerLoader to implement FileViewerLoader
@@ -1391,6 +1391,20 @@ impl FileViewer {
 
     fn queue(&mut self, action: TreeAction) {
         self.tree_action = Some(action);
+    }
+
+    /// Hand the query builder a lane action from the host's shortcuts.
+    ///
+    /// Ignored unless this tab is engine-backed: a document has no relation to
+    /// filter, so ⌘F there should do nothing rather than open lanes over a log
+    /// file. Returns whether it was taken, so the caller can leave the key for
+    /// someone else when it was not.
+    pub fn queue_query_action(&mut self, action: QueryAction) -> bool {
+        if self.engine.is_none() {
+            return false;
+        }
+        self.query.action = Some(action);
+        true
     }
 }
 

@@ -335,6 +335,17 @@ impl CentralPanel {
     }
 
     /// Copy the path of the currently selected item (for keyboard shortcuts)
+    /// Hand the file viewer's query builder a lane action. Returns whether it
+    /// was taken — see [`FileViewer::queue_query_action`].
+    ///
+    /// [`FileViewer::queue_query_action`]: crate::components::file_viewer::FileViewer::queue_query_action
+    pub fn queue_query_action(
+        &mut self,
+        action: thoth_plugin_sdk::components::QueryAction,
+    ) -> bool {
+        self.file_viewer.queue_query_action(action)
+    }
+
     pub fn copy_selected_path(&mut self) {
         self.file_viewer.copy_selected_path();
     }

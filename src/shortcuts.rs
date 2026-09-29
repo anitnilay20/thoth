@@ -161,6 +161,12 @@ pub struct KeyboardShortcuts {
     #[serde(rename = "tab_cycle_prev")]
     pub prev_tab: Shortcut,
 
+    // Query builder lanes (file tabs only)
+    pub add_filter: Shortcut,
+    pub group_by: Shortcut,
+    pub add_aggregate: Shortcut,
+    pub add_sort: Shortcut,
+
     // Navigation
     pub nav_back: Shortcut,
     pub nav_forward: Shortcut,
@@ -207,6 +213,15 @@ impl Default for KeyboardShortcuts {
             // ⌘⌥→ / ⌘⌥← — Firefox-style, arrow keys have no char-composition issues.
             next_tab: Shortcut::new("ArrowRight").command().alt(),
             prev_tab: Shortcut::new("ArrowLeft").command().alt(),
+
+            // Query builder lanes. ⌘F and ⌘G are the design handoff's; ⌘⇧A
+            // and ⌘⇧S continue the pattern. None of the four is claimed by
+            // macOS or Windows, which is why ⌘⇧Esc, ⌘Space, ⌘⇧3/4/5 and the
+            // ⌘Tab family are all avoided.
+            add_filter: Shortcut::new("F").command(),
+            group_by: Shortcut::new("G").command(),
+            add_aggregate: Shortcut::new("A").command().shift(),
+            add_sort: Shortcut::new("S").command().shift(),
 
             // Navigation
             nav_back: Shortcut::new("BracketLeft").command(),

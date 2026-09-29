@@ -10,6 +10,10 @@ pub enum ShortcutAction {
     NewWindow,
 
     // Navigation
+    AddFilter,
+    GroupBy,
+    AddAggregate,
+    AddSort,
     NavBack,
     NavForward,
     Escape,
@@ -71,6 +75,19 @@ impl ShortcutHandler {
 
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.new_window.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::NewWindow);
+        }
+
+        // Query builder lanes. Shift-bearing bindings are tested first so
+        // ⌘⇧A is not swallowed by a plain-⌘ shortcut on the same letter.
+        for (shortcut, action) in [
+            (&shortcuts.add_aggregate, ShortcutAction::AddAggregate),
+            (&shortcuts.add_sort, ShortcutAction::AddSort),
+            (&shortcuts.add_filter, ShortcutAction::AddFilter),
+            (&shortcuts.group_by, ShortcutAction::GroupBy),
+        ] {
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcut.to_keyboard_shortcut())) {
+                actions.push(action);
+            }
         }
 
         // Navigation: ⌘[ / ⌘]

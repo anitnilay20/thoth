@@ -64,6 +64,25 @@ impl QueryStatus {
     }
 }
 
+/// A lane action driven from outside the builder — the host's keyboard
+/// shortcuts for "add a filter", "group by a field" and so on.
+///
+/// The builder is collapsed by default, so a shortcut has to be able to open
+/// it as well as act on it: applying one expands the lanes, because adding a
+/// clause the user cannot see would be worse than doing nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum QueryAction {
+    /// Add a condition to the filter lane.
+    AddFilter,
+    /// Add a key to the group-by lane.
+    AddGroupBy,
+    /// Add an entry to the compute lane.
+    AddAggregate,
+    /// Add a key to the sort lane.
+    AddSort,
+}
+
 /// The design's query builder: four lanes that compile to one statement.
 ///
 /// The lanes are the query — there is no second copy of it to fall out of
@@ -108,6 +127,10 @@ pub struct QueryBuilder {
     /// invisibly. [`revert`](QueryBuilder::revert) hands it back to the lanes.
     #[serde(default, rename = "sql-override")]
     pub sql_override: Option<String>,
+    /// A lane action from the host's shortcuts, applied on the next
+    /// [`show`](QueryBuilder::show) and then cleared. Opens the lanes.
+    #[serde(default)]
+    pub action: Option<QueryAction>,
 }
 
 /// Whether `sql` groups — a `GROUP BY` that is SQL rather than part of a

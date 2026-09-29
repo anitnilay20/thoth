@@ -20,6 +20,14 @@ const DISABLED_OPACITY: f32 = 0.42;
 /// A soft fill lays 18% of its semantic colour over the resting surface — design
 /// `.btn.dsoft{background:color-mix(in oklab,var(--red) 18%,var(--surface0))}`.
 const SOFT_TINT_ALPHA: u8 = 46; // 18% of 255
+/// Gap between the label and a keyboard hint — design `.addbtn{gap:6px}`.
+const KBD_GAP: f32 = 6.0;
+/// Keyboard-hint text size — design `.kbd{font-size:10.5px}`.
+const KBD_FONT: f32 = 10.5;
+/// Its padding and corner — design `.kbd{padding:1px 5px;border-radius:4px}`.
+const KBD_PAD_X: f32 = 5.0;
+const KBD_PAD_Y: f32 = 1.0;
+const KBD_RADIUS: u8 = 4;
 
 /// Background fill of a filled button in each interaction state.
 struct Fill {
@@ -202,6 +210,124 @@ impl Button {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Paint an outlined button — design `.addbtn`: no fill, a hairline edge,
+    /// muted label, and on hover the surface fill with the full foreground.
+    #[allow(clippy::too_many_arguments)]
+    fn outlined_button(
+        ui: &mut egui::Ui,
+        label: &str,
+        icon: Option<&str>,
+        size: f32,
+        colors: &ThemeColors,
+        width: Option<f32>,
+        height: Option<f32>,
+        padding_x: f32,
+        kbd_w: f32,
+    ) -> egui::Response {
+        let sizing_job = Self::make_layout_job(icon, label, size, Color32::TRANSPARENT);
+        let button = egui::Button::new(sizing_job)
+            .fill(Color32::TRANSPARENT)
+            .stroke(egui::Stroke::NONE);
+
+        let response = ui
+            .scope(|ui| {
+                let w = &mut ui.visuals_mut().widgets;
+                for state in [&mut w.inactive, &mut w.hovered, &mut w.active] {
+                    state.weak_bg_fill = Color32::TRANSPARENT;
+                    state.expansion = 0.0;
+                    state.bg_stroke = egui::Stroke::NONE;
+                }
+                let natural = padding_x * 2.0;
+                match width {
+                    Some(w) => ui.add_sized(egui::vec2(w, height.unwrap_or(0.0)), button),
+                    None => {
+                        let _ = natural;
+                        ui.add(button)
+                    }
+                }
+            })
+            .inner;
+
+        if ui.is_rect_visible(response.rect) {
+            let hovered = response.hovered() || response.is_pointer_button_down_on();
+            let radius = egui::CornerRadius::same(crate::theme::RADIUS_CONTROL as u8);
+            if hovered {
+                ui.painter()
+                    .rect_filled(response.rect, radius, colors.surface);
+            }
+            ui.painter().rect_stroke(
+                response.rect,
+                radius,
+                crate::theme::edge_stroke(colors),
+                egui::StrokeKind::Inside,
+            );
+            let color = if hovered { colors.fg } else { colors.fg_muted };
+            let galley = ui
+                .painter()
+                .layout_job(Self::make_layout_job(icon, label, size, color));
+            // Centred in what is left once the keyboard hint has its room, so
+            // the label does not drift right as the hint gets wider.
+            let content = egui::Rect::from_min_max(
+                response.rect.min,
+                egui::pos2(response.rect.right() - kbd_w, response.rect.bottom()),
+            );
+            let pos = content.center() - galley.rect.center().to_vec2();
+            ui.painter().galley(pos, galley, color);
+        }
+
+        response
+    }
+
+    /// Width a keyboard hint needs, including its pill padding and the gap
+    /// before it — so the button can reserve room rather than overlap itself.
+    fn kbd_width(ui: &egui::Ui, kbd: &str) -> f32 {
+        let galley = ui.painter().layout_no_wrap(
+            kbd.to_owned(),
+            egui::FontId::monospace(KBD_FONT),
+            Color32::PLACEHOLDER,
+        );
+        KBD_GAP + galley.size().x + KBD_PAD_X * 2.0
+    }
+
+    /// Paint the keyboard hint against the button's trailing edge.
+    fn paint_kbd(ui: &egui::Ui, rect: egui::Rect, kbd: &str, colors: &ThemeColors, solid: bool) {
+        let galley = ui.painter().layout_no_wrap(
+            kbd.to_owned(),
+            egui::FontId::monospace(KBD_FONT),
+            Color32::PLACEHOLDER,
+        );
+        let size = galley.size() + egui::vec2(KBD_PAD_X * 2.0, KBD_PAD_Y * 2.0);
+        let pill = egui::Rect::from_min_size(
+            egui::pos2(
+                rect.right() - PADDING_X_SMALL - size.x,
+                rect.center().y - size.y / 2.0,
+            ),
+            size,
+        );
+        let radius = egui::CornerRadius::same(KBD_RADIUS);
+        // On a solid button the pill is a hole punched in the fill; elsewhere
+        // it is a surface chip with the same hairline as the button's edge.
+        if solid {
+            ui.painter()
+                .rect_filled(pill, radius, crate::theme::with_alpha(colors.bg, 61));
+        } else {
+            ui.painter().rect_filled(pill, radius, colors.surface);
+            ui.painter().rect_stroke(
+                pill,
+                radius,
+                crate::theme::edge_stroke(colors),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let color = if solid { colors.bg } else { colors.fg_muted };
+        ui.painter().galley(
+            pill.center() - galley.rect.center().to_vec2(),
+            galley,
+            color,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn text_button(
         ui: &mut egui::Ui,
         label: &str,
@@ -272,9 +398,26 @@ impl egui::Widget for Button {
             ButtonSize::Small => PADDING_X_SMALL,
             _ => PADDING_X,
         };
+        // A keyboard hint sits inside the button against its trailing edge, so
+        // the button has to be that much wider or the label runs under it.
+        let kbd_w = self
+            .kbd
+            .as_deref()
+            .map(|kbd| Self::kbd_width(ui, kbd))
+            .unwrap_or(0.0);
         // Full-width buttons stretch to the container's available width.
         let width = if self.full_width {
             Some(ui.available_width())
+        } else if kbd_w > 0.0 {
+            // Measure the content so the reserved room is added to it rather
+            // than replacing egui's own sizing.
+            let content = ui.painter().layout_job(Self::make_layout_job(
+                icon,
+                &self.label,
+                size,
+                Color32::PLACEHOLDER,
+            ));
+            Some(self.width.unwrap_or(content.size().x + padding_x * 2.0) + kbd_w)
         } else {
             self.width
         };
@@ -298,6 +441,17 @@ impl egui::Widget for Button {
                             height,
                         )
                     }
+                    ButtonType::Outlined => Self::outlined_button(
+                        ui,
+                        &self.label,
+                        icon,
+                        size,
+                        &colors,
+                        width,
+                        height,
+                        padding_x,
+                        kbd_w,
+                    ),
                     ButtonType::Text => {
                         // Text buttons paint with their semantic color; preserve it on
                         // hover — brightened by the same step as a solid fill — instead
@@ -322,6 +476,16 @@ impl egui::Widget for Button {
                 .inner
             })
             .inner;
+
+        if let Some(kbd) = self.kbd.as_deref() {
+            Self::paint_kbd(
+                ui,
+                response.rect,
+                kbd,
+                &colors,
+                matches!(self.button_type, ButtonType::Elevated | ButtonType::Soft),
+            );
+        }
 
         if let Some(hover_text) = self.hover_text {
             response = crate::theme::hover_text(response, hover_text);

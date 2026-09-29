@@ -115,10 +115,23 @@ impl QueryBuilder {
         if toggle_key {
             lanes_open = !lanes_open;
         }
+
+        // A lane action from the host's shortcuts. Taken before the lanes
+        // draw, and it opens them: adding a clause the user cannot see would
+        // be worse than the shortcut doing nothing.
+        let mut changed = false;
+        if let Some(action) = self.action.take() {
+            lanes_open = true;
+            changed |= match action {
+                super::QueryAction::AddFilter => self.push_filter(),
+                super::QueryAction::AddGroupBy => self.push_group_by(),
+                super::QueryAction::AddAggregate => self.push_aggregate(),
+                super::QueryAction::AddSort => self.push_sort(),
+            };
+        }
         let mut run = run_key;
         let mut add_filter = false;
         let mut sql_edited = false;
-        let mut changed = false;
 
         let drawn = ui
             .vertical(|ui| {
@@ -180,9 +193,8 @@ impl QueryBuilder {
         // pane the user is not looking at is worse than one that does nothing.
         crate::theme::claim_navigation_keys(ui, keys_id, drawn);
 
-        if add_filter && let Some(filter) = self.new_filter() {
-            self.spec.filters.push(filter);
-            changed = true;
+        if add_filter {
+            changed |= self.push_filter();
         }
 
         ui.ctx().data_mut(|d| {
@@ -316,6 +328,7 @@ impl QueryBuilder {
                 label: "Filter",
                 icon: egui_phosphor::regular::FUNNEL,
                 tooltip: "Add a filter".to_string(),
+                kbd: format!("{}F", modifier()),
                 enabled: !fields.is_empty(),
             },
             |ui| {
@@ -463,6 +476,7 @@ impl QueryBuilder {
                     label: "Field",
                     icon: egui_phosphor::regular::LIST,
                     tooltip: "Group rows by a field".to_string(),
+                    kbd: format!("{}G", modifier()),
                     enabled: !fields.is_empty(),
                 },
                 |ui| {
@@ -490,9 +504,8 @@ impl QueryBuilder {
             self.spec.group_by.remove(index);
             *edited = true;
         }
-        if add && let Some(field) = unused_field(&self.fields, &self.spec.group_by) {
-            self.spec.group_by.push(field);
-            *edited = true;
+        if add {
+            *edited |= self.push_group_by();
         }
     }
 
@@ -510,6 +523,7 @@ impl QueryBuilder {
                     label: "Aggregate",
                     icon: egui_phosphor::regular::CHART_BAR,
                     tooltip: "Add an aggregate".to_string(),
+                    kbd: format!("{}{}A", modifier(), shift()),
                     // Counting rows needs no column, so this lane stays usable
                     // even when no field list has arrived yet.
                     enabled: true,
@@ -597,11 +611,7 @@ impl QueryBuilder {
             *edited = true;
         }
         if add {
-            self.spec.aggregates.push(Aggregate {
-                function: AggregateFn::Count,
-                field: String::new(),
-            });
-            *edited = true;
+            *edited |= self.push_aggregate();
         }
     }
 
@@ -619,6 +629,7 @@ impl QueryBuilder {
                     label: "Sort",
                     icon: egui_phosphor::regular::ARROWS_DOWN_UP,
                     tooltip: "Add a sort key".to_string(),
+                    kbd: format!("{}{}S", modifier(), shift()),
                     enabled: !fields.is_empty(),
                 },
                 |ui| {
@@ -667,14 +678,7 @@ impl QueryBuilder {
             *edited = true;
         }
         if add {
-            let used: Vec<String> = self.spec.sort.iter().map(|s| s.field.clone()).collect();
-            if let Some(field) = unused_field(&self.sort_keys(), &used) {
-                self.spec.sort.push(Sort {
-                    field,
-                    descending: false,
-                });
-                *edited = true;
-            }
+            *edited |= self.push_sort();
         }
     }
 
@@ -899,6 +903,56 @@ impl QueryBuilder {
         (run, revert)
     }
 
+    /// Append a filter on the first available field. Returns whether it did —
+    /// a relation with no columns has nothing to filter on.
+    ///
+    /// These four exist so a lane's add button and the host's keyboard
+    /// shortcut for that lane are the same action, not two that drift.
+    pub fn push_filter(&mut self) -> bool {
+        match self.new_filter() {
+            Some(filter) => {
+                self.spec.filters.push(filter);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Append a group key on a field not already grouped by.
+    pub fn push_group_by(&mut self) -> bool {
+        match unused_field(&self.fields, &self.spec.group_by) {
+            Some(field) => {
+                self.spec.group_by.push(field);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Append a `count(*)`, the one aggregate that needs no field chosen.
+    pub fn push_aggregate(&mut self) -> bool {
+        self.spec.aggregates.push(Aggregate {
+            function: AggregateFn::Count,
+            field: String::new(),
+        });
+        true
+    }
+
+    /// Append an ascending sort on a key not already sorted by.
+    pub fn push_sort(&mut self) -> bool {
+        let used: Vec<String> = self.spec.sort.iter().map(|s| s.field.clone()).collect();
+        match unused_field(&self.sort_keys(), &used) {
+            Some(field) => {
+                self.spec.sort.push(Sort {
+                    field,
+                    descending: false,
+                });
+                true
+            }
+            None => false,
+        }
+    }
+
     /// A filter on the first available field, or `None` when there are no
     /// fields to filter on.
     fn new_filter(&self) -> Option<Filter> {
@@ -920,6 +974,8 @@ struct AddButton {
     icon: &'static str,
     tooltip: String,
     enabled: bool,
+    /// The lane's keyboard shortcut, shown as a pill on the button.
+    kbd: String,
 }
 
 /// One lane: a label column, a wrapping row of pills, and the add button on the
@@ -948,17 +1004,20 @@ fn lane(ui: &mut egui::Ui, add: AddButton, items: impl FnOnce(&mut egui::Ui)) ->
                 // what is left: laid out right-to-left it lands on the edge, and
                 // the wrapping row then fills the space before it.
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                    // Quiet by design: four solid buttons stacked down the
-                    // right edge outweigh the query they are there to build.
                     clicked = ui
                         .add(
                             Button::builder()
                                 .label(add.label)
                                 .icon(add.icon)
-                                .button_type(ButtonType::Text)
+                                // Design `.addbtn`: a hairline edge on no fill.
+                                // An empty lane then reads as an invitation
+                                // rather than as a control that failed to load,
+                                // which is what a bare text button looked like.
+                                .button_type(ButtonType::Outlined)
                                 .button_size(Size::Small)
                                 .enabled(add.enabled)
                                 .hover_text(add.tooltip)
+                                .kbd(add.kbd)
                                 .build(),
                         )
                         .clicked();
@@ -1216,6 +1275,11 @@ fn modifier() -> &'static str {
     }
 }
 
+/// The Shift mark, Phosphor's fat up-arrow rather than the Unicode `⇧`.
+fn shift() -> &'static str {
+    egui_phosphor::regular::ARROW_FAT_UP
+}
+
 /// The Return key's mark, for the same reason.
 ///
 /// The bare elbow arrow, not Phosphor's `key-return`: that one draws the whole
@@ -1262,6 +1326,87 @@ fn unused_field(fields: &[QueryField], used: &[String]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_lane_shortcut_adds_the_same_clause_its_button_does() {
+        // The button and the shortcut call one method each, so the two cannot
+        // drift into adding different things.
+        let mut builder = QueryBuilder::builder()
+            .relation("data")
+            .fields(vec![
+                QueryField::builder()
+                    .name("level")
+                    .column_type(ColumnType::Text)
+                    .build(),
+                QueryField::builder()
+                    .name("ms")
+                    .column_type(ColumnType::Integer)
+                    .build(),
+            ])
+            .build();
+
+        assert!(builder.push_filter());
+        assert_eq!(builder.spec.filters.len(), 1);
+        assert_eq!(builder.spec.filters[0].field, "level");
+
+        assert!(builder.push_group_by());
+        assert_eq!(builder.spec.group_by, ["level"]);
+        // A second key takes the next field that is not already grouped by.
+        assert!(builder.push_group_by());
+        assert_eq!(builder.spec.group_by, ["level", "ms"]);
+        // With every field already grouped it repeats the first rather than
+        // doing nothing — see `unused_field`, whose reasoning is that a
+        // control which silently declines looks broken. Worth knowing that a
+        // held ⌘G therefore repeats a key rather than stopping.
+        assert!(builder.push_group_by());
+        assert_eq!(builder.spec.group_by, ["level", "ms", "level"]);
+
+        assert!(builder.push_aggregate());
+        assert_eq!(builder.spec.aggregates[0].function, AggregateFn::Count);
+
+        assert!(builder.push_sort());
+        assert_eq!(builder.spec.sort.len(), 1);
+    }
+
+    #[test]
+    fn a_relation_with_no_columns_has_nothing_to_add() {
+        // Every lane declines rather than pushing an entry naming a column
+        // that does not exist. `push_aggregate` is the exception: `count(*)`
+        // needs no field.
+        let mut builder = QueryBuilder::default();
+        assert!(!builder.push_filter());
+        assert!(!builder.push_group_by());
+        assert!(!builder.push_sort());
+        assert!(builder.push_aggregate());
+    }
+
+    #[test]
+    fn a_queued_action_opens_the_lanes_and_is_consumed() {
+        // The builder starts collapsed, so a shortcut has to open it — adding
+        // a clause the user cannot see would be worse than doing nothing.
+        let mut builder = QueryBuilder::builder()
+            .id("qb-action")
+            .relation("data")
+            .fields(vec![
+                QueryField::builder()
+                    .name("level")
+                    .column_type(ColumnType::Text)
+                    .build(),
+            ])
+            .build();
+        builder.action = Some(crate::components::QueryAction::AddFilter);
+
+        let out = with_ui(|ui| builder.show(ui));
+
+        assert!(out.changed, "the filter landed");
+        assert_eq!(builder.spec.filters.len(), 1);
+        assert!(builder.action.is_none(), "the action was consumed");
+
+        // A second frame with nothing queued must not add another.
+        let out = with_ui(|ui| builder.show(ui));
+        assert!(!out.changed);
+        assert_eq!(builder.spec.filters.len(), 1);
+    }
 
     #[test]
     fn a_grouped_query_sorts_by_what_it_returns() {

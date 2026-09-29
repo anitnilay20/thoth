@@ -84,8 +84,8 @@ pub use progress::Progress;
 #[cfg(feature = "egui")]
 pub use query_builder::QueryBuilderOutput;
 pub use query_builder::{
-    Aggregate, AggregateFn, Combine, Filter, Operator, QueryBuilder, QueryError, QueryField,
-    QuerySpec, QueryStatus, Sort,
+    Aggregate, AggregateFn, Combine, Filter, Operator, QueryAction, QueryBuilder, QueryError,
+    QueryField, QuerySpec, QueryStatus, Sort,
 };
 pub use radio::Radio;
 pub use select::{Select, SelectOption, SelectResponse};

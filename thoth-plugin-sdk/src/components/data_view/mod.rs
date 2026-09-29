@@ -93,6 +93,11 @@ pub struct DataView {
     pub sortable: bool,
 }
 
+/// The view value the chart button switches to. Not offered by the view
+/// switcher — the button beside Export is how it is reached.
+#[cfg(feature = "egui")]
+const CHART_VIEW: &str = "chart";
+
 #[cfg(feature = "egui")]
 impl DataView {
     /// Max rows the host draws (the registry also caps a single read).
@@ -165,7 +170,11 @@ impl DataView {
         let renderer_plugins = renderers();
         // Ways of drawing *data*. A document has one sensible rendering and
         // belongs in `TextView`, not behind a format switcher here.
-        let mut view_options: Vec<SelectOption> = ["table", "json", "raw", "chart"]
+        //
+        // Chart is not among them: it is reached from its own button beside
+        // Export, so the switcher lists only the ways of reading the records
+        // themselves.
+        let mut view_options: Vec<SelectOption> = ["table", "json", "raw"]
             .iter()
             .map(|v| {
                 SelectOption::builder()
@@ -173,7 +182,6 @@ impl DataView {
                     .label(match *v {
                         "json" => "JSON",
                         "raw" => "Raw",
-                        "chart" => "Chart",
                         _ => "Table",
                     })
                     .build()
@@ -191,14 +199,17 @@ impl DataView {
         // Current view, remembered across frames; falls back to Table if a
         // previously-selected renderer plugin is no longer installed.
         let mem_id = ui.make_persistent_id((node_id, "data_view_view"));
+        // `chart` is a valid remembered view even though the switcher does not
+        // offer it — its button does.
+        let offered = |v: &String| v == CHART_VIEW || view_options.iter().any(|o| &o.value == v);
         let fallback = self
             .default_view
             .clone()
-            .filter(|v| view_options.iter().any(|o| &o.value == v))
+            .filter(&offered)
             .unwrap_or_else(|| "table".to_string());
         let mut view: String = ui
             .data(|d| d.get_temp::<String>(mem_id))
-            .filter(|v| view_options.iter().any(|o| &o.value == v))
+            .filter(&offered)
             .unwrap_or(fallback);
         let opened_with = view.clone();
 
@@ -262,6 +273,17 @@ impl DataView {
         use crate::dataset::resolve_dataset;
         use crate::render_node::UiEvent;
 
+        // The view the chart sits over, so closing it goes back where the user
+        // was rather than always to the table.
+        let under_id = ui.make_persistent_id((node_id, "data_view_under_chart"));
+        if *view != CHART_VIEW {
+            ui.data_mut(|d| d.insert_temp(under_id, view.clone()));
+        }
+        let under_chart: String = ui
+            .data(|d| d.get_temp::<String>(under_id))
+            .filter(|v| v != CHART_VIEW)
+            .unwrap_or_else(|| "table".to_string());
+
         // Which table, before how to draw it: a pane showing one of several
         // collections has to say which one before anything it draws means
         // something. Searchable because a document can hold dozens, and a menu
@@ -315,15 +337,21 @@ impl DataView {
         // Design `.viewsel` is a 28px-tall select trigger at 12.5px — exactly
         // `Size::Medium`'s field metrics, so the shared `Select` is used as-is —
         // and it leads with a glyph for the current view.
-        let view_glyph = match view.as_str() {
+        let view_glyph = match under_chart.as_str() {
             "json" => egui_phosphor::regular::BRACKETS_CURLY,
             "raw" => egui_phosphor::regular::CODE,
-            "chart" => egui_phosphor::regular::CHART_BAR,
             _ => egui_phosphor::regular::TABLE,
+        };
+        // While the chart is open the switcher still names the view the chart
+        // sits over, so picking from it is how you leave the chart.
+        let shown_view = if view == CHART_VIEW {
+            under_chart.clone()
+        } else {
+            view.clone()
         };
         if let Some(v) = Select::builder()
             .id(format!("{node_id}_views"))
-            .value(view.clone())
+            .value(shown_view)
             .options(view_options)
             .icon(view_glyph)
             .size(Size::Medium)
@@ -357,9 +385,9 @@ impl DataView {
         // right-to-left layout claiming the rest of the strip — so add
         // rightmost-first to read Copy · Export left-to-right on screen.
         //
-        // Charts is no longer one of them: a bar chart of the result is a view
-        // of this dataset like the table and the tree, so it belongs in the
-        // view menu beside them rather than as a button that leaves the pane.
+        // Chart is one of them, immediately left of Export: charting a result
+        // is something you *do* to it, like copying or exporting it, and
+        // burying it in the view switcher made it the one action nobody found.
         // Chart Studio is still reached from the sidebar, where a chart bound
         // to a tab actually lives.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -407,6 +435,36 @@ impl DataView {
                             .to_string(),
                     });
                 }
+            }
+
+            // Chart — a toggle, so the same button that opens the chart puts
+            // the records back. Right-to-left layout, so adding it after
+            // Export is what puts it to Export's left on screen.
+            let charting = *view == CHART_VIEW;
+            if ui
+                .add(
+                    Button::builder()
+                        .label("Chart")
+                        .icon(egui_phosphor::regular::CHART_BAR)
+                        .button_type(if charting {
+                            ButtonType::Soft
+                        } else {
+                            ButtonType::Text
+                        })
+                        .hover_text(if charting {
+                            "Back to the records"
+                        } else {
+                            "Chart this result"
+                        })
+                        .build(),
+                )
+                .clicked()
+            {
+                *view = if charting {
+                    under_chart.clone()
+                } else {
+                    CHART_VIEW.to_string()
+                };
             }
 
             // Copy is handled in-widget (no plugin round-trip). Serialised on the
@@ -1037,16 +1095,16 @@ mod tests {
     }
 
     #[test]
-    fn chart_is_a_view_the_default_can_name() {
-        // `default_view` is only honoured when it matches an offered view, so
-        // the two lists have to agree.
+    fn chart_is_still_a_view_even_though_the_switcher_does_not_offer_it() {
+        // It is reached from its own button beside Export now. `default_view`
+        // must still honour it, and the body must still scroll it — those are
+        // keyed off the view *value*, not off the switcher's list.
         let dv = DataView::builder()
             .handle("h")
-            .default_view("chart")
+            .default_view(CHART_VIEW)
             .build();
-        assert_eq!(dv.default_view.as_deref(), Some("chart"));
-        // …and it is not the grid, so the body scrolls it.
-        assert!(!table_view("chart"));
+        assert_eq!(dv.default_view.as_deref(), Some(CHART_VIEW));
+        assert!(!table_view(CHART_VIEW));
         assert!(table_view("table"));
     }
 }

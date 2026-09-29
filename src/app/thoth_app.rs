@@ -643,6 +643,26 @@ impl ThothApp {
                         let _ = self.core.persistent_state.save();
                     }
                 }
+                // Query-builder lanes. Only a *file* tab answers these: a
+                // plugin pane owns its own keys, and handing ⌘F to a builder
+                // that is not on screen would take it from whatever is.
+                ShortcutAction::AddFilter
+                | ShortcutAction::GroupBy
+                | ShortcutAction::AddAggregate
+                | ShortcutAction::AddSort => {
+                    use thoth_plugin_sdk::components::QueryAction;
+                    let lane = match action {
+                        ShortcutAction::AddFilter => QueryAction::AddFilter,
+                        ShortcutAction::GroupBy => QueryAction::AddGroupBy,
+                        ShortcutAction::AddAggregate => QueryAction::AddAggregate,
+                        _ => QueryAction::AddSort,
+                    };
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && tab.active_plugin_pane.is_none()
+                    {
+                        tab.central_panel.queue_query_action(lane);
+                    }
+                }
                 ShortcutAction::ExpandNode => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
                         tab.central_panel.expand_selected_node();
