@@ -161,7 +161,9 @@ pub struct KeyboardShortcuts {
     #[serde(rename = "tab_cycle_prev")]
     pub prev_tab: Shortcut,
 
-    // Query builder lanes (file tabs only)
+    // Query builder (file tabs only)
+    pub toggle_query: Shortcut,
+    pub run_query: Shortcut,
     pub add_filter: Shortcut,
     pub group_by: Shortcut,
     pub add_aggregate: Shortcut,
@@ -218,6 +220,8 @@ impl Default for KeyboardShortcuts {
             // and ⌘⇧S continue the pattern. None of the four is claimed by
             // macOS or Windows, which is why ⌘⇧Esc, ⌘Space, ⌘⇧3/4/5 and the
             // ⌘Tab family are all avoided.
+            toggle_query: Shortcut::new("Slash").command(),
+            run_query: Shortcut::new("Enter").command(),
             add_filter: Shortcut::new("F").command(),
             group_by: Shortcut::new("G").command(),
             add_aggregate: Shortcut::new("A").command().shift(),

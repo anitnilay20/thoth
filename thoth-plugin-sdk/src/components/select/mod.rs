@@ -95,6 +95,13 @@ pub struct Select {
     #[builder(default)]
     #[serde(default)]
     pub searchable: bool,
+    /// Take keyboard focus on the next frame this is drawn.
+    ///
+    /// For a control the user did not click into — a pill a keyboard shortcut
+    /// has just added, where the point of the shortcut is to carry on typing.
+    #[builder(default)]
+    #[serde(default)]
+    pub autofocus: bool,
     /// Optional trailing figure in the *trigger*, between the label and the
     /// caret — design `.select .cnt`: monospace, tabular, muted. The label
     /// gives up the width it takes, so a long label ellipsises rather than

@@ -57,6 +57,12 @@ impl StatelessComponent for ShortcutsTab {
                 &sc.new_tab,
                 &sc.next_tab,
                 &sc.prev_tab,
+                &sc.toggle_query,
+                &sc.run_query,
+                &sc.add_filter,
+                &sc.group_by,
+                &sc.add_aggregate,
+                &sc.add_sort,
                 &sc.nav_back,
                 &sc.nav_forward,
                 &sc.escape,
@@ -126,6 +132,28 @@ impl StatelessComponent for ShortcutsTab {
                         badge_width,
                         colors,
                     );
+                });
+
+                // ── Query ────────────────────────────────────────────────────
+                group_rows(ui, "QUERY", |ui| {
+                    shortcut_row(
+                        ui,
+                        "Show/hide the query",
+                        &sc.toggle_query,
+                        badge_width,
+                        colors,
+                    );
+                    shortcut_row(ui, "Run the query", &sc.run_query, badge_width, colors);
+                    shortcut_row(ui, "Add a filter", &sc.add_filter, badge_width, colors);
+                    shortcut_row(ui, "Group by a field", &sc.group_by, badge_width, colors);
+                    shortcut_row(
+                        ui,
+                        "Add an aggregate",
+                        &sc.add_aggregate,
+                        badge_width,
+                        colors,
+                    );
+                    shortcut_row(ui, "Add a sort key", &sc.add_sort, badge_width, colors);
                 });
 
                 // ── Navigation ───────────────────────────────────────────────

@@ -115,7 +115,30 @@ impl Select {
             })
             .inner;
 
-        if trigger_resp.clicked() {
+        // Claimed once: a control that re-grabs focus every frame cannot be
+        // tabbed away from.
+        if self.autofocus {
+            let claimed_id = id.with("_autofocused");
+            if !ui
+                .ctx()
+                .data(|d| d.get_temp::<bool>(claimed_id).unwrap_or(false))
+            {
+                trigger_resp.request_focus();
+                ui.ctx().data_mut(|d| d.insert_temp(claimed_id, true));
+            }
+        }
+
+        // A focused trigger opens on Return, Space or Down — the keys a menu
+        // button answers everywhere else. Tab can then reach a select and use
+        // it without the pointer.
+        let opened_by_key = trigger_resp.has_focus()
+            && !is_open
+            && ui.input_mut(|i| {
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                    || i.consume_key(egui::Modifiers::NONE, egui::Key::Space)
+                    || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+            });
+        if trigger_resp.clicked() || opened_by_key {
             is_open = !is_open;
             ui.ctx().data_mut(|d| d.insert_temp(id, is_open));
             // Focus the search box the moment the popup opens.
@@ -136,6 +159,7 @@ impl Select {
 
             let opt_h = option_height(trigger_h);
             let list_id = id.with("_list");
+            let hi_id = id.with("_highlight");
             // Details only line up as a column if every row reserves the tick's
             // width, including the rows that aren't ticked.
             let any_detail = self.options.iter().any(|o| o.detail.is_some());
@@ -200,6 +224,43 @@ impl Select {
                         .collect();
                     let scroll_h = list_height(opt_h, filtered.len(), self.menu_max_height);
 
+                    // ── Keyboard ───────────────────────────────────────────
+                    // The list is a menu, so Up/Down walk it and Return picks
+                    // the row under the cursor. Without this the popover could
+                    // only be used with the mouse — and with a search box
+                    // focused, typing then reaching for the arrows did nothing.
+                    let mut highlight = ui
+                        .ctx()
+                        .data(|d| d.get_temp::<usize>(hi_id))
+                        .filter(|hi| *hi < filtered.len())
+                        .unwrap_or_else(|| {
+                            filtered
+                                .iter()
+                                .position(|i| self.options[*i].value == self.value)
+                                .unwrap_or(0)
+                        });
+                    let (down, up, enter) = ui.input_mut(|i| {
+                        (
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                            i.consume_key(egui::Modifiers::NONE, egui::Key::Enter),
+                        )
+                    });
+                    let moved = down || up;
+                    if moved && !filtered.is_empty() {
+                        // Wraps: a menu has no edges to run off.
+                        highlight = if down {
+                            (highlight + 1) % filtered.len()
+                        } else {
+                            (highlight + filtered.len() - 1) % filtered.len()
+                        };
+                        ui.ctx().data_mut(|d| d.insert_temp(hi_id, highlight));
+                    }
+                    if enter && let Some(index) = filtered.get(highlight) {
+                        out.selected = Some(self.options[*index].value.clone());
+                        close(ui.ctx(), id, query_id);
+                    }
+
                     // ── Virtualized option list ────────────────────────────
                     if filtered.is_empty() {
                         ui.add_sized(
@@ -216,97 +277,118 @@ impl Select {
                     // want, so there is nothing for auto-shrink to work out
                     // and the list's height depends on this frame's match
                     // count alone.
-                    egui::ScrollArea::vertical()
+                    // Follow the highlight when the keyboard moved it — a
+                    // wrap from the last row to the first has to bring the
+                    // list back to the top with it.
+                    let mut list = egui::ScrollArea::vertical()
                         .id_salt(list_id)
                         .max_height(scroll_h)
-                        .auto_shrink([false, false])
-                        .show_rows(ui, opt_h, filtered.len(), |ui, range| {
-                            ui.set_min_width(popup_w);
-                            for row in range {
-                                let opt = &self.options[filtered[row]];
-                                let is_sel = opt.value == self.value;
-                                let item_w = ui.available_width();
-                                let (item_rect, item_resp) = ui.allocate_exact_size(
-                                    egui::vec2(item_w, opt_h),
-                                    egui::Sense::click(),
-                                );
+                        .auto_shrink([false, false]);
+                    if moved {
+                        let top = highlight as f32 * opt_h;
+                        let offset = ui
+                            .ctx()
+                            .data(|d| d.get_temp::<f32>(list_id.with("_off")))
+                            .unwrap_or(0.0);
+                        let wanted = offset.min(top).max(top + opt_h - scroll_h).max(0.0);
+                        ui.ctx()
+                            .data_mut(|d| d.insert_temp(list_id.with("_off"), wanted));
+                        list = list.vertical_scroll_offset(wanted);
+                    }
+                    let list_out = list.show_rows(ui, opt_h, filtered.len(), |ui, range| {
+                        ui.set_min_width(popup_w);
+                        for row in range {
+                            let opt = &self.options[filtered[row]];
+                            let is_sel = opt.value == self.value;
+                            let item_w = ui.available_width();
+                            let (item_rect, item_resp) = ui.allocate_exact_size(
+                                egui::vec2(item_w, opt_h),
+                                egui::Sense::click(),
+                            );
 
-                                if ui.is_rect_visible(item_rect) {
-                                    // Design `.opt` has no selected fill — only a
-                                    // hover wash; selection reads as mauve text.
-                                    if item_resp.hovered() {
-                                        ui.painter().rect_filled(
-                                            item_rect,
-                                            RADIUS_CHIP,
-                                            with_alpha(colors.fg, HOVER_ALPHA),
+                            if ui.is_rect_visible(item_rect) {
+                                // Design `.opt` has no selected fill — only a
+                                // hover wash; selection reads as mauve text.
+                                // The keyboard highlight borrows that same
+                                // wash, so pointer and keyboard mark the
+                                // row the same way.
+                                if item_resp.hovered() || row == highlight {
+                                    ui.painter().rect_filled(
+                                        item_rect,
+                                        RADIUS_CHIP,
+                                        with_alpha(colors.fg, HOVER_ALPHA),
+                                    );
+                                }
+                                // Reserve room on the right for the ✓ on the selected row.
+                                let tick_w = if is_sel || any_detail {
+                                    TICK_SIZE + OPT_GAP
+                                } else {
+                                    0.0
+                                };
+                                // The detail sits inside the tick column,
+                                // right-aligned — design `.n{margin-left:auto}`
+                                // with the tick 8px further right.
+                                let detail_w = match opt.detail.as_deref() {
+                                    Some(text) if !text.is_empty() => {
+                                        let galley = ui.painter().layout_no_wrap(
+                                            text.to_owned(),
+                                            egui::FontId::monospace(DETAIL_SIZE),
+                                            colors.fg_muted,
                                         );
+                                        let right = item_rect.max.x - OPT_PAD_X - tick_w;
+                                        ui.painter().galley(
+                                            egui::pos2(
+                                                right - galley.size().x,
+                                                item_rect.center().y - galley.size().y / 2.0,
+                                            ),
+                                            galley.clone(),
+                                            colors.fg_muted,
+                                        );
+                                        galley.size().x + DETAIL_GAP
                                     }
-                                    // Reserve room on the right for the ✓ on the selected row.
-                                    let tick_w = if is_sel || any_detail {
-                                        TICK_SIZE + OPT_GAP
-                                    } else {
-                                        0.0
-                                    };
-                                    // The detail sits inside the tick column,
-                                    // right-aligned — design `.n{margin-left:auto}`
-                                    // with the tick 8px further right.
-                                    let detail_w = match opt.detail.as_deref() {
-                                        Some(text) if !text.is_empty() => {
-                                            let galley = ui.painter().layout_no_wrap(
-                                                text.to_owned(),
-                                                egui::FontId::monospace(DETAIL_SIZE),
-                                                colors.fg_muted,
-                                            );
-                                            let right = item_rect.max.x - OPT_PAD_X - tick_w;
-                                            ui.painter().galley(
-                                                egui::pos2(
-                                                    right - galley.size().x,
-                                                    item_rect.center().y - galley.size().y / 2.0,
-                                                ),
-                                                galley.clone(),
-                                                colors.fg_muted,
-                                            );
-                                            galley.size().x + DETAIL_GAP
-                                        }
-                                        _ => 0.0,
-                                    };
-                                    let label_max_w =
-                                        (item_rect.width() - OPT_PAD_X * 2.0 - tick_w - detail_w)
-                                            .max(0.0);
-                                    paint_truncated(
-                                        ui.painter(),
+                                    _ => 0.0,
+                                };
+                                let label_max_w =
+                                    (item_rect.width() - OPT_PAD_X * 2.0 - tick_w - detail_w)
+                                        .max(0.0);
+                                paint_truncated(
+                                    ui.painter(),
+                                    egui::pos2(item_rect.min.x + OPT_PAD_X, item_rect.center().y),
+                                    &opt.label,
+                                    egui::FontId::proportional(font_size),
+                                    if is_sel { colors.accent } else { colors.fg },
+                                    label_max_w,
+                                );
+                                if is_sel {
+                                    ui.painter().text(
                                         egui::pos2(
-                                            item_rect.min.x + OPT_PAD_X,
+                                            item_rect.max.x - OPT_PAD_X,
                                             item_rect.center().y,
                                         ),
-                                        &opt.label,
-                                        egui::FontId::proportional(font_size),
-                                        if is_sel { colors.accent } else { colors.fg },
-                                        label_max_w,
+                                        egui::Align2::RIGHT_CENTER,
+                                        egui_phosphor::regular::CHECK,
+                                        phosphor_font_id(TICK_SIZE),
+                                        colors.accent,
                                     );
-                                    if is_sel {
-                                        ui.painter().text(
-                                            egui::pos2(
-                                                item_rect.max.x - OPT_PAD_X,
-                                                item_rect.center().y,
-                                            ),
-                                            egui::Align2::RIGHT_CENTER,
-                                            egui_phosphor::regular::CHECK,
-                                            phosphor_font_id(TICK_SIZE),
-                                            colors.accent,
-                                        );
-                                    }
-                                    if item_resp.hovered() {
-                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                                    }
                                 }
-
-                                if item_resp.clicked() {
-                                    out.selected = Some(opt.value.clone());
-                                    close(ui.ctx(), id, query_id);
+                                if item_resp.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                                 }
                             }
-                        });
+
+                            if item_resp.hovered() && !moved {
+                                ui.ctx().data_mut(|d| d.insert_temp(hi_id, row));
+                            }
+                            if item_resp.clicked() {
+                                out.selected = Some(opt.value.clone());
+                                close(ui.ctx(), id, query_id);
+                            }
+                        }
+                    });
+                    // Remember where the list sits so the next keyboard move
+                    // can tell whether the highlight is already on screen.
+                    ui.ctx()
+                        .data_mut(|d| d.insert_temp(list_id.with("_off"), list_out.state.offset.y));
                 },
             );
 
@@ -350,6 +432,9 @@ fn close(ctx: &egui::Context, id: egui::Id, query_id: egui::Id) {
     ctx.data_mut(|d| {
         d.insert_temp::<bool>(id, false);
         d.remove::<String>(query_id);
+        // So it reopens on the chosen option rather than on wherever the
+        // keyboard was left last time.
+        d.remove::<usize>(id.with("_highlight"));
     });
 }
 

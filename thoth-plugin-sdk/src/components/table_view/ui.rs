@@ -116,11 +116,7 @@ impl TableView {
                                         let mut row_clicked = false;
                                         let (_, number_resp) = row.col(|ui| {
                                             if is_selected {
-                                                ui.painter().rect_filled(
-                                                    ui.max_rect(),
-                                                    0.0,
-                                                    with_alpha(colors.accent, SELECTED_ROW_ALPHA),
-                                                );
+                                                paint_selected_gutter(ui, &colors);
                                             }
                                             paint_row_number(ui, &colors, &(idx + 1).to_string());
                                             paint_cell_borders(ui, grid, grid);
@@ -150,14 +146,7 @@ impl TableView {
                                                 // the row number does not read
                                                 // as a selected row.
                                                 if is_selected {
-                                                    ui.painter().rect_filled(
-                                                        ui.max_rect(),
-                                                        0.0,
-                                                        with_alpha(
-                                                            colors.accent,
-                                                            SELECTED_ROW_ALPHA,
-                                                        ),
-                                                    );
+                                                    paint_selected_cell(ui, &colors);
                                                 }
                                                 cell_frame(ui, align_right, |ui| {
                                                     if let Some(cell) = rows
@@ -356,11 +345,7 @@ impl TableView {
                                         let mut row_clicked = false;
                                         let (_, number_resp) = row.col(|ui| {
                                             if is_selected {
-                                                ui.painter().rect_filled(
-                                                    ui.max_rect(),
-                                                    0.0,
-                                                    with_alpha(colors.accent, SELECTED_ROW_ALPHA),
-                                                );
+                                                paint_selected_gutter(ui, &colors);
                                             }
                                             paint_row_number(ui, &colors, &(idx + 1).to_string());
                                             paint_cell_borders(ui, grid, grid);
@@ -372,14 +357,7 @@ impl TableView {
                                         for cell in &mut cells {
                                             let (_, response) = row.col(|ui| {
                                                 if is_selected {
-                                                    ui.painter().rect_filled(
-                                                        ui.max_rect(),
-                                                        0.0,
-                                                        with_alpha(
-                                                            colors.accent,
-                                                            SELECTED_ROW_ALPHA,
-                                                        ),
-                                                    );
+                                                    paint_selected_cell(ui, &colors);
                                                 }
                                                 cell_frame(ui, false, |ui| {
                                                     cell.show(ui, events);
@@ -479,14 +457,23 @@ fn move_selection(ui: &egui::Ui, selected: &mut Option<usize>, row_count: usize)
     *selected != before
 }
 
-/// Wash over the selected row — the accent at a data-bar weight, not an
-/// accent fill, so cell text stays readable on top of it.
-const SELECTED_ROW_ALPHA: u8 = 36;
+/// Wash over the selected row.
+///
+/// `surface_active` — the theme's own "pressed / active" token — rather than
+/// the accent at 14%, which is what the design's `color-mix(accent 15%)`
+/// works out to and is barely distinguishable from the zebra stripe on a dark
+/// theme. A muted surface reads as *selected* at a glance and still leaves
+/// cell text legible; the accent goes on the leading edge instead, where a
+/// thin bar of it is unmissable without washing the row.
+const SELECTED_ROW_ALPHA: u8 = 176;
+
+/// Width of the accent bar down the selected row's leading edge.
+const SELECTED_EDGE_W: f32 = 2.0;
 
 // The row highlight has to sit under cell text and stay readable, so it is a
-// data-bar weight rather than an accent fill.
+// surface rather than a saturated fill.
 const _: () = assert!(
-    SELECTED_ROW_ALPHA < 64,
+    SELECTED_ROW_ALPHA < 255,
     "an opaque selected row would bury its own contents"
 );
 
@@ -547,6 +534,31 @@ fn copy_menu(
         (Some(col), 2) => Some(CopyAction::Column(col)),
         _ => None,
     });
+}
+
+/// Fill a selected row's body cell.
+fn paint_selected_cell(ui: &egui::Ui, colors: &ThemeColors) {
+    ui.painter().rect_filled(
+        ui.max_rect(),
+        0.0,
+        with_alpha(colors.surface_active, SELECTED_ROW_ALPHA),
+    );
+}
+
+/// Fill a selected row's `#` gutter, plus the accent bar down its leading
+/// edge — the bar is what makes the selection unmistakable without having to
+/// wash the whole row in colour.
+fn paint_selected_gutter(ui: &egui::Ui, colors: &ThemeColors) {
+    paint_selected_cell(ui, colors);
+    let rect = ui.max_rect();
+    ui.painter().rect_filled(
+        egui::Rect::from_min_max(
+            rect.min,
+            egui::pos2(rect.left() + SELECTED_EDGE_W, rect.bottom()),
+        ),
+        0.0,
+        colors.accent,
+    );
 }
 
 /// Paint a cell's right + bottom grid lines.

@@ -273,6 +273,10 @@ svg {
   color: var(--fg-muted);
 }
 .seg button:hover { color: var(--fg); }
+.qb-tabs { height: var(--h-btn-sm); }
+.qb-tabs[hidden] { display: none; }
+
+.seg button[aria-selected="true"],
 .seg button[aria-pressed="true"] {
   background: var(--bg);
   color: var(--fg);
@@ -426,11 +430,6 @@ svg {
   color: var(--fg-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
 }
-/* `direction: rtl` puts the ellipsis on the left, where a path should lose its
-   head rather than its tail. It also hands the leading neutrals of `~/` the
-   RTL direction, which renders `~/data/telemetry` as `data/telemetry/~`, so
-   the path itself is isolated back to LTR inside the RTL box. */
-.frow .pth > bdi { unicode-bidi: isolate; direction: ltr; }
 .frow .sz { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted); }
 
 /* ── Main pane ───────────────────────────────────────────────────────────── */
@@ -642,15 +641,22 @@ svg {
 
 .sqlbox {
   position: relative;
-  margin: 0 12px 10px;
+  min-height: 144px;            /* the four lanes, so switching tabs never jumps */
   background: var(--bg);
-  border-radius: var(--r-control);
-  box-shadow: inset 0 0 0 1px var(--hairline);
+  box-shadow: inset 0 -1px 0 var(--hairline);
 }
 .sqlbox[hidden] { display: none; }
+#qbLanes[hidden] { display: none; }
+
+/* A SQL tab implies an editor; this says plainly that it is not one. */
+.sqlnote {
+  padding: 0 12px 9px;
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--fg-muted);
+}
 .sqlhl {
   margin: 0;
-  padding: 9px 11px;
+  padding: 11px 12px 8px;
   padding-right: 108px;
   font: 400 12.5px/1.55 var(--font-mono);
   tab-size: 2;
@@ -659,7 +665,7 @@ svg {
   color: var(--fg);
   user-select: text;
 }
-.sqlcopy { position: absolute; top: 5px; right: 5px; }
+.sqlcopy { position: absolute; top: 7px; right: 8px; }
 
 .tok-kw  { color: var(--accent); font-weight: 500; }
 .tok-str { color: var(--syn-string); }
@@ -875,6 +881,7 @@ mark.hit {
    ────────────────────────────────────────────────────────────────────────── */
 
 .qb-head {
+  position: relative;
   display: flex; align-items: center; gap: 10px;
   height: var(--h-tabstrip);
   padding: 0 12px 0 8px;
@@ -899,6 +906,79 @@ mark.hit {
 .qchip em { font-style: normal; color: var(--fg-muted); }
 .qchip.plain { background: none; box-shadow: none; color: var(--fg-muted); padding: 0; }
 .qb-count { font-size: 11px; color: var(--fg-muted); white-space: nowrap; }
+
+/* ── Saved queries ───────────────────────────────────────────────────────────
+   A save is the whole spec. The control sits with the query rather than in a
+   panel of its own, and naming happens inline in the head.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.savedsel {
+  height: var(--h-btn-sm);
+  max-width: 210px;
+  font-size: 11.5px;
+}
+.savedsel svg:first-child { color: var(--fg-muted); }
+/* Edited since it was saved - the one place this dot is used. */
+.savedsel.dirty .lbl::after {
+  content: "\2022";
+  margin-left: 5px;
+  color: var(--accent-2);
+}
+
+.field.namefield { height: var(--h-btn-sm); width: 248px; }
+.field.namefield input { font-size: 11.5px; }
+.field.namefield[hidden] { display: none; }
+
+.menu.savedmenu { min-width: 284px; max-width: 344px; max-height: 360px; overflow: auto; }
+.savedmenu .kbd { margin-left: auto; }
+
+.srow { display: flex; align-items: stretch; border-radius: 4px; }
+.srow:hover { background: var(--surface); }
+.srow.on .nm { color: var(--accent); }
+
+.savedmenu .sapply {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 1px;
+  height: auto;
+  padding: 5px 8px;
+  text-align: left;
+}
+.savedmenu .sapply:hover { background: none; }
+.savedmenu .sapply .nm {
+  font-size: 12.5px; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.savedmenu .sapply .sub {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.savedmenu .sdel {
+  flex: none; width: 26px; height: auto;
+  display: grid; place-items: center;
+  border-radius: 4px;
+  color: var(--fg-muted);
+  opacity: 0;
+}
+.srow:hover .sdel { opacity: 1; }
+.savedmenu .sdel:hover { color: var(--fg); background: var(--surface-raised); }
+
+/* Same list in the rail, with room to read the query back. */
+.frow .rm {
+  display: grid; place-items: center;
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  color: var(--fg-muted);
+  opacity: 0;
+}
+.frow:hover .rm { opacity: 1; }
+.frow .rm:hover { background: var(--surface-raised); color: var(--fg); }
+
+.panehint {
+  padding: 0 12px 8px;
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  max-width: 34ch;
+}
 
 /* ── Timeline — volume by level, drag to narrow the range ────────────────── */
 

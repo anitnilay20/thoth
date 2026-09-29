@@ -10,6 +10,8 @@ pub enum ShortcutAction {
     NewWindow,
 
     // Navigation
+    ToggleQueryBuilder,
+    RunQuery,
     AddFilter,
     GroupBy,
     AddAggregate,
@@ -80,6 +82,8 @@ impl ShortcutHandler {
         // Query builder lanes. Shift-bearing bindings are tested first so
         // ⌘⇧A is not swallowed by a plain-⌘ shortcut on the same letter.
         for (shortcut, action) in [
+            (&shortcuts.toggle_query, ShortcutAction::ToggleQueryBuilder),
+            (&shortcuts.run_query, ShortcutAction::RunQuery),
             (&shortcuts.add_aggregate, ShortcutAction::AddAggregate),
             (&shortcuts.add_sort, ShortcutAction::AddSort),
             (&shortcuts.add_filter, ShortcutAction::AddFilter),

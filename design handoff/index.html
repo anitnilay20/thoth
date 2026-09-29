@@ -77,7 +77,7 @@
       <button class="railbtn" data-section="recent" aria-selected="false" title="Recent files">
         <svg width="17" height="17"><use href="#i-clock"/></svg>
       </button>
-      <button class="railbtn" data-section="bookmarks" aria-selected="false" title="Bookmarks">
+      <button class="railbtn" data-section="saved" aria-selected="false" title="Saved queries">
         <svg width="17" height="17"><use href="#i-bookmark"/></svg>
       </button>
       <button class="railbtn" data-section="seshat" aria-selected="false" title="Seshat — databases">
@@ -100,28 +100,28 @@
         <div class="sgroup"><h3>Today</h3></div>
         <div class="frow" aria-current="true" data-od-id="file-events-ndjson">
           <svg width="14" height="14"><use href="#i-file"/></svg>
-          <span class="nm">events.ndjson</span><span class="pth"><bdi>~/data/telemetry</bdi></span><span class="sz">6.1 MB</span>
+          <span class="nm">events.ndjson</span><span class="pth">~/data/telemetry</span><span class="sz">6.1 MB</span>
         </div>
         <div class="frow" data-od-id="file-orders-csv">
           <svg width="14" height="14"><use href="#i-file"/></svg>
-          <span class="nm">orders.csv</span><span class="pth"><bdi>~/data/exports</bdi></span><span class="sz">842 KB</span>
+          <span class="nm">orders.csv</span><span class="pth">~/data/exports</span><span class="sz">842 KB</span>
         </div>
         <div class="frow" data-od-id="file-schema-json">
           <svg width="14" height="14"><use href="#i-file"/></svg>
-          <span class="nm">schema.json</span><span class="pth"><bdi>~/repos/ingest</bdi></span><span class="sz">14 KB</span>
+          <span class="nm">schema.json</span><span class="pth">~/repos/ingest</span><span class="sz">14 KB</span>
         </div>
         <div class="sgroup"><h3>Yesterday</h3></div>
         <div class="frow" data-od-id="file-spans-ndjson">
           <svg width="14" height="14"><use href="#i-file"/></svg>
-          <span class="nm">spans.ndjson</span><span class="pth"><bdi>~/data/traces</bdi></span><span class="sz">21 MB</span>
+          <span class="nm">spans.ndjson</span><span class="pth">~/data/traces</span><span class="sz">21 MB</span>
         </div>
         <div class="frow" data-od-id="file-billing-parquet">
           <svg width="14" height="14"><use href="#i-file"/></svg>
-          <span class="nm">billing.parquet</span><span class="pth"><bdi>~/data/warehouse</bdi></span><span class="sz">3.4 MB</span>
+          <span class="nm">billing.parquet</span><span class="pth">~/data/warehouse</span><span class="sz">3.4 MB</span>
         </div>
         <div class="frow" data-od-id="file-geo-geojson">
           <svg width="14" height="14"><use href="#i-file"/></svg>
-          <span class="nm">regions.geojson</span><span class="pth"><bdi>~/data/geo</bdi></span><span class="sz">108 KB</span>
+          <span class="nm">regions.geojson</span><span class="pth">~/data/geo</span><span class="sz">108 KB</span>
         </div>
       </div>
     </aside>
@@ -145,9 +145,30 @@
                   title="Hide the query builder (⌘/)">
             <svg class="tw" width="13" height="13"><use href="#i-caret-down"/></svg> Query
           </button>
+          <div class="seg qb-tabs" id="qbTabs" role="tablist" aria-label="Query representation">
+            <button role="tab" data-tab="builder" aria-selected="true" aria-controls="qbLanes">Builder</button>
+            <button role="tab" data-tab="sql" aria-selected="false" aria-controls="sqlBox">SQL</button>
+          </div>
+
           <div class="qb-sum" id="qbSum"></div>
           <div class="sp"></div>
           <span class="qb-count mono" id="qbCount"></span>
+
+          <!-- Naming happens inline in the head; a dialog for one string is too much -->
+          <label class="field namefield" id="nameField" hidden>
+            <input id="nameIn" placeholder="Name this query" spellcheck="false"
+                   autocomplete="off" aria-label="Name for the saved query">
+            <span class="kbd">↵</span>
+          </label>
+
+          <button class="select savedsel" id="savedSel" aria-haspopup="true" aria-expanded="false"
+                  data-od-id="saved-queries" title="Saved queries">
+            <svg width="14" height="14"><use href="#i-bookmark"/></svg>
+            <span class="lbl" id="savedLbl">Saved</span>
+            <svg class="caret" width="14" height="14"><use href="#i-caret-down"/></svg>
+          </button>
+          <div class="menu savedmenu" id="savedMenu" hidden role="menu" style="right:12px;top:31px"></div>
+
           <span class="kbd" id="qbKbd">⌘/</span>
         </div>
 
@@ -194,10 +215,14 @@
           </div>
         </div>
 
-        <div class="qb-foot">
-          <button class="disc" id="sqlDisc" aria-expanded="false" aria-controls="sqlBox" data-od-id="sql-toggle">
-            <svg class="tw" width="13" height="13"><use href="#i-caret-down"/></svg> SQL
+        <div class="sqlbox" id="sqlBox" hidden data-od-id="sql-preview">
+          <pre class="sqlhl" id="sqlHl" aria-label="Generated SQL"></pre>
+          <button class="btn btn-text sqlcopy" id="sqlCopy" title="Copy the generated SQL">
+            <svg width="14" height="14"><use href="#i-copy"/></svg> <span id="sqlCopyLbl">Copy SQL</span>
           </button>
+          <div class="sqlnote">compiled from the Builder tab &middot; read-only</div>
+        </div>
+        <div class="qb-foot">
           <div class="qstatus" id="qstatus" role="status" aria-live="polite"></div>
           <label class="field lim" data-od-id="limit-field" title="Maximum rows returned">
             <span class="lk">Limit</span>
@@ -209,12 +234,6 @@
           </button>
         </div>
 
-        <div class="sqlbox" id="sqlBox" hidden data-od-id="sql-preview">
-          <pre class="sqlhl" id="sqlHl" aria-label="Generated SQL"></pre>
-          <button class="btn btn-text sqlcopy" id="sqlCopy" title="Copy the generated SQL">
-            <svg width="14" height="14"><use href="#i-copy"/></svg> <span id="sqlCopyLbl">Copy SQL</span>
-          </button>
-        </div>
         </div>
       </section>
 

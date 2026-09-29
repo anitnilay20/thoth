@@ -736,8 +736,24 @@ pub fn owns_navigation_keys(ctx: &egui::Context, id: egui::Id) -> bool {
     if ctx.egui_wants_keyboard_input() {
         return false;
     }
-    let hovered = ctx
-        .data(|d| d.get_temp::<egui::Rect>(id.with("nav-rect")))
+    let rect = ctx.data(|d| d.get_temp::<egui::Rect>(id.with("nav-rect")));
+
+    // A focused widget owns the arrow keys unless it is *inside* this one.
+    // `egui_wants_keyboard_input` only covers text fields, so without this a
+    // focused dropdown — which answers Up/Down itself — also moved the grid's
+    // selection underneath it. A focused widget whose rect cannot be read is
+    // treated as elsewhere, which is the quiet side to be wrong on.
+    if let Some(focused) = ctx.memory(|m| m.focused()) {
+        let inside = ctx
+            .read_response(focused)
+            .zip(rect)
+            .is_some_and(|(response, rect)| rect.contains_rect(response.rect));
+        if !inside {
+            return false;
+        }
+    }
+
+    let hovered = rect
         .zip(ctx.pointer_latest_pos())
         .is_some_and(|(rect, pos)| rect.contains(pos));
     hovered || ctx.data(|d| d.get_temp::<egui::Id>(keyboard_owner())) == Some(id)

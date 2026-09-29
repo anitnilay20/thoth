@@ -81,6 +81,10 @@ pub enum QueryAction {
     AddAggregate,
     /// Add a key to the sort lane.
     AddSort,
+    /// Show or hide the lanes.
+    ToggleLanes,
+    /// Run the query, as the Run button does.
+    Run,
 }
 
 /// The design's query builder: four lanes that compile to one statement.
@@ -131,6 +135,10 @@ pub struct QueryBuilder {
     /// [`show`](QueryBuilder::show) and then cleared. Opens the lanes.
     #[serde(default)]
     pub action: Option<QueryAction>,
+    /// Widget id of the control to focus once, set when a shortcut adds a
+    /// clause so the user can carry straight on from the keyboard.
+    #[serde(skip)]
+    pub focus_control: Option<String>,
 }
 
 /// Whether `sql` groups — a `GROUP BY` that is SQL rather than part of a

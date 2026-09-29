@@ -120,16 +120,38 @@ impl QueryBuilder {
         // draw, and it opens them: adding a clause the user cannot see would
         // be worse than the shortcut doing nothing.
         let mut changed = false;
+        let mut queued_run = false;
         if let Some(action) = self.action.take() {
-            lanes_open = true;
-            changed |= match action {
-                super::QueryAction::AddFilter => self.push_filter(),
-                super::QueryAction::AddGroupBy => self.push_group_by(),
-                super::QueryAction::AddAggregate => self.push_aggregate(),
-                super::QueryAction::AddSort => self.push_sort(),
-            };
+            match action {
+                // Toggling is the one action that must not force the lanes
+                // open — that is what it is for.
+                super::QueryAction::ToggleLanes => lanes_open = !lanes_open,
+                super::QueryAction::Run => queued_run = true,
+                add => {
+                    lanes_open = true;
+                    let landed = match add {
+                        super::QueryAction::AddFilter => self.push_filter(),
+                        super::QueryAction::AddGroupBy => self.push_group_by(),
+                        super::QueryAction::AddAggregate => self.push_aggregate(),
+                        _ => self.push_sort(),
+                    };
+                    changed |= landed;
+                    // Focus the new pill's first control, so the shortcut
+                    // leaves the user where the typing continues rather than
+                    // needing a click to get there.
+                    if landed {
+                        let last = match add {
+                            super::QueryAction::AddFilter => self.spec.filters.len(),
+                            super::QueryAction::AddGroupBy => self.spec.group_by.len(),
+                            super::QueryAction::AddAggregate => self.spec.aggregates.len(),
+                            _ => self.spec.sort.len(),
+                        } - 1;
+                        self.focus_control = focus_target(&self.id, add, last);
+                    }
+                }
+            }
         }
-        let mut run = run_key;
+        let mut run = run_key || queued_run;
         let mut add_filter = false;
         let mut sql_edited = false;
 
@@ -195,6 +217,13 @@ impl QueryBuilder {
 
         if add_filter {
             changed |= self.push_filter();
+        }
+
+        // Spent after one frame. `Select::autofocus` only claims focus once,
+        // but leaving the target set would re-arm it every time the lanes are
+        // reopened.
+        if lanes_open {
+            self.focus_control = None;
         }
 
         ui.ctx().data_mut(|d| {
@@ -318,6 +347,7 @@ impl QueryBuilder {
     fn filter_lane(&mut self, ui: &mut egui::Ui, colors: &ThemeColors, edited: &mut bool) -> bool {
         let fields = self.fields.clone();
         let id = self.id.clone();
+        let focus = self.focus_control.clone();
         let spec = &mut self.spec;
         let mut remove = None;
 
@@ -365,11 +395,12 @@ impl QueryBuilder {
 
                 for (index, filter) in spec.filters.iter_mut().enumerate() {
                     pill(ui, colors, |ui| {
-                        if let Some(name) = field_select(
+                        if let Some(name) = field_select_focused(
                             ui,
                             &format!("{id}_f{index}_field"),
                             &filter.field,
                             &fields,
+                            focus.as_deref() == Some(format!("{id}_f{index}_field").as_str()),
                         ) {
                             filter.column = column_type(&fields, &name);
                             filter.field = name;
@@ -465,6 +496,7 @@ impl QueryBuilder {
     fn group_lane(&mut self, ui: &mut egui::Ui, colors: &ThemeColors, edited: &mut bool) {
         let fields = self.fields.clone();
         let id = self.id.clone();
+        let focus = self.focus_control.clone();
         let mut remove = None;
 
         let add = {
@@ -485,9 +517,13 @@ impl QueryBuilder {
                     }
                     for (index, field) in spec.group_by.iter_mut().enumerate() {
                         pill(ui, colors, |ui| {
-                            if let Some(name) =
-                                field_select(ui, &format!("{id}_g{index}"), field, &fields)
-                            {
+                            if let Some(name) = field_select_focused(
+                                ui,
+                                &format!("{id}_g{index}"),
+                                field,
+                                &fields,
+                                focus.as_deref() == Some(format!("{id}_g{index}").as_str()),
+                            ) {
                                 *field = name;
                                 *edited = true;
                             }
@@ -512,6 +548,7 @@ impl QueryBuilder {
     fn compute_lane(&mut self, ui: &mut egui::Ui, colors: &ThemeColors, edited: &mut bool) {
         let fields = self.fields.clone();
         let id = self.id.clone();
+        let focus = self.focus_control.clone();
         let mut remove = None;
 
         let add = {
@@ -543,12 +580,13 @@ impl QueryBuilder {
                                         .build()
                                 })
                                 .collect();
-                            if let Some(value) = pill_select(
+                            if let Some(value) = pill_select_focused(
                                 ui,
                                 &format!("{id}_a{index}_fn"),
                                 &format!("{:?}", aggregate.function),
                                 aggregate.function.label(),
                                 options,
+                                focus.as_deref() == Some(format!("{id}_a{index}_fn").as_str()),
                             ) && let Some(function) = AggregateFn::all()
                                 .iter()
                                 .find(|f| format!("{f:?}") == value)
@@ -618,6 +656,7 @@ impl QueryBuilder {
     fn sort_lane(&mut self, ui: &mut egui::Ui, colors: &ThemeColors, edited: &mut bool) {
         let fields = self.sort_keys();
         let id = self.id.clone();
+        let focus = self.focus_control.clone();
         let mut remove = None;
 
         let add = {
@@ -638,9 +677,13 @@ impl QueryBuilder {
                     }
                     for (index, sort) in spec.sort.iter_mut().enumerate() {
                         pill(ui, colors, |ui| {
-                            if let Some(name) =
-                                field_select(ui, &format!("{id}_s{index}"), &sort.field, &fields)
-                            {
+                            if let Some(name) = field_select_focused(
+                                ui,
+                                &format!("{id}_s{index}"),
+                                &sort.field,
+                                &fields,
+                                focus.as_deref() == Some(format!("{id}_s{index}").as_str()),
+                            ) {
                                 sort.field = name;
                                 *edited = true;
                             }
@@ -1067,6 +1110,18 @@ fn field_select(
     current: &str,
     fields: &[QueryField],
 ) -> Option<String> {
+    field_select_focused(ui, id, current, fields, false)
+}
+
+/// As [`field_select`], taking focus when `focus` — for a pill a shortcut has
+/// just added, where the point is to carry on from the keyboard.
+fn field_select_focused(
+    ui: &mut egui::Ui,
+    id: &str,
+    current: &str,
+    fields: &[QueryField],
+    focus: bool,
+) -> Option<String> {
     let options: Vec<SelectOption> = fields
         .iter()
         .map(|f| {
@@ -1077,7 +1132,22 @@ fn field_select(
         })
         .collect();
     let searchable = options.len() > SEARCHABLE_FROM;
-    pill_select_inner(ui, id, current, current, options, searchable)
+    pill_select_inner(ui, id, current, current, options, searchable, focus)
+}
+
+/// Widget id of the control a lane action's new pill should focus.
+///
+/// The ids are built the same way the lanes build theirs, which is the whole
+/// contract: get it wrong and the shortcut adds a pill and focuses nothing.
+fn focus_target(id: &str, action: super::QueryAction, index: usize) -> Option<String> {
+    Some(match action {
+        super::QueryAction::AddFilter => format!("{id}_f{index}_field"),
+        super::QueryAction::AddGroupBy => format!("{id}_g{index}"),
+        super::QueryAction::AddAggregate => format!("{id}_a{index}_fn"),
+        super::QueryAction::AddSort => format!("{id}_s{index}"),
+        // Neither adds a pill, so neither has anything to focus.
+        super::QueryAction::ToggleLanes | super::QueryAction::Run => return None,
+    })
 }
 
 /// A dropdown inside a pill, sized to its current label.
@@ -1088,7 +1158,19 @@ fn pill_select(
     label: &str,
     options: Vec<SelectOption>,
 ) -> Option<String> {
-    pill_select_inner(ui, id, value, label, options, false)
+    pill_select_inner(ui, id, value, label, options, false, false)
+}
+
+/// As [`pill_select`], taking focus when `focus`.
+fn pill_select_focused(
+    ui: &mut egui::Ui,
+    id: &str,
+    value: &str,
+    label: &str,
+    options: Vec<SelectOption>,
+    focus: bool,
+) -> Option<String> {
+    pill_select_inner(ui, id, value, label, options, false, focus)
 }
 
 fn pill_select_inner(
@@ -1098,6 +1180,7 @@ fn pill_select_inner(
     label: &str,
     options: Vec<SelectOption>,
     searchable: bool,
+    focus: bool,
 ) -> Option<String> {
     let (font_size, _) = Size::Small.field_metrics();
     let width = trigger_width(ui, label, font_size);
@@ -1108,6 +1191,7 @@ fn pill_select_inner(
         .size(Size::Small)
         .width(width)
         .searchable(searchable)
+        .autofocus(focus)
         .build()
         .show(ui)
         .inner
@@ -1406,6 +1490,66 @@ mod tests {
         let out = with_ui(|ui| builder.show(ui));
         assert!(!out.changed);
         assert_eq!(builder.spec.filters.len(), 1);
+    }
+
+    #[test]
+    fn a_shortcut_leaves_focus_on_the_new_pill() {
+        // The point of ⌘F is to carry on from the keyboard; landing a filter
+        // and then needing a click to reach its field defeats it.
+        let mut builder = QueryBuilder::builder()
+            .id("qb-focus")
+            .relation("data")
+            .fields(vec![
+                QueryField::builder()
+                    .name("level")
+                    .column_type(ColumnType::Text)
+                    .build(),
+            ])
+            .build();
+
+        // The ids these name have to be the ones the lanes actually build.
+        for (action, expected) in [
+            (
+                crate::components::QueryAction::AddFilter,
+                "qb-focus_f0_field",
+            ),
+            (crate::components::QueryAction::AddGroupBy, "qb-focus_g0"),
+            (
+                crate::components::QueryAction::AddAggregate,
+                "qb-focus_a0_fn",
+            ),
+            (crate::components::QueryAction::AddSort, "qb-focus_s0"),
+        ] {
+            assert_eq!(
+                focus_target("qb-focus", action, 0).as_deref(),
+                Some(expected),
+                "{action:?} should focus the control it just created"
+            );
+        }
+        // Neither of these adds a pill.
+        assert_eq!(
+            focus_target("qb", crate::components::QueryAction::ToggleLanes, 0),
+            None
+        );
+        assert_eq!(
+            focus_target("qb", crate::components::QueryAction::Run, 0),
+            None
+        );
+
+        // And the target is spent, not left armed for every later frame.
+        builder.action = Some(crate::components::QueryAction::AddFilter);
+        with_ui(|ui| builder.show(ui));
+        assert!(builder.focus_control.is_none());
+    }
+
+    #[test]
+    fn toggling_the_lanes_neither_adds_nor_focuses_anything() {
+        let mut builder = QueryBuilder::builder().id("qb-toggle").build();
+        builder.action = Some(crate::components::QueryAction::ToggleLanes);
+        let out = with_ui(|ui| builder.show(ui));
+        assert!(!out.changed);
+        assert!(builder.spec.is_empty());
+        assert!(builder.focus_control.is_none());
     }
 
     #[test]

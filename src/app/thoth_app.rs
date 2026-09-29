@@ -646,12 +646,16 @@ impl ThothApp {
                 // Query-builder lanes. Only a *file* tab answers these: a
                 // plugin pane owns its own keys, and handing ⌘F to a builder
                 // that is not on screen would take it from whatever is.
-                ShortcutAction::AddFilter
+                ShortcutAction::ToggleQueryBuilder
+                | ShortcutAction::RunQuery
+                | ShortcutAction::AddFilter
                 | ShortcutAction::GroupBy
                 | ShortcutAction::AddAggregate
                 | ShortcutAction::AddSort => {
                     use thoth_plugin_sdk::components::QueryAction;
                     let lane = match action {
+                        ShortcutAction::ToggleQueryBuilder => QueryAction::ToggleLanes,
+                        ShortcutAction::RunQuery => QueryAction::Run,
                         ShortcutAction::AddFilter => QueryAction::AddFilter,
                         ShortcutAction::GroupBy => QueryAction::AddGroupBy,
                         ShortcutAction::AddAggregate => QueryAction::AddAggregate,

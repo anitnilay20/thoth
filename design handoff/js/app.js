@@ -665,9 +665,7 @@ function cellClass(type) {
 function cellText(value, type) {
   if (value === null || value === undefined) return '';
   if (type === 'JSON' || typeof value === 'object') return JSON.stringify(value);
-  // Not rounded: a data viewer that shows 523.47 as "523.5" is showing a
-  // number the file does not contain, and the real grid does not do it either.
-  if (type === 'DOUBLE') return String(value);
+  if (type === 'DOUBLE') return value.toFixed(1);
   if (type === 'BIGINT' || type === 'INTEGER') return String(value);
   return String(value);
 }
@@ -693,11 +691,8 @@ function renderTable(result) {
           + `<span class="jchip">${glyph}</span></td>`;
       }
       const text = cellText(raw, c.type);
-      // The quick-filter carries the *value*, not what the cell displays.
-      // `cellText` rounds a DOUBLE for the eye, and filtering to 523.5 when
-      // the row holds 523.47 matches nothing and excludes nothing.
       const q = COLNAMES.includes(c.name) && text !== ''
-        ? ` data-f="${c.name}" data-v="${escAttr(asText(raw))}"` : '';
+        ? ` data-f="${c.name}" data-v="${escAttr(text)}"` : '';
       if (c.name === 'level') {
         return `<td${q}><span class="lvl lvl-${escAttr(String(raw))}">${esc(text)}</span></td>`;
       }
@@ -879,8 +874,11 @@ const state = {
   theme: store.get('theme', 'mocha'),
   view: store.get('view', 'table'),
   spec: loadSpec(),
-  sqlOpen: store.get('sqlOpen', '0') === '1',
+  qbTab: store.get('qbTab', 'builder') === 'sql' ? 'sql' : 'builder',
   qbOpen: store.get('qbOpen', '1') === '1',
+  saved: [],                                    // filled after normalizeSpec exists
+  savedId: store.get('savedId', '') || null,
+  naming: false,
   result: null,
   error: null,
   running: false,
@@ -910,8 +908,10 @@ const el = {
   lanes: $('#qbLanes'), lnFilters: $('#lnFilters'), lnGroup: $('#lnGroup'),
   lnAggs: $('#lnAggs'), lnSort: $('#lnSort'), combineSeg: $('#combineSeg'),
   qstatus: $('#qstatus'), limIn: $('#limIn'),
-  sqlDisc: $('#sqlDisc'), sqlBox: $('#sqlBox'), sqlHl: $('#sqlHl'), sqlCopyLbl: $('#sqlCopyLbl'),
+  qbTabs: $('#qbTabs'), sqlBox: $('#sqlBox'), sqlHl: $('#sqlHl'), sqlCopyLbl: $('#sqlCopyLbl'),
   qbToggle: $('#qbToggle'), qbBody: $('#qbBody'), qbSum: $('#qbSum'), qbCount: $('#qbCount'),
+  savedSel: $('#savedSel'), savedMenu: $('#savedMenu'), savedLbl: $('#savedLbl'),
+  nameField: $('#nameField'), nameIn: $('#nameIn'),
   tlPlot: $('#tlPlot'), tlBars: $('#tlBars'), tlBand: $('#tlBand'), tlDrag: $('#tlDrag'),
   tlFrom: $('#tlFrom'), tlTo: $('#tlTo'), tlLegend: $('#tlLegend'),
   tlClear: $('#tlClear'), tlRange: $('#tlRange'),
@@ -1034,10 +1034,16 @@ function renderBuilder() {
   if (el.limIn.value !== String(s.limit)) el.limIn.value = s.limit;
 }
 
+/* Builder and SQL are two readings of one spec, so they are siblings rather
+   than one nested in the other. The footer belongs to both. */
 function renderSql() {
   el.sqlHl.innerHTML = highlightSql(compileSql(state.spec));
-  el.sqlBox.hidden = !state.sqlOpen;
-  el.sqlDisc.setAttribute('aria-expanded', String(state.sqlOpen));
+  const sql = state.qbTab === 'sql';
+  el.lanes.hidden = sql;
+  el.sqlBox.hidden = !sql;
+  for (const b of el.qbTabs.querySelectorAll('button')) {
+    b.setAttribute('aria-selected', String(b.dataset.tab === state.qbTab));
+  }
 }
 
 /* -- 7b. Explorer surfaces: facets, timeline, query summary, record drawer --
@@ -1084,9 +1090,9 @@ function renderHead() {
   const s = state.spec, r = state.result;
   el.qbBody.hidden = !state.qbOpen;
   el.qbToggle.setAttribute('aria-expanded', String(state.qbOpen));
-  el.qbToggle.title = state.qbOpen
-    ? `Hide the query builder (${MOD}/)`
-    : `Show the query builder (${MOD}/)`;
+  el.qbToggle.title = state.qbOpen ? `Hide the query (${MOD}/)` : `Show the query (${MOD}/)`;
+  /* Collapsed there is no panel to switch, so the tabs give way to the summary. */
+  el.qbTabs.hidden = !state.qbOpen;
 
   el.qbCount.textContent = state.error ? 'query failed'
     : r ? `${nf.format(r.selected)} ${r.grouped ? 'groups' : 'rows'} · ${r.ms.toFixed(1)} ms`
@@ -1109,10 +1115,6 @@ function renderHead() {
 /* ---- Facets ------------------------------------------------------------ */
 
 function facetActive(field, value) {
-  // "(empty)" is a missing field, which is `is null` rather than `= ''`.
-  if (value === '') {
-    return state.spec.filters.some(x => x.field === field && x.op === 'is null');
-  }
   return state.spec.filters.some(x => x.field === field
     && ((x.op === '=' && asText(x.value) === value)
       || (x.op === 'in' && listOf(x.value).includes(value))));
@@ -1122,16 +1124,6 @@ function facetActive(field, value) {
    checkbox list behaves — rather than replacing the first choice. */
 function toggleFacet(field, value) {
   const s = state.spec;
-  // `renderFacets` counts rows that lack the field as `''` and shows them as
-  // "(empty)". Filtering to that is asking for the rows where the field is
-  // absent — `= ''` has no value to compile and fails the whole query.
-  if (value === '') {
-    const at = s.filters.findIndex(x => x.field === field && x.op === 'is null');
-    if (at >= 0) s.filters.splice(at, 1);
-    else s.filters.push({ field, op: 'is null', value: '', value2: '' });
-    commitSpec();
-    return;
-  }
   const f = s.filters.find(x => x.field === field && (x.op === '=' || x.op === 'in'));
   if (!f) {
     s.filters.push({ field, op: '=', value, value2: '' });
@@ -1392,15 +1384,10 @@ function drillInto(i) {
   if (!row) return;
   const s = state.spec;
   for (const field of s.groupBy) {
-    // A group whose key is absent drills into "where this field is missing",
-    // not into `= ''`, which has no value to compile.
-    const raw = row[field];
-    const absent = raw === null || raw === undefined;
-    s.filters = s.filters.filter(x => !(x.field === field
-      && (x.op === '=' || x.op === 'in' || x.op === 'is null')));
-    s.filters.push(absent
-      ? { field, op: 'is null', value: '', value2: '' }
-      : { field, op: '=', value: asText(raw), value2: '' });
+    const v = asText(row[field]);
+    const f = s.filters.find(x => x.field === field && (x.op === '=' || x.op === 'in'));
+    if (f) { f.op = '='; f.value = v; f.value2 = ''; }
+    else s.filters.push({ field, op: '=', value: v, value2: '' });
   }
   s.groupBy = [];
   s.aggs = [];
@@ -1511,6 +1498,170 @@ function renderTableMenu() {
     + TABLES.map(t => item(t.label, t.label, t.n)).join('');
 }
 
+/* ---- Saved queries -----------------------------------------------------
+   A save is the whole spec - table, filters, groups, aggregates, sort,
+   columns, limit - because that is what a user means by "this view". Applying
+   one and then editing it leaves the save alone and marks the head modified,
+   so Update is a decision rather than a side effect. */
+
+const SAVED_MAX = 60;
+
+function loadSaved() {
+  try {
+    const raw = JSON.parse(store.get('saved', '[]'));
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter(x => x && typeof x.id === 'string' && typeof x.name === 'string' && x.spec)
+      .slice(0, SAVED_MAX)
+      .map(x => ({ id: x.id, name: x.name, spec: normalizeSpec(x.spec) }));
+  } catch {
+    return [];
+  }
+}
+
+function persistSaved() {
+  store.set('saved', JSON.stringify(state.saved));
+  store.set('savedId', state.savedId || '');
+}
+
+const cloneSpec = s => JSON.parse(JSON.stringify(s));
+const specKey = s => JSON.stringify(normalizeSpec(cloneSpec(s)));
+
+function currentSaved() {
+  return state.saved.find(x => x.id === state.savedId) || null;
+}
+
+function isModified() {
+  const s = currentSaved();
+  return !!s && specKey(s.spec) !== specKey(state.spec);
+}
+
+/** One filter in plain words - the same phrasing the head chips use. */
+function plainFilter(f) {
+  const meta = opMeta(f.op);
+  const v = String(f.value ?? '').trim() || '?';
+  if (meta.arity === 0) return `${f.field} ${meta.label}`;
+  if (meta.arity === 2) return `${f.field} between ${v} and ${String(f.value2 ?? '').trim() || '?'}`;
+  return `${f.field} ${meta.label} ${v}`;
+}
+
+/** What this query asks, as a sentence - used for the default name too. */
+function describeSpec(spec) {
+  const parts = [];
+  const typed = TYPE_FIELD && spec.filters.find(f => f.field === TYPE_FIELD.name && f.op === '=');
+  parts.push(typed ? String(typed.value) : 'All types');
+  for (const f of spec.filters) {
+    if (f === typed) continue;
+    parts.push(plainFilter(f));
+  }
+  if (spec.groupBy.length) parts.push(`by ${spec.groupBy.join(', ')}`);
+  if (spec.aggs.length) parts.push(spec.aggs.map(aggName).join(', '));
+  return parts.join(' · ');
+}
+
+function saveQuery(name) {
+  const entry = {
+    id: 'q' + Date.now().toString(36),
+    name: String(name || '').trim() || describeSpec(state.spec),
+    spec: cloneSpec(state.spec),
+  };
+  state.saved.unshift(entry);
+  state.saved = state.saved.slice(0, SAVED_MAX);
+  state.savedId = entry.id;
+  persistSaved();
+  render();
+}
+
+function updateSaved(id) {
+  const s = state.saved.find(x => x.id === id);
+  if (!s) return;
+  s.spec = cloneSpec(state.spec);
+  persistSaved();
+  render();
+}
+
+function applySaved(id) {
+  const s = state.saved.find(x => x.id === id);
+  if (!s) return;
+  state.spec = normalizeSpec(cloneSpec(s.spec));
+  state.savedId = id;
+  persistSaved();
+  commitSpec();
+}
+
+function deleteSaved(id) {
+  state.saved = state.saved.filter(x => x.id !== id);
+  if (state.savedId === id) state.savedId = null;
+  persistSaved();
+  render();
+}
+
+/* Naming is one field in the head: pre-filled from the query, Enter commits. */
+function beginNaming() {
+  state.naming = true;
+  closeMenus();
+  render();
+  el.nameIn.value = describeSpec(state.spec).slice(0, 48);
+  el.nameIn.focus();
+  el.nameIn.select();
+}
+
+function endNaming(commit) {
+  const name = el.nameIn.value;
+  state.naming = false;
+  if (commit) saveQuery(name);
+  else render();
+}
+
+function renderSaved() {
+  el.nameField.hidden = !state.naming;
+
+  const active = currentSaved();
+  const dirty = isModified();
+  el.savedLbl.textContent = active ? active.name : 'Saved';
+  el.savedSel.classList.toggle('dirty', dirty);
+  el.savedSel.title = active
+    ? (dirty ? `${active.name} — edited since it was saved` : active.name)
+    : `${state.saved.length} saved ${state.saved.length === 1 ? 'query' : 'queries'}`;
+
+  const head = (active && dirty)
+    ? `<button data-act="update">Update &ldquo;${esc(active.name)}&rdquo;</button>`
+      + `<button data-act="save">Save as new<span class="kbd">${MOD}S</span></button>`
+    : `<button data-act="save">Save this query<span class="kbd">${MOD}S</span></button>`;
+
+  const rows = state.saved.map(s => {
+    const sub = describeSpec(s.spec);
+    return `<div class="srow${s.id === state.savedId ? ' on' : ''}">`
+      + `<button class="sapply" data-saved="${escAttr(s.id)}" title="${escAttr(sub)}">`
+      + `<span class="nm">${esc(s.name)}</span>`
+      + (sub === s.name ? '' : `<span class="sub">${esc(sub)}</span>`)
+      + '</button>'
+      + `<button class="sdel" data-del="${escAttr(s.id)}" title="Delete" aria-label="Delete ${escAttr(s.name)}">`
+      + '<svg width="11" height="11"><use href="#i-x"/></svg></button></div>';
+  }).join('');
+
+  el.savedMenu.innerHTML = head
+    + (state.saved.length ? '<div class="sep"></div>' + rows : '');
+}
+
+/** The rail pane is the same list with room to read the query back. */
+function renderSavedPane() {
+  if (!state.saved.length) {
+    el.sideBody.innerHTML = '<div class="sgroup"><h3>Nothing saved yet</h3></div>'
+      + `<div class="panehint">${MOD}S saves the current query — table, filters,`
+      + ' grouping and columns together.</div>';
+    return;
+  }
+  el.sideBody.innerHTML = state.saved.map(s =>
+    `<div class="frow" data-saved="${escAttr(s.id)}"`
+    + `${s.id === state.savedId ? ' aria-current="true"' : ''}>`
+    + '<svg width="14" height="14"><use href="#i-bookmark"/></svg>'
+    + `<span class="nm">${esc(s.name)}</span>`
+    + `<span class="pth">${esc(describeSpec(s.spec))}</span>`
+    + `<button class="rm" data-del="${escAttr(s.id)}" title="Delete" aria-label="Delete ${escAttr(s.name)}">`
+    + '<svg width="11" height="11"><use href="#i-x"/></svg></button></div>').join('');
+}
+
 const CHART_ROWS = 40;
 const isNumType = t => ['BIGINT', 'INTEGER', 'DOUBLE'].includes(t);
 
@@ -1571,11 +1722,8 @@ function renderChrome() {
   const r = state.result;
   const filtered = state.spec.filters.length > 0;
   el.stMode.textContent = r && r.grouped ? 'Grouped' : 'Rows';
-  // For a grouped result `matched` counts groups, not items — "12 of 4,812
-  // items" after a group by is the wrong noun on the wrong number. `scanned`
-  // is the records behind those groups.
   el.stItems.innerHTML = r && (filtered || r.grouped)
-    ? `<svg width="13" height="13"><use href="#i-funnel"/></svg> <span class="v">${nf.format(r.grouped ? r.scanned : r.matched)}</span>`
+    ? `<svg width="13" height="13"><use href="#i-funnel"/></svg> <span class="v">${nf.format(r.matched)}</span>`
       + ` of ${nf.format(RECORDS.length)} items`
     : `<svg width="13" height="13"><use href="#i-list"/></svg> <span class="v">${nf.format(RECORDS.length)}</span> items`;
   el.stSig.classList.toggle('live', state.running);
@@ -1586,11 +1734,13 @@ function render({ builder = true } = {}) {
   renderChrome();
   if (builder) renderBuilder();
   renderHead();
+  renderSaved();
   renderSql();
   renderStatusLine();
   renderResult();
   renderTimeline();
   if (state.section === 'fields') renderFacets();
+  if (state.section === 'saved') renderSavedPane();
   renderDetail();
 }
 
@@ -1686,10 +1836,7 @@ function exportRows(format) {
 function addItem(kind) {
   const s = state.spec;
   if (kind === 'filter') {
-    // Seeded with the column's own first value: `commitSpec` runs the spec
-    // as soon as it changes, and an empty value fails `compileFilter` — so an
-    // empty default replaced the grid with "Query failed" on every + Filter.
-    s.filters.push({ field: 'level', op: '=', value: EXAMPLE.level || '', value2: '' });
+    s.filters.push({ field: 'level', op: '=', value: '', value2: '' });
   } else if (kind === 'group') {
     const next = PLAIN_FIELDS.find(f => !s.groupBy.includes(f));
     if (!next) return;
@@ -1793,10 +1940,14 @@ $('#resetBtn').addEventListener('click', () => {
 
 /* SQL is a read-only rendering of the builder — open it to read or copy, not
    to type into. */
-el.sqlDisc.addEventListener('click', () => {
-  state.sqlOpen = !state.sqlOpen;
-  store.set('sqlOpen', state.sqlOpen ? '1' : '0');
-  renderSql();
+el.qbTabs.addEventListener('click', e => {
+  const b = e.target.closest('[data-tab]');
+  if (!b) return;
+  state.qbTab = b.dataset.tab;
+  store.set('qbTab', state.qbTab);
+  /* Picking a tab while collapsed opens it there rather than doing nothing. */
+  if (!state.qbOpen) { state.qbOpen = true; store.set('qbOpen', '1'); }
+  render();
 });
 $('#sqlCopy').addEventListener('click', async () => {
   await copyText(compileSql(state.spec));
@@ -1885,7 +2036,7 @@ $('#detailCopy').addEventListener('click', async () => {
 });
 
 /* Menus — one open at a time, closed by outside click or Escape. */
-const MENUS = [['#tableSel', '#tableMenu'], ['#viewSel', '#viewMenu'],
+const MENUS = [['#tableSel', '#tableMenu'], ['#viewSel', '#viewMenu'], ['#savedSel', '#savedMenu'],
   ['#exportSel', '#exportMenu'], ['#themeBtn', '#themeMenu']];
 function closeMenus(except) {
   for (const [t, m] of MENUS) {
@@ -1906,6 +2057,38 @@ for (const [trigger, menu] of MENUS) {
   });
 }
 document.addEventListener('click', () => closeMenus());
+
+el.savedMenu.addEventListener('click', e => {
+  const act = e.target.closest('[data-act]');
+  if (act) {
+    closeMenus();
+    if (act.dataset.act === 'update') updateSaved(state.savedId);
+    else beginNaming();
+    return;
+  }
+  const del = e.target.closest('[data-del]');
+  if (del) { e.stopPropagation(); deleteSaved(del.dataset.del); return; }
+  const apply = e.target.closest('[data-saved]');
+  if (apply) { applySaved(apply.dataset.saved); closeMenus(); }
+});
+
+/* The rail pane drives the same three actions. */
+el.sideBody.addEventListener('click', e => {
+  if (state.section !== 'saved') return;
+  const del = e.target.closest('[data-del]');
+  if (del) { e.stopPropagation(); deleteSaved(del.dataset.del); return; }
+  const row = e.target.closest('[data-saved]');
+  if (row) applySaved(row.dataset.saved);
+});
+
+/* Enter commits the name, Escape abandons it - neither reaches the page. */
+el.nameIn.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopPropagation();
+  endNaming(e.key === 'Enter');
+});
+el.nameIn.addEventListener('blur', () => { if (state.naming) endNaming(false); });
 
 el.tableMenu.addEventListener('click', e => {
   const b = e.target.closest('[data-table]');
@@ -1944,18 +2127,12 @@ el.dvbody.addEventListener('click', e => {
 
 /* Sidebar sections — real product panes, one per rail icon. */
 const PANES = {
-  bookmarks: ['Bookmarks', `
-    <div class="sgroup"><h3>events.ndjson</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[0].trace.trace_id</span><span class="pth"><bdi>record 0</bdi></span></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[1633].decline_code</span><span class="pth"><bdi>record 1633</bdi></span></div>
-    <div class="sgroup"><h3>spans.ndjson</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-bookmark"/></svg><span class="nm">$[88].trace_id</span><span class="pth"><bdi>record 88</bdi></span></div>`],
   seshat: ['Seshat — databases', `
     <div class="sgroup"><h3>Connections</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-db"/></svg><span class="nm">analytics</span><span class="pth"><bdi>postgres · read-only</bdi></span></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-db"/></svg><span class="nm">local.duckdb</span><span class="pth"><bdi>~/data/local.duckdb</bdi></span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-db"/></svg><span class="nm">analytics</span><span class="pth">postgres · read-only</span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-db"/></svg><span class="nm">local.duckdb</span><span class="pth">~/data/local.duckdb</span></div>
     <div class="sgroup"><h3>Saved queries</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-code"/></svg><span class="nm">errors_by_service</span><span class="pth"><bdi>2 params</bdi></span></div>`],
+    <div class="frow"><svg width="14" height="14"><use href="#i-code"/></svg><span class="nm">errors_by_service</span><span class="pth">2 params</span></div>`],
   url: ['url-source — fetch', `
     <div style="padding:10px 12px 4px">
       <label class="field" style="width:100%"><svg width="14" height="14"><use href="#i-plug"/></svg>
@@ -1963,8 +2140,8 @@ const PANES = {
     </div>
     <div style="padding:0 12px 10px"><button class="btn btn-solid" style="width:100%;justify-content:center">Fetch</button></div>
     <div class="sgroup"><h3>Recent endpoints</h3></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-plug"/></svg><span class="nm">/v2/events</span><span class="pth"><bdi>200 · 41 KB</bdi></span></div>
-    <div class="frow"><svg width="14" height="14"><use href="#i-plug"/></svg><span class="nm">/v2/services</span><span class="pth"><bdi>200 · 2 KB</bdi></span></div>`],
+    <div class="frow"><svg width="14" height="14"><use href="#i-plug"/></svg><span class="nm">/v2/events</span><span class="pth">200 · 41 KB</span></div>
+    <div class="frow"><svg width="14" height="14"><use href="#i-plug"/></svg><span class="nm">/v2/services</span><span class="pth">200 · 2 KB</span></div>`],
 };
 const recentPane = $('#sideBody').innerHTML;
 
@@ -1972,6 +2149,11 @@ function renderSidebar() {
   if (state.section === 'fields') {
     el.sideTitle.textContent = 'Fields';
     renderFacets();
+    return;
+  }
+  if (state.section === 'saved') {
+    el.sideTitle.textContent = 'Saved queries';
+    renderSavedPane();
     return;
   }
   const [title, html] = state.section === 'recent'
@@ -2007,6 +2189,7 @@ document.addEventListener('keydown', e => {
   if (mod && e.key === 'g') { e.preventDefault(); addItem('group'); return; }
   if (mod && e.key === 'b') { e.preventDefault(); el.body.classList.toggle('collapsed'); return; }
   if (mod && e.key === '/') { e.preventDefault(); el.qbToggle.click(); return; }
+  if (mod && e.key === 's') { e.preventDefault(); beginNaming(); return; }
   if (mod && e.key === 'Enter') { e.preventDefault(); execute({ loud: true }); return; }
   if (e.key === 'Escape') {
     closeMenus();
@@ -2024,6 +2207,8 @@ $('#qbKbd').textContent = IS_MAC ? '⌘/' : 'Ctrl /';
 if (!VIEW_META[state.view]) { state.view = 'table'; store.set('view', 'table'); }
 
 for (const f of FACET_FIELDS.slice(4)) state.facetShut.add(f);
+state.saved = loadSaved();
+if (state.savedId && !state.saved.some(x => x.id === state.savedId)) state.savedId = null;
 renderTableMenu();
 renderDatalists();
 renderSidebar();
