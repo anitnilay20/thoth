@@ -67,6 +67,10 @@ const VALUE_HALF_WIDTH: f32 = 68.0;
 /// scrolling a list beats typing only while the list is short, and a file's
 /// table can have hundreds of columns.
 const SEARCHABLE_FROM: usize = 12;
+/// The inline name field — design `.field.namefield{width:248px}`.
+const NAME_FIELD_W: f32 = 248.0;
+/// The saved-query picker's trigger width.
+const SAVED_SEL_W: f32 = 150.0;
 /// Ceiling on the row limit. The builder always bounds its own result; this
 /// bounds how far that bound can be pushed from the spinner.
 const MAX_LIMIT: f64 = 1_000_000.0;
@@ -92,6 +96,9 @@ impl QueryBuilder {
         // The id this builder claims ⌘↵ and ⌘/ under — its own, so two
         // builders on one screen are told apart.
         let keys_id = ui.id().with("query-builder-keys");
+        let naming_id = ui.make_persistent_id((self.id.as_str(), "qb_naming"));
+        let mut naming: bool = ui.ctx().data(|d| d.get_temp(naming_id).unwrap_or(false));
+        let mut saved_action: Option<super::SavedAction> = None;
 
         // Consumed before the lanes draw, so a focused value field inside a pill
         // does not swallow ⌘↵ on its way past. Only these two: the design also
@@ -130,6 +137,9 @@ impl QueryBuilder {
                 // open — that is what it is for.
                 super::QueryAction::ToggleLanes => lanes_open = !lanes_open,
                 super::QueryAction::Run => queued_run = true,
+                // ⌘S: name it before saving, inline in the head — a dialog for
+                // one string is more ceremony than the act deserves.
+                super::QueryAction::BeginNaming => naming = true,
                 add => {
                     lanes_open = true;
                     let landed = match add {
@@ -162,7 +172,14 @@ impl QueryBuilder {
             .vertical(|ui| {
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
 
-                if self.head(ui, &colors, lanes_open, &mut on_sql) {
+                if self.head(
+                    ui,
+                    &colors,
+                    lanes_open,
+                    &mut on_sql,
+                    &mut naming,
+                    &mut saved_action,
+                ) {
                     lanes_open = !lanes_open;
                 }
 
@@ -231,22 +248,27 @@ impl QueryBuilder {
         ui.ctx().data_mut(|d| {
             d.insert_temp(lanes_id, lanes_open);
             d.insert_temp(sql_id, on_sql);
+            d.insert_temp(naming_id, naming);
         });
 
         QueryBuilderOutput {
             changed,
             run,
             sql_edited,
+            saved: saved_action,
         }
     }
 
     /// The strip above the lanes. Returns whether the disclosure was clicked.
+    #[allow(clippy::too_many_arguments)]
     fn head(
         &self,
         ui: &mut egui::Ui,
         colors: &ThemeColors,
         lanes_open: bool,
         on_sql: &mut bool,
+        naming: &mut bool,
+        saved_action: &mut Option<super::SavedAction>,
     ) -> bool {
         let mut toggled = false;
         egui::Frame::new()
@@ -319,6 +341,8 @@ impl QueryBuilder {
                                 .size(Size::Small)
                                 .build(),
                         );
+
+                        self.saved_controls(ui, colors, naming, saved_action);
                         // The head is on screen even when the lanes are
                         // collapsed, so a failure has to be legible here and
                         // not only in the foot — in the error colour, because
@@ -340,6 +364,104 @@ impl QueryBuilder {
             });
         hairline(ui, colors);
         toggled
+    }
+
+    /// The head's saved-query controls: the picker, and the name field that
+    /// replaces it while a query is being named.
+    ///
+    /// Naming happens inline rather than in a dialog — it is one string, and a
+    /// modal for it is more ceremony than the act deserves (design
+    /// `.namefield`). Enter commits, Escape abandons.
+    fn saved_controls(
+        &self,
+        ui: &mut egui::Ui,
+        colors: &ThemeColors,
+        naming: &mut bool,
+        saved_action: &mut Option<super::SavedAction>,
+    ) {
+        let _ = colors;
+        if *naming {
+            let name_id = ui.make_persistent_id((self.id.as_str(), "qb_name"));
+            let mut name: String = ui
+                .ctx()
+                .data(|d| d.get_temp::<String>(name_id))
+                .unwrap_or_default();
+            let mut field = Input::builder()
+                .id(format!("{}_name", self.id))
+                .value(name.clone())
+                .placeholder("Name this query")
+                .desired_width(NAME_FIELD_W)
+                .size(Size::Small)
+                .build();
+            let out = field.show(ui);
+            if out.inner {
+                name = std::mem::take(&mut field.value);
+                ui.ctx().data_mut(|d| d.insert_temp(name_id, name.clone()));
+            }
+            out.response.request_focus();
+
+            let commit = ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let abandon = ui.input(|i| i.key_pressed(egui::Key::Escape));
+            if commit {
+                // An empty name is not an error: the host describes the query
+                // instead, which is a better label than "Untitled".
+                *saved_action = Some(super::SavedAction::Save(name));
+            }
+            if commit || abandon {
+                *naming = false;
+                ui.ctx().data_mut(|d| d.remove::<String>(name_id));
+            }
+            return;
+        }
+
+        // Update is offered only when there is something to update *to* — a
+        // query applied and since edited. Otherwise the picker alone.
+        if self.saved_dirty
+            && let Some(id) = self.saved_id.clone()
+            && ui
+                .add(
+                    Button::builder()
+                        .label("Update")
+                        .icon(egui_phosphor::regular::FLOPPY_DISK)
+                        .button_type(ButtonType::Text)
+                        .button_size(Size::Small)
+                        .hover_text("Point the saved query at the query as it now stands")
+                        .build(),
+                )
+                .clicked()
+        {
+            *saved_action = Some(super::SavedAction::Update(id));
+        }
+
+        if self.saved.is_empty() {
+            return;
+        }
+        let options: Vec<SelectOption> = self
+            .saved
+            .iter()
+            .map(|q| {
+                SelectOption::builder()
+                    .value(q.id.clone())
+                    .label(q.name.clone())
+                    .build()
+            })
+            .collect();
+        let picked = Select::builder()
+            .id(format!("{}_saved", self.id))
+            .value(self.saved_id.clone().unwrap_or_default())
+            .options(options)
+            .prefix_label("Saved")
+            .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+            .size(Size::Small)
+            .width(SAVED_SEL_W)
+            .searchable(self.saved.len() > SEARCHABLE_FROM)
+            .build()
+            .show(ui)
+            .inner
+            .selected;
+        if let Some(id) = picked.filter(|id| Some(id) != self.saved_id.as_ref()) {
+            *saved_action = Some(super::SavedAction::Apply(id));
+        }
     }
 
     /// The query read back as one chip per clause — design `.qchip`.
@@ -1162,8 +1284,10 @@ fn focus_target(id: &str, action: super::QueryAction, index: usize) -> Option<St
         super::QueryAction::AddGroupBy => format!("{id}_g{index}"),
         super::QueryAction::AddAggregate => format!("{id}_a{index}_fn"),
         super::QueryAction::AddSort => format!("{id}_s{index}"),
-        // Neither adds a pill, so neither has anything to focus.
-        super::QueryAction::ToggleLanes | super::QueryAction::Run => return None,
+        // None of these adds a pill, so none has anything to focus.
+        super::QueryAction::ToggleLanes
+        | super::QueryAction::Run
+        | super::QueryAction::BeginNaming => return None,
     })
 }
 

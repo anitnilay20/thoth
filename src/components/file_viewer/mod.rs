@@ -304,6 +304,10 @@ pub struct FileViewer {
     /// was read at. See [`FileViewer::document_text`].
     document: Option<(String, u64, String)>,
 
+    /// What the user asked to do with a saved query this frame, drained by
+    /// the app — which owns the file path and the persisted store.
+    saved_request: Option<thoth_plugin_sdk::components::SavedAction>,
+
     /// A header click that arrived while a query was already running, to run
     /// once the engine is free. Without it the arrow in the header and the
     /// rows under it would disagree until the user pressed Run.
@@ -343,6 +347,7 @@ impl FileViewer {
             tree_action: None,
             query: QueryBuilder::default(),
             query_job: None,
+            saved_request: None,
             document: None,
             sort_queued: false,
         }
@@ -1255,6 +1260,9 @@ impl FileViewer {
             if out.run {
                 self.run_query();
             }
+            // The builder reports what the user asked for; storing it is the
+            // host's, since only the host knows the file it belongs to.
+            self.saved_request = out.saved;
         }
 
         let mut events = Vec::new();
@@ -1391,6 +1399,52 @@ impl FileViewer {
 
     fn queue(&mut self, action: TreeAction) {
         self.tree_action = Some(action);
+    }
+
+    /// Drain what the user asked to do with a saved query.
+    pub fn take_saved_request(&mut self) -> Option<thoth_plugin_sdk::components::SavedAction> {
+        self.saved_request.take()
+    }
+
+    /// Show the file's saved queries in the head, and which one is applied.
+    pub fn set_saved_queries(
+        &mut self,
+        saved: Vec<thoth_plugin_sdk::components::SavedQueryRef>,
+        dirty: bool,
+    ) {
+        self.query.saved = saved;
+        self.query.saved_dirty = dirty;
+    }
+
+    /// Which saved query the lanes currently hold, if any.
+    pub fn applied_query(&self) -> Option<&str> {
+        self.query.saved_id.as_deref()
+    }
+
+    /// Load a saved query into the lanes.
+    ///
+    /// The relation is left alone: a saved query belongs to this file, so what
+    /// it names is what is already open.
+    pub fn apply_saved_query(
+        &mut self,
+        id: &str,
+        spec: thoth_plugin_sdk::components::QuerySpec,
+        sql: Option<String>,
+    ) {
+        self.query.spec = spec;
+        self.query.sql_override = sql;
+        self.query.saved_id = Some(id.to_string());
+        self.run_query();
+    }
+
+    /// The query as it stands, for saving.
+    pub fn current_query(&self) -> (thoth_plugin_sdk::components::QuerySpec, Option<String>) {
+        (self.query.spec.clone(), self.query.sql_override.clone())
+    }
+
+    /// Note which saved query the lanes now hold.
+    pub fn set_applied_query(&mut self, id: Option<String>) {
+        self.query.saved_id = id;
     }
 
     /// Hand the query builder a lane action from the host's shortcuts.

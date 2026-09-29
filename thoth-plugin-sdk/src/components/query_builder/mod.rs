@@ -85,6 +85,33 @@ pub enum QueryAction {
     ToggleLanes,
     /// Run the query, as the Run button does.
     Run,
+    /// Start naming the query so it can be saved.
+    BeginNaming,
+}
+
+/// One of the queries saved against the open file, as the head's picker lists
+/// them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedQueryRef {
+    /// Stable id, reported back in [`SavedAction`].
+    pub id: String,
+    /// What it is called.
+    pub name: String,
+}
+
+/// What the user asked to do with a saved query this frame.
+///
+/// The builder never stores anything: it reports the intent and the host —
+/// which owns the file path and the persisted state — does the storing, the
+/// same division the table picker and the sort header already use.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SavedAction {
+    /// Save the query as it stands, under this name.
+    Save(String),
+    /// Point the saved query with this id at the query as it now stands.
+    Update(String),
+    /// Load this saved query into the lanes.
+    Apply(String),
 }
 
 /// The design's query builder: four lanes that compile to one statement.
@@ -139,6 +166,18 @@ pub struct QueryBuilder {
     /// clause so the user can carry straight on from the keyboard.
     #[serde(skip)]
     pub focus_control: Option<String>,
+    /// The queries saved against the open file, newest first.
+    #[builder(default)]
+    #[serde(default)]
+    pub saved: Vec<SavedQueryRef>,
+    /// Which of them the lanes currently hold, if any.
+    #[serde(default)]
+    pub saved_id: Option<String>,
+    /// Whether the query has been edited since it was applied — the design's
+    /// dirty dot. The host knows, because it holds what was saved.
+    #[builder(default)]
+    #[serde(default)]
+    pub saved_dirty: bool,
 }
 
 /// Whether `sql` groups — a `GROUP BY` that is SQL rather than part of a
@@ -231,6 +270,8 @@ pub struct QueryBuilderOutput {
     /// typed SQL naming something else. Hosts that re-aim on relation changes
     /// can ignore this; it is here so they need not diff the text.
     pub sql_edited: bool,
+    /// What the user asked to do with a saved query, if anything.
+    pub saved: Option<SavedAction>,
 }
 
 #[cfg(test)]

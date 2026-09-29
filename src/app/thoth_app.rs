@@ -614,29 +614,21 @@ impl ThothApp {
                         }
                     }
                 }
-                ShortcutAction::ToggleBookmark => {
-                    let info = self
-                        .window_state
-                        .tab_manager
-                        .active_tab_mut()
-                        .and_then(|tab| {
-                            let path = tab.central_panel.get_selected_path()?.clone();
-                            let file_path = tab.file_path.as_ref()?.to_str()?.to_string();
-                            Some((path, file_path))
-                        });
-                    if let Some((selected_path, file_path_str)) = info {
-                        self.core
-                            .persistent_state
-                            .toggle_bookmark(selected_path, file_path_str);
-                        if let Err(e) = self.core.persistent_state.save() {
-                            eprintln!("Failed to save bookmarks: {}", e);
-                        }
+                // ⌘S names the query before saving it. The builder owns the
+                // name field, so this only asks it to start.
+                ShortcutAction::SaveQuery => {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && tab.active_plugin_pane.is_none()
+                    {
+                        tab.central_panel.queue_query_action(
+                            thoth_plugin_sdk::components::QueryAction::BeginNaming,
+                        );
                     }
                 }
-                ShortcutAction::OpenBookmarks => {
+                ShortcutAction::OpenSavedQueries => {
                     self.window_state.sidebar_expanded = true;
                     self.window_state.sidebar_selected_section =
-                        Some(components::sidebar::SidebarSection::Bookmarks);
+                        Some(components::sidebar::SidebarSection::SavedQueries);
 
                     if self.core.settings.ui.remember_sidebar_state {
                         self.core.persistent_state.set_sidebar_expanded(true);
@@ -1754,6 +1746,108 @@ impl ThothApp {
         for event in events {
             self.handle_tab_event(event, nav_capacity);
         }
+
+        self.handle_saved_query_requests();
+        self.refresh_saved_queries();
+    }
+
+    /// Show the active tab's builder the queries saved for its file, and
+    /// whether the one it holds has been edited since.
+    ///
+    /// Recomputed per frame because it is a handful of comparisons over a
+    /// per-file list, and a stale "saved" marker is worse than the cost: the
+    /// dot is the only thing saying an Update is worth making.
+    fn refresh_saved_queries(&mut self) {
+        use thoth_plugin_sdk::components::SavedQueryRef;
+
+        let Some(file_path) = self
+            .window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|tab| tab.file_path.as_ref().and_then(|p| p.to_str()))
+            .map(str::to_string)
+        else {
+            return;
+        };
+        let saved: Vec<SavedQueryRef> = self
+            .core
+            .persistent_state
+            .saved_queries(&file_path)
+            .into_iter()
+            .map(|q| SavedQueryRef {
+                id: q.id.clone(),
+                name: q.name.clone(),
+            })
+            .collect();
+
+        let Some(tab) = self.window_state.tab_manager.active_tab_mut() else {
+            return;
+        };
+        let applied = tab.central_panel.applied_query().map(str::to_string);
+        let (spec, sql) = tab.central_panel.current_query();
+        let dirty = applied
+            .as_deref()
+            .and_then(|id| self.core.persistent_state.saved_query(id))
+            .is_some_and(|q| q.spec != spec || q.sql != sql);
+
+        if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+            tab.central_panel.set_saved_queries(saved, dirty);
+        }
+    }
+
+    /// Store what the active tab's query builder asked for.
+    ///
+    /// The builder reports the intent and never persists anything itself: only
+    /// the host knows which file the query belongs to, and a query saved
+    /// against the wrong file is one that fails the moment it is applied.
+    fn handle_saved_query_requests(&mut self) {
+        use thoth_plugin_sdk::components::SavedAction;
+
+        let Some(tab) = self.window_state.tab_manager.active_tab_mut() else {
+            return;
+        };
+        let Some(request) = tab.central_panel.take_saved_request() else {
+            return;
+        };
+        let Some(file_path) = tab
+            .file_path
+            .as_ref()
+            .and_then(|p| p.to_str())
+            .map(str::to_string)
+        else {
+            return;
+        };
+        let (spec, sql) = tab.central_panel.current_query();
+
+        match request {
+            SavedAction::Save(name) => {
+                let id = self
+                    .core
+                    .persistent_state
+                    .save_query(file_path, name, spec, sql);
+                if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                    tab.central_panel.set_applied_query(Some(id));
+                }
+            }
+            SavedAction::Update(id) => {
+                self.core.persistent_state.update_query(&id, spec, sql);
+            }
+            SavedAction::Apply(id) => {
+                let saved = self
+                    .core
+                    .persistent_state
+                    .saved_query(&id)
+                    .map(|q| (q.spec.clone(), q.sql.clone()));
+                if let Some((spec, sql)) = saved
+                    && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                {
+                    tab.central_panel.apply_saved_query(&id, spec, sql);
+                }
+            }
+        }
+        if let Err(e) = self.core.persistent_state.save() {
+            eprintln!("Failed to save queries: {e}");
+        }
     }
 
     fn handle_tab_event(&mut self, event: TabEvent, nav_capacity: usize) {
@@ -1919,11 +2013,26 @@ impl ThothApp {
             .collect();
         self.window_state.sidebar.set_chart_open(open_charts);
 
+        // A query is saved against the file it was written on, so the list is
+        // the open file's and nothing else.
+        let file_for_queries = current_file_path
+            .as_ref()
+            .and_then(|p| p.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let saved_queries = self.core.persistent_state.saved_queries(&file_for_queries);
+        let applied_query = self
+            .window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|tab| tab.central_panel.applied_query().map(str::to_string));
+
         let output = self.window_state.sidebar.render(
             ui,
             components::sidebar::SidebarProps {
                 recent_files: self.core.persistent_state.get_recent_files(),
-                bookmarks: self.core.persistent_state.get_bookmarks(),
+                saved_queries: &saved_queries,
+                applied_query: applied_query.as_deref(),
                 current_file_path: current_file_path.as_ref().and_then(|p| p.to_str()),
                 expanded: self.window_state.sidebar_expanded,
                 sidebar_width: self.core.persistent_state.get_sidebar_width(),
@@ -2015,44 +2124,29 @@ impl ThothApp {
                     self.core.persistent_state.set_sidebar_width(new_width);
                     let _ = self.core.persistent_state.save();
                 }
-                components::sidebar::SidebarEvent::NavigateToBookmark { file_path, path } => {
-                    let current_file =
-                        self.window_state
-                            .tab_manager
-                            .active_tab_mut()
-                            .and_then(|tab| {
-                                tab.file_path
-                                    .as_ref()
-                                    .and_then(|p| p.to_str())
-                                    .map(|s| s.to_string())
-                            });
-
-                    if current_file.as_deref() != Some(file_path.as_str()) {
-                        let path_buf = std::path::PathBuf::from(&file_path);
-                        let id = self
-                            .window_state
-                            .tab_manager
-                            .open_file(path_buf, nav_capacity);
-                        if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
-                            tab.error = None;
-                            tab.pending_navigation = Some(path.clone());
-                        }
-                        self.core.persistent_state.add_recent_file(
-                            file_path.clone(),
-                            self.core.settings.performance.max_recent_files,
-                        );
-                        let _ = self.core.persistent_state.save();
-                    } else {
-                        if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                            tab.navigation_history.push(path.clone());
-                            tab.central_panel.navigate_to_path(path);
-                        }
+                components::sidebar::SidebarEvent::ApplySavedQuery(id) => {
+                    let saved = self
+                        .core
+                        .persistent_state
+                        .saved_query(&id)
+                        .map(|q| (q.spec.clone(), q.sql.clone()));
+                    if let Some((spec, sql)) = saved
+                        && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                    {
+                        tab.central_panel.apply_saved_query(&id, spec, sql);
                     }
                 }
-                components::sidebar::SidebarEvent::RemoveBookmark(index) => {
-                    self.core.persistent_state.remove_bookmark(index);
+                components::sidebar::SidebarEvent::DeleteSavedQuery(id) => {
+                    self.core.persistent_state.remove_query(&id);
+                    // The lanes still hold it, but it is no longer saved — so
+                    // the head must stop claiming it is.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && tab.central_panel.applied_query() == Some(id.as_str())
+                    {
+                        tab.central_panel.set_applied_query(None);
+                    }
                     if let Err(e) = self.core.persistent_state.save() {
-                        eprintln!("Failed to save bookmarks: {}", e);
+                        eprintln!("Failed to save queries: {e}");
                     }
                 }
                 components::sidebar::SidebarEvent::JumpToPath(path) => {

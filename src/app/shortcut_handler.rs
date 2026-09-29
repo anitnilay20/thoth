@@ -21,8 +21,8 @@ pub enum ShortcutAction {
     Escape,
 
     // Bookmarks
-    ToggleBookmark,
-    OpenBookmarks,
+    SaveQuery,
+    OpenSavedQueries,
 
     // Tree operations
     ExpandNode,
@@ -143,13 +143,15 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::Escape);
         }
 
-        // Bookmarks - Check more specific shortcuts first (with modifiers) before less specific ones
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.open_bookmarks.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::OpenBookmarks);
-        } else if ctx
-            .input_mut(|i| i.consume_shortcut(&shortcuts.toggle_bookmark.to_keyboard_shortcut()))
+        // Saved queries — the shift-bearing binding first, so ⌘⇧D is not
+        // swallowed by a plain-⌘ shortcut on the same letter.
+        if ctx
+            .input_mut(|i| i.consume_shortcut(&shortcuts.open_saved_queries.to_keyboard_shortcut()))
         {
-            actions.push(ShortcutAction::ToggleBookmark);
+            actions.push(ShortcutAction::OpenSavedQueries);
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.save_query.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::SaveQuery);
         }
 
         // Skip tree operations, clipboard, and movement shortcuts when text input has focus

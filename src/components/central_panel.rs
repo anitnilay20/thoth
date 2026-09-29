@@ -335,6 +335,45 @@ impl CentralPanel {
     }
 
     /// Copy the path of the currently selected item (for keyboard shortcuts)
+    /// Drain what the user asked to do with a saved query.
+    pub fn take_saved_request(&mut self) -> Option<thoth_plugin_sdk::components::SavedAction> {
+        self.file_viewer.take_saved_request()
+    }
+
+    /// Show the file's saved queries in the head.
+    pub fn set_saved_queries(
+        &mut self,
+        saved: Vec<thoth_plugin_sdk::components::SavedQueryRef>,
+        dirty: bool,
+    ) {
+        self.file_viewer.set_saved_queries(saved, dirty);
+    }
+
+    /// Which saved query the file viewer's lanes hold, if any.
+    pub fn applied_query(&self) -> Option<&str> {
+        self.file_viewer.applied_query()
+    }
+
+    /// Load a saved query into the file viewer.
+    pub fn apply_saved_query(
+        &mut self,
+        id: &str,
+        spec: thoth_plugin_sdk::components::QuerySpec,
+        sql: Option<String>,
+    ) {
+        self.file_viewer.apply_saved_query(id, spec, sql);
+    }
+
+    /// The query as it stands, for saving.
+    pub fn current_query(&self) -> (thoth_plugin_sdk::components::QuerySpec, Option<String>) {
+        self.file_viewer.current_query()
+    }
+
+    /// Note which saved query the lanes now hold.
+    pub fn set_applied_query(&mut self, id: Option<String>) {
+        self.file_viewer.set_applied_query(id);
+    }
+
     /// Hand the file viewer's query builder a lane action. Returns whether it
     /// was taken — see [`FileViewer::queue_query_action`].
     ///

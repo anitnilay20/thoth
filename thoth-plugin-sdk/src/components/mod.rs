@@ -85,7 +85,7 @@ pub use progress::Progress;
 pub use query_builder::QueryBuilderOutput;
 pub use query_builder::{
     Aggregate, AggregateFn, Combine, Filter, Operator, QueryAction, QueryBuilder, QueryError,
-    QueryField, QuerySpec, QueryStatus, Sort,
+    QueryField, QuerySpec, QueryStatus, SavedAction, SavedQueryRef, Sort,
 };
 pub use radio::Radio;
 pub use select::{Select, SelectOption, SelectResponse};

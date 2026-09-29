@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
-use crate::app::persistent_state::Bookmark;
+use crate::app::persistent_state::SavedQuery;
 use crate::app::tab_manager::TabId;
-use crate::components::bookmarks::{Bookmarks, BookmarksEvent, BookmarksProps};
 use crate::components::chart_studio::{
     ChartSpec, ChartStudio, ChartStudioEvent, ColumnInfo, ProducerRef,
 };
@@ -11,6 +10,7 @@ use crate::components::data_source_panel::{
 };
 use crate::components::marketplace::{Marketplace, MarketplaceProps};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
+use crate::components::saved_queries::{SavedQueries, SavedQueriesEvent, SavedQueriesProps};
 // TODO(#53): restored with the DuckDB-backed filter.
 use crate::components::traits::StatelessComponent;
 use crate::components::traits::{ContextComponent, StatefulComponent};
@@ -23,7 +23,7 @@ use thoth_plugin_sdk::components::IconButton;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarSection {
     RecentFiles,
-    Bookmarks,
+    SavedQueries,
     DataSource {
         plugin_id: String,
     },
@@ -39,7 +39,10 @@ pub enum SidebarSection {
 /// Props passed to the Sidebar (immutable, one-way binding)
 pub struct SidebarProps<'a> {
     pub recent_files: &'a [String],
-    pub bookmarks: &'a [Bookmark],
+    /// The open file's saved queries, newest first.
+    pub saved_queries: &'a [&'a SavedQuery],
+    /// Which of them is currently applied.
+    pub applied_query: Option<&'a str>,
     pub current_file_path: Option<&'a str>,
     pub expanded: bool,
     pub sidebar_width: f32,
@@ -75,12 +78,9 @@ pub enum SidebarEvent {
     /// Open a pure ui-component plugin (by id) in a new tab.
     OpenUiComponentTab(String),
     WidthChanged(f32),
-    // Bookmark events
-    NavigateToBookmark {
-        file_path: String,
-        path: String,
-    },
-    RemoveBookmark(usize),
+    // Saved-query events
+    ApplySavedQuery(String),
+    DeleteSavedQuery(String),
     JumpToPath(String),
 
     // Datasource Plugin Events
@@ -116,7 +116,7 @@ pub struct SidebarOutput {
 pub struct Sidebar {
     // Child components that Sidebar fully controls
     recent_files: RecentFiles,
-    bookmarks: Bookmarks,
+    saved_queries: SavedQueries,
 
     data_source_panel: HashMap<String, DataSourcePanel>,
     chart_studio: ChartStudio,
@@ -126,7 +126,7 @@ impl Default for Sidebar {
     fn default() -> Self {
         Self {
             recent_files: RecentFiles,
-            bookmarks: Bookmarks::default(),
+            saved_queries: SavedQueries,
             data_source_panel: HashMap::new(),
             chart_studio: ChartStudio::default(),
         }
@@ -222,23 +222,22 @@ impl Sidebar {
                     }
                 }
             }
-            Some(SidebarSection::Bookmarks) => {
-                let output = self.bookmarks.render(
+            Some(SidebarSection::SavedQueries) => {
+                let output = self.saved_queries.render(
                     ui,
-                    BookmarksProps {
-                        bookmarks: props.bookmarks,
+                    SavedQueriesProps {
+                        queries: props.saved_queries,
+                        applied: props.applied_query,
                         current_file_path: props.current_file_path,
                     },
                 );
-
-                // Convert BookmarksEvent to SidebarEvent
                 for event in output.events {
                     match event {
-                        BookmarksEvent::NavigateToBookmark { file_path, path } => {
-                            events.push(SidebarEvent::NavigateToBookmark { file_path, path });
+                        SavedQueriesEvent::Apply(id) => {
+                            events.push(SidebarEvent::ApplySavedQuery(id));
                         }
-                        BookmarksEvent::JumpToPath(path) => {
-                            events.push(SidebarEvent::JumpToPath(path));
+                        SavedQueriesEvent::Delete(id) => {
+                            events.push(SidebarEvent::DeleteSavedQuery(id));
                         }
                     }
                 }
@@ -351,12 +350,12 @@ impl Sidebar {
             ui,
             sidebar_btn(
                 egui_phosphor::regular::BOOKMARK_SIMPLE,
-                "Bookmarks",
-                props.selected_section == Some(SidebarSection::Bookmarks),
+                "Saved queries",
+                props.selected_section == Some(SidebarSection::SavedQueries),
             ),
             accent,
         ) {
-            events.push(SidebarEvent::SectionToggled(SidebarSection::Bookmarks));
+            events.push(SidebarEvent::SectionToggled(SidebarSection::SavedQueries));
         }
 
         if rail_button(

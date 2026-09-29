@@ -174,9 +174,9 @@ pub struct KeyboardShortcuts {
     pub nav_forward: Shortcut,
     pub escape: Shortcut,
 
-    // Bookmarks
-    pub toggle_bookmark: Shortcut,
-    pub open_bookmarks: Shortcut,
+    // Saved queries
+    pub save_query: Shortcut,
+    pub open_saved_queries: Shortcut,
 
     // Tree operations
     pub expand_node: Shortcut,
@@ -232,9 +232,11 @@ impl Default for KeyboardShortcuts {
             nav_forward: Shortcut::new("BracketRight").command(),
             escape: Shortcut::new("Escape"),
 
-            // Bookmarks
-            toggle_bookmark: Shortcut::new("D").command(),
-            open_bookmarks: Shortcut::new("D").command().shift(),
+            // Saved queries. ⌘S is the handoff's; ⌘⇧D keeps the slot the
+            // bookmark panel used, since "show me my saved things" is the
+            // same request it always was.
+            save_query: Shortcut::new("S").command(),
+            open_saved_queries: Shortcut::new("D").command().shift(),
 
             // Tree operations
             expand_node: Shortcut::new("ArrowRight"),

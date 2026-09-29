@@ -74,8 +74,8 @@ impl StatelessComponent for ShortcutsTab {
                 &sc.copy_value,
                 &sc.copy_object,
                 &sc.copy_path,
-                &sc.toggle_bookmark,
-                &sc.open_bookmarks,
+                &sc.save_query,
+                &sc.open_saved_queries,
                 &sc.move_up,
                 &sc.move_down,
                 &sc.settings,
@@ -179,19 +179,13 @@ impl StatelessComponent for ShortcutsTab {
                     shortcut_row(ui, "Copy path", &sc.copy_path, badge_width, colors);
                 });
 
-                // ── Bookmarks ────────────────────────────────────────────────
-                group_rows(ui, "BOOKMARKS", |ui| {
+                // ── Saved queries ────────────────────────────────────────────
+                group_rows(ui, "SAVED QUERIES", |ui| {
+                    shortcut_row(ui, "Save this query", &sc.save_query, badge_width, colors);
                     shortcut_row(
                         ui,
-                        "Toggle bookmark",
-                        &sc.toggle_bookmark,
-                        badge_width,
-                        colors,
-                    );
-                    shortcut_row(
-                        ui,
-                        "Open bookmarks",
-                        &sc.open_bookmarks,
+                        "Open saved queries",
+                        &sc.open_saved_queries,
                         badge_width,
                         colors,
                     );
