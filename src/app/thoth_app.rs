@@ -381,27 +381,6 @@ impl App for ThothApp {
 
         let _sidebar_msg = self.render_sidebar(ui);
 
-        // TODO: Older search functions.
-        // Handle search messages from sidebar against the active tab.
-        // let (msg_to_central, search_error) =
-        //     if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-        //         SearchHandler::handle_search_messages(
-        //             sidebar_msg,
-        //             &mut tab.search_engine_state,
-        //             &tab.file_path,
-        //             &tab.file_type,
-        //             &ctx,
-        //         )
-        //     } else {
-        //         (None, None)
-        //     };
-
-        // if let Some(error) = search_error
-        //     && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-        // {
-        //     tab.error = Some(error);
-        // }
-
         let shortcut_actions =
             ShortcutHandler::handle_shortcuts(ui.ctx(), &self.core.settings.shortcuts);
         self.handle_shortcut_actions(ui.ctx(), shortcut_actions);
@@ -525,7 +504,7 @@ impl App for ThothApp {
                         use crate::components::traits::StatelessComponent;
                         MarketplaceDetail::render(ui, MarketplaceDetailProps);
                     } else {
-                        self.render_central_panel(ui, Option::None);
+                        self.render_central_panel(ui);
                     }
                 });
         }
@@ -611,26 +590,6 @@ impl ThothApp {
                     self.core.settings.dev.show_profiler = !self.core.settings.dev.show_profiler;
                     self.core.settings_changed = true;
                 }
-                ShortcutAction::FocusSearch => {
-                    let section = components::sidebar::SidebarSection::Search;
-                    if self.window_state.sidebar_expanded
-                        && self.window_state.sidebar_selected_section == Some(section.clone())
-                    {
-                        self.window_state.sidebar_expanded = false;
-                    } else {
-                        self.window_state.sidebar_expanded = true;
-                        self.window_state.sidebar_selected_section = Some(section);
-                    }
-
-                    if self.core.settings.ui.remember_sidebar_state {
-                        self.core
-                            .persistent_state
-                            .set_sidebar_expanded(self.window_state.sidebar_expanded);
-                        let _ = self.core.persistent_state.save();
-                    }
-                }
-                ShortcutAction::NextMatch => {}
-                ShortcutAction::PrevMatch => {}
                 ShortcutAction::NavBack => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
                         && let Some(path) = tab.navigation_history.back()
@@ -1592,62 +1551,33 @@ impl ThothApp {
             crate::papyrus::list().into_iter().map(|m| m.id).collect();
         prune_render_cache(&live_handles);
 
-        let (
-            file_path_opt,
-            file_type,
-            total_items,
-            error_present,
-            search_scanning,
-            _search_results_len,
-            filtered_count,
-            selected_path,
-            active_plugin_id,
-        ) = if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-            let _search = &tab.search_engine_state.search;
-            // TODO: Default random value set here
-            let scanning = false;
-            let results_len = 0;
-            let query_non_empty = false;
-            let filtered = if query_non_empty && results_len > 0 {
-                Some(results_len)
+        let (file_path_opt, file_type, total_items, error_present, selected_path, active_plugin_id) =
+            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                let sel_path = tab.central_panel.get_selected_path().cloned();
+                // A plugin pane tab: (plugin_id, instance_id) drives the
+                // instance-scoped status bar.
+                let plugin_id = tab
+                    .active_plugin_pane
+                    .as_ref()
+                    .map(|p| (p.plugin_id.clone(), p.loader.instance_id().to_string()));
+                (
+                    tab.file_path.clone(),
+                    tab.file_type,
+                    tab.total_items,
+                    tab.error.is_some(),
+                    sel_path,
+                    plugin_id,
+                )
             } else {
-                None
+                (None, FileKind::default(), 0, false, None, None)
             };
-            let sel_path = tab.central_panel.get_selected_path().cloned();
-            // A plugin pane tab: (plugin_id, instance_id) drives the
-            // instance-scoped status bar.
-            let plugin_id = tab
-                .active_plugin_pane
-                .as_ref()
-                .map(|p| (p.plugin_id.clone(), p.loader.instance_id().to_string()));
-            (
-                tab.file_path.clone(),
-                tab.file_type,
-                tab.total_items,
-                tab.error.is_some(),
-                scanning,
-                results_len,
-                filtered,
-                sel_path,
-                plugin_id,
-            )
-        } else {
-            (
-                None,
-                FileKind::default(),
-                0,
-                false,
-                false,
-                0,
-                None,
-                None,
-                None,
-            )
-        };
 
-        let status = if search_scanning {
-            components::status_bar::StatusBarStatus::Searching
-        } else if filtered_count.is_some() {
+        // A filtered count belongs to the query builder's result and is not
+        // wired to the status bar yet (#53 replaced the scan it used to come
+        // from).
+        let filtered_count: Option<usize> = None;
+
+        let status = if filtered_count.is_some() {
             components::status_bar::StatusBarStatus::Filtered
         } else if error_present {
             components::status_bar::StatusBarStatus::Error
@@ -1749,12 +1679,11 @@ impl ThothApp {
     }
 
     /// Render the DockArea that hosts all open tabs.
-    fn render_central_panel(&mut self, ui: &mut egui::Ui, search_message: Option<String>) {
+    fn render_central_panel(&mut self, ui: &mut egui::Ui) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let nav_capacity = self.core.settings.performance.navigation_history_size;
-        let focused_id = self.window_state.tab_manager.active_tab_id();
 
         let colors = ui.ctx().memory(|m| {
             m.data.get_temp::<crate::theme::ThemeColors>(egui::Id::new(
@@ -1776,7 +1705,6 @@ impl ThothApp {
             settings: &self.core.settings,
             persistent_state: &mut self.core.persistent_state,
             nav_capacity,
-            search_msg: search_message.zip(focused_id).map(|(msg, id)| (id, msg)),
             events: Vec::new(),
             colors,
         };
@@ -1880,8 +1808,6 @@ impl ThothApp {
                 self.create_new_window();
             }
             TabEvent::BrowsePlugins => {
-                self.window_state.previous_sidebar_section =
-                    self.window_state.sidebar_selected_section.clone();
                 self.window_state.sidebar_expanded = true;
                 self.window_state.sidebar_selected_section =
                     Some(components::sidebar::SidebarSection::MarketPlace);
@@ -1911,18 +1837,6 @@ impl ThothApp {
 
         use crate::components::traits::ContextComponent;
 
-        let section_changed_to_search = self.window_state.sidebar_selected_section
-            == Some(components::sidebar::SidebarSection::Search)
-            && self.window_state.previous_sidebar_section
-                != Some(components::sidebar::SidebarSection::Search);
-
-        let sidebar_reopened_with_search = self.window_state.sidebar_expanded
-            && !self.window_state.previous_sidebar_expanded
-            && self.window_state.sidebar_selected_section
-                == Some(components::sidebar::SidebarSection::Search);
-
-        let focus_search = section_changed_to_search || sidebar_reopened_with_search;
-
         let plugin_manager = self.core.plugins.manager();
         let ds_plugins: Vec<&crate::plugin::Plugin> = plugin_manager
             .as_deref()
@@ -1935,15 +1849,11 @@ impl ThothApp {
             .unwrap_or_default();
 
         // Snapshot per-tab data we need for SidebarProps (avoids complex lifetime issues).
-        let (current_file_path, _search_state_clone) =
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                (
-                    tab.file_path.clone(),
-                    tab.search_engine_state.search.clone(),
-                )
-            } else {
-                (None, String::new())
-            };
+        let current_file_path = self
+            .window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|tab| tab.file_path.clone());
 
         // The mounted plugin sidebar (independent of any tab) drives the sidebar
         // panel and the icon-highlight state.
@@ -1973,13 +1883,6 @@ impl ThothApp {
                 _ => None,
             };
 
-        let search_history = current_file_path
-            .as_ref()
-            .and_then(|p| p.to_str())
-            .and_then(|path_str| {
-                super::persistent_state::PersistentState::load_search_history(path_str).ok()
-            });
-
         // Feed the Chart Studio its live source list + open-chart list.
         let producers = self.gather_producers();
         self.window_state.sidebar.set_chart_producers(producers);
@@ -2001,21 +1904,12 @@ impl ThothApp {
                 expanded: self.window_state.sidebar_expanded,
                 sidebar_width: self.core.persistent_state.get_sidebar_width(),
                 selected_section: self.window_state.sidebar_selected_section.clone(),
-                focus_search,
-                // search_state: &search_state_clone,
-                search_history: search_history.as_ref(),
                 data_source_plugins: &ds_plugins,
                 ui_component_plugins: &ui_plugins,
                 active_datasource_plugin_id: sidebar_plugin_id.as_deref(),
                 plugin_sidebar: plugin_sidebar_prop,
             },
         );
-
-        if focus_search {
-            self.window_state.previous_sidebar_section =
-                self.window_state.sidebar_selected_section.clone();
-        }
-        self.window_state.previous_sidebar_expanded = self.window_state.sidebar_expanded;
 
         let nav_capacity = self.core.settings.performance.navigation_history_size;
 
@@ -2077,11 +1971,7 @@ impl ThothApp {
                             && self.window_state.sidebar_selected_section == Some(section.clone())
                         {
                             self.window_state.sidebar_expanded = false;
-                            self.window_state.previous_sidebar_section =
-                                self.window_state.sidebar_selected_section.clone();
                         } else {
-                            self.window_state.previous_sidebar_section =
-                                self.window_state.sidebar_selected_section.clone();
                             self.window_state.sidebar_expanded = true;
                             self.window_state.sidebar_selected_section = Some(section);
                         }
@@ -2100,33 +1990,6 @@ impl ThothApp {
                 components::sidebar::SidebarEvent::WidthChanged(new_width) => {
                     self.core.persistent_state.set_sidebar_width(new_width);
                     let _ = self.core.persistent_state.save();
-                }
-                // components::sidebar::SidebarEvent::Search(msg) => {
-                //     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                //         && let Some(file_path) = &tab.file_path
-                //         && let Some(path_str) = file_path.to_str()
-                //         && let Some(entry) = msg.history_entry()
-                //     {
-                //         let _ = super::persistent_state::PersistentState::add_search_query(
-                //             path_str, entry,
-                //         );
-                //     }
-                //     return Some(msg);
-                // }
-                components::sidebar::SidebarEvent::NavigateToSearchResult { record_index } => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        tab.central_panel.navigate_to_record(record_index);
-                    }
-                }
-                components::sidebar::SidebarEvent::ClearSearchHistory => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(file_path) = &tab.file_path
-                        && let Some(path_str) = file_path.to_str()
-                    {
-                        let _ = super::persistent_state::PersistentState::clear_search_history(
-                            path_str,
-                        );
-                    }
                 }
                 components::sidebar::SidebarEvent::NavigateToBookmark { file_path, path } => {
                     let current_file =
@@ -2674,7 +2537,6 @@ impl ThothApp {
                             tab.error = None;
                             tab.file_path = None;
                             tab.total_items = 0;
-                            tab.search_engine_state.search = String::new();
                         }
                     }
                 }

@@ -16,7 +16,6 @@ pub struct CentralPanelProps<'a> {
     pub file_path: &'a Option<PathBuf>,
     pub file_type: FileKind,
     pub error: &'a Option<ThothError>,
-    pub search_message: Option<String>,
     pub syntax_highlighting: bool,
     /// When `Some`, render this interactive `UiNode` tree from the plugin instead of the file viewer.
     pub plugin_ui: Option<&'a UiOutput>,
@@ -59,7 +58,6 @@ pub struct CentralPanelOutput {
 /// the rendered content can never disagree.
 #[derive(Clone, Copy)]
 enum PanelContent {
-    Searching,
     Plugin,
     Welcome,
     Viewer,
@@ -71,7 +69,6 @@ pub struct CentralPanel {
     loaded_path: Option<PathBuf>,
     loaded_type: Option<FileKind>,
     last_open_err: Option<ThothError>,
-    searching: bool,
 }
 
 impl ContextComponent for CentralPanel {
@@ -159,30 +156,9 @@ impl CentralPanel {
             (None, None, _) => { /* nothing selected */ }
         }
 
-        // React to search messages
-        if let Some(_msg) = props.search_message {
-            // TODO: Random value set
-            self.searching = false;
-
-            // match msg {
-            //     search::SearchMessage::StartSearch(search) => {
-            //         self.file_viewer.set_highlights(Some(&search.results));
-            //         // Search results are now displayed in the sidebar as a clickable list
-            //         // Don't filter the main view - keep all records visible
-            //         // Users can click on search results to navigate to them
-            //     }
-            //     search::SearchMessage::StopSearch => {
-            //         // No filtering to clear
-            //         self.file_viewer.set_highlights(None);
-            //     }
-            // }
-        }
-
         // The body's dispatch order, resolved once: the spinner wins, then a
         // plugin pane, then the Welcome screen on an empty tab, then the viewer.
-        let content = if self.searching {
-            PanelContent::Searching
-        } else if props.plugin_ui.is_some() {
+        let content = if props.plugin_ui.is_some() {
             PanelContent::Plugin
         } else if self.loaded_path.is_none() {
             PanelContent::Welcome
@@ -198,7 +174,7 @@ impl CentralPanel {
         // 40/44 padding and would otherwise be inset by a further 8px.
         let panel_frame = match content {
             PanelContent::Plugin | PanelContent::Welcome => egui::Frame::NONE,
-            PanelContent::Searching | PanelContent::Viewer => egui::Frame::NONE.inner_margin(8), // matches Frame::central_panel
+            PanelContent::Viewer => egui::Frame::NONE.inner_margin(8), // matches Frame::central_panel
         };
         egui::CentralPanel::default()
             .frame(panel_frame)
@@ -211,14 +187,6 @@ impl CentralPanel {
                 }
 
                 match content {
-                    PanelContent::Searching => {
-                        ui.horizontal(|ui| {
-                            ui.add(egui::Spinner::new().size(16.0));
-                            ui.label("Searching…");
-                        });
-                        ui.add_space(6.0);
-                    }
-
                     // Plugin pane takes priority over the file viewer.
                     PanelContent::Plugin => {
                         if let Some(output) = props.plugin_ui {

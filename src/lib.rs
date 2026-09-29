@@ -21,7 +21,6 @@ pub mod notification;
 pub mod papyrus;
 pub mod platform;
 pub mod plugin;
-pub mod search;
 pub mod settings;
 pub mod shortcuts;
 pub mod state;

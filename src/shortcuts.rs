@@ -162,9 +162,6 @@ pub struct KeyboardShortcuts {
     pub prev_tab: Shortcut,
 
     // Navigation
-    pub focus_search: Shortcut,
-    pub next_match: Shortcut,
-    pub prev_match: Shortcut,
     pub nav_back: Shortcut,
     pub nav_forward: Shortcut,
     pub escape: Shortcut,
@@ -212,9 +209,6 @@ impl Default for KeyboardShortcuts {
             prev_tab: Shortcut::new("ArrowLeft").command().alt(),
 
             // Navigation
-            focus_search: Shortcut::new("F").command(),
-            next_match: Shortcut::new("G").command(),
-            prev_match: Shortcut::new("G").command().shift(),
             nav_back: Shortcut::new("BracketLeft").command(),
             nav_forward: Shortcut::new("BracketRight").command(),
             escape: Shortcut::new("Escape"),

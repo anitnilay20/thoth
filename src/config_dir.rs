@@ -1,7 +1,7 @@
 //! Where Thoth keeps everything it owns on disk.
 //!
 //! Every path the app persists to — settings, recent files, bookmarks, open
-//! tabs, search history, plugin state, the marketplace, the index cache —
+//! tabs, plugin state, the marketplace, the index cache —
 //! hangs off one root, and that root can be moved with a single environment
 //! variable.
 //!

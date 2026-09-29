@@ -63,7 +63,6 @@ pub enum StatusBarStatus {
     Ready,
     Loading,
     Error,
-    Searching,
     Filtered,
 }
 
@@ -74,7 +73,6 @@ impl StatusBarStatus {
             StatusBarStatus::Ready => ("⚡", "Ready"),
             StatusBarStatus::Loading => ("⏳", "Loading..."),
             StatusBarStatus::Error => ("⚠", "Error"),
-            StatusBarStatus::Searching => ("🔍", "Searching..."),
             StatusBarStatus::Filtered => ("🔍", "Filtered"),
         }
     }
@@ -95,7 +93,7 @@ impl StatusBarStatus {
                 StatusBarStatus::Ready => theme_colors.success,
                 StatusBarStatus::Loading => theme_colors.warning,
                 StatusBarStatus::Error => theme_colors.error,
-                StatusBarStatus::Searching | StatusBarStatus::Filtered => theme_colors.info,
+                StatusBarStatus::Filtered => theme_colors.info,
             }
         })
     }

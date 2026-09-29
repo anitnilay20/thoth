@@ -10,9 +10,6 @@ pub enum ShortcutAction {
     NewWindow,
 
     // Navigation
-    FocusSearch,
-    NextMatch,
-    PrevMatch,
     NavBack,
     NavForward,
     Escape,
@@ -74,20 +71,6 @@ impl ShortcutHandler {
 
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.new_window.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::NewWindow);
-        }
-
-        // Navigation
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.focus_search.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::FocusSearch);
-        }
-
-        // Check more specific shortcuts (with Shift) before less specific ones
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.prev_match.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::PrevMatch);
-        } else if ctx
-            .input_mut(|i| i.consume_shortcut(&shortcuts.next_match.to_keyboard_shortcut()))
-        {
-            actions.push(ShortcutAction::NextMatch);
         }
 
         // Navigation: ⌘[ / ⌘]

@@ -81,7 +81,10 @@ impl QueryBuilder {
         let colors = ThemeColors::from_ctx(ui.ctx());
         let lanes_id = ui.make_persistent_id((self.id.as_str(), "qb_lanes"));
         let sql_id = ui.make_persistent_id((self.id.as_str(), "qb_sql"));
-        let mut lanes_open: bool = ui.ctx().data(|d| d.get_temp(lanes_id).unwrap_or(true));
+        // Closed until asked for. The head still reads the query back in
+        // words, so a collapsed builder hides the controls, not the question —
+        // and a file opens showing its data rather than four empty lanes.
+        let mut lanes_open: bool = ui.ctx().data(|d| d.get_temp(lanes_id).unwrap_or(false));
         let mut sql_open: bool = ui.ctx().data(|d| d.get_temp(sql_id).unwrap_or(false));
         // The id this builder claims ⌘↵ and ⌘/ under — its own, so two
         // builders on one screen are told apart.

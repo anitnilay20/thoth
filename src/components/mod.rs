@@ -14,7 +14,6 @@ pub mod error_modal;
 pub mod file_viewer;
 pub mod marketplace;
 pub mod recent_files;
-// pub mod search;
 pub mod settings_dialog;
 pub mod sidebar;
 pub mod status_bar;

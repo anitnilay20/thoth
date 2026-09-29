@@ -14,7 +14,7 @@ use crate::{
     file::FileKind,
     plugin::render_node::UiOutput,
     settings::Settings,
-    state::{ActivePluginPane, NavigationHistory, SearchEngineState},
+    state::{ActivePluginPane, NavigationHistory},
 };
 
 pub type TabId = usize;
@@ -26,7 +26,6 @@ pub struct TabState {
     pub file_type: FileKind,
     pub error: Option<ThothError>,
     pub total_items: usize,
-    pub search_engine_state: SearchEngineState,
     pub navigation_history: NavigationHistory,
     pub pending_navigation: Option<String>,
     pub active_plugin_pane: Option<ActivePluginPane>,
@@ -45,7 +44,6 @@ impl TabState {
             file_type: FileKind::default(),
             error: None,
             total_items: 0,
-            search_engine_state: SearchEngineState::default(),
             navigation_history: NavigationHistory::with_capacity(nav_capacity),
             pending_navigation: None,
             active_plugin_pane: None,
@@ -139,8 +137,6 @@ pub struct ThothTabViewer<'a> {
     pub settings: &'a Settings,
     pub persistent_state: &'a mut PersistentState,
     pub nav_capacity: usize,
-    /// Search message for the focused tab, consumed by the first matching tab::ui call.
-    pub search_msg: Option<(TabId, String)>,
     /// Outbound events collected during show_inside, drained by ThothApp afterwards.
     pub events: Vec<TabEvent>,
     /// Current theme colors for per-tab style overrides.
@@ -163,17 +159,6 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab_id: &mut TabId) {
-        // Take the search message if it belongs to this tab (consumes it exactly once).
-        let search_msg = if self
-            .search_msg
-            .as_ref()
-            .is_some_and(|(tid, _)| *tid == *tab_id)
-        {
-            self.search_msg.take().map(|(_, msg)| msg)
-        } else {
-            None
-        };
-
         // Snapshot recent files before the mutable tab borrow.
         let recent_files: Vec<String> = self.persistent_state.get_recent_files().to_vec();
 
@@ -218,7 +203,6 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
                 file_path: &tab.file_path,
                 file_type: tab.file_type,
                 error: &tab.error,
-                search_message: search_msg,
                 syntax_highlighting,
                 plugin_ui,
                 recent_files: &recent_files,

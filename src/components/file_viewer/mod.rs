@@ -17,7 +17,6 @@ use crate::file::loaders::duck_db::alias_for_name as alias_of;
 use crate::file::{FileKind, FileType};
 use crate::plugin::Capability;
 use crate::plugin::wasm_file_viewer_loader::WasmFileViewerLoader;
-use crate::search::results::{MatchFragment, SearchResults};
 use thoth_plugin_sdk::components::{
     ColumnType, DataView, QueryBuilder, QueryField, QueryStatus, SortBy, TreeAction,
 };
@@ -281,9 +280,6 @@ pub struct FileViewer {
     /// Current file path (for display and reloading)
     file_path: Option<PathBuf>,
 
-    /// Highlights for records and paths from search results
-    highlights: HashMap<usize, Arc<Vec<MatchFragment>>>,
-
     /// Enable syntax highlighting
     syntax_highlighting: bool,
 
@@ -342,7 +338,6 @@ impl FileViewer {
             viewer: None,
             state: ViewerState::default(),
             file_path: None,
-            highlights: HashMap::new(),
             syntax_highlighting: true, // Default to enabled
             pending_events: Vec::new(),
             tree_action: None,
@@ -464,7 +459,6 @@ impl FileViewer {
         self.file_path = Some(path.to_path_buf());
 
         self.state = ViewerState::default();
-        self.highlights.clear();
 
         // Create appropriate viewer for file type
         self.viewer = (kind == FileKind::PluginTable).then(PluginTableViewer::new);
@@ -1319,19 +1313,6 @@ impl FileViewer {
     /// Charts shortcut) for the app to act on.
     pub fn take_events(&mut self) -> Vec<thoth_plugin_sdk::render_node::UiEvent> {
         std::mem::take(&mut self.pending_events)
-    }
-
-    /// Update highlight metadata from search results
-    pub fn set_highlights(&mut self, results: Option<&SearchResults>) {
-        self.highlights.clear();
-        if let Some(res) = results {
-            for hit in res.hits() {
-                if !hit.fragments.is_empty() {
-                    self.highlights
-                        .insert(hit.record_index, Arc::new(hit.fragments.clone()));
-                }
-            }
-        }
     }
 
     /// Get the total number of root items in the loaded file

@@ -57,9 +57,6 @@ impl StatelessComponent for ShortcutsTab {
                 &sc.new_tab,
                 &sc.next_tab,
                 &sc.prev_tab,
-                &sc.focus_search,
-                &sc.next_match,
-                &sc.prev_match,
                 &sc.nav_back,
                 &sc.nav_forward,
                 &sc.escape,
@@ -133,9 +130,6 @@ impl StatelessComponent for ShortcutsTab {
 
                 // ── Navigation ───────────────────────────────────────────────
                 group_rows(ui, "NAVIGATION", |ui| {
-                    shortcut_row(ui, "Focus search", &sc.focus_search, badge_width, colors);
-                    shortcut_row(ui, "Next match", &sc.next_match, badge_width, colors);
-                    shortcut_row(ui, "Previous match", &sc.prev_match, badge_width, colors);
                     shortcut_row(ui, "Navigate back", &sc.nav_back, badge_width, colors);
                     shortcut_row(ui, "Navigate forward", &sc.nav_forward, badge_width, colors);
                     shortcut_row(ui, "Escape / dismiss", &sc.escape, badge_width, colors);

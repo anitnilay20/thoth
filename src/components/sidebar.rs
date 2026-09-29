@@ -12,7 +12,6 @@ use crate::components::data_source_panel::{
 use crate::components::marketplace::{Marketplace, MarketplaceProps};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 // TODO(#53): restored with the DuckDB-backed filter.
-// use crate::components::search::{Search, SearchEvent, SearchProps};
 use crate::components::traits::StatelessComponent;
 use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
@@ -24,7 +23,6 @@ use thoth_plugin_sdk::components::IconButton;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarSection {
     RecentFiles,
-    Search,
     Bookmarks,
     DataSource {
         plugin_id: String,
@@ -47,11 +45,8 @@ pub struct SidebarProps<'a> {
     pub sidebar_width: f32,
     pub selected_section: Option<SidebarSection>,
     /// Whether the search section should receive focus (when just opened)
-    pub focus_search: bool,
     /// Current search state with results
-    // pub search_state: &'a crate::search::Search,
     /// Search history for the current file
-    pub search_history: Option<&'a Vec<String>>,
     /// All registered data-source plugins — one icon button is shown per plugin.
     pub data_source_plugins: &'a [&'a Plugin],
     /// Pure ui-component plugins (new-ui-component, not data sources) — one icon
@@ -80,12 +75,6 @@ pub enum SidebarEvent {
     /// Open a pure ui-component plugin (by id) in a new tab.
     OpenUiComponentTab(String),
     WidthChanged(f32),
-    // Search events
-    // Search(SearchMessage),
-    NavigateToSearchResult {
-        record_index: usize,
-    },
-    ClearSearchHistory,
     // Bookmark events
     NavigateToBookmark {
         file_path: String,
@@ -233,24 +222,6 @@ impl Sidebar {
                     }
                 }
             }
-            Some(SidebarSection::Search) => {
-                // Search is parked while it is rebuilt as a DuckDB filter
-                // (#53). The rail button and `FocusSearch` still open this
-                // section, so the empty state is on screen until then and
-                // reads in the design system's own muted body, not egui's
-                // default label.
-                egui::Frame::NONE
-                    .inner_margin(egui::Margin::symmetric(12, 10))
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.add(
-                            thoth_plugin_sdk::components::Typography::builder()
-                                .text("Search is being rebuilt on the query engine.")
-                                .variant(thoth_plugin_sdk::components::TypographyVariant::BodyMuted)
-                                .build(),
-                        );
-                    });
-            }
             Some(SidebarSection::Bookmarks) => {
                 let output = self.bookmarks.render(
                     ui,
@@ -374,18 +345,6 @@ impl Sidebar {
             accent,
         ) {
             events.push(SidebarEvent::SectionToggled(SidebarSection::RecentFiles));
-        }
-
-        if rail_button(
-            ui,
-            sidebar_btn(
-                egui_phosphor::regular::MAGNIFYING_GLASS,
-                "Search",
-                props.selected_section == Some(SidebarSection::Search),
-            ),
-            accent,
-        ) {
-            events.push(SidebarEvent::SectionToggled(SidebarSection::Search));
         }
 
         if rail_button(

@@ -1,6 +1,6 @@
 //! MCP tool definitions for the Thoth server.
 //!
-//! Uses rmcp's `#[tool_router]` macro to expose Thoth's file and search
+//! Uses rmcp's `#[tool_router]` macro to expose Thoth's file
 //! capabilities as MCP tools.
 
 use std::path::PathBuf;
@@ -103,49 +103,6 @@ pub struct GetRecordCountParams {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct GetRecordCountResult {
     pub record_count: usize,
-}
-
-// TODO(#53): the search tool below is parked with the search engine itself,
-// which is being rebuilt as a DuckDB filter. These types describe its shape.
-#[allow(dead_code)]
-#[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-pub struct SearchParams {
-    /// Handle of the open file to search.
-    pub handle: String,
-    /// The search query string. For text search, this is a substring.
-    /// For JSONPath, prefix with `$` (e.g. `$.user.name`).
-    pub query: String,
-    /// Search mode: "text" or "jsonpath". Defaults to "text".
-    /// If the query starts with "$", jsonpath mode is used automatically.
-    pub mode: Option<String>,
-    /// Whether to match case-sensitively. Defaults to false.
-    pub match_case: Option<bool>,
-    /// Maximum number of results to return. Defaults to 50.
-    pub max_results: Option<usize>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct SearchResult {
-    /// Total number of matching records.
-    pub total_matches: usize,
-    /// The matches returned (up to max_results).
-    pub matches: Vec<SearchMatch>,
-    /// The query that was executed.
-    pub query: String,
-    /// The mode used: "text" or "jsonpath".
-    pub mode: String,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct SearchMatch {
-    /// Zero-based record index.
-    pub record_index: usize,
-    /// Short preview snippet of the match.
-    pub preview: Option<String>,
-    /// JSONPath or field path where the match occurred (if available).
-    pub match_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -376,109 +333,6 @@ impl ThothMcpServer {
             record_count: count.unwrap_or(0),
         })
     }
-
-    // #[tool(
-    //     name = "search",
-    //     description = "Search records in an open file using text substring match or JSONPath query. Returns matching record indices with preview snippets."
-    // )]
-    // fn search(&self, Parameters(params): Parameters<SearchParams>) -> Json<SearchResult> {
-    //     // use crate::search::{QueryMode, Search};
-
-    //     let max_results = params.max_results.unwrap_or(50);
-    //     let match_case = params.match_case.unwrap_or(false);
-
-    //     // Auto-detect mode from query prefix if not explicitly specified
-    //     let mode = match params.mode.as_deref() {
-    //         Some("jsonpath") => QueryMode::JsonPath,
-    //         Some("text") => QueryMode::Text,
-    //         _ => {
-    //             if params.query.starts_with('$') {
-    //                 QueryMode::JsonPath
-    //             } else {
-    //                 QueryMode::Text
-    //             }
-    //         }
-    //     };
-
-    //     let mode_str = match mode {
-    //         QueryMode::Text => "text",
-    //         QueryMode::JsonPath => "jsonpath",
-    //     };
-
-    //     // Read file path and kind atomically to avoid race with concurrent close.
-    //     let file_context = self
-    //         .state
-    //         .with_file_read2(&params.handle, |file| (file.path.clone(), file.file_kind));
-
-    //     let (file_path, file_kind) = match file_context {
-    //         Some((p, k)) => (p, k),
-    //         None => {
-    //             return Json(SearchResult {
-    //                 total_matches: 0,
-    //                 matches: vec![],
-    //                 query: params.query,
-    //                 mode: mode_str.to_string(),
-    //             });
-    //         }
-    //     };
-
-    //     // Use Search engine — it reopens the file internally for thread-safe parallel scanning
-    //     let mut search = Search {
-    //         query: params.query.clone(),
-    //         match_case,
-    //         query_mode: mode,
-    //         ..Search::default()
-    //     };
-
-    //     let path_opt = Some(file_path);
-    //     search.start_scanning_internal(&path_opt, &file_kind);
-
-    //     if let Some(err) = &search.error {
-    //         return Json(SearchResult {
-    //             total_matches: 0,
-    //             matches: vec![SearchMatch {
-    //                 record_index: 0,
-    //                 preview: Some(format!("Search error: {}", err)),
-    //                 match_path: None,
-    //             }],
-    //             query: params.query,
-    //             mode: mode_str.to_string(),
-    //         });
-    //     }
-
-    //     let hits = search.results.hits();
-    //     let total = hits.len();
-    //     let capped = &hits[..total.min(max_results)];
-
-    //     let matches: Vec<SearchMatch> = capped
-    //         .iter()
-    //         .map(|hit| {
-    //             let preview = hit
-    //                 .preview
-    //                 .as_ref()
-    //                 .map(|p| format!("{}«{}»{}", p.before, p.highlight, p.after));
-
-    //             let match_path = hit
-    //                 .fragments
-    //                 .first()
-    //                 .and_then(|f| f.path.as_ref())
-    //                 .map(|p| p.to_string());
-
-    //             SearchMatch {
-    //                 record_index: hit.record_index,
-    //                 preview,
-    //                 match_path,
-    //             }
-    //         })
-    //         .collect();
-
-    //     Json(SearchResult {
-    //         total_matches: total,
-    //         matches,
-    //         query: params.query,
-    //         mode: mode_str.to_string(),
-    //     })
-    // }
 
     #[tool(
         name = "query_file",
