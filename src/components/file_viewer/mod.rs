@@ -1335,6 +1335,46 @@ impl FileViewer {
     /// (#113). Works for any backing loader — JSON, NDJSON, CSV, Parquet, a
     /// database, or a file-loader plugin — so every file tab is a producer by
     /// default.
+    /// The relations this tab holds, each of which can be charted on its own.
+    ///
+    /// A document's collections, or a database's tables. Empty for a file that
+    /// is one relation — the tab itself is then the only thing to chart.
+    pub fn relations(&self) -> Vec<String> {
+        if !self.db_tables.is_empty() {
+            return self.db_tables.clone();
+        }
+        self.collections
+            .iter()
+            .filter(|c| c.is_queryable())
+            .map(|c| c.name.clone())
+            .collect()
+    }
+
+    /// Which relation the grid is showing, when the tab holds more than one.
+    pub fn showing_relation(&self) -> Option<String> {
+        if !self.db_tables.is_empty() {
+            return self.selected_db_table.clone();
+        }
+        self.collections
+            .get(self.selected_collection)
+            .map(|c| c.name.clone())
+    }
+
+    /// One named relation as a chart dataset, without changing what the grid
+    /// is showing. `None` asks for whatever the tab is currently on.
+    pub fn to_dataset_for(
+        &mut self,
+        relation: Option<&str>,
+    ) -> Option<crate::file::to_dataset::DatasetTable> {
+        let (Some(name), Some(engine)) = (relation, self.engine.as_ref()) else {
+            return self.to_dataset();
+        };
+        let batches = engine
+            .read_relation(name, crate::file::to_dataset::CAP)
+            .ok()?;
+        crate::file::to_dataset::batches_to_dataset(&batches)
+    }
+
     pub fn to_dataset(&mut self) -> Option<crate::file::to_dataset::DatasetTable> {
         // Engine-backed files convert straight from Arrow.
         if let Some(engine) = self.engine.as_ref() {
@@ -1809,6 +1849,78 @@ mod tests {
         assert!(viewer.query.spec.sort.is_empty());
         assert!(!viewer.query.is_overridden());
         assert!(!viewer.sort_queued);
+    }
+
+    #[test]
+    fn every_array_in_an_object_is_its_own_chart_source() {
+        use std::io::Write;
+
+        let _cache = crate::file::index_cache::tests::exclusive();
+        crate::file::index_cache::tests::isolate();
+        let _papyrus = crate::papyrus::tests::exclusive();
+
+        // A tab is not one dataset. An object holding three arrays holds
+        // three, and charting used to get whichever the grid was showing —
+        // and silently redraw from another when the grid moved.
+        let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+        write!(
+            tmp,
+            r#"{{"users":[{{"id":1,"n":2}}],"orders":[{{"id":1,"total":9}}],               "note":"not a table","empty":[]}}"#
+        )
+        .unwrap();
+        tmp.flush().unwrap();
+
+        let mut viewer = FileViewer::new();
+        let mut kind = FileKind::Json;
+        viewer.open(tmp.path(), 31, &mut kind).expect("opened");
+        assert!(settle(&mut viewer, 31).is_some(), "the index landed");
+
+        let mut relations = viewer.relations();
+        relations.sort();
+        assert_eq!(
+            relations,
+            ["orders", "users"],
+            "each array is offered; a scalar and an empty array are not tables"
+        );
+
+        // And each reads its own columns, without the grid having to be
+        // pointed at it first.
+        let users = viewer
+            .to_dataset_for(Some("users"))
+            .expect("users is readable");
+        let orders = viewer
+            .to_dataset_for(Some("orders"))
+            .expect("orders is readable without switching the grid to it");
+        let names = |d: &crate::file::to_dataset::DatasetTable| {
+            let mut n: Vec<String> = d.0.iter().map(|(name, _)| name.clone()).collect();
+            n.sort();
+            n
+        };
+        assert_eq!(names(&users), ["id", "n"]);
+        assert_eq!(names(&orders), ["id", "total"]);
+    }
+
+    #[test]
+    fn a_file_that_is_one_table_offers_no_relations_to_choose_between() {
+        use std::io::Write;
+
+        let _cache = crate::file::index_cache::tests::exclusive();
+        crate::file::index_cache::tests::isolate();
+        let _papyrus = crate::papyrus::tests::exclusive();
+
+        let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+        tmp.write_all(b"a,b\n1,x\n").unwrap();
+        tmp.flush().unwrap();
+
+        let mut viewer = FileViewer::new();
+        let mut kind = FileKind::Json;
+        viewer.open(tmp.path(), 32, &mut kind).expect("opened");
+        assert!(settle(&mut viewer, 32).is_some());
+
+        // Empty, so the picker offers the file itself rather than the file
+        // and a single relation that is the same thing.
+        assert!(viewer.relations().is_empty());
+        assert!(viewer.to_dataset_for(None).is_some());
     }
 
     #[test]

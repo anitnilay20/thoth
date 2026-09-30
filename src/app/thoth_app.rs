@@ -2180,8 +2180,8 @@ impl ThothApp {
                 components::sidebar::SidebarEvent::OpenSettings => {
                     self.settings_dialog.open(&self.core.settings);
                 }
-                components::sidebar::SidebarEvent::ChartSelectSource(tab_id) => {
-                    self.chart_select_source(tab_id);
+                components::sidebar::SidebarEvent::ChartSelectSource(tab_id, relation) => {
+                    self.chart_select_source(tab_id, relation.as_deref());
                 }
                 components::sidebar::SidebarEvent::ChartGenerate(spec) => {
                     self.chart_generate(spec);
@@ -2199,60 +2199,81 @@ impl ThothApp {
     /// whose manifest declares the `data-producer` capability (and whose loader
     /// supports the call), plus every open file tab (core JSON/NDJSON and
     /// file-loader plugins are producers by default).
-    fn gather_producers(&self) -> Vec<crate::components::chart_studio::ProducerRef> {
+    fn gather_producers(&mut self) -> Vec<crate::components::chart_studio::ProducerRef> {
         use crate::components::chart_studio::{ProducerKind, ProducerRef};
+
+        // Resolved before the tab loop, which borrows the tabs mutably.
+        let manager = self.core.plugins.manager();
+        fn declares_producer(
+            pm: Option<&crate::plugin::manager::PluginManager>,
+            plugin_id: &str,
+        ) -> bool {
+            pm.is_some_and(|pm| {
+                pm.get_plugin_by_id(plugin_id).is_some_and(|p| {
+                    p.capabilities
+                        .contains(&crate::plugin::Capability::DataProducer)
+                })
+            })
+        }
         self.window_state
             .tab_manager
             .tabs
-            .iter()
-            .filter_map(|(id, tab)| {
+            .iter_mut()
+            .flat_map(|(id, tab)| {
                 // Plugin producer tabs: must declare the capability in their
                 // manifest AND export a working provide-dataset.
                 if let Some(pane) = tab.active_plugin_pane.as_ref() {
                     if !pane.loader.is_data_producer()
-                        || !self.plugin_declares_producer(&pane.plugin_id)
+                        || !declares_producer(manager.as_deref(), &pane.plugin_id)
                     {
-                        return None;
+                        return Vec::new();
                     }
                     let label = pane
                         .cached_tab_title
                         .clone()
                         .unwrap_or_else(|| pane.plugin_id.clone());
-                    return Some(ProducerRef {
+                    return vec![ProducerRef {
                         tab_id: *id,
+                        relation: None,
                         label,
                         kind: ProducerKind::Plugin,
-                    });
+                    }];
                 }
                 // Core producer: any open file tab. This includes files loaded
                 // by a file-loader plugin, because the tab's live loader
                 // exposes records uniformly.
                 if let Some(path) = tab.file_path.as_ref() {
-                    let label = path
+                    let file = path
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("file")
                         .to_string();
-                    return Some(ProducerRef {
-                        tab_id: *id,
-                        label,
-                        kind: ProducerKind::File,
-                    });
+                    // A tab is not one dataset. An object holding five arrays
+                    // holds five, and a database a table each — so each is
+                    // offered on its own rather than the chart following
+                    // whichever the grid happens to be showing.
+                    let relations = tab.central_panel.relations();
+                    if relations.is_empty() {
+                        return vec![ProducerRef {
+                            tab_id: *id,
+                            relation: None,
+                            label: file,
+                            kind: ProducerKind::File,
+                        }];
+                    }
+                    return relations
+                        .into_iter()
+                        .map(|name| ProducerRef {
+                            tab_id: *id,
+                            label: format!("{file} · {name}"),
+                            relation: Some(name),
+                            kind: ProducerKind::File,
+                        })
+                        .collect();
                 }
-                None
+                Vec::new()
             })
             .collect()
-    }
-
-    /// Whether the plugin with `plugin_id` declares the `data-producer`
-    /// capability in its manifest.
-    fn plugin_declares_producer(&self, plugin_id: &str) -> bool {
-        self.core.plugins.manager().is_some_and(|pm| {
-            pm.get_plugin_by_id(plugin_id).is_some_and(|p| {
-                p.capabilities
-                    .contains(&crate::plugin::Capability::DataProducer)
-            })
-        })
     }
 
     /// Resolve a producer tab's data directly (no registry): file tabs read
@@ -2261,6 +2282,7 @@ impl ThothApp {
     fn resolve_dataset(
         &mut self,
         tab_id: crate::app::tab_manager::TabId,
+        relation: Option<&str>,
     ) -> Option<ResolvedDataset> {
         let tab = self.window_state.tab_manager.tabs.get_mut(&tab_id)?;
         if tab.active_plugin_pane.is_none() {
@@ -2270,7 +2292,13 @@ impl ThothApp {
                 .and_then(|n| n.to_str())
                 .unwrap_or("file")
                 .to_string();
-            let (cols, rows) = tab.central_panel.to_dataset()?;
+            // Named, so a chart reads the relation it was built against
+            // rather than whichever one the grid has since moved to.
+            let name = match relation {
+                Some(r) => format!("{name} · {r}"),
+                None => name,
+            };
+            let (cols, rows) = tab.central_panel.to_dataset_for(relation)?;
             return Some((name, cols, rows));
         }
         let pane = tab.active_plugin_pane.as_ref()?;
@@ -2287,9 +2315,25 @@ impl ThothApp {
         // Refresh the producer list so the tab is a valid selection this frame,
         // then preselect it and resolve its columns for the axis pickers.
         let producers = self.gather_producers();
+        // A tab may offer several relations; Chart opens on the one the grid
+        // is showing, which is the one the user was looking at when they
+        // pressed it.
+        let relation = self
+            .window_state
+            .tab_manager
+            .tabs
+            .get(&tab_id)
+            .and_then(|tab| tab.central_panel.showing_relation());
+        let relation = producers
+            .iter()
+            .find(|p| p.tab_id == tab_id && p.relation == relation)
+            .or_else(|| producers.iter().find(|p| p.tab_id == tab_id))
+            .and_then(|p| p.relation.clone());
         self.window_state.sidebar.set_chart_producers(producers);
-        self.window_state.sidebar.select_chart_source(tab_id);
-        self.chart_select_source(tab_id);
+        self.window_state
+            .sidebar
+            .select_chart_source(tab_id, relation.as_deref());
+        self.chart_select_source(tab_id, relation.as_deref());
         self.window_state.sidebar_expanded = true;
         self.window_state.sidebar_selected_section =
             Some(components::sidebar::SidebarSection::ChartStudio);
@@ -2297,24 +2341,33 @@ impl ThothApp {
 
     /// The user picked a chart data source: resolve it, cache the snapshot, and
     /// feed the column schema (name + numeric flag) to the config panel.
-    fn chart_select_source(&mut self, tab_id: crate::app::tab_manager::TabId) {
-        let Some((_name, cols, rows)) = self.resolve_dataset(tab_id) else {
+    fn chart_select_source(
+        &mut self,
+        tab_id: crate::app::tab_manager::TabId,
+        relation: Option<&str>,
+    ) {
+        let Some((_name, cols, rows)) = self.resolve_dataset(tab_id, relation) else {
             Self::notify_dataset_unavailable();
             return;
         };
         let columns = columns_info(&cols, &rows);
         let colnames = cols.into_iter().map(|(n, _)| n).collect();
-        self.core.chart_source = Some((tab_id, colnames, rows));
+        let key = crate::components::chart_studio::source_key(tab_id, relation);
+        self.core.chart_source = Some((key, colnames, rows));
         self.window_state.sidebar.set_chart_columns(columns);
     }
 
     /// Build a chart from a spec: either update the edited tab in place or open
     /// a new dock tab.
     fn chart_generate(&mut self, spec: crate::components::chart_studio::ChartSpec) {
+        let key = crate::components::chart_studio::source_key(
+            spec.source_tab,
+            spec.source_relation.as_deref(),
+        );
         let resolved = match &self.core.chart_source {
-            Some((t, cols, rows)) if *t == spec.source_tab => Some((cols.clone(), rows.clone())),
+            Some((cached, cols, rows)) if *cached == key => Some((cols.clone(), rows.clone())),
             _ => self
-                .resolve_dataset(spec.source_tab)
+                .resolve_dataset(spec.source_tab, spec.source_relation.as_deref())
                 .map(|(_n, cols, rows)| (cols.into_iter().map(|(n, _)| n).collect(), rows)),
         };
         let Some((colnames, rows)) = resolved else {
@@ -2362,11 +2415,15 @@ impl ThothApp {
         spec.edit_target = Some(tab_id);
         // Best-effort: resolve the source's current columns so the axis pickers
         // are populated (empty if the source tab is gone).
-        let columns = match self.resolve_dataset(spec.source_tab) {
+        let key = crate::components::chart_studio::source_key(
+            spec.source_tab,
+            spec.source_relation.as_deref(),
+        );
+        let columns = match self.resolve_dataset(spec.source_tab, spec.source_relation.as_deref()) {
             Some((_n, cols, rows)) => {
                 let ci = columns_info(&cols, &rows);
                 let colnames = cols.into_iter().map(|(n, _)| n).collect();
-                self.core.chart_source = Some((spec.source_tab, colnames, rows));
+                self.core.chart_source = Some((key, colnames, rows));
                 ci
             }
             None => Vec::new(),
@@ -2379,16 +2436,20 @@ impl ThothApp {
 
     /// Re-fetch a chart tab's source data and rebuild it (incl. axis names).
     fn chart_refresh(&mut self, tab_id: crate::app::tab_manager::TabId) {
-        let Some(source) = self
+        // Refresh re-reads the relation the chart was *built* against, not
+        // whatever the tab has since been switched to — that silent re-point
+        // is what keying a chart on the tab alone used to allow.
+        let Some((source, relation)) = self
             .window_state
             .tab_manager
             .tabs
             .get(&tab_id)
-            .and_then(|t| t.chart.as_ref().map(|c| c.source_tab()))
+            .and_then(|t| t.chart.as_ref())
+            .map(|c| (c.source_tab(), c.source_relation().map(str::to_string)))
         else {
             return;
         };
-        let Some((_name, cols, rows)) = self.resolve_dataset(source) else {
+        let Some((_name, cols, rows)) = self.resolve_dataset(source, relation.as_deref()) else {
             Self::notify_dataset_unavailable();
             return;
         };

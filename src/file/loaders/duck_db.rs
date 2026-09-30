@@ -824,6 +824,32 @@ impl DuckdbConnection {
         ))
     }
 
+    /// Read one of the file's relations by name, without changing which one
+    /// the tab is showing.
+    ///
+    /// A document holds a collection per key and a database a table per
+    /// relation, and either can be charted without first switching the grid
+    /// to it — so this resolves a name the way the picker offers it: a
+    /// database table through the attached schema, a collection through its
+    /// alias, staging it first if it has not been read yet.
+    pub fn read_relation(&self, name: &str, limit: usize) -> Result<Vec<RecordBatch>> {
+        if let Some((_, db_alias)) = self.database()
+            && self.database_tables().iter().any(|t| t == name)
+        {
+            return self.query(&format!(
+                "SELECT * FROM {}.{} LIMIT {limit}",
+                quote_ident(&db_alias),
+                quote_ident(name)
+            ));
+        }
+        // `query` stages a collection it has not seen, so a chart can be built
+        // from one the grid has never been pointed at.
+        self.query(&format!(
+            "SELECT * FROM {} LIMIT {limit}",
+            quote_ident(&alias_for_name(name))
+        ))
+    }
+
     /// Collections already staged, by the alias SQL refers to them by.
     pub fn staged_collections(&self) -> Vec<String> {
         let staged = self.staged.lock().unwrap_or_else(|e| e.into_inner());

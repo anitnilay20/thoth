@@ -227,8 +227,33 @@ pub enum ProducerKind {
 #[derive(Clone)]
 pub struct ProducerRef {
     pub tab_id: TabId,
+    /// Which of the tab's relations this offers — a document's collection or a
+    /// database's table. `None` for a file that is one relation.
+    ///
+    /// A tab is not one dataset: an object holding five arrays holds five, and
+    /// a database a table each. Keying a chart on the tab alone meant it drew
+    /// whichever relation the grid happened to be on, and silently redrew from
+    /// another when the grid moved.
+    pub relation: Option<String>,
     pub label: String,
     pub kind: ProducerKind,
+}
+
+/// The picker's identity for a tab-and-relation pair, matching
+/// [`ProducerRef::key`] without needing a `ProducerRef` to hand.
+pub fn source_key(tab_id: TabId, relation: Option<&str>) -> String {
+    match relation {
+        Some(name) => format!("{tab_id}\u{1}{name}"),
+        None => tab_id.to_string(),
+    }
+}
+
+impl ProducerRef {
+    /// Stable identity for the picker: the tab and, when the tab holds more
+    /// than one, which relation.
+    pub fn key(&self) -> String {
+        source_key(self.tab_id, self.relation.as_deref())
+    }
 }
 
 /// A resolved column: display name + whether its values parse as numbers.
@@ -243,6 +268,8 @@ pub struct ColumnInfo {
 #[derive(Clone, Debug)]
 pub struct ChartSpec {
     pub source_tab: TabId,
+    /// The tab's relation this chart reads, when the tab holds more than one.
+    pub source_relation: Option<String>,
     pub source_label: String,
     pub chart_type: ChartType,
     pub x_col: usize,

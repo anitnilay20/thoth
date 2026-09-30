@@ -409,4 +409,24 @@ impl CentralPanel {
     pub fn to_dataset(&mut self) -> Option<crate::file::to_dataset::DatasetTable> {
         self.file_viewer.to_dataset()
     }
+
+    /// The relations this tab holds — see [`FileViewer::relations`].
+    ///
+    /// [`FileViewer::relations`]: crate::components::file_viewer::FileViewer::relations
+    pub fn relations(&self) -> Vec<String> {
+        self.file_viewer.relations()
+    }
+
+    /// Which relation the grid is showing, when the tab holds more than one.
+    pub fn showing_relation(&self) -> Option<String> {
+        self.file_viewer.showing_relation()
+    }
+
+    /// One named relation as a chart dataset.
+    pub fn to_dataset_for(
+        &mut self,
+        relation: Option<&str>,
+    ) -> Option<crate::file::to_dataset::DatasetTable> {
+        self.file_viewer.to_dataset_for(relation)
+    }
 }

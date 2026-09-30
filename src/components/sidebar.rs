@@ -96,7 +96,7 @@ pub enum SidebarEvent {
     OpenSettings,
     // Chart Studio events
     /// The user picked a chart data source; resolve its columns.
-    ChartSelectSource(TabId),
+    ChartSelectSource(TabId, Option<String>),
     /// Build a chart tab from this spec.
     ChartGenerate(ChartSpec),
     /// Activate an already-open chart tab.
@@ -163,8 +163,8 @@ impl Sidebar {
     }
 
     /// Preselect a Chart Studio data source (used by the "open in Charts" action).
-    pub fn select_chart_source(&mut self, tab_id: TabId) {
-        self.chart_studio.select_source(tab_id);
+    pub fn select_chart_source(&mut self, tab_id: TabId, relation: Option<&str>) {
+        self.chart_studio.select_source(tab_id, relation);
     }
 
     /// Update the Chart Studio's "Open Charts" list.
@@ -290,8 +290,8 @@ impl Sidebar {
             Some(SidebarSection::ChartStudio) => {
                 for ev in self.chart_studio.render(ui) {
                     match ev {
-                        ChartStudioEvent::SelectSource(id) => {
-                            events.push(SidebarEvent::ChartSelectSource(id));
+                        ChartStudioEvent::SelectSource(id, relation) => {
+                            events.push(SidebarEvent::ChartSelectSource(id, relation));
                         }
                         ChartStudioEvent::Generate(spec) => {
                             events.push(SidebarEvent::ChartGenerate(spec));

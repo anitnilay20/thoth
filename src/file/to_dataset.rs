@@ -18,7 +18,7 @@ use serde_json::Value;
 use crate::file::loaders::{FileLoader, batch_rows};
 
 /// Rows read from the file (bounds the crossing for large files).
-const CAP: usize = 5000;
+pub const CAP: usize = 5000;
 
 /// `(columns, rows)` where each column is `(name, sql-ish type hint)` and each
 /// row is a list of string cells.
