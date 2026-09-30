@@ -46,6 +46,13 @@ pub fn print_json(records: &[Value]) -> String {
                 }
             }
         }
+        // Sorted, so a record's fields come out in the same order whatever
+        // the build did. `serde_json::Map` is a `BTreeMap` — already sorted —
+        // until something turns on `preserve_order`, when it becomes an
+        // insertion-ordered `IndexMap`; the `url-source` plugin does, and
+        // cargo unifies features across a workspace build, so `cargo test`
+        // and `cargo test -p thoth` disagreed about the column order.
+        columns.sort();
         columns
     } else {
         vec!["value".to_string()]

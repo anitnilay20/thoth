@@ -69,6 +69,62 @@ pub fn focus_stroke(colors: &ThemeColors) -> egui::Stroke {
     egui::Stroke::new(2.0, with_alpha(colors.accent_secondary, 230)) // 90%
 }
 
+/// Keep Tab inside an open panel.
+///
+/// egui's focus order is global and in draw order, so Tab off the last control
+/// of the query builder landed on the notification bell and then the sidebar —
+/// a long way from a panel the user is halfway through filling in. While the
+/// keyboard is inside `rect`, Tab wraps from the last control back to `first`
+/// and Shift+Tab from the first back to `last`.
+///
+/// Call this once per pass, after the panel has drawn. The two directions are
+/// not applied at the same moment — egui turns Tab into `FocusDirection::Next`
+/// and settles it before the widgets run, while `Previous` is only resolved
+/// once the pass has seen them — so a departure is recognised either on the
+/// pass that carried the key or on the one after it. `key` holds what is
+/// needed for both: whether the panel had the keyboard, and any Tab it saw
+/// while it did.
+///
+/// Only a Tab pulls focus back. Clicking into the sidebar is the user asking
+/// for the sidebar, and takes them there.
+pub fn trap_focus(
+    ctx: &egui::Context,
+    key: egui::Id,
+    rect: egui::Rect,
+    first: egui::Id,
+    last: egui::Id,
+) {
+    let inside = ctx.memory(|m| m.focused()).is_some_and(|id| {
+        ctx.read_response(id)
+            .is_some_and(|r| rect.contains_rect(r.rect))
+    });
+    // (the panel held the keyboard last pass, the Tab it saw while it did)
+    let (held_it, carried): (bool, Option<bool>) =
+        ctx.data(|d| d.get_temp(key).unwrap_or((false, None)));
+
+    let tabbed = ctx.input(|i| {
+        i.events.iter().find_map(|e| match e {
+            egui::Event::Key {
+                key: egui::Key::Tab,
+                pressed: true,
+                modifiers,
+                ..
+            } => Some(modifiers.shift),
+            _ => None,
+        })
+    });
+
+    if let Some(backwards) = tabbed.or(carried)
+        && held_it
+        && !inside
+    {
+        ctx.memory_mut(|m| m.request_focus(if backwards { last } else { first }));
+        ctx.data_mut(|d| d.insert_temp(key, (true, None::<bool>)));
+        return;
+    }
+    ctx.data_mut(|d| d.insert_temp(key, (inside, tabbed.filter(|_| inside))));
+}
+
 /// Soft drop shadow for floating panels — design `--shadow-panel`. The CSS token
 /// layers `0 1px 2px black@42%` under `0 6px 18px black@28%`; egui shadows are
 /// single-layer, so the handoff collapses it to the outer layer.
@@ -986,5 +1042,108 @@ pub fn lightness(color: Color32) -> f32 {
         116.0 * y.cbrt() - 16.0
     } else {
         903.3 * y
+    }
+}
+
+#[cfg(test)]
+mod trap_tests {
+    use super::*;
+    use egui::{Key, Modifiers};
+
+    /// Two buttons in the "panel", with one above and one below standing in
+    /// for the chrome around it. The panel's rect is the union of its own two,
+    /// so the others are outside it exactly the way the notification bell and
+    /// the sidebar are outside the query builder. Both sides are needed:
+    /// Shift+Tab off the front has to have somewhere to escape to.
+    fn frame(
+        ctx: &egui::Context,
+        tab: Option<Modifiers>,
+        trap: bool,
+    ) -> (egui::Id, egui::Id, egui::Id) {
+        let mut input = egui::RawInput::default();
+        if let Some(modifiers) = tab {
+            input.modifiers = modifiers;
+            input.events.push(egui::Event::Key {
+                key: Key::Tab,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            });
+        }
+        let mut ids = None;
+        let _ = ctx.run_ui(input, |ui| {
+            let before = ui.button("toolbar");
+            let first = ui.button("first");
+            let last = ui.button("last");
+            let outside = ui.button("sidebar");
+            let panel = first.rect.union(last.rect);
+            assert!(!panel.contains_rect(before.rect));
+            assert!(!panel.contains_rect(outside.rect));
+            if trap {
+                trap_focus(ui.ctx(), egui::Id::new("trap"), panel, first.id, last.id);
+            }
+            ids = Some((first.id, last.id, outside.id));
+        });
+        ids.expect("the frame ran")
+    }
+
+    fn focused(ctx: &egui::Context) -> Option<egui::Id> {
+        ctx.memory(|m| m.focused())
+    }
+
+    /// Tab off the last control of an open panel wraps to its first, instead
+    /// of walking on into whatever the host drew next.
+    #[test]
+    fn tab_off_the_end_comes_back_to_the_front() {
+        let ctx = egui::Context::default();
+        let (first, last, _) = frame(&ctx, None, true);
+        ctx.memory_mut(|m| m.request_focus(last));
+        frame(&ctx, None, true); // the panel is seen holding the keyboard
+
+        frame(&ctx, Some(Modifiers::NONE), true);
+        frame(&ctx, None, true);
+        assert_eq!(focused(&ctx), Some(first), "Tab wrapped to the front");
+    }
+
+    /// Shift+Tab off the front wraps to the back, so the cycle closes both ways.
+    #[test]
+    fn shift_tab_off_the_front_comes_back_to_the_end() {
+        let ctx = egui::Context::default();
+        let (first, last, _) = frame(&ctx, None, true);
+        ctx.memory_mut(|m| m.request_focus(first));
+        frame(&ctx, None, true);
+
+        frame(&ctx, Some(Modifiers::SHIFT), true);
+        frame(&ctx, None, true);
+        assert_eq!(focused(&ctx), Some(last), "Shift+Tab wrapped to the back");
+    }
+
+    /// Clicking away is the user asking for somewhere else, and is left alone.
+    #[test]
+    fn a_pointer_press_is_not_trapped() {
+        let ctx = egui::Context::default();
+        let (_, last, outside) = frame(&ctx, None, true);
+        ctx.memory_mut(|m| m.request_focus(last));
+        frame(&ctx, None, true);
+
+        ctx.memory_mut(|m| m.request_focus(outside));
+        frame(&ctx, None, true);
+        assert_eq!(focused(&ctx), Some(outside));
+    }
+
+    /// The discriminating case: without the trap the focus walks out and stays
+    /// out. If this ever matches the test above, the trap is not what is
+    /// keeping focus in.
+    #[test]
+    fn without_the_trap_focus_walks_out_and_stays_out() {
+        let ctx = egui::Context::default();
+        let (_, last, outside) = frame(&ctx, None, false);
+        ctx.memory_mut(|m| m.request_focus(last));
+        frame(&ctx, None, false);
+
+        frame(&ctx, Some(Modifiers::NONE), false);
+        frame(&ctx, None, false);
+        assert_eq!(focused(&ctx), Some(outside));
     }
 }

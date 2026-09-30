@@ -324,8 +324,10 @@ mod tests {
     #[test]
     fn typed_sql_is_read_for_a_group_by_without_being_fooled_by_one_in_quotes() {
         let grouping = |sql: &str| {
-            let mut builder = QueryBuilder::default();
-            builder.sql_override = Some(sql.to_string());
+            let builder = QueryBuilder {
+                sql_override: Some(sql.to_string()),
+                ..Default::default()
+            };
             builder.returns_groups()
         };
         assert!(grouping("SELECT status, count(*) FROM d GROUP BY status"));
