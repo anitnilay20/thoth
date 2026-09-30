@@ -301,6 +301,7 @@ impl QueryBuilder {
                     if lanes_open {
                         let picked = ButtonGroups::builder()
                             .id(format!("{}_tabs", self.id))
+                            .size(Size::Small)
                             .active(if *on_sql { "sql" } else { "builder" })
                             .items(vec![
                                 ButtonGroupItem::builder()
@@ -522,6 +523,9 @@ impl QueryBuilder {
                 if spec.filters.len() > 1 {
                     let picked = ButtonGroups::builder()
                         .id(format!("{id}_combine"))
+                        // Design `.seg.mini` — it sits inside a lane, beside
+                        // the label, not as a control in its own right.
+                        .size(Size::Small)
                         .active(match spec.combine {
                             Combine::All => "all",
                             Combine::Any => "any",
@@ -940,6 +944,10 @@ impl QueryBuilder {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = FOOT_GAP;
+                    // Nothing in the foot wraps. Squeezed, egui breaks a label
+                    // at any character it can, and "Limit" came out as five
+                    // stacked letters once the SQL notice was on screen.
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                     // Copying the statement is useful from either tab — it is
                     // what you paste into a client — so it lives in the foot
                     // rather than inside the SQL pane.
@@ -959,8 +967,8 @@ impl QueryBuilder {
                     // Only while the typed SQL is driving. Says so plainly and
                     // offers the way back, because the lanes above are
                     // otherwise greyed with no explanation of by what.
-                    if overridden {
-                        if ui
+                    if overridden
+                        && ui
                             .add(
                                 Button::builder()
                                     .label("Use the lanes")
@@ -973,15 +981,8 @@ impl QueryBuilder {
                                     .build(),
                             )
                             .clicked()
-                        {
-                            revert = true;
-                        }
-                        ui.add(
-                            Typography::builder()
-                                .text("editing SQL — the lanes are paused")
-                                .variant(TypographyVariant::Caption)
-                                .build(),
-                        );
+                    {
+                        revert = true;
                     }
 
                     // Right-to-left so Run sits on the edge; added rightmost
@@ -1077,6 +1078,17 @@ impl QueryBuilder {
                                 if let Some(detail) = status.detail() {
                                     hover_text(response, detail);
                                 }
+                            } else if overridden {
+                                // Last, because it is the least urgent of the
+                                // three — and here rather than beside the
+                                // button, so a long notice gives way to the
+                                // controls instead of squeezing them.
+                                ui.add(
+                                    Typography::builder()
+                                        .text("editing SQL — the lanes are paused")
+                                        .variant(TypographyVariant::Caption)
+                                        .build(),
+                                );
                             }
                         });
                     });
@@ -1737,6 +1749,42 @@ mod tests {
         // way of looking at it, not an edit.
         assert_eq!(builder.spec.filters.len(), 1);
         assert!(on_builder > 0.0);
+    }
+
+    #[test]
+    fn the_foot_stays_one_row_however_much_it_has_to_say() {
+        // With typed SQL driving, the foot carries Copy SQL, "Use the lanes",
+        // a notice, the limit, Reset and Run. Squeezed, egui breaks a label at
+        // any character it can: "Limit" came out as five stacked letters, and
+        // the whole strip grew to five lines.
+        let tall = |overridden: bool| {
+            with_ui(|ui| {
+                let mut builder = QueryBuilder::builder()
+                    .id("qb-foot")
+                    .relation("data")
+                    .build();
+                if overridden {
+                    builder.sql_override = Some("SELECT 1".to_string());
+                }
+                let compiled = builder.sql();
+                let mut edited = false;
+                let colors = ThemeColors::from_ctx(ui.ctx());
+                // A narrow strip, so everything is competing for the width.
+                ui.set_max_width(520.0);
+                let before = ui.min_rect().height();
+                builder.foot(ui, &colors, &compiled, &mut edited, overridden);
+                ui.min_rect().height() - before
+            })
+        };
+
+        let plain = tall(false);
+        let editing = tall(true);
+        assert!(plain > 0.0, "the foot drew something");
+        // The notice must not make the strip taller — that is the whole bug.
+        assert!(
+            editing <= plain * 1.5,
+            "the foot grew from {plain} to {editing} once the SQL notice appeared"
+        );
     }
 
     #[test]

@@ -243,6 +243,7 @@ impl Widget for IconButton {
                 tooltip.as_deref().unwrap_or("Button"),
             )
         });
+        crate::theme::paint_focus_ring(ui, &response, RADIUS_CONTROL as u8);
 
         response
     }

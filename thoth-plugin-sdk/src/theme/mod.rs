@@ -771,3 +771,149 @@ pub fn claim_navigation_keys(ui: &egui::Ui, id: egui::Id, rect: egui::Rect) {
     ui.ctx()
         .data_mut(|d| d.insert_temp(id.with("nav-rect"), rect));
 }
+
+// ── Focus rings ──────────────────────────────────────────────────────────────
+
+/// Whether focus rings should be drawn right now — the design's
+/// `:focus-visible`, which egui has no equivalent of.
+///
+/// A ring after a mouse click is noise: the user knows what they just clicked.
+/// After Tab it is the only thing saying where they are. So a key press turns
+/// rings on and a pointer press turns them off, and the answer is computed
+/// once per frame however many widgets ask.
+#[cfg(feature = "egui")]
+pub fn focus_visible(ctx: &egui::Context) -> bool {
+    let id = egui::Id::new("thoth-focus-visible");
+    let pass = ctx.cumulative_pass_nr();
+    let (seen, visible) = ctx
+        .data(|d| d.get_temp::<(u64, bool)>(id))
+        .unwrap_or((u64::MAX, false));
+    if seen == pass {
+        return visible;
+    }
+    let keyed = ctx.input(|i| {
+        i.events
+            .iter()
+            .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))
+    });
+    let pointed = ctx.input(|i| i.pointer.any_pressed());
+    // A key wins over a pointer press in the same frame: the keyboard is the
+    // mode that needs the ring.
+    let visible = if keyed {
+        true
+    } else if pointed {
+        false
+    } else {
+        visible
+    };
+    ctx.data_mut(|d| d.insert_temp(id, (pass, visible)));
+    visible
+}
+
+/// Paint the keyboard-focus ring around `rect` — design `:focus-visible`:
+/// 2px of `accent-2`, set just outside the control so it reads as a ring
+/// around it rather than a border on it.
+///
+/// Call it from any component that allocates a focusable response. It draws
+/// nothing unless focus arrived from the keyboard, so a click never leaves one
+/// behind.
+#[cfg(feature = "egui")]
+pub fn paint_focus_ring(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    radius: impl Into<egui::CornerRadius>,
+) {
+    if !response.has_focus() || !focus_visible(ui.ctx()) {
+        return;
+    }
+    let colors = ThemeColors::from_ctx(ui.ctx());
+    // `outline-offset: 1px` — the ring sits outside the control's own edge, so
+    // a control that already draws a border keeps it and gains a halo.
+    ui.painter().rect_stroke(
+        response.rect.expand(FOCUS_RING_OFFSET),
+        radius,
+        focus_stroke(&colors),
+        egui::StrokeKind::Outside,
+    );
+}
+
+/// How far outside a control its focus ring sits — design
+/// `:focus-visible{outline-offset:1px}`.
+#[cfg(feature = "egui")]
+pub const FOCUS_RING_OFFSET: f32 = 1.0;
+
+#[cfg(all(test, feature = "egui"))]
+mod focus_tests {
+    use super::focus_visible;
+
+    /// Run one frame with the given raw input and report `focus_visible`.
+    fn after(events: Vec<egui::Event>) -> bool {
+        let ctx = egui::Context::default();
+        // A first frame with nothing, so the state starts from its default.
+        let _ = ctx.run_ui(Default::default(), |_| {});
+        let input = egui::RawInput {
+            events,
+            ..Default::default()
+        };
+        let mut seen = false;
+        let _ = ctx.run_ui(input, |ui| seen = focus_visible(ui.ctx()));
+        seen
+    }
+
+    fn key() -> egui::Event {
+        egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    fn click() -> egui::Event {
+        egui::Event::PointerButton {
+            pos: egui::pos2(10.0, 10.0),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn a_keypress_turns_focus_rings_on_and_a_click_turns_them_off() {
+        // The whole point: a ring after a mouse click is noise, because the
+        // user knows what they just clicked. After Tab it is the only thing
+        // saying where they are.
+        assert!(!after(vec![]), "nothing has happened yet");
+        assert!(after(vec![key()]));
+        assert!(!after(vec![click()]));
+    }
+
+    #[test]
+    fn the_keyboard_wins_when_both_land_in_one_frame() {
+        // Tab-then-click in a single frame is the keyboard arriving, and the
+        // ring is what that needs.
+        assert!(after(vec![click(), key()]));
+        assert!(after(vec![key(), click()]));
+    }
+
+    #[test]
+    fn the_answer_holds_while_nothing_happens() {
+        // Computed once per frame and remembered, so a ring does not flicker
+        // out on the first idle frame after the key that earned it.
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(Default::default(), |_| {});
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                events: vec![key()],
+                ..Default::default()
+            },
+            |ui| assert!(focus_visible(ui.ctx())),
+        );
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            assert!(focus_visible(ui.ctx()), "it survived an idle frame");
+            // And asking twice in one frame gives the same answer.
+            assert!(focus_visible(ui.ctx()));
+        });
+    }
+}

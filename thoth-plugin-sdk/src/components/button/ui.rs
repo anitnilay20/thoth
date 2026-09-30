@@ -499,6 +499,7 @@ impl egui::Widget for Button {
         }
 
         response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+        crate::theme::paint_focus_ring(ui, &response, RADIUS_CONTROL as u8);
 
         response
     }

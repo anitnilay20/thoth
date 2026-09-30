@@ -93,8 +93,11 @@ pub struct DataView {
     pub sortable: bool,
 }
 
-/// The view value the chart button switches to. Not offered by the view
-/// switcher — the button beside Export is how it is reached.
+/// The inline bar-chart view.
+///
+/// Not offered by the view switcher and not what the Chart button does — that
+/// opens Chart Studio. It remains a value a producer can ask for through
+/// [`DataView::default_view`], which is the only way into it.
 #[cfg(feature = "egui")]
 const CHART_VIEW: &str = "chart";
 
@@ -132,9 +135,11 @@ impl DataView {
     /// pointing the node at another table is the producer's work, not the
     /// view's. A sortable grid's header does the same on
     /// [`SORT_COLUMN`](crate::actions::SORT_COLUMN), for the same reason:
-    /// reordering means re-running the query. Everything else — the view
-    /// toggle, Copy, Export — is handled in-widget or on
-    /// [`EXPORT_DATASET`](crate::actions::EXPORT_DATASET).
+    /// reordering means re-running the query. Chart does the same on
+    /// [`OPEN_IN_CHARTS`](crate::actions::OPEN_IN_CHARTS), because a chart is
+    /// built somewhere with room for axes and series rather than in this pane.
+    /// Everything else — the view toggle, Copy, Export — is handled in-widget
+    /// or on [`EXPORT_DATASET`](crate::actions::EXPORT_DATASET).
     pub fn show(&self, ui: &mut egui::Ui, events: &mut Vec<crate::render_node::UiEvent>) {
         use crate::components::{SelectOption, Typography, TypographyVariant};
         use crate::dataset::{renderers, resolve_dataset};
@@ -273,17 +278,6 @@ impl DataView {
         use crate::dataset::resolve_dataset;
         use crate::render_node::UiEvent;
 
-        // The view the chart sits over, so closing it goes back where the user
-        // was rather than always to the table.
-        let under_id = ui.make_persistent_id((node_id, "data_view_under_chart"));
-        if *view != CHART_VIEW {
-            ui.data_mut(|d| d.insert_temp(under_id, view.clone()));
-        }
-        let under_chart: String = ui
-            .data(|d| d.get_temp::<String>(under_id))
-            .filter(|v| v != CHART_VIEW)
-            .unwrap_or_else(|| "table".to_string());
-
         // Which table, before how to draw it: a pane showing one of several
         // collections has to say which one before anything it draws means
         // something. Searchable because a document can hold dozens, and a menu
@@ -337,21 +331,14 @@ impl DataView {
         // Design `.viewsel` is a 28px-tall select trigger at 12.5px — exactly
         // `Size::Medium`'s field metrics, so the shared `Select` is used as-is —
         // and it leads with a glyph for the current view.
-        let view_glyph = match under_chart.as_str() {
+        let view_glyph = match view.as_str() {
             "json" => egui_phosphor::regular::BRACKETS_CURLY,
             "raw" => egui_phosphor::regular::CODE,
             _ => egui_phosphor::regular::TABLE,
         };
-        // While the chart is open the switcher still names the view the chart
-        // sits over, so picking from it is how you leave the chart.
-        let shown_view = if view == CHART_VIEW {
-            under_chart.clone()
-        } else {
-            view.clone()
-        };
         if let Some(v) = Select::builder()
             .id(format!("{node_id}_views"))
-            .value(shown_view)
+            .value(view.clone())
             .options(view_options)
             .icon(view_glyph)
             .size(Size::Medium)
@@ -437,34 +424,28 @@ impl DataView {
                 }
             }
 
-            // Chart — a toggle, so the same button that opens the chart puts
-            // the records back. Right-to-left layout, so adding it after
-            // Export is what puts it to Export's left on screen.
-            let charting = *view == CHART_VIEW;
+            // Chart opens Chart Studio bound to this dataset, rather than
+            // drawing bars in the pane: a chart is something you build — axes,
+            // series, a kind — and the pane is where the records are. Emitted
+            // as the reserved action, so the host preselects this tab as the
+            // source and expands the panel. Right-to-left layout, so adding it
+            // after Export is what puts it to Export's left on screen.
             if ui
                 .add(
                     Button::builder()
                         .label("Chart")
                         .icon(egui_phosphor::regular::CHART_BAR)
-                        .button_type(if charting {
-                            ButtonType::Soft
-                        } else {
-                            ButtonType::Text
-                        })
-                        .hover_text(if charting {
-                            "Back to the records"
-                        } else {
-                            "Chart this result"
-                        })
+                        .button_type(ButtonType::Text)
+                        .hover_text("Chart this data in Chart Studio")
                         .build(),
                 )
                 .clicked()
             {
-                *view = if charting {
-                    under_chart.clone()
-                } else {
-                    CHART_VIEW.to_string()
-                };
+                events.push(UiEvent {
+                    id: crate::actions::OPEN_IN_CHARTS.to_string(),
+                    kind: "click".to_string(),
+                    value: self.handle.clone(),
+                });
             }
 
             // Copy is handled in-widget (no plugin round-trip). Serialised on the
