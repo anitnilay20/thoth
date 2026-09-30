@@ -131,6 +131,16 @@ impl QueryBuilder {
         // be worse than the shortcut doing nothing.
         let mut changed = false;
         let mut queued_run = false;
+        // Delete removes the clause the keyboard is in — one rule for every
+        // lane. Guarded on the keyboard not being in a text field, so
+        // backspacing inside a value edits it rather than deleting the filter
+        // out from under the cursor.
+        let cull = !ui.ctx().egui_wants_keyboard_input()
+            && ui.input_mut(|i| {
+                i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
+                    || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)
+            });
+        self.cull_focused = cull;
         if let Some(action) = self.action.take() {
             match action {
                 // Toggling is the one action that must not force the lanes
@@ -140,26 +150,30 @@ impl QueryBuilder {
                 // ⌘S: name it before saving, inline in the head — a dialog for
                 // one string is more ceremony than the act deserves.
                 super::QueryAction::BeginNaming => naming = true,
-                add => {
+                lane => {
                     lanes_open = true;
-                    let landed = match add {
-                        super::QueryAction::AddFilter => self.push_filter(),
-                        super::QueryAction::AddGroupBy => self.push_group_by(),
-                        super::QueryAction::AddAggregate => self.push_aggregate(),
-                        _ => self.push_sort(),
-                    };
-                    changed |= landed;
-                    // Focus the new pill's first control, so the shortcut
-                    // leaves the user where the typing continues rather than
-                    // needing a click to get there.
-                    if landed {
-                        let last = match add {
-                            super::QueryAction::AddFilter => self.spec.filters.len(),
-                            super::QueryAction::AddGroupBy => self.spec.group_by.len(),
-                            super::QueryAction::AddAggregate => self.spec.aggregates.len(),
-                            _ => self.spec.sort.len(),
-                        } - 1;
-                        self.focus_control = focus_target(&self.id, add, last);
+                    // The key walks the lane rather than only adding to it: an
+                    // empty lane gets its first clause, and after that each
+                    // press steps to the next one it already has. Pressing
+                    // past the last wraps round to the first, so the lane's
+                    // clauses are all reachable from the one key that made
+                    // them — and Tab from any of them reaches Add.
+                    let held = self.lane_len(lane);
+                    if held == 0 {
+                        if self.push_of(lane) {
+                            changed = true;
+                            self.focus_control = focus_target(&self.id, lane, 0);
+                        }
+                    } else {
+                        let cursor_id =
+                            ui.make_persistent_id((self.id.as_str(), "qb_lane_cursor", lane));
+                        let at: usize = ui
+                            .ctx()
+                            .data(|d| d.get_temp::<usize>(cursor_id))
+                            .map(|n| (n + 1) % held)
+                            .unwrap_or(0);
+                        ui.ctx().data_mut(|d| d.insert_temp(cursor_id, at));
+                        self.focus_control = focus_target(&self.id, lane, at);
                     }
                 }
             }
@@ -503,6 +517,7 @@ impl QueryBuilder {
         let fields = self.fields.clone();
         let id = self.id.clone();
         let focus = self.focus_control.clone();
+        let cull = self.cull_focused;
         let spec = &mut self.spec;
         let mut remove = None;
 
@@ -512,7 +527,11 @@ impl QueryBuilder {
                 lane: "Filter",
                 label: "Filter",
                 icon: egui_phosphor::regular::FUNNEL,
-                tooltip: "Add a filter".to_string(),
+                tooltip: format!(
+                    "Add a filter. {}F adds the first and then steps through them; \
+                     Delete removes the one you are in.",
+                    modifier()
+                ),
                 kbd: format!("{}F", modifier()),
                 enabled: !fields.is_empty(),
             },
@@ -552,7 +571,7 @@ impl QueryBuilder {
                 }
 
                 for (index, filter) in spec.filters.iter_mut().enumerate() {
-                    pill(ui, colors, |ui| {
+                    let focused = pill(ui, colors, |ui| {
                         if let Some(name) = field_select_focused(
                             ui,
                             &format!("{id}_f{index}_field"),
@@ -640,6 +659,9 @@ impl QueryBuilder {
                             remove = Some(index);
                         }
                     });
+                    if focused && cull {
+                        remove = Some(index);
+                    }
                 }
             },
         );
@@ -655,6 +677,7 @@ impl QueryBuilder {
         let fields = self.fields.clone();
         let id = self.id.clone();
         let focus = self.focus_control.clone();
+        let cull = self.cull_focused;
         let mut remove = None;
 
         let add = {
@@ -665,7 +688,11 @@ impl QueryBuilder {
                     lane: "Group by",
                     label: "Field",
                     icon: egui_phosphor::regular::LIST,
-                    tooltip: "Group rows by a field".to_string(),
+                    tooltip: format!(
+                        "Group rows by a field. {}G adds the first and then steps \
+                         through them; Delete removes the one you are in.",
+                        modifier()
+                    ),
                     kbd: format!("{}G", modifier()),
                     enabled: !fields.is_empty(),
                 },
@@ -674,7 +701,7 @@ impl QueryBuilder {
                         lane_hint(ui, "no grouping");
                     }
                     for (index, field) in spec.group_by.iter_mut().enumerate() {
-                        pill(ui, colors, |ui| {
+                        let focused = pill(ui, colors, |ui| {
                             if let Some(name) = field_select_focused(
                                 ui,
                                 &format!("{id}_g{index}"),
@@ -689,6 +716,9 @@ impl QueryBuilder {
                                 remove = Some(index);
                             }
                         });
+                        if focused && cull {
+                            remove = Some(index);
+                        }
                     }
                 },
             )
@@ -707,6 +737,7 @@ impl QueryBuilder {
         let fields = self.fields.clone();
         let id = self.id.clone();
         let focus = self.focus_control.clone();
+        let cull = self.cull_focused;
         let mut remove = None;
 
         let add = {
@@ -717,7 +748,12 @@ impl QueryBuilder {
                     lane: "Compute",
                     label: "Aggregate",
                     icon: egui_phosphor::regular::CHART_BAR,
-                    tooltip: "Add an aggregate".to_string(),
+                    tooltip: format!(
+                        "Add an aggregate. {}{}A adds the first and then steps \
+                         through them; Delete removes the one you are in.",
+                        modifier(),
+                        shift()
+                    ),
                     kbd: format!("{}{}A", modifier(), shift()),
                     // Counting rows needs no column, so this lane stays usable
                     // even when no field list has arrived yet.
@@ -728,7 +764,7 @@ impl QueryBuilder {
                         lane_hint(ui, "nothing computed");
                     }
                     for (index, aggregate) in spec.aggregates.iter_mut().enumerate() {
-                        pill(ui, colors, |ui| {
+                        let focused = pill(ui, colors, |ui| {
                             let options: Vec<SelectOption> = AggregateFn::all()
                                 .iter()
                                 .map(|f| {
@@ -797,6 +833,9 @@ impl QueryBuilder {
                                 remove = Some(index);
                             }
                         });
+                        if focused && cull {
+                            remove = Some(index);
+                        }
                     }
                 },
             )
@@ -815,6 +854,7 @@ impl QueryBuilder {
         let fields = self.sort_keys();
         let id = self.id.clone();
         let focus = self.focus_control.clone();
+        let cull = self.cull_focused;
         let mut remove = None;
 
         let add = {
@@ -825,7 +865,12 @@ impl QueryBuilder {
                     lane: "Sort",
                     label: "Sort",
                     icon: egui_phosphor::regular::ARROWS_DOWN_UP,
-                    tooltip: "Add a sort key".to_string(),
+                    tooltip: format!(
+                        "Add a sort key. {}{}S adds the first and then steps \
+                         through them; Delete removes the one you are in.",
+                        modifier(),
+                        shift()
+                    ),
                     kbd: format!("{}{}S", modifier(), shift()),
                     enabled: !fields.is_empty(),
                 },
@@ -834,7 +879,7 @@ impl QueryBuilder {
                         lane_hint(ui, "file order");
                     }
                     for (index, sort) in spec.sort.iter_mut().enumerate() {
-                        pill(ui, colors, |ui| {
+                        let focused = pill(ui, colors, |ui| {
                             if let Some(name) = field_select_focused(
                                 ui,
                                 &format!("{id}_s{index}"),
@@ -869,6 +914,9 @@ impl QueryBuilder {
                                 remove = Some(index);
                             }
                         });
+                        if focused && cull {
+                            remove = Some(index);
+                        }
                     }
                 },
             )
@@ -1097,6 +1145,26 @@ impl QueryBuilder {
         (run, revert)
     }
 
+    /// How many clauses a lane holds.
+    fn lane_len(&self, lane: super::QueryAction) -> usize {
+        match lane {
+            super::QueryAction::AddFilter => self.spec.filters.len(),
+            super::QueryAction::AddGroupBy => self.spec.group_by.len(),
+            super::QueryAction::AddAggregate => self.spec.aggregates.len(),
+            _ => self.spec.sort.len(),
+        }
+    }
+
+    /// Append a clause to the lane a shortcut names.
+    fn push_of(&mut self, lane: super::QueryAction) -> bool {
+        match lane {
+            super::QueryAction::AddFilter => self.push_filter(),
+            super::QueryAction::AddGroupBy => self.push_group_by(),
+            super::QueryAction::AddAggregate => self.push_aggregate(),
+            _ => self.push_sort(),
+        }
+    }
+
     /// Append a filter on the first available field. Returns whether it did —
     /// a relation with no columns has nothing to filter on.
     ///
@@ -1233,8 +1301,8 @@ fn lane(ui: &mut egui::Ui, add: AddButton, items: impl FnOnce(&mut egui::Ui)) ->
 
 /// One clause of the query — design `.pill`. Its controls sit flush inside it,
 /// so a filter reads as a sentence rather than as three separate inputs.
-fn pill(ui: &mut egui::Ui, colors: &ThemeColors, contents: impl FnOnce(&mut egui::Ui)) {
-    egui::Frame::new()
+fn pill(ui: &mut egui::Ui, colors: &ThemeColors, contents: impl FnOnce(&mut egui::Ui)) -> bool {
+    let frame = egui::Frame::new()
         .fill(colors.surface)
         .corner_radius(RADIUS_CONTROL)
         .stroke(edge_stroke(colors))
@@ -1252,6 +1320,15 @@ fn pill(ui: &mut egui::Ui, colors: &ThemeColors, contents: impl FnOnce(&mut egui
                 contents(ui);
             });
         });
+    // Whether the keyboard is inside this pill, so the lane can tell which
+    // clause a Delete is aimed at. Asked of the focused widget's rect rather
+    // than tracked by hand: clicking, Tab and the lane shortcuts all move
+    // focus, and only egui knows where it ended up.
+    let rect = frame.response.rect;
+    ui.ctx()
+        .memory(|m| m.focused())
+        .and_then(|id| ui.ctx().read_response(id))
+        .is_some_and(|focused| rect.contains_rect(focused.rect))
 }
 
 /// A field dropdown inside a pill. Returns the newly-picked field name.
@@ -1785,6 +1862,75 @@ mod tests {
             editing <= plain * 1.5,
             "the foot grew from {plain} to {editing} once the SQL notice appeared"
         );
+    }
+
+    #[test]
+    fn a_lane_key_reaches_what_the_lane_already_holds() {
+        // Pressing ⌘F again should take you to the filter you have, not pile
+        // a second one on top of it. Empty lane: add. After that: walk.
+        let mut builder = QueryBuilder::builder()
+            .id("qb-walk")
+            .relation("data")
+            .fields(vec![
+                QueryField::builder()
+                    .name("level")
+                    .column_type(ColumnType::Text)
+                    .build(),
+                QueryField::builder()
+                    .name("ms")
+                    .column_type(ColumnType::Integer)
+                    .build(),
+            ])
+            .build();
+
+        let press = |b: &mut QueryBuilder| {
+            b.action = Some(crate::components::QueryAction::AddFilter);
+            with_ui(|ui| b.show(ui));
+        };
+
+        // Empty: the first press adds one and puts the cursor in it.
+        press(&mut builder);
+        assert_eq!(builder.spec.filters.len(), 1);
+
+        // Held: the next presses walk what is there and add nothing.
+        press(&mut builder);
+        assert_eq!(builder.spec.filters.len(), 1, "a second press did not add");
+        press(&mut builder);
+        assert_eq!(builder.spec.filters.len(), 1);
+
+        // With two filters, it alternates between them rather than sticking.
+        builder.push_filter();
+        assert_eq!(builder.spec.filters.len(), 2);
+        press(&mut builder);
+        press(&mut builder);
+        assert_eq!(builder.spec.filters.len(), 2, "walking never adds");
+    }
+
+    #[test]
+    fn every_lane_walks_rather_than_piling_up() {
+        // The same rule in all four, so one key means one thing everywhere.
+        use crate::components::QueryAction::*;
+        for lane in [AddFilter, AddGroupBy, AddAggregate, AddSort] {
+            let mut builder = QueryBuilder::builder()
+                .id("qb-all")
+                .relation("data")
+                .fields(vec![
+                    QueryField::builder()
+                        .name("level")
+                        .column_type(ColumnType::Text)
+                        .build(),
+                ])
+                .build();
+            for _ in 0..4 {
+                builder.action = Some(lane);
+                with_ui(|ui| builder.show(ui));
+            }
+            assert_eq!(
+                builder.lane_len(lane),
+                1,
+                "{lane:?} should hold one clause after four presses, not four"
+            );
+        }
     }
 
     #[test]

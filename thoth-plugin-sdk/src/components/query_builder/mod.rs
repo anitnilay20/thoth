@@ -70,7 +70,7 @@ impl QueryStatus {
 /// The builder is collapsed by default, so a shortcut has to be able to open
 /// it as well as act on it: applying one expands the lanes, because adding a
 /// clause the user cannot see would be worse than doing nothing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum QueryAction {
     /// Add a condition to the filter lane.
@@ -178,6 +178,12 @@ pub struct QueryBuilder {
     #[builder(default)]
     #[serde(default)]
     pub saved_dirty: bool,
+    /// Set for the frame a Delete was pressed outside a text field: the lane
+    /// holding the keyboard drops that clause. Transient, so it is neither
+    /// built nor serialized.
+    #[builder(skip)]
+    #[serde(skip)]
+    pub(crate) cull_focused: bool,
 }
 
 /// Whether `sql` groups — a `GROUP BY` that is SQL rather than part of a

@@ -457,25 +457,8 @@ fn move_selection(ui: &egui::Ui, selected: &mut Option<usize>, row_count: usize)
     *selected != before
 }
 
-/// Wash over the selected row.
-///
-/// `surface_active` — the theme's own "pressed / active" token — rather than
-/// the accent at 14%, which is what the design's `color-mix(accent 15%)`
-/// works out to and is barely distinguishable from the zebra stripe on a dark
-/// theme. A muted surface reads as *selected* at a glance and still leaves
-/// cell text legible; the accent goes on the leading edge instead, where a
-/// thin bar of it is unmissable without washing the row.
-const SELECTED_ROW_ALPHA: u8 = 176;
-
 /// Width of the accent bar down the selected row's leading edge.
 const SELECTED_EDGE_W: f32 = 2.0;
-
-// The row highlight has to sit under cell text and stay readable, so it is a
-// surface rather than a saturated fill.
-const _: () = assert!(
-    SELECTED_ROW_ALPHA < 255,
-    "an opaque selected row would bury its own contents"
-);
 
 /// Rows a page key moves by.
 const PAGE_ROWS: usize = 20;
@@ -537,12 +520,13 @@ fn copy_menu(
 }
 
 /// Fill a selected row's body cell.
+///
+/// The fill is computed from the theme rather than fixed — see
+/// [`crate::theme::selected_row_fill`], which is why the selection is as
+/// visible on Nord as it is on Latte.
 fn paint_selected_cell(ui: &egui::Ui, colors: &ThemeColors) {
-    ui.painter().rect_filled(
-        ui.max_rect(),
-        0.0,
-        with_alpha(colors.surface_active, SELECTED_ROW_ALPHA),
-    );
+    ui.painter()
+        .rect_filled(ui.max_rect(), 0.0, crate::theme::selected_row_fill(colors));
 }
 
 /// Fill a selected row's `#` gutter, plus the accent bar down its leading

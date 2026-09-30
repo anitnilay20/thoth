@@ -917,3 +917,74 @@ mod focus_tests {
         });
     }
 }
+
+// ── Selected rows ────────────────────────────────────────────────────────────
+
+/// How far, in CIE L*, a selected row sits from the row under it.
+///
+/// Perceptual lightness rather than a contrast ratio: a ratio answers "can
+/// text be read on this", and a row wash is not text. 18 is comfortably
+/// visible without becoming a slab.
+const SELECTED_ROW_TARGET_L: f32 = 18.0;
+/// How far the wash may be pushed. The ceiling is what keeps the cell text on
+/// top of it readable — measured across the shipped themes, the worst case at
+/// this cap still clears WCAG AA for normal text.
+const SELECTED_ROW_MIN_ALPHA: u8 = 16;
+const SELECTED_ROW_MAX_ALPHA: u8 = 160;
+/// How much of the accent's hue survives into the wash. The rest is pulled
+/// toward `fg`, which is by construction far from the background — so the
+/// wash can always reach its target even in a theme whose accent happens to
+/// sit at the background's own lightness.
+const SELECTED_ROW_ACCENT: f32 = 0.60;
+
+/// The fill for a selected row, chosen so it reads the same in every theme.
+///
+/// A fixed alpha over a fixed token does not. `surface_active` sits 10 L* from
+/// the background in Nord and 27 in Solarized Light, so one value is either
+/// invisible in the first or a slab in the second — which is exactly how the
+/// grid's selection came to be legible on light themes and lost on dark ones.
+/// This solves for a constant perceptual distance instead, tinted with the
+/// accent so a selected row still reads as *selected* rather than as hovered.
+pub fn selected_row_fill(colors: &ThemeColors) -> Color32 {
+    let base = lightness(colors.bg);
+    let lift = lerp_color(colors.accent, colors.fg, 1.0 - SELECTED_ROW_ACCENT);
+    for alpha in (SELECTED_ROW_MIN_ALPHA..=SELECTED_ROW_MAX_ALPHA).step_by(2) {
+        let candidate = over(lift, alpha, colors.bg);
+        if (lightness(candidate) - base).abs() >= SELECTED_ROW_TARGET_L {
+            return candidate;
+        }
+    }
+    over(lift, SELECTED_ROW_MAX_ALPHA, colors.bg)
+}
+
+/// `fg` composited over `bg` at `alpha`.
+fn over(fg: Color32, alpha: u8, bg: Color32) -> Color32 {
+    let a = f32::from(alpha) / 255.0;
+    let c = |f: u8, b: u8| (f32::from(f) * a + f32::from(b) * (1.0 - a)).round() as u8;
+    Color32::from_rgb(c(fg.r(), bg.r()), c(fg.g(), bg.g()), c(fg.b(), bg.b()))
+}
+
+/// Linear interpolation between two colours, `t` of the way from `a` to `b`.
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let c = |x: u8, y: u8| (f32::from(x) * (1.0 - t) + f32::from(y) * t).round() as u8;
+    Color32::from_rgb(c(a.r(), b.r()), c(a.g(), b.g()), c(a.b(), b.b()))
+}
+
+/// CIE L* — perceptual lightness, 0 (black) to 100 (white).
+pub fn lightness(color: Color32) -> f32 {
+    fn linearise(c: f32) -> f32 {
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    let y = 0.2126 * linearise(f32::from(color.r()) / 255.0)
+        + 0.7152 * linearise(f32::from(color.g()) / 255.0)
+        + 0.0722 * linearise(f32::from(color.b()) / 255.0);
+    if y > 0.008_856 {
+        116.0 * y.cbrt() - 16.0
+    } else {
+        903.3 * y
+    }
+}
