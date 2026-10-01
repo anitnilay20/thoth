@@ -4,7 +4,7 @@ use crate::{
     app::tab_manager::TabManager,
     components,
     plugin::{plugin_ui_host::PluginCore, render_node::UiOutput},
-    search, update,
+    update,
 };
 
 /// Holds the active plugin pane shown in the main area / a dock tab.
@@ -32,7 +32,7 @@ mod tests;
 // Window State - Per-window state (UI chrome + tab manager)
 // ============================================================================
 
-/// Per-window state. File/search/navigation state lives inside each tab via TabManager.
+/// Per-window state. File and navigation state lives inside each tab via TabManager.
 pub struct WindowState {
     // Tab manager owns all per-tab state and the dock layout.
     pub tab_manager: TabManager,
@@ -40,11 +40,7 @@ pub struct WindowState {
     // Sidebar state (global — one sidebar for all tabs)
     pub sidebar_expanded: bool,
     pub sidebar_selected_section: Option<components::sidebar::SidebarSection>,
-    /// Track previous section to determine when to focus search
-    pub previous_sidebar_section: Option<components::sidebar::SidebarSection>,
     /// Track previous expanded state to detect sidebar reopening
-    pub previous_sidebar_expanded: bool,
-
     // UI components (global)
     pub sidebar: components::sidebar::Sidebar,
     pub toolbar: components::toolbar::Toolbar,
@@ -58,8 +54,6 @@ impl Default for WindowState {
             tab_manager: TabManager::new(NavigationHistory::DEFAULT_CAPACITY),
             sidebar_expanded: true,
             sidebar_selected_section: Some(components::sidebar::SidebarSection::RecentFiles),
-            previous_sidebar_section: None,
-            previous_sidebar_expanded: false,
             sidebar: components::sidebar::Sidebar::default(),
             toolbar: components::toolbar::Toolbar::default(),
             status_bar: components::status_bar::StatusBar::default(),
@@ -78,12 +72,6 @@ impl WindowState {
 // ============================================================================
 // Helper States - Used by WindowState and application logic
 // ============================================================================
-
-#[derive(Default)]
-pub struct SearchEngineState {
-    pub search: search::Search,
-    pub search_rx: Option<std::sync::mpsc::Receiver<search::Search>>,
-}
 
 /// Navigation history for back/forward navigation through viewed JSON paths
 #[derive(Debug, Clone)]

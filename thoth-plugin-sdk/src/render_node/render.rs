@@ -75,6 +75,9 @@ impl RenderNode {
             RenderNode::Markdown(m) => {
                 m.show(ui);
             }
+            RenderNode::TextView(t) => {
+                t.show(ui);
+            }
             RenderNode::JsonTree(j) => {
                 j.show(ui);
             }

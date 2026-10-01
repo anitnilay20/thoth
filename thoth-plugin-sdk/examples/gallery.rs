@@ -16,8 +16,8 @@ use thoth_plugin_sdk::components::{
     Card, CardAction, CardIcon, Checkbox, Code, CodeEditor, Column, DataRow, Icon, IconButton,
     Input, JsonTree, KeyValueList, KvEntry, Link, List, ListItem, ListItemAction, ListItemBadge,
     Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row, Select, SelectOption,
-    Separator, SidebarHeader, SidebarHeaderAction, Size, Slider, Spinner, TableView, Tabs,
-    ToggleSwitch, Typography, TypographyVariant,
+    Separator, SidebarHeader, SidebarHeaderAction, Size, Slider, SortBy, Spinner, TableView, Tabs,
+    TextView, ToggleSwitch, Typography, TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 use thoth_plugin_sdk::theme::{THEME_MEMORY_ID, TextToken, ThemeColors};
@@ -41,11 +41,7 @@ fn main() -> eframe::Result<()> {
 /// the Thoth host does so `phosphor_font_id` resolves.
 fn register_phosphor(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    fonts.families.insert(
-        egui::FontFamily::Name("phosphor".into()),
-        vec!["phosphor".into()],
-    );
+    thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
     ctx.set_fonts(fonts);
 }
 
@@ -58,6 +54,7 @@ enum Story {
     Separator,
     Input,
     Select,
+    Menu,
     ToggleSwitch,
     IconButton,
     SidebarHeader,
@@ -77,6 +74,7 @@ enum Story {
     KeyValueList,
     Code,
     Markdown,
+    TextView,
     CodeEditor,
     List,
     Tabs,
@@ -93,6 +91,7 @@ const STORIES: &[(Story, &str)] = &[
     (Story::Separator, "Separator"),
     (Story::Input, "Input"),
     (Story::Select, "Select"),
+    (Story::Menu, "Menu"),
     (Story::ToggleSwitch, "Toggle Switch"),
     (Story::IconButton, "Icon Button"),
     (Story::SidebarHeader, "Sidebar Header"),
@@ -112,6 +111,7 @@ const STORIES: &[(Story, &str)] = &[
     (Story::KeyValueList, "Key-Value List"),
     (Story::Code, "Code"),
     (Story::Markdown, "Markdown"),
+    (Story::TextView, "Text View"),
     (Story::CodeEditor, "Code Editor"),
     (Story::List, "List"),
     (Story::Tabs, "Tabs"),
@@ -144,9 +144,16 @@ struct Gallery {
     // Stateful widgets owning their own value.
     input: Input,
     select: Select,
+    /// Which table the searchable picker is pointed at.
+    table: String,
+    /// What the gallery's menu last reported, so a pick is visible.
+    menu_picked: String,
     toggled: bool,
     row_selected: bool,
     last_header_action: Option<usize>,
+    /// Which column the Table View story is sorted by — the grid reports the
+    /// click and the story, as its own producer, reorders the rows.
+    table_sort: Option<SortBy>,
 
     // New-component state.
     checked: bool,
@@ -182,6 +189,8 @@ impl Default for Gallery {
                 .placeholder("Type something…")
                 .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
                 .build(),
+            table: "events".to_string(),
+            menu_picked: "Errors today".to_string(),
             select: Select::builder()
                 .id("gallery-select")
                 .value("name")
@@ -195,6 +204,7 @@ impl Default for Gallery {
             toggled: true,
             row_selected: false,
             last_header_action: None,
+            table_sort: None,
             checked: true,
             slider_value: 0.5,
             number_value: 8080.0,
@@ -324,6 +334,7 @@ impl eframe::App for Gallery {
                 Story::Separator => self.separator_story(ui),
                 Story::Input => self.input_story(ui),
                 Story::Select => self.select_story(ui),
+                Story::Menu => self.menu_story(ui),
                 Story::ToggleSwitch => self.toggle_story(ui),
                 Story::IconButton => self.icon_button_story(ui),
                 Story::SidebarHeader => self.sidebar_header_story(ui),
@@ -343,6 +354,7 @@ impl eframe::App for Gallery {
                 Story::KeyValueList => self.key_value_list_story(ui),
                 Story::Code => self.code_story(ui),
                 Story::Markdown => self.markdown_story(ui),
+                Story::TextView => self.text_view_story(ui),
                 Story::CodeEditor => self.code_editor_story(ui),
                 Story::List => self.list_story(ui),
                 Story::Tabs => self.tabs_story(ui),
@@ -607,6 +619,134 @@ impl Gallery {
         }
         ui.add_space(8.0);
         ui.label(format!("value: {}", self.select.value));
+
+        // The table-picker shape: a searchable menu, wider than its trigger,
+        // with a figure beside each name and beside the chosen one.
+        ui.add_space(20.0);
+        ui.label("Searchable, with counts (the DataView table picker)");
+        ui.add_space(8.0);
+        let table = |value: &str, n: &str| {
+            SelectOption::builder()
+                .value(value)
+                .label(value)
+                .detail(n)
+                .build()
+        };
+        if let Some(v) = Select::builder()
+            .id("gallery-select-tables")
+            .value(self.table.clone())
+            .options(vec![
+                table("events", "4,812"),
+                table("line_items", "18,204"),
+                table("customers", "912"),
+                table("shipments", "1.4 MB"),
+                table("settings", "220 B · object"),
+            ])
+            .icon(egui_phosphor::regular::TABLE)
+            .count(self.table_count())
+            .width(212.0)
+            .menu_width(248.0)
+            .menu_max_height(340.0)
+            .searchable(true)
+            .build()
+            .show(ui)
+            .inner
+            .selected
+        {
+            self.table = v;
+        }
+
+        ui.add_space(20.0);
+        ui.label("Disabled — one table is not a choice, but it is worth naming");
+        ui.add_space(8.0);
+        Select::builder()
+            .id("gallery-select-disabled")
+            .value("events")
+            .options(vec![table("events", "4,812")])
+            .icon(egui_phosphor::regular::TABLE)
+            .count("4,812")
+            .width(212.0)
+            .disabled(true)
+            .build()
+            .show(ui);
+    }
+
+    fn menu_story(&mut self, ui: &mut egui::Ui) {
+        use thoth_plugin_sdk::components::{ContextMenuItem, Menu};
+
+        ui.heading("Menu");
+        ui.add_space(8.0);
+        ui.label(
+            "A select offers values and keeps the one you pick. A menu offers \
+             actions and keeps nothing — so a head that saves sits in the same \
+             list as the things already saved.",
+        );
+        ui.add_space(12.0);
+
+        let items = vec![
+            ContextMenuItem::builder()
+                .label("Save this query")
+                .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+                .shortcut("\u{2318}S")
+                .build(),
+            ContextMenuItem::separator(),
+            ContextMenuItem::builder()
+                .label("Errors today")
+                .description("level = error · sorted by time")
+                .checked(true)
+                .build(),
+            ContextMenuItem::builder()
+                .label("Slow requests")
+                .description("ms > 500")
+                .build(),
+            ContextMenuItem::builder()
+                .label("Archived")
+                .description("not available on this file")
+                .disabled(true)
+                .build(),
+        ];
+
+        if let Some(index) = Menu::builder()
+            .id("gallery-menu")
+            .label(self.menu_picked.clone())
+            .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+            .items(items.clone())
+            .width(210.0)
+            .min_width(284.0)
+            .hover_text("2 saved queries")
+            .build()
+            .show(ui)
+            .inner
+        {
+            self.menu_picked = items[index].label.clone();
+        }
+
+        ui.add_space(16.0);
+        ui.label("Small, as the query head wears it");
+        ui.add_space(8.0);
+        Menu::builder()
+            .id("gallery-menu-sm")
+            .label("Saved")
+            .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+            .items(vec![
+                ContextMenuItem::builder().label("Save this query").build(),
+            ])
+            .size(thoth_plugin_sdk::components::Size::Small)
+            .width(150.0)
+            .build()
+            .show(ui);
+    }
+
+    /// The figure beside the selected table's name in the trigger.
+    fn table_count(&self) -> String {
+        match self.table.as_str() {
+            "line_items" => "18,204",
+            "customers" => "912",
+            "shipments" => "1.4 MB",
+            "settings" => "220 B · object",
+            _ => "4,812",
+        }
+        .to_string()
     }
 
     fn toggle_story(&mut self, ui: &mut egui::Ui) {
@@ -742,6 +882,27 @@ impl Gallery {
         ui.heading("Table View");
         ui.add_space(8.0);
         let cell = |s: String| RenderNode::Text(Typography::builder().text(s).build());
+        // The grid never reorders itself — it reports the click and whoever
+        // owns the data sorts it, which here is the story.
+        let mut records: Vec<(i32, String, String)> = (1..=50)
+            .map(|i| {
+                (
+                    i,
+                    format!("plugin-{i}"),
+                    if i % 2 == 0 { "rust" } else { "wasm" }.to_owned(),
+                )
+            })
+            .collect();
+        if let Some(sort) = &self.table_sort {
+            match sort.column.as_str() {
+                "name" => records.sort_by(|a, b| a.1.cmp(&b.1)),
+                "lang" => records.sort_by(|a, b| a.2.cmp(&b.2).then(a.0.cmp(&b.0))),
+                _ => records.sort_by_key(|r| r.0),
+            }
+            if sort.descending {
+                records.reverse();
+            }
+        }
         let mut table = TableView::builder()
             .headers(vec![
                 "id  ·  int".into(),
@@ -749,19 +910,22 @@ impl Gallery {
                 "lang  ·  text".into(),
             ])
             .rows(
-                (1..=50)
-                    .map(|i| {
-                        vec![
-                            cell(i.to_string()),
-                            cell(format!("plugin-{i}")),
-                            cell(if i % 2 == 0 { "rust" } else { "wasm" }.to_owned()),
-                        ]
-                    })
+                records
+                    .into_iter()
+                    .map(|(id, name, lang)| vec![cell(id.to_string()), cell(name), cell(lang)])
                     .collect(),
             )
+            .sortable(true)
+            .maybe_sort(self.table_sort.clone())
             .build();
-        if let Some(row) = table.show(ui, &mut Vec::new()) {
+        let mut events = Vec::new();
+        if let Some(row) = table.show(ui, &mut events) {
             println!("clicked row {row}");
+        }
+        for event in events {
+            if event.id == thoth_plugin_sdk::actions::SORT_COLUMN {
+                self.table_sort = serde_json::from_str(&event.value).unwrap_or(None);
+            }
         }
     }
 
@@ -927,6 +1091,24 @@ impl Gallery {
         ui.add_space(8.0);
         Markdown::builder()
             .value("# Heading\n\nSome **bold** and _italic_ text, a `code` span, and:\n\n- a list\n- of items\n")
+            .build()
+            .show(ui);
+    }
+
+    fn text_view_story(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Text View");
+        ui.add_space(4.0);
+        ui.label("A document as itself — no picker, no format switcher, no Export.");
+        ui.add_space(8.0);
+        TextView::builder()
+            .id("gallery-text")
+            .value(
+                "2026-09-20 09:04:11  starting worker\n\
+                 2026-09-20 09:04:52  shard-02 ready\n\
+                 2026-09-20 09:05:03  ingest.retry attempt=2\n\
+                 2026-09-20 09:05:44  all done\n",
+            )
+            .caption("first 4 of 402,118 lines")
             .build()
             .show(ui);
     }

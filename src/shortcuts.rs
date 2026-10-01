@@ -20,6 +20,43 @@ pub struct Shortcut {
     pub command: bool,
 }
 
+/// Display marks for the keys a shortcut is written with.
+///
+/// Phosphor glyphs, never the Unicode symbols (`⌘`, `⌥`, `↵`). Whether a
+/// plain-text symbol has a glyph depends on the fonts the machine happens to
+/// carry: `⌘` resolves through a system fallback on macOS while `↵` does not,
+/// so a hand-written "⌘↵" renders as a command mark followed by an empty box.
+/// Phosphor ships inside the binary, so every mark is present everywhere.
+///
+/// One definition, used by every shortcut chip in the app — a second copy is
+/// how the boxes got in.
+pub mod marks {
+    use egui_phosphor::regular as ph;
+
+    /// Ctrl.
+    pub const CONTROL: &str = ph::CONTROL;
+    /// Alt / Option.
+    pub const OPTION: &str = ph::OPTION;
+    /// Shift.
+    pub const SHIFT: &str = ph::ARROW_FAT_UP;
+    /// Return / Enter — the `↵` arrow, not `KEY_RETURN`.
+    ///
+    /// Phosphor's `key-return` draws the whole *key cap*: a rounded box with
+    /// the arrow inside it. At the 11–13px a shortcut chip is set in, the box
+    /// closes up and the mark reads as a smudge. The bare elbow arrow is the
+    /// symbol people actually know.
+    pub const RETURN: &str = ph::ARROW_ELBOW_DOWN_LEFT;
+
+    /// The "command" modifier: ⌘ on macOS, Ctrl everywhere else.
+    pub fn command() -> &'static str {
+        if cfg!(target_os = "macos") {
+            ph::COMMAND
+        } else {
+            CONTROL
+        }
+    }
+}
+
 impl Shortcut {
     /// Create a new shortcut
     pub fn new(key: impl Into<String>) -> Self {
@@ -85,20 +122,16 @@ impl Shortcut {
 
         // Add modifier icons (using egui-phosphor)
         if self.ctrl {
-            parts.push(egui_phosphor::regular::CONTROL); // Ctrl icon
+            parts.push(marks::CONTROL);
         }
         if self.alt {
-            parts.push(egui_phosphor::regular::OPTION); // Alt/Option icon
+            parts.push(marks::OPTION);
         }
         if self.shift {
-            parts.push(egui_phosphor::regular::ARROW_FAT_UP); // Shift icon
+            parts.push(marks::SHIFT);
         }
         if self.command {
-            #[cfg(target_os = "macos")]
-            parts.push(egui_phosphor::regular::COMMAND); // Command icon on macOS
-
-            #[cfg(not(target_os = "macos"))]
-            parts.push(egui_phosphor::regular::CONTROL); // Ctrl icon on other platforms
+            parts.push(marks::command());
         }
 
         // Format the key name
@@ -128,17 +161,22 @@ pub struct KeyboardShortcuts {
     #[serde(rename = "tab_cycle_prev")]
     pub prev_tab: Shortcut,
 
+    // Query builder (file tabs only)
+    pub toggle_query: Shortcut,
+    pub run_query: Shortcut,
+    pub add_filter: Shortcut,
+    pub group_by: Shortcut,
+    pub add_aggregate: Shortcut,
+    pub add_sort: Shortcut,
+
     // Navigation
-    pub focus_search: Shortcut,
-    pub next_match: Shortcut,
-    pub prev_match: Shortcut,
     pub nav_back: Shortcut,
     pub nav_forward: Shortcut,
     pub escape: Shortcut,
 
-    // Bookmarks
-    pub toggle_bookmark: Shortcut,
-    pub open_bookmarks: Shortcut,
+    // Saved queries
+    pub save_query: Shortcut,
+    pub open_saved_queries: Shortcut,
 
     // Tree operations
     pub expand_node: Shortcut,
@@ -178,17 +216,27 @@ impl Default for KeyboardShortcuts {
             next_tab: Shortcut::new("ArrowRight").command().alt(),
             prev_tab: Shortcut::new("ArrowLeft").command().alt(),
 
+            // Query builder lanes. ⌘F and ⌘G are the design handoff's; ⌘⇧A
+            // and ⌘⇧S continue the pattern. None of the four is claimed by
+            // macOS or Windows, which is why ⌘⇧Esc, ⌘Space, ⌘⇧3/4/5 and the
+            // ⌘Tab family are all avoided.
+            toggle_query: Shortcut::new("Slash").command(),
+            run_query: Shortcut::new("Enter").command(),
+            add_filter: Shortcut::new("F").command(),
+            group_by: Shortcut::new("G").command(),
+            add_aggregate: Shortcut::new("A").command().shift(),
+            add_sort: Shortcut::new("S").command().shift(),
+
             // Navigation
-            focus_search: Shortcut::new("F").command(),
-            next_match: Shortcut::new("G").command(),
-            prev_match: Shortcut::new("G").command().shift(),
             nav_back: Shortcut::new("BracketLeft").command(),
             nav_forward: Shortcut::new("BracketRight").command(),
             escape: Shortcut::new("Escape"),
 
-            // Bookmarks
-            toggle_bookmark: Shortcut::new("D").command(),
-            open_bookmarks: Shortcut::new("D").command().shift(),
+            // Saved queries. ⌘S is the handoff's; ⌘⇧D keeps the slot the
+            // bookmark panel used, since "show me my saved things" is the
+            // same request it always was.
+            save_query: Shortcut::new("S").command(),
+            open_saved_queries: Shortcut::new("D").command().shift(),
 
             // Tree operations
             expand_node: Shortcut::new("ArrowRight"),
@@ -384,5 +432,119 @@ mod tests {
         assert_eq!(shortcuts.next_tab.key, "ArrowRight");
         assert!(shortcuts.next_tab.command && shortcuts.next_tab.alt);
         assert_eq!(shortcuts.prev_tab.key, "ArrowLeft");
+    }
+}
+
+#[cfg(test)]
+mod mark_tests {
+    use super::*;
+
+    /// Unicode symbols that render as an empty box wherever the machine's
+    /// fonts happen not to carry them. Phosphor has a glyph for each.
+    ///
+    /// The list is the *tofu* risk, not every character that could have been
+    /// an icon. A dash or an arrow inside a sentence ("v1.2 → v1.3") is
+    /// punctuation and stays; a mark standing on its own as a tick, a
+    /// direction or a key is an icon and belongs to Phosphor.
+    const TOFU_RISK: [(&str, &str); 10] = [
+        ("\u{21B5}", "marks::RETURN"),                 // ↵
+        ("\u{23CE}", "marks::RETURN"),                 // ⏎
+        ("\u{2318}", "marks::command()"),              // ⌘
+        ("\u{2325}", "marks::OPTION"),                 // ⌥
+        ("\u{21E7}", "marks::SHIFT"),                  // ⇧
+        ("\u{2303}", "marks::CONTROL"),                // ⌃
+        ("\u{2713}", "egui_phosphor::regular::CHECK"), // ✓
+        ("\u{2714}", "egui_phosphor::regular::CHECK"), // ✔
+        ("\u{2717}", "egui_phosphor::regular::X"),     // ✗
+        ("\u{2718}", "egui_phosphor::regular::X"),     // ✘
+    ];
+
+    /// Every mark the app writes shortcuts with must be a Phosphor glyph.
+    ///
+    /// Phosphor's private-use block is U+E000..U+F8FF; a symbol from the
+    /// general Unicode arrows/technical blocks is the bug this guards.
+    #[test]
+    fn every_key_mark_is_a_phosphor_glyph() {
+        let phosphor = |s: &str| s.chars().all(|c| ('\u{E000}'..='\u{F8FF}').contains(&c));
+        for (name, mark) in [
+            ("CONTROL", marks::CONTROL),
+            ("OPTION", marks::OPTION),
+            ("SHIFT", marks::SHIFT),
+            ("RETURN", marks::RETURN),
+        ] {
+            assert!(phosphor(mark), "marks::{name} is not a Phosphor glyph");
+        }
+        #[cfg(target_os = "macos")]
+        assert!(
+            phosphor(marks::command()),
+            "marks::command() is not Phosphor"
+        );
+    }
+
+    /// No source file writes one of the risky symbols into a user-facing
+    /// string. Comments are exempt — naming the character is how the rule is
+    /// explained — and so is this file, which has to spell them to ban them.
+    #[test]
+    fn no_source_file_hand_writes_a_key_symbol() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut offenders = Vec::new();
+
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let name = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    if name != "target" && !name.starts_with('.') {
+                        walk(&path, out);
+                    }
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+
+        let mut files = Vec::new();
+        walk(&root.join("src"), &mut files);
+        walk(&root.join("thoth-plugin-sdk").join("src"), &mut files);
+
+        for file in files {
+            // This file spells the symbols in order to forbid them.
+            if file.ends_with("shortcuts.rs") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            for (lineno, line) in text.lines().enumerate() {
+                let code = line.trim_start();
+                // Comments may name the character; only code is checked.
+                if code.starts_with("//") || code.starts_with("///") || code.starts_with("*") {
+                    continue;
+                }
+                for (symbol, instead) in TOFU_RISK {
+                    if line.contains(symbol) {
+                        offenders.push(format!(
+                            "{}:{} writes {symbol:?} — use {instead}",
+                            file.strip_prefix(root).unwrap_or(&file).display(),
+                            lineno + 1,
+                        ));
+                    }
+                }
+            }
+        }
+
+        assert!(
+            offenders.is_empty(),
+            "a Unicode key symbol has no glyph on some machines and renders as \
+             an empty box; use the Phosphor mark instead:\n  {}",
+            offenders.join("\n  ")
+        );
     }
 }

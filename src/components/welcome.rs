@@ -17,6 +17,7 @@
 // laid on top would shadow the box's own hover and eat its click. Those are
 // hand-painted from theme tokens; `Typography` carries the plain text flows.
 
+use crate::shortcuts::marks;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -166,7 +167,11 @@ const DROP_FMT_FONT: f32 = FONT_CAPTION;
 /// `.drop b`.
 const DROP_LABEL: &str = "Drop a file to open";
 /// `.drop .fmt`.
-const DROP_FORMATS: &str = "JSON · NDJSON · CSV · or paste with ⌘V";
+/// `.drop .fmt`. Built rather than a literal: the paste mark is a Phosphor
+/// glyph, and the modifier differs by platform.
+fn drop_formats() -> String {
+    format!("JSON · NDJSON · CSV · or paste with {}V", marks::command())
+}
 
 // ── Lower columns — design `.cols` ───────────────────────────────────────────
 
@@ -217,22 +222,33 @@ const TIP_LINE: f32 = 1.45;
 
 /// The sheet's five `.tip` rows: `.kbd` chip, then body. The shortcut glyphs are
 /// the sheet's own literals, matching the macOS bindings in `shortcut_handler`.
-const TIPS: [(&str, &str); 5] = [
-    (
-        "Drag → edge",
-        "Drop on the left, right, top or bottom of a pane to split it.",
-    ),
-    (
-        "Right-click tab",
-        "Pin, close others, split right / down — full menu.",
-    ),
-    (
-        "⌘W",
-        "Close the active tab. The last welcome tab closes the window.",
-    ),
-    ("⌘⌥ → / ←", "Cycle to the next or previous tab."),
-    ("⌘1 – ⌘9", "Jump to a tab by position."),
-];
+fn tips() -> [(String, &'static str); 5] {
+    let cmd = marks::command();
+    [
+        (
+            format!("Drag {} edge", egui_phosphor::regular::ARROW_RIGHT),
+            "Drop on the left, right, top or bottom of a pane to split it.",
+        ),
+        (
+            "Right-click tab".to_string(),
+            "Pin, close others, split right / down — full menu.",
+        ),
+        (
+            format!("{cmd}W"),
+            "Close the active tab. The last welcome tab closes the window.",
+        ),
+        (
+            format!(
+                "{cmd}{} {} / {}",
+                marks::OPTION,
+                egui_phosphor::regular::ARROW_RIGHT,
+                egui_phosphor::regular::ARROW_LEFT
+            ),
+            "Cycle to the next or previous tab.",
+        ),
+        (format!("{cmd}1 – {cmd}9"), "Jump to a tab by position."),
+    ]
+}
 
 // ── Recent-file metadata cache ───────────────────────────────────────────────
 
@@ -613,7 +629,7 @@ fn start_actions(ui: &mut egui::Ui, w: f32, c: &ThemeColors, events: &mut Vec<We
                 tint: c.accent,
                 title: "Open file…",
                 subtitle: "JSON · NDJSON · CSV",
-                key: "⌘O",
+                key: &format!("{}O", marks::command()),
                 dim_key: false,
             },
             c,
@@ -630,7 +646,7 @@ fn start_actions(ui: &mut egui::Ui, w: f32, c: &ThemeColors, events: &mut Vec<We
                 tint: c.info,
                 title: "New window",
                 subtitle: "Fresh workspace",
-                key: "⌘N",
+                key: &format!("{}N", marks::command()),
                 dim_key: false,
             },
             c,
@@ -647,7 +663,7 @@ fn start_actions(ui: &mut egui::Ui, w: f32, c: &ThemeColors, events: &mut Vec<We
                 tint: c.success,
                 title: "Browse plugins…",
                 subtitle: "Databases · URLs · themes",
-                key: "↵",
+                key: marks::RETURN,
                 dim_key: true,
             },
             c,
@@ -768,7 +784,7 @@ fn drop_zone(ui: &mut egui::Ui, w: f32, c: &ThemeColors) -> bool {
     );
     let fmt = line(
         ui,
-        DROP_FORMATS,
+        &drop_formats(),
         FontId::monospace(DROP_FMT_FONT),
         c.fg_faint(),
     );
@@ -935,7 +951,7 @@ fn rrow(ui: &mut egui::Ui, w: f32, entry: &RecentEntry, c: &ThemeColors) -> bool
 /// The Tips column — `.slabel` over five `.tip` rows.
 fn tips_column(ui: &mut egui::Ui, w: f32, c: &ThemeColors) {
     slabel(ui, w, "Tips · keyboard", None, c);
-    for (i, (keys, body)) in TIPS.iter().enumerate() {
+    for (i, (keys, body)) in tips().iter().enumerate() {
         if i > 0 {
             ui.add_space(TIPS_GAP);
         }

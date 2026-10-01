@@ -13,11 +13,7 @@ where
 {
     let ctx = egui::Context::default();
     let mut fonts = egui::FontDefinitions::default();
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    fonts.families.insert(
-        egui::FontFamily::Name("phosphor".into()),
-        vec!["phosphor".into()],
-    );
+    thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
     ctx.set_fonts(fonts);
     let _ = ctx.run_ui(egui::RawInput::default(), |ctx| {
         egui::CentralPanel::default().show_inside(ctx, &mut f);
@@ -117,10 +113,10 @@ fn test_performance_tab_renders() {
 }
 
 #[test]
-fn test_performance_tab_cache_size_event() {
-    let event = performance::PerformanceTabEvent::CacheSizeChanged(500);
+fn test_performance_tab_index_cache_event() {
+    let event = performance::PerformanceTabEvent::IndexCacheBudgetChanged(512);
     match event {
-        performance::PerformanceTabEvent::CacheSizeChanged(s) => assert_eq!(s, 500),
+        performance::PerformanceTabEvent::IndexCacheBudgetChanged(mb) => assert_eq!(mb, 512),
         _ => panic!("wrong event"),
     }
 }
@@ -137,7 +133,7 @@ fn test_performance_tab_recent_files_event() {
 #[test]
 fn test_performance_settings_defaults() {
     let s = PerformanceSettings::default();
-    assert_eq!(s.cache_size, 100);
+    assert_eq!(s.index_cache_mb, 1024);
     assert_eq!(s.max_recent_files, 10);
 }
 
@@ -767,12 +763,12 @@ fn test_ui_settings_sidebar_width_range() {
 fn test_settings_round_trip() {
     let mut settings = Settings::default();
     settings.window.default_width = 1920.0;
-    settings.performance.cache_size = 500;
+    settings.performance.index_cache_mb = 512;
     settings.viewer.syntax_highlighting = false;
     settings.updates.auto_check = false;
 
     assert_eq!(settings.window.default_width, 1920.0);
-    assert_eq!(settings.performance.cache_size, 500);
+    assert_eq!(settings.performance.index_cache_mb, 512);
     assert!(!settings.viewer.syntax_highlighting);
     assert!(!settings.updates.auto_check);
 }
@@ -783,9 +779,9 @@ fn test_all_event_types_are_clone_and_debug() {
     let cloned = general_event.clone();
     assert!(format!("{cloned:?}").contains("WindowWidth"));
 
-    let perf_event = performance::PerformanceTabEvent::CacheSizeChanged(100);
+    let perf_event = performance::PerformanceTabEvent::IndexCacheBudgetChanged(256);
     let cloned = perf_event.clone();
-    assert!(format!("{cloned:?}").contains("CacheSizeChanged"));
+    assert!(format!("{cloned:?}").contains("IndexCacheBudgetChanged"));
 
     let viewer_event = viewer::ViewerTabEvent::SyntaxHighlightingChanged(true);
     let cloned = viewer_event.clone();
@@ -844,7 +840,7 @@ fn test_event_handling_clones_work() {
     }
 
     let perf_events = vec![
-        performance::PerformanceTabEvent::CacheSizeChanged(200),
+        performance::PerformanceTabEvent::IndexCacheBudgetChanged(256),
         performance::PerformanceTabEvent::MaxRecentFilesChanged(20),
     ];
     for event in &perf_events {

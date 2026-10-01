@@ -5,7 +5,6 @@ pub mod common;
 pub use common::traits;
 
 // ── App-specific panels and feature components ────────────────────────────────
-pub mod bookmarks;
 pub mod central_panel;
 pub mod chart_studio;
 pub mod data_source_panel;
@@ -14,7 +13,7 @@ pub mod error_modal;
 pub mod file_viewer;
 pub mod marketplace;
 pub mod recent_files;
-pub mod search;
+pub mod saved_queries;
 pub mod settings_dialog;
 pub mod sidebar;
 pub mod status_bar;

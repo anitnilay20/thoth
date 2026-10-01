@@ -69,6 +69,62 @@ pub fn focus_stroke(colors: &ThemeColors) -> egui::Stroke {
     egui::Stroke::new(2.0, with_alpha(colors.accent_secondary, 230)) // 90%
 }
 
+/// Keep Tab inside an open panel.
+///
+/// egui's focus order is global and in draw order, so Tab off the last control
+/// of the query builder landed on the notification bell and then the sidebar —
+/// a long way from a panel the user is halfway through filling in. While the
+/// keyboard is inside `rect`, Tab wraps from the last control back to `first`
+/// and Shift+Tab from the first back to `last`.
+///
+/// Call this once per pass, after the panel has drawn. The two directions are
+/// not applied at the same moment — egui turns Tab into `FocusDirection::Next`
+/// and settles it before the widgets run, while `Previous` is only resolved
+/// once the pass has seen them — so a departure is recognised either on the
+/// pass that carried the key or on the one after it. `key` holds what is
+/// needed for both: whether the panel had the keyboard, and any Tab it saw
+/// while it did.
+///
+/// Only a Tab pulls focus back. Clicking into the sidebar is the user asking
+/// for the sidebar, and takes them there.
+pub fn trap_focus(
+    ctx: &egui::Context,
+    key: egui::Id,
+    rect: egui::Rect,
+    first: egui::Id,
+    last: egui::Id,
+) {
+    let inside = ctx.memory(|m| m.focused()).is_some_and(|id| {
+        ctx.read_response(id)
+            .is_some_and(|r| rect.contains_rect(r.rect))
+    });
+    // (the panel held the keyboard last pass, the Tab it saw while it did)
+    let (held_it, carried): (bool, Option<bool>) =
+        ctx.data(|d| d.get_temp(key).unwrap_or((false, None)));
+
+    let tabbed = ctx.input(|i| {
+        i.events.iter().find_map(|e| match e {
+            egui::Event::Key {
+                key: egui::Key::Tab,
+                pressed: true,
+                modifiers,
+                ..
+            } => Some(modifiers.shift),
+            _ => None,
+        })
+    });
+
+    if let Some(backwards) = tabbed.or(carried)
+        && held_it
+        && !inside
+    {
+        ctx.memory_mut(|m| m.request_focus(if backwards { last } else { first }));
+        ctx.data_mut(|d| d.insert_temp(key, (true, None::<bool>)));
+        return;
+    }
+    ctx.data_mut(|d| d.insert_temp(key, (inside, tabbed.filter(|_| inside))));
+}
+
 /// Soft drop shadow for floating panels — design `--shadow-panel`. The CSS token
 /// layers `0 1px 2px black@42%` under `0 6px 18px black@28%`; egui shadows are
 /// single-layer, so the handoff collapses it to the outer layer.
@@ -477,6 +533,41 @@ pub fn color_to_hex(c: Color32) -> String {
     format!("#{:02x}{:02x}{:02x}{:02x}", c.r(), c.g(), c.b(), c.a())
 }
 
+/// Register the Phosphor icon font into `fonts`, the one way.
+///
+/// Three things, and every one of them is load-bearing:
+///
+/// 1. the font data, so anything can reach it;
+/// 2. a named `"phosphor"` family, which [`phosphor_font_id`] resolves to and
+///    icon widgets ask for directly;
+/// 3. a place in the fallback chain of *both* the proportional and monospace
+///    stacks, so a glyph inside ordinary text renders wherever it appears.
+///
+/// The third is the one that gets forgotten. `egui_phosphor::add_to_fonts`
+/// reaches Proportional only, and the design sets every shortcut chip in
+/// mono — so a mark that looked right in a tooltip was an empty box in a
+/// chip six pixels away. Phosphor's glyphs live in the Unicode private-use
+/// block, so sitting in a fallback chain can never shadow a real character;
+/// it only rescues one that nothing else can draw.
+///
+/// Call this instead of `egui_phosphor::add_to_fonts` — the whole point is
+/// that there is one registration and not six slightly different ones.
+#[cfg(feature = "egui")]
+pub fn register_phosphor(fonts: &mut egui::FontDefinitions) {
+    egui_phosphor::add_to_fonts(fonts, egui_phosphor::Variant::Regular);
+    fonts.families.insert(
+        egui::FontFamily::Name("phosphor".into()),
+        vec!["phosphor".into()],
+    );
+    // Behind the primary face, never in front of it: the mono stack's own
+    // font must keep drawing digits and letters.
+    if let Some(stack) = fonts.families.get_mut(&egui::FontFamily::Monospace)
+        && !stack.iter().any(|f| f == "phosphor")
+    {
+        stack.insert(1.min(stack.len()), "phosphor".into());
+    }
+}
+
 /// Returns a [`egui::FontId`] that resolves to the Phosphor icon font family.
 ///
 /// The host is expected to register the icon font under the
@@ -615,5 +706,444 @@ mod tests {
     fn contrast_text_color_is_white_on_dark_and_black_on_light() {
         assert_eq!(get_contrast_text_color(Color32::BLACK), Color32::WHITE);
         assert_eq!(get_contrast_text_color(Color32::WHITE), Color32::BLACK);
+    }
+
+    #[test]
+    fn an_icon_glyph_is_drawable_in_every_text_style() {
+        // The bug this guards: `egui_phosphor::add_to_fonts` reaches
+        // Proportional only, so a mark that rendered in a tooltip was an empty
+        // box in a monospace chip. A glyph has to be reachable from whichever
+        // stack the text it sits in happens to use.
+        let mut fonts = egui::FontDefinitions::default();
+        register_phosphor(&mut fonts);
+
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            let stack = fonts
+                .families
+                .get(&family)
+                .unwrap_or_else(|| panic!("{family:?} has no stack"));
+            assert!(
+                stack.iter().any(|f| f == "phosphor"),
+                "{family:?} cannot draw an icon glyph: {stack:?}"
+            );
+            assert_ne!(
+                stack.first().map(String::as_str),
+                Some("phosphor"),
+                "{family:?} leads with the icon font, which would displace its real face"
+            );
+        }
+
+        // And the named family icon widgets ask for directly.
+        assert_eq!(
+            fonts
+                .families
+                .get(&egui::FontFamily::Name("phosphor".into()))
+                .map(Vec::as_slice),
+            Some(["phosphor".to_string()].as_slice()),
+        );
+    }
+
+    #[test]
+    fn registering_twice_does_not_stack_the_icon_font_up() {
+        // The host re-runs its font setup whenever the font setting changes.
+        let mut fonts = egui::FontDefinitions::default();
+        register_phosphor(&mut fonts);
+        register_phosphor(&mut fonts);
+        let mono = fonts
+            .families
+            .get(&egui::FontFamily::Monospace)
+            .expect("a mono stack");
+        assert_eq!(
+            mono.iter().filter(|f| *f == "phosphor").count(),
+            1,
+            "{mono:?}"
+        );
+    }
+}
+
+// ── Keyboard ownership for widgets that read raw keys ────────────────────────
+
+/// Where the last claim is recorded, so two grids on one screen can tell which
+/// of them the user is working in.
+#[cfg(feature = "egui")]
+fn keyboard_owner() -> egui::Id {
+    egui::Id::new("thoth-navigation-key-owner")
+}
+
+/// Whether the widget `id` should act on arrow / Home / End / Page keys.
+///
+/// A widget that reads key presses straight from the input queue has no focus
+/// of its own, so it must ask before it acts — otherwise Left in a query
+/// builder's value field also collapses a node in whatever JSON tree happens
+/// to be on screen, and in a split dock *every* visible tree and grid reacts
+/// to one keypress. Two things have to hold:
+///
+/// - no text field owns the keyboard;
+/// - this is the widget the user is working in — the pointer is over it, or it
+///   was the last one clicked in.
+///
+/// The area is the one the widget occupied on the *previous* frame, recorded by
+/// [`claim_navigation_keys`], because keys are read before anything is laid
+/// out. A widget that has never been drawn or interacted with does not act,
+/// which is the safe side of the trade: nothing happens rather than the wrong
+/// thing happening somewhere the user is not looking.
+#[cfg(feature = "egui")]
+pub fn owns_navigation_keys(ctx: &egui::Context, id: egui::Id) -> bool {
+    if ctx.egui_wants_keyboard_input() {
+        return false;
+    }
+    let rect = ctx.data(|d| d.get_temp::<egui::Rect>(id.with("nav-rect")));
+
+    // A focused widget owns the arrow keys unless it is *inside* this one.
+    // `egui_wants_keyboard_input` only covers text fields, so without this a
+    // focused dropdown — which answers Up/Down itself — also moved the grid's
+    // selection underneath it. A focused widget whose rect cannot be read is
+    // treated as elsewhere, which is the quiet side to be wrong on.
+    if let Some(focused) = ctx.memory(|m| m.focused()) {
+        let inside = ctx
+            .read_response(focused)
+            .zip(rect)
+            .is_some_and(|(response, rect)| rect.contains_rect(response.rect));
+        if !inside {
+            return false;
+        }
+    }
+
+    let hovered = rect
+        .zip(ctx.pointer_latest_pos())
+        .is_some_and(|(rect, pos)| rect.contains(pos));
+    hovered || ctx.data(|d| d.get_temp::<egui::Id>(keyboard_owner())) == Some(id)
+}
+
+/// Record where the widget `id` is, and take the keyboard if it was clicked in.
+///
+/// Called after the widget has drawn, when its rect is known. See
+/// [`owns_navigation_keys`].
+#[cfg(feature = "egui")]
+pub fn claim_navigation_keys(ui: &egui::Ui, id: egui::Id, rect: egui::Rect) {
+    if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(rect) {
+        ui.ctx().data_mut(|d| d.insert_temp(keyboard_owner(), id));
+    }
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(id.with("nav-rect"), rect));
+}
+
+// ── Focus rings ──────────────────────────────────────────────────────────────
+
+/// Whether focus rings should be drawn right now — the design's
+/// `:focus-visible`, which egui has no equivalent of.
+///
+/// A ring after a mouse click is noise: the user knows what they just clicked.
+/// After Tab it is the only thing saying where they are. So a key press turns
+/// rings on and a pointer press turns them off, and the answer is computed
+/// once per frame however many widgets ask.
+#[cfg(feature = "egui")]
+pub fn focus_visible(ctx: &egui::Context) -> bool {
+    let id = egui::Id::new("thoth-focus-visible");
+    let pass = ctx.cumulative_pass_nr();
+    let (seen, visible) = ctx
+        .data(|d| d.get_temp::<(u64, bool)>(id))
+        .unwrap_or((u64::MAX, false));
+    if seen == pass {
+        return visible;
+    }
+    let keyed = ctx.input(|i| {
+        i.events
+            .iter()
+            .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))
+    });
+    let pointed = ctx.input(|i| i.pointer.any_pressed());
+    // A key wins over a pointer press in the same frame: the keyboard is the
+    // mode that needs the ring.
+    let visible = if keyed {
+        true
+    } else if pointed {
+        false
+    } else {
+        visible
+    };
+    ctx.data_mut(|d| d.insert_temp(id, (pass, visible)));
+    visible
+}
+
+/// Paint the keyboard-focus ring around `rect` — design `:focus-visible`:
+/// 2px of `accent-2`, set just outside the control so it reads as a ring
+/// around it rather than a border on it.
+///
+/// Call it from any component that allocates a focusable response. It draws
+/// nothing unless focus arrived from the keyboard, so a click never leaves one
+/// behind.
+#[cfg(feature = "egui")]
+pub fn paint_focus_ring(
+    ui: &egui::Ui,
+    response: &egui::Response,
+    radius: impl Into<egui::CornerRadius>,
+) {
+    if !response.has_focus() || !focus_visible(ui.ctx()) {
+        return;
+    }
+    let colors = ThemeColors::from_ctx(ui.ctx());
+    // `outline-offset: 1px` — the ring sits outside the control's own edge, so
+    // a control that already draws a border keeps it and gains a halo.
+    ui.painter().rect_stroke(
+        response.rect.expand(FOCUS_RING_OFFSET),
+        radius,
+        focus_stroke(&colors),
+        egui::StrokeKind::Outside,
+    );
+}
+
+/// How far outside a control its focus ring sits — design
+/// `:focus-visible{outline-offset:1px}`.
+#[cfg(feature = "egui")]
+pub const FOCUS_RING_OFFSET: f32 = 1.0;
+
+#[cfg(all(test, feature = "egui"))]
+mod focus_tests {
+    use super::focus_visible;
+
+    /// Run one frame with the given raw input and report `focus_visible`.
+    fn after(events: Vec<egui::Event>) -> bool {
+        let ctx = egui::Context::default();
+        // A first frame with nothing, so the state starts from its default.
+        let _ = ctx.run_ui(Default::default(), |_| {});
+        let input = egui::RawInput {
+            events,
+            ..Default::default()
+        };
+        let mut seen = false;
+        let _ = ctx.run_ui(input, |ui| seen = focus_visible(ui.ctx()));
+        seen
+    }
+
+    fn key() -> egui::Event {
+        egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    fn click() -> egui::Event {
+        egui::Event::PointerButton {
+            pos: egui::pos2(10.0, 10.0),
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn a_keypress_turns_focus_rings_on_and_a_click_turns_them_off() {
+        // The whole point: a ring after a mouse click is noise, because the
+        // user knows what they just clicked. After Tab it is the only thing
+        // saying where they are.
+        assert!(!after(vec![]), "nothing has happened yet");
+        assert!(after(vec![key()]));
+        assert!(!after(vec![click()]));
+    }
+
+    #[test]
+    fn the_keyboard_wins_when_both_land_in_one_frame() {
+        // Tab-then-click in a single frame is the keyboard arriving, and the
+        // ring is what that needs.
+        assert!(after(vec![click(), key()]));
+        assert!(after(vec![key(), click()]));
+    }
+
+    #[test]
+    fn the_answer_holds_while_nothing_happens() {
+        // Computed once per frame and remembered, so a ring does not flicker
+        // out on the first idle frame after the key that earned it.
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(Default::default(), |_| {});
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                events: vec![key()],
+                ..Default::default()
+            },
+            |ui| assert!(focus_visible(ui.ctx())),
+        );
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            assert!(focus_visible(ui.ctx()), "it survived an idle frame");
+            // And asking twice in one frame gives the same answer.
+            assert!(focus_visible(ui.ctx()));
+        });
+    }
+}
+
+// ── Selected rows ────────────────────────────────────────────────────────────
+
+/// How far, in CIE L*, a selected row sits from the row under it.
+///
+/// Perceptual lightness rather than a contrast ratio: a ratio answers "can
+/// text be read on this", and a row wash is not text. 18 is comfortably
+/// visible without becoming a slab.
+const SELECTED_ROW_TARGET_L: f32 = 18.0;
+/// How far the wash may be pushed. The ceiling is what keeps the cell text on
+/// top of it readable — measured across the shipped themes, the worst case at
+/// this cap still clears WCAG AA for normal text.
+const SELECTED_ROW_MIN_ALPHA: u8 = 16;
+const SELECTED_ROW_MAX_ALPHA: u8 = 160;
+/// How much of the accent's hue survives into the wash. The rest is pulled
+/// toward `fg`, which is by construction far from the background — so the
+/// wash can always reach its target even in a theme whose accent happens to
+/// sit at the background's own lightness.
+const SELECTED_ROW_ACCENT: f32 = 0.60;
+
+/// The fill for a selected row, chosen so it reads the same in every theme.
+///
+/// A fixed alpha over a fixed token does not. `surface_active` sits 10 L* from
+/// the background in Nord and 27 in Solarized Light, so one value is either
+/// invisible in the first or a slab in the second — which is exactly how the
+/// grid's selection came to be legible on light themes and lost on dark ones.
+/// This solves for a constant perceptual distance instead, tinted with the
+/// accent so a selected row still reads as *selected* rather than as hovered.
+pub fn selected_row_fill(colors: &ThemeColors) -> Color32 {
+    let base = lightness(colors.bg);
+    let lift = lerp_color(colors.accent, colors.fg, 1.0 - SELECTED_ROW_ACCENT);
+    for alpha in (SELECTED_ROW_MIN_ALPHA..=SELECTED_ROW_MAX_ALPHA).step_by(2) {
+        let candidate = over(lift, alpha, colors.bg);
+        if (lightness(candidate) - base).abs() >= SELECTED_ROW_TARGET_L {
+            return candidate;
+        }
+    }
+    over(lift, SELECTED_ROW_MAX_ALPHA, colors.bg)
+}
+
+/// `fg` composited over `bg` at `alpha`.
+fn over(fg: Color32, alpha: u8, bg: Color32) -> Color32 {
+    let a = f32::from(alpha) / 255.0;
+    let c = |f: u8, b: u8| (f32::from(f) * a + f32::from(b) * (1.0 - a)).round() as u8;
+    Color32::from_rgb(c(fg.r(), bg.r()), c(fg.g(), bg.g()), c(fg.b(), bg.b()))
+}
+
+/// Linear interpolation between two colours, `t` of the way from `a` to `b`.
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let c = |x: u8, y: u8| (f32::from(x) * (1.0 - t) + f32::from(y) * t).round() as u8;
+    Color32::from_rgb(c(a.r(), b.r()), c(a.g(), b.g()), c(a.b(), b.b()))
+}
+
+/// CIE L* — perceptual lightness, 0 (black) to 100 (white).
+pub fn lightness(color: Color32) -> f32 {
+    fn linearise(c: f32) -> f32 {
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    let y = 0.2126 * linearise(f32::from(color.r()) / 255.0)
+        + 0.7152 * linearise(f32::from(color.g()) / 255.0)
+        + 0.0722 * linearise(f32::from(color.b()) / 255.0);
+    if y > 0.008_856 {
+        116.0 * y.cbrt() - 16.0
+    } else {
+        903.3 * y
+    }
+}
+
+#[cfg(test)]
+mod trap_tests {
+    use super::*;
+    use egui::{Key, Modifiers};
+
+    /// Two buttons in the "panel", with one above and one below standing in
+    /// for the chrome around it. The panel's rect is the union of its own two,
+    /// so the others are outside it exactly the way the notification bell and
+    /// the sidebar are outside the query builder. Both sides are needed:
+    /// Shift+Tab off the front has to have somewhere to escape to.
+    fn frame(
+        ctx: &egui::Context,
+        tab: Option<Modifiers>,
+        trap: bool,
+    ) -> (egui::Id, egui::Id, egui::Id) {
+        let mut input = egui::RawInput::default();
+        if let Some(modifiers) = tab {
+            input.modifiers = modifiers;
+            input.events.push(egui::Event::Key {
+                key: Key::Tab,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            });
+        }
+        let mut ids = None;
+        let _ = ctx.run_ui(input, |ui| {
+            let before = ui.button("toolbar");
+            let first = ui.button("first");
+            let last = ui.button("last");
+            let outside = ui.button("sidebar");
+            let panel = first.rect.union(last.rect);
+            assert!(!panel.contains_rect(before.rect));
+            assert!(!panel.contains_rect(outside.rect));
+            if trap {
+                trap_focus(ui.ctx(), egui::Id::new("trap"), panel, first.id, last.id);
+            }
+            ids = Some((first.id, last.id, outside.id));
+        });
+        ids.expect("the frame ran")
+    }
+
+    fn focused(ctx: &egui::Context) -> Option<egui::Id> {
+        ctx.memory(|m| m.focused())
+    }
+
+    /// Tab off the last control of an open panel wraps to its first, instead
+    /// of walking on into whatever the host drew next.
+    #[test]
+    fn tab_off_the_end_comes_back_to_the_front() {
+        let ctx = egui::Context::default();
+        let (first, last, _) = frame(&ctx, None, true);
+        ctx.memory_mut(|m| m.request_focus(last));
+        frame(&ctx, None, true); // the panel is seen holding the keyboard
+
+        frame(&ctx, Some(Modifiers::NONE), true);
+        frame(&ctx, None, true);
+        assert_eq!(focused(&ctx), Some(first), "Tab wrapped to the front");
+    }
+
+    /// Shift+Tab off the front wraps to the back, so the cycle closes both ways.
+    #[test]
+    fn shift_tab_off_the_front_comes_back_to_the_end() {
+        let ctx = egui::Context::default();
+        let (first, last, _) = frame(&ctx, None, true);
+        ctx.memory_mut(|m| m.request_focus(first));
+        frame(&ctx, None, true);
+
+        frame(&ctx, Some(Modifiers::SHIFT), true);
+        frame(&ctx, None, true);
+        assert_eq!(focused(&ctx), Some(last), "Shift+Tab wrapped to the back");
+    }
+
+    /// Clicking away is the user asking for somewhere else, and is left alone.
+    #[test]
+    fn a_pointer_press_is_not_trapped() {
+        let ctx = egui::Context::default();
+        let (_, last, outside) = frame(&ctx, None, true);
+        ctx.memory_mut(|m| m.request_focus(last));
+        frame(&ctx, None, true);
+
+        ctx.memory_mut(|m| m.request_focus(outside));
+        frame(&ctx, None, true);
+        assert_eq!(focused(&ctx), Some(outside));
+    }
+
+    /// The discriminating case: without the trap the focus walks out and stays
+    /// out. If this ever matches the test above, the trap is not what is
+    /// keeping focus in.
+    #[test]
+    fn without_the_trap_focus_walks_out_and_stays_out() {
+        let ctx = egui::Context::default();
+        let (_, last, outside) = frame(&ctx, None, false);
+        ctx.memory_mut(|m| m.request_focus(last));
+        frame(&ctx, None, false);
+
+        frame(&ctx, Some(Modifiers::NONE), false);
+        frame(&ctx, None, false);
+        assert_eq!(focused(&ctx), Some(outside));
     }
 }

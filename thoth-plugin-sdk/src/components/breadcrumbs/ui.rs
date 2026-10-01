@@ -58,6 +58,7 @@ impl Breadcrumbs {
             }
             ui.painter().galley(pos, galley, colors.fg);
         }
+        crate::theme::paint_focus_ring(ui, &response, RADIUS_CHECK);
 
         response
     }

@@ -78,6 +78,11 @@ impl Widget for ToggleSwitch {
         if let Some(hover_text) = self.hover_text {
             response = crate::theme::hover_text(response, hover_text);
         }
+        {
+            // A pill, so the ring follows its ends.
+            let radius = (response.rect.height() / 2.0) as u8;
+            crate::theme::paint_focus_ring(ui, &response, radius);
+        }
 
         response
     }

@@ -179,6 +179,7 @@ impl Tabs {
                             } else {
                                 crate::theme::hover_text(resp, header.as_str())
                             };
+                            crate::theme::paint_focus_ring(ui, &resp, RADIUS_CHIP);
                             if resp.clicked() && !is_active {
                                 selected = i;
                             }
@@ -227,6 +228,7 @@ impl Tabs {
                                 // medium family, so no double-draw is needed.
                                 ui.painter().galley(pos, galley, color);
                             }
+                            crate::theme::paint_focus_ring(ui, &resp, RADIUS_CHIP);
                             if resp.clicked() && !is_active {
                                 selected = i;
                             }

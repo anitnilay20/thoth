@@ -45,7 +45,7 @@ use crate::components::{
     Colored, Column, DataRow, DataView, Footer, Group, Icon, IconButton, Input, JsonTree, KeyValue,
     KeyValueList, Link, List, Markdown, Modal, MultiSelect, NumberInput, Progress, Radio, Row,
     Scroll, Select, Separator, SidebarHeader, Slider, Spacer, Spinner, Split, TableView, Tabs,
-    ToggleSwitch, Typography, VSplit,
+    TextView, ToggleSwitch, Typography, VSplit,
 };
 
 /// A node in the Thoth UI tree.
@@ -139,6 +139,8 @@ pub enum RenderNode {
     Code(Code),
     /// A rendered [`Markdown`] block.
     Markdown(Markdown),
+    /// A read-only [`TextView`] document.
+    TextView(TextView),
     /// An editable [`CodeEditor`].
     CodeEditor(CodeEditor),
     /// A rich [`List`].
@@ -218,8 +220,9 @@ impl RenderNode {
     ///   text columns made them read like code.
     /// - Numeric, temporal and UUID cells, and any unknown type, are monospace in
     ///   `ty.text_color()`, so digits line up down the column.
-    /// - An enum becomes a soft coloured pill; a json object/array becomes a tree
-    ///   (json-as-text is info-tinted); null is muted italic.
+    /// - An enum becomes a soft coloured pill; a json object/array becomes a
+    ///   chip counting what is inside it (json-as-text is info-tinted); an
+    ///   absent value is a muted em-dash.
     ///
     /// Unknown types fall through to the mono styling — they do **not** defer to
     /// `json_cell`.
@@ -250,13 +253,16 @@ impl RenderNode {
                     .build(),
             )
         };
-        // Null is muted + italic regardless of the declared column type.
+        // An absent value is a dash, whatever the column's declared type —
+        // design `.tv td.t-nil`. It has to be visibly *not* a value: with mixed
+        // record shapes in one file, most cells of most columns are absent, and
+        // spelling "null" in each of them turns the grid into a wall of the
+        // word. An empty string, which is a value, still renders as one.
         if value.is_null() {
             return RenderNode::Text(
                 Typography::builder()
-                    .text("null")
+                    .text("—")
                     .variant(TypographyVariant::Mono)
-                    .italic(true)
                     .color("muted")
                     .build(),
             );
@@ -274,11 +280,14 @@ impl RenderNode {
                     .soft(true)
                     .build(),
             ),
-            // json comes back parsed (a tree) or as text (info-tinted).
+            // A nested value is a chip counting what is inside it — design
+            // `.jchip`, `{n}` for an object and `[n]` for an array. A tree
+            // inside a grid cell can only show its first line in a 22px row, so
+            // it costs the row's height to say less than the count does; the
+            // JSON view is where a record is read whole.
             ColumnType::Json => match value {
-                Value::Array(_) | Value::Object(_) => {
-                    RenderNode::JsonTree(JsonTree::builder().value(value.clone()).build())
-                }
+                Value::Object(map) => nested_chip(format!("{{{}}}", map.len())),
+                Value::Array(items) => nested_chip(format!("[{}]", items.len())),
                 _ => mono(text, "info"),
             },
             // Text and booleans are prose; numbers, temporal values and UUIDs are
@@ -287,6 +296,20 @@ impl RenderNode {
             _ => mono(text, ty.text_color()),
         }
     }
+}
+
+/// The chip a nested value collapses to in a grid cell — design `.jchip`: a
+/// surface-filled, muted monospace count, not a coloured tag. It marks the cell
+/// as holding structure, so it must not read as a value in its own right.
+fn nested_chip(label: String) -> RenderNode {
+    use crate::components::Badge;
+    RenderNode::Badge(
+        Badge::builder()
+            .label(label)
+            .color("muted")
+            .soft(true)
+            .build(),
+    )
 }
 
 /// A stable colour token for an enum value, cycled from a small palette by a
@@ -668,6 +691,57 @@ mod wire_format_tests {
         let v = serde_json::to_value(&node).unwrap();
         assert_eq!(v["type"], json!("scroll"));
         assert_eq!(v["id"], json!("results"));
+    }
+
+    // ── typed grid cells ──────────────────────────────────────────────────────
+
+    #[test]
+    fn an_absent_value_is_a_dash_whatever_the_column_says() {
+        use crate::components::ColumnType;
+        for ty in [
+            ColumnType::Text,
+            ColumnType::Integer,
+            ColumnType::Timestamp,
+            ColumnType::Json,
+        ] {
+            let v =
+                serde_json::to_value(RenderNode::typed_cell(&serde_json::Value::Null, ty)).unwrap();
+            assert_eq!(v["type"], json!("text"), "{ty:?}");
+            assert_eq!(v["text"], json!("—"), "{ty:?}");
+        }
+    }
+
+    #[test]
+    fn an_empty_string_is_still_a_value() {
+        // The whole point of the dash: "" is a value the record carries, and
+        // must not be drawn as the absence of one.
+        use crate::components::ColumnType;
+        let v = serde_json::to_value(RenderNode::typed_cell(&json!(""), ColumnType::Text)).unwrap();
+        assert_eq!(v["text"], json!(""));
+    }
+
+    #[test]
+    fn a_nested_value_collapses_to_a_chip_counting_it() {
+        use crate::components::ColumnType;
+        let obj = serde_json::to_value(RenderNode::typed_cell(
+            &json!({ "trace_id": "t_1", "sampled": true }),
+            ColumnType::Json,
+        ))
+        .unwrap();
+        assert_eq!(obj["type"], json!("badge"));
+        assert_eq!(obj["label"], json!("{2}"));
+
+        let arr = serde_json::to_value(RenderNode::typed_cell(
+            &json!(["cold", "beta", "web"]),
+            ColumnType::Json,
+        ))
+        .unwrap();
+        assert_eq!(arr["label"], json!("[3]"));
+
+        // A json column holding a scalar is not structure, so it stays text.
+        let scalar =
+            serde_json::to_value(RenderNode::typed_cell(&json!(7), ColumnType::Json)).unwrap();
+        assert_eq!(scalar["type"], json!("text"));
     }
 
     #[test]

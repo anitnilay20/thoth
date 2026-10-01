@@ -1,14 +1,12 @@
 use crate::error::{Result, ThothError};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::constants::{DEFAULT_SIDEBAR_WIDTH, MAX_RECENT_FILES, MIN_SIDEBAR_WIDTH};
 
-const MAX_SEARCH_HISTORY_PER_FILE: usize = 10;
-const MAX_FILES_WITH_HISTORY: usize = 20; // Keep history for at most 20 files
-const MAX_BOOKMARKS: usize = 100; // Maximum number of bookmarks
+const MAX_SAVED_QUERIES: usize = 200; // Maximum number of saved queries
 
 /// What kind of content a persisted tab holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,21 +38,27 @@ pub struct PersistedTab {
 
 /// A bookmark for a specific JSON path within a file
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Bookmark {
-    /// The JSON path (e.g., "0.user.email")
-    pub path: String,
-    /// The file path
+pub struct SavedQuery {
+    /// Stable id, used to apply, update or delete it.
+    pub id: String,
+    /// What the user called it, or a description of the query itself when
+    /// they saved it without naming it.
+    pub name: String,
+    /// The file it was written against.
+    ///
+    /// A query names columns, so it only fits the file it was built on —
+    /// offering it elsewhere would be offering something that fails on use.
     pub file_path: String,
-    /// Optional custom label for the bookmark
-    pub label: Option<String>,
-    /// Timestamp when bookmark was created
+    /// The lanes.
+    #[serde(default)]
+    pub spec: thoth_plugin_sdk::components::QuerySpec,
+    /// Typed SQL, when the query was written rather than built. Saved
+    /// alongside the lanes rather than instead of them, so reverting to the
+    /// lanes still lands on the query the SQL grew out of.
+    #[serde(default)]
+    pub sql: Option<String>,
+    /// When it was saved.
     pub created_at: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SearchHistoryStore {
-    /// Maps file path to (last_accessed_timestamp, queries)
-    histories: HashMap<String, (u64, Vec<String>)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,7 +70,7 @@ pub struct PersistentState {
     #[serde(default)]
     sidebar_expanded: bool,
     #[serde(default)]
-    bookmarks: Vec<Bookmark>,
+    saved_queries: Vec<SavedQuery>,
     /// Tabs open at last save — restored on next launch.
     #[serde(default)]
     open_tabs: Vec<PersistedTab>,
@@ -100,7 +104,7 @@ impl PersistentState {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
-            bookmarks: Vec::new(),
+            saved_queries: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: 0,
         }
@@ -119,10 +123,10 @@ impl PersistentState {
     /// Returns: ~/.config/thoth/persistent_state.json on Linux/macOS
     ///          %APPDATA%/thoth/persistent_state.json on Windows
     fn storage_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::StateError {
-            reason: "Failed to get config directory".to_string(),
-        })?;
-        let thoth_config_dir = config_dir.join("thoth");
+        let thoth_config_dir =
+            crate::config_dir::config_root().ok_or_else(|| ThothError::StateError {
+                reason: "Failed to get config directory".to_string(),
+            })?;
 
         // Create directory if it doesn't exist
         if !thoth_config_dir.exists() {
@@ -155,10 +159,11 @@ impl PersistentState {
 
     /// Migrate from old recent_files.json format
     fn migrate_from_old_format() -> Result<Self> {
-        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::StateError {
-            reason: "Failed to get config directory".to_string(),
-        })?;
-        let old_path = config_dir.join("thoth").join("recent_files.json");
+        let old_path = crate::config_dir::config_root()
+            .ok_or_else(|| ThothError::StateError {
+                reason: "Failed to get config directory".to_string(),
+            })?
+            .join("recent_files.json");
 
         if old_path.exists() {
             // Read old format
@@ -263,60 +268,89 @@ impl PersistentState {
         self.sidebar_expanded
     }
 
-    // Bookmark methods
+    // Saved queries
 
-    /// Add a bookmark
-    pub fn add_bookmark(&mut self, path: String, file_path: String, label: Option<String>) {
-        // Check if bookmark already exists for this path and file
-        if self
-            .bookmarks
-            .iter()
-            .any(|b| b.path == path && b.file_path == file_path)
-        {
-            return; // Don't add duplicate
-        }
-
-        let bookmark = Bookmark {
-            path,
-            file_path,
-            label,
-            created_at: Self::current_timestamp(),
+    /// Save the current query against `file_path`, returning its id.
+    ///
+    /// Named by the user, or described from the query itself when they saved
+    /// it without typing a name — an unnamed row in a list is not something
+    /// anyone picks from later.
+    pub fn save_query(
+        &mut self,
+        file_path: String,
+        name: String,
+        spec: thoth_plugin_sdk::components::QuerySpec,
+        sql: Option<String>,
+    ) -> String {
+        let name = match name.trim() {
+            "" => spec.summary(),
+            named => named.to_string(),
         };
+        // Unique against what is already stored, not merely against the
+        // clock: two queries saved in the same millisecond would otherwise
+        // share an id, and deleting one would delete both.
+        let stamp = Self::current_timestamp_millis();
+        let mut id = format!("q{stamp}");
+        let mut nth = 1;
+        while self.saved_queries.iter().any(|q| q.id == id) {
+            id = format!("q{stamp}-{nth}");
+            nth += 1;
+        }
+        self.saved_queries.insert(
+            0,
+            SavedQuery {
+                id: id.clone(),
+                name,
+                file_path,
+                spec,
+                sql,
+                created_at: Self::current_timestamp(),
+            },
+        );
+        if self.saved_queries.len() > MAX_SAVED_QUERIES {
+            self.saved_queries.truncate(MAX_SAVED_QUERIES);
+        }
+        id
+    }
 
-        // Add to front (most recent first)
-        self.bookmarks.insert(0, bookmark);
-
-        // Enforce max limit
-        if self.bookmarks.len() > MAX_BOOKMARKS {
-            self.bookmarks.truncate(MAX_BOOKMARKS);
+    /// Point an existing saved query at the query as it now stands.
+    pub fn update_query(
+        &mut self,
+        id: &str,
+        spec: thoth_plugin_sdk::components::QuerySpec,
+        sql: Option<String>,
+    ) {
+        if let Some(saved) = self.saved_queries.iter_mut().find(|q| q.id == id) {
+            saved.spec = spec;
+            saved.sql = sql;
         }
     }
 
-    /// Remove a bookmark by index
-    pub fn remove_bookmark(&mut self, index: usize) {
-        if index < self.bookmarks.len() {
-            self.bookmarks.remove(index);
-        }
+    /// Forget a saved query.
+    pub fn remove_query(&mut self, id: &str) {
+        self.saved_queries.retain(|q| q.id != id);
     }
 
-    /// Toggle bookmark (add if not exists, remove if exists)
-    pub fn toggle_bookmark(&mut self, path: String, file_path: String) -> bool {
-        if let Some(index) = self
-            .bookmarks
+    /// The queries saved against `file_path`, newest first.
+    pub fn saved_queries(&self, file_path: &str) -> Vec<&SavedQuery> {
+        self.saved_queries
             .iter()
-            .position(|b| b.path == path && b.file_path == file_path)
-        {
-            self.bookmarks.remove(index);
-            false // Removed
-        } else {
-            self.add_bookmark(path, file_path, None);
-            true // Added
-        }
+            .filter(|q| q.file_path == file_path)
+            .collect()
     }
 
-    /// Get all bookmarks
-    pub fn get_bookmarks(&self) -> &[Bookmark] {
-        &self.bookmarks
+    /// Every saved query, newest first, whatever file it was written on.
+    ///
+    /// The sidebar lists these as bookmarks: a query names the file it belongs
+    /// to, so choosing one from another file is a request to open that file
+    /// and arrive with the query already applied.
+    pub fn all_saved_queries(&self) -> Vec<&SavedQuery> {
+        self.saved_queries.iter().collect()
+    }
+
+    /// One saved query by id.
+    pub fn saved_query(&self, id: &str) -> Option<&SavedQuery> {
+        self.saved_queries.iter().find(|q| q.id == id)
     }
 
     // Tab session methods
@@ -341,141 +375,26 @@ impl PersistentState {
         self.active_tab_index
     }
 
-    // Search history methods (single file with LRU for most recently used files)
-
-    /// Get the path to the search history storage file
-    fn search_history_storage_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::StateError {
-            reason: "Failed to get config directory".to_string(),
-        })?;
-        let thoth_config_dir = config_dir.join("thoth");
-
-        // Create directory if it doesn't exist
-        if !thoth_config_dir.exists() {
-            std::fs::create_dir_all(&thoth_config_dir).map_err(|e| ThothError::StateError {
-                reason: format!("Failed to create thoth config directory: {}", e),
-            })?;
-        }
-
-        Ok(thoth_config_dir.join("search_history.json"))
+    /// Milliseconds since the Unix epoch, so two queries saved in the same
+    /// second still get distinct ids.
+    fn current_timestamp_millis() -> u128 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
     }
 
-    /// Load all search history
-    fn load_history_store() -> Result<SearchHistoryStore> {
-        let path = Self::search_history_storage_path()?;
-
-        if path.exists() {
-            let contents = std::fs::read_to_string(&path).map_err(|e| ThothError::StateError {
-                reason: format!("Failed to read search history: {}", e),
-            })?;
-            let store: SearchHistoryStore =
-                serde_json::from_str(&contents).map_err(|e| ThothError::StateError {
-                    reason: format!("Failed to parse search history: {}", e),
-                })?;
-            Ok(store)
-        } else {
-            Ok(SearchHistoryStore {
-                histories: HashMap::new(),
-            })
-        }
-    }
-
-    /// Save all search history
-    fn save_history_store(store: &SearchHistoryStore) -> Result<()> {
-        let path = Self::search_history_storage_path()?;
-        let json = serde_json::to_string_pretty(store).map_err(|e| ThothError::StateError {
-            reason: format!("Failed to serialize search history: {}", e),
-        })?;
-        std::fs::write(&path, &json).map_err(|e| ThothError::FileWriteError {
-            path: path.clone(),
-            reason: e.to_string(),
-        })?;
-        Ok(())
-    }
-
-    /// Get current timestamp in seconds
+    /// Seconds since the Unix epoch, for stamping a saved query.
     fn current_timestamp() -> u64 {
-        use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
     }
 
-    /// Load search history for a specific file
-    pub fn load_search_history(file_path: &str) -> Result<Vec<String>> {
-        let store = Self::load_history_store()?;
-        Ok(store
-            .histories
-            .get(file_path)
-            .map(|(_, queries)| queries.clone())
-            .unwrap_or_default())
-    }
-
-    /// Add a search query to history for a specific file
-    pub fn add_search_query(file_path: &str, query: String) -> Result<()> {
-        if query.trim().is_empty() {
-            return Ok(());
-        }
-
-        let mut store = Self::load_history_store().unwrap_or_else(|err| {
-            eprintln!("Failed to load search history store: {}", err);
-            SearchHistoryStore {
-                histories: HashMap::new(),
-            }
-        });
-
-        // Get or create history for this file
-        let (_, queries) = store
-            .histories
-            .entry(file_path.to_string())
-            .or_insert_with(|| (Self::current_timestamp(), Vec::new()));
-
-        // Remove if already exists
-        queries.retain(|q| q != &query);
-
-        // Add to front
-        queries.insert(0, query);
-
-        // Limit to MAX_SEARCH_HISTORY_PER_FILE
-        if queries.len() > MAX_SEARCH_HISTORY_PER_FILE {
-            queries.truncate(MAX_SEARCH_HISTORY_PER_FILE);
-        }
-
-        // Update timestamp
-        store.histories.get_mut(file_path).unwrap().0 = Self::current_timestamp();
-
-        // Clean up old entries if we have too many files
-        if store.histories.len() > MAX_FILES_WITH_HISTORY {
-            // Sort by timestamp and keep only the most recent files
-            let mut entries: Vec<_> = store.histories.iter().collect();
-            entries.sort_by_key(|(_, (timestamp, _))| std::cmp::Reverse(*timestamp));
-
-            let to_keep: HashMap<_, _> = entries
-                .into_iter()
-                .take(MAX_FILES_WITH_HISTORY)
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-
-            store.histories = to_keep;
-        }
-
-        Self::save_history_store(&store)
-    }
-
-    /// Clear search history for a specific file
-    pub fn clear_search_history(file_path: &str) -> Result<()> {
-        let mut store = Self::load_history_store()?;
-        store.histories.remove(file_path);
-        Self::save_history_store(&store)
-    }
-
     pub fn local_plugin_dir(plugin_id: &str) -> Result<PathBuf> {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| "failed to locate config directory".to_string())?;
-
-        let dir = config_dir
-            .join("thoth")
+        let dir = crate::config_dir::config_root()
+            .ok_or_else(|| "failed to locate config directory".to_string())?
             .join("data")
             .join("plugins")
             .join(plugin_id);
@@ -490,10 +409,9 @@ impl PersistentState {
     }
 
     pub fn marketplace_dir() -> Result<PathBuf> {
-        let config_dir =
-            dirs::config_dir().ok_or_else(|| "failed to locate config directory".to_string())?;
-
-        let dir = config_dir.join("thoth").join("marketplace");
+        let dir = crate::config_dir::config_root()
+            .ok_or_else(|| "failed to locate config directory".to_string())?
+            .join("marketplace");
 
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
@@ -549,7 +467,7 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
-            bookmarks: Vec::new(),
+            saved_queries: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: 0,
         };
@@ -567,7 +485,7 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
-            bookmarks: Vec::new(),
+            saved_queries: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: 0,
         };
@@ -586,7 +504,7 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
-            bookmarks: Vec::new(),
+            saved_queries: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: 0,
         };
@@ -604,7 +522,7 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
-            bookmarks: Vec::new(),
+            saved_queries: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: 0,
         };
@@ -622,7 +540,7 @@ mod tests {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
-            bookmarks: Vec::new(),
+            saved_queries: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: 0,
         };
@@ -637,118 +555,142 @@ mod tests {
         assert_eq!(state.get_sidebar_width(), MIN_SIDEBAR_WIDTH);
     }
 
-    #[test]
-    fn test_add_bookmark() {
-        let mut state = PersistentState {
+    /// A `PersistentState` with nothing in it, for the saved-query tests.
+    fn empty_state() -> PersistentState {
+        PersistentState {
             recent_files: Vec::new(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_expanded: false,
-            bookmarks: Vec::new(),
+            saved_queries: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: 0,
-        };
-
-        state.add_bookmark(
-            "users[0].name".to_string(),
-            "/path/to/file.json".to_string(),
-            Some("User name".to_string()),
-        );
-
-        assert_eq!(state.get_bookmarks().len(), 1);
-        assert_eq!(state.get_bookmarks()[0].path, "users[0].name");
-        assert_eq!(state.get_bookmarks()[0].file_path, "/path/to/file.json");
-        assert_eq!(
-            state.get_bookmarks()[0].label,
-            Some("User name".to_string())
-        );
-    }
-
-    #[test]
-    fn test_add_duplicate_bookmark() {
-        let mut state = PersistentState {
-            recent_files: Vec::new(),
-            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
-            sidebar_expanded: false,
-            bookmarks: Vec::new(),
-            open_tabs: Vec::new(),
-            active_tab_index: 0,
-        };
-
-        state.add_bookmark(
-            "users[0].name".to_string(),
-            "/path/to/file.json".to_string(),
-            None,
-        );
-        state.add_bookmark(
-            "users[0].name".to_string(),
-            "/path/to/file.json".to_string(),
-            None,
-        );
-
-        // Should not add duplicate
-        assert_eq!(state.get_bookmarks().len(), 1);
-    }
-
-    #[test]
-    fn test_remove_bookmark() {
-        let mut state = PersistentState {
-            recent_files: Vec::new(),
-            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
-            sidebar_expanded: false,
-            bookmarks: Vec::new(),
-            open_tabs: Vec::new(),
-            active_tab_index: 0,
-        };
-
-        state.add_bookmark("path1".to_string(), "/file1.json".to_string(), None);
-        state.add_bookmark("path2".to_string(), "/file2.json".to_string(), None);
-
-        assert_eq!(state.get_bookmarks().len(), 2);
-
-        state.remove_bookmark(0);
-        assert_eq!(state.get_bookmarks().len(), 1);
-        assert_eq!(state.get_bookmarks()[0].path, "path1");
-    }
-
-    #[test]
-    fn test_toggle_bookmark() {
-        let mut state = PersistentState {
-            recent_files: Vec::new(),
-            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
-            sidebar_expanded: false,
-            bookmarks: Vec::new(),
-            open_tabs: Vec::new(),
-            active_tab_index: 0,
-        };
-
-        // Toggle on (add)
-        let added = state.toggle_bookmark("path1".to_string(), "/file1.json".to_string());
-        assert!(added);
-        assert_eq!(state.get_bookmarks().len(), 1);
-
-        // Toggle off (remove)
-        let added = state.toggle_bookmark("path1".to_string(), "/file1.json".to_string());
-        assert!(!added);
-        assert_eq!(state.get_bookmarks().len(), 0);
-    }
-
-    #[test]
-    fn test_max_bookmarks() {
-        let mut state = PersistentState {
-            recent_files: Vec::new(),
-            sidebar_width: DEFAULT_SIDEBAR_WIDTH,
-            sidebar_expanded: false,
-            bookmarks: Vec::new(),
-            open_tabs: Vec::new(),
-            active_tab_index: 0,
-        };
-
-        // Add more than MAX_BOOKMARKS
-        for i in 0..=MAX_BOOKMARKS {
-            state.add_bookmark(format!("path{}", i), "/file.json".to_string(), None);
         }
+    }
 
-        // Should be limited to MAX_BOOKMARKS
-        assert_eq!(state.get_bookmarks().len(), MAX_BOOKMARKS);
+    fn spec_on(field: &str) -> thoth_plugin_sdk::components::QuerySpec {
+        use thoth_plugin_sdk::components::{ColumnType, Filter, Operator, QuerySpec};
+        QuerySpec {
+            filters: vec![Filter {
+                field: field.to_string(),
+                operator: Operator::Equals,
+                values: vec!["x".to_string()],
+                column: ColumnType::Text,
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_saved_query_belongs_to_the_file_it_was_written_on() {
+        // A query names columns, so offering it for another file would be
+        // offering something that fails the moment it is applied.
+        let mut state = empty_state();
+        state.save_query("/a.json".into(), "errors".into(), spec_on("level"), None);
+        state.save_query("/b.json".into(), "slow".into(), spec_on("ms"), None);
+
+        let a = state.saved_queries("/a.json");
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].name, "errors");
+        assert_eq!(state.saved_queries("/b.json").len(), 1);
+        assert!(state.saved_queries("/never-opened.json").is_empty());
+    }
+
+    #[test]
+    fn every_saved_query_is_reachable_as_a_bookmark() {
+        // The sidebar lists the open file's queries *and* every other file's,
+        // so a query written on a file you closed is still a way back to it.
+        let mut state = empty_state();
+        state.save_query("/a.json".into(), "errors".into(), spec_on("level"), None);
+        state.save_query("/b.json".into(), "slow".into(), spec_on("ms"), None);
+
+        let all = state.all_saved_queries();
+        assert_eq!(all.len(), 2);
+
+        // Split the way the sidebar splits it: this file, then the rest.
+        let others: Vec<_> = all
+            .iter()
+            .filter(|q| q.file_path != "/a.json")
+            .map(|q| q.name.as_str())
+            .collect();
+        assert_eq!(others, ["slow"]);
+        assert_eq!(state.saved_queries("/a.json").len(), 1);
+    }
+
+    #[test]
+    fn a_bookmark_remembers_which_file_to_open() {
+        // Applying one from another file means opening that file first, so the
+        // path has to survive the round trip through storage.
+        let mut state = empty_state();
+        let id = state.save_query("/logs/b.json".into(), "slow".into(), spec_on("ms"), None);
+        assert_eq!(
+            state.saved_query(&id).expect("just saved").file_path,
+            "/logs/b.json"
+        );
+    }
+
+    #[test]
+    fn saving_without_a_name_describes_the_query_instead() {
+        // A list of rows called "Untitled" is not one anybody picks from.
+        let mut state = empty_state();
+        let id = state.save_query("/a.json".into(), "   ".into(), spec_on("level"), None);
+        let saved = state.saved_query(&id).expect("just saved");
+        assert!(!saved.name.trim().is_empty());
+        assert_eq!(saved.name, spec_on("level").summary());
+    }
+
+    #[test]
+    fn typed_sql_is_saved_alongside_the_lanes_not_instead_of_them() {
+        // Reverting to the lanes has to land on the query the SQL grew out of.
+        let mut state = empty_state();
+        let sql = Some("SELECT 1".to_string());
+        let id = state.save_query(
+            "/a.json".into(),
+            "raw".into(),
+            spec_on("level"),
+            sql.clone(),
+        );
+        let saved = state.saved_query(&id).unwrap();
+        assert_eq!(saved.sql, sql);
+        assert_eq!(saved.spec, spec_on("level"));
+    }
+
+    #[test]
+    fn updating_points_a_saved_query_at_the_query_as_it_now_stands() {
+        let mut state = empty_state();
+        let id = state.save_query("/a.json".into(), "q".into(), spec_on("level"), None);
+        state.update_query(&id, spec_on("service"), Some("SELECT 2".into()));
+
+        let saved = state.saved_query(&id).unwrap();
+        assert_eq!(saved.spec, spec_on("service"));
+        assert_eq!(saved.sql.as_deref(), Some("SELECT 2"));
+        // Its name and id are its identity and do not move with its contents.
+        assert_eq!(saved.name, "q");
+    }
+
+    #[test]
+    fn removing_one_leaves_the_others() {
+        let mut state = empty_state();
+        let first = state.save_query("/a.json".into(), "one".into(), spec_on("a"), None);
+        let second = state.save_query("/a.json".into(), "two".into(), spec_on("b"), None);
+
+        state.remove_query(&first);
+        assert!(state.saved_query(&first).is_none());
+        assert!(state.saved_query(&second).is_some());
+        assert_eq!(state.saved_queries("/a.json").len(), 1);
+    }
+
+    #[test]
+    fn the_newest_query_is_offered_first_and_the_list_is_bounded() {
+        let mut state = empty_state();
+        for i in 0..=MAX_SAVED_QUERIES {
+            state.save_query("/a.json".into(), format!("q{i}"), spec_on("level"), None);
+        }
+        assert_eq!(state.saved_queries.len(), MAX_SAVED_QUERIES);
+        // Newest first, so the list reads as a history rather than as whatever
+        // order the file happened to be written in.
+        assert_eq!(
+            state.saved_queries("/a.json")[0].name,
+            format!("q{MAX_SAVED_QUERIES}")
+        );
     }
 }

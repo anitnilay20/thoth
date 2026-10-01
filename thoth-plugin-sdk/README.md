@@ -62,6 +62,12 @@ fn build_ui(state: &State) -> RenderNode {
 - **`PluginMeta`** derive — generates the `plugin-meta` `get_info()` export.
 - **`prelude`** — one glob (`use thoth_plugin_sdk::prelude::*;`) for all of the above.
 
+## Upgrading
+
+[`MIGRATING.md`](MIGRATING.md) lists the changes an older plugin will notice on
+a new SDK — both the ones that stop it compiling and the ones that quietly
+change what the host draws from an unchanged `.wasm`.
+
 ## Cargo features
 
 - **`default`** — DSL types + builders (everything a wasm plugin needs).

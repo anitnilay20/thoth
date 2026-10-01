@@ -1,3 +1,8 @@
+//! PARKED (#53): the search engine is being rebuilt as a DuckDB `WHERE`
+//! filter, so this bench does not compile against the current API. It is
+//! excluded via `autobenches = false` in Cargo.toml and restored alongside
+//! the new filter.
+
 use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 use std::fs::File;
 use std::io::Write;

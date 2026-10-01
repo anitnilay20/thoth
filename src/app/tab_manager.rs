@@ -6,13 +6,15 @@ use egui_dock::{DockState, tab_viewer::OnCloseResponse};
 
 use crate::{
     app::persistent_state::PersistentState,
-    components::central_panel::{CentralPanel, CentralPanelProps},
-    components::traits::ContextComponent,
+    components::{
+        central_panel::{CentralPanel, CentralPanelProps},
+        traits::ContextComponent,
+    },
     error::ThothError,
-    file::lazy_loader::FileKind,
+    file::FileKind,
     plugin::render_node::UiOutput,
     settings::Settings,
-    state::{ActivePluginPane, NavigationHistory, SearchEngineState},
+    state::{ActivePluginPane, NavigationHistory},
 };
 
 pub type TabId = usize;
@@ -24,9 +26,14 @@ pub struct TabState {
     pub file_type: FileKind,
     pub error: Option<ThothError>,
     pub total_items: usize,
-    pub search_engine_state: SearchEngineState,
     pub navigation_history: NavigationHistory,
     pub pending_navigation: Option<String>,
+    /// A saved query to apply the moment this tab's file finishes loading.
+    ///
+    /// Opening a file is not instant, and a query applied before the engine
+    /// knows the file's columns is a query against nothing — so a bookmark
+    /// chosen from the sidebar parks its id here and `FileOpened` spends it.
+    pub pending_saved_query: Option<String>,
     pub active_plugin_pane: Option<ActivePluginPane>,
     pub plugin_sidebar_output: Option<UiOutput>,
     pub central_panel: CentralPanel,
@@ -43,9 +50,9 @@ impl TabState {
             file_type: FileKind::default(),
             error: None,
             total_items: 0,
-            search_engine_state: SearchEngineState::default(),
             navigation_history: NavigationHistory::with_capacity(nav_capacity),
             pending_navigation: None,
+            pending_saved_query: None,
             active_plugin_pane: None,
             plugin_sidebar_output: None,
             central_panel: CentralPanel::default(),
@@ -137,8 +144,6 @@ pub struct ThothTabViewer<'a> {
     pub settings: &'a Settings,
     pub persistent_state: &'a mut PersistentState,
     pub nav_capacity: usize,
-    /// Search message for the focused tab, consumed by the first matching tab::ui call.
-    pub search_msg: Option<(TabId, crate::search::SearchMessage)>,
     /// Outbound events collected during show_inside, drained by ThothApp afterwards.
     pub events: Vec<TabEvent>,
     /// Current theme colors for per-tab style overrides.
@@ -161,17 +166,6 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab_id: &mut TabId) {
-        // Take the search message if it belongs to this tab (consumes it exactly once).
-        let search_msg = if self
-            .search_msg
-            .as_ref()
-            .is_some_and(|(tid, _)| *tid == *tab_id)
-        {
-            self.search_msg.take().map(|(_, msg)| msg)
-        } else {
-            None
-        };
-
         // Snapshot recent files before the mutable tab borrow.
         let recent_files: Vec<String> = self.persistent_state.get_recent_files().to_vec();
 
@@ -201,7 +195,6 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         let previous_path = tab.central_panel.get_selected_path().cloned();
 
         // Copy primitive settings values before the mutable borrow of tab.
-        let cache_size = self.settings.performance.cache_size;
         let syntax_highlighting = self.settings.viewer.syntax_highlighting;
         let plugin_ui = tab.active_plugin_pane.as_ref().map(|p| &p.ui_output);
 
@@ -213,11 +206,10 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         let output = tab.central_panel.render(
             ui,
             CentralPanelProps {
+                tab_id: *tab_id,
                 file_path: &tab.file_path,
                 file_type: tab.file_type,
                 error: &tab.error,
-                search_message: search_msg,
-                cache_size,
                 syntax_highlighting,
                 plugin_ui,
                 recent_files: &recent_files,
@@ -302,6 +294,10 @@ impl egui_dock::TabViewer for ThothTabViewer<'_> {
         {
             pane.loader.on_tab_closed();
         }
+        // A scan whose tab is gone has nobody to deliver to.
+        if let Some(tab) = self.tabs.get_mut(tab_id) {
+            tab.central_panel.cancel_indexing();
+        }
         self.tabs.remove(tab_id);
         self.events.push(TabEvent::TabClosed(*tab_id));
         OnCloseResponse::Close
@@ -382,6 +378,17 @@ impl TabManager {
         id
     }
 
+    /// The tab already showing `path`, if one is.
+    ///
+    /// A bookmark that opens a file you have open should take you to it, not
+    /// open a second copy of it beside the first.
+    pub fn tab_for_path(&self, path: &std::path::Path) -> Option<TabId> {
+        self.tabs
+            .iter()
+            .find(|(_, tab)| tab.file_path.as_deref() == Some(path))
+            .map(|(id, _)| *id)
+    }
+
     /// Get the ID of the currently focused tab, if any.
     ///
     /// Falls back to the smallest-ID tab when the dock has no focus set yet
@@ -420,6 +427,9 @@ impl TabManager {
         // Remove from the dock tree first.
         if let Some(path) = self.dock_state.find_tab(&id) {
             self.dock_state.remove_tab(path);
+        }
+        if let Some(tab) = self.tabs.get_mut(&id) {
+            tab.central_panel.cancel_indexing();
         }
         self.tabs.remove(&id);
         was_empty

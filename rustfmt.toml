@@ -3,6 +3,5 @@
 # that stable rustfmt would otherwise reformat on every run.
 ignore = [
     "plugins/url-source/src/bindings.rs",
-    "plugins/csv-loader/src/bindings.rs",
     "plugins/seshat/src/bindings.rs",
 ]

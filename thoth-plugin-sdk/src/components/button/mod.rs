@@ -13,6 +13,11 @@ pub enum ButtonType {
     Elevated,
     /// Borderless text-only button — for low-emphasis / inline actions.
     Text,
+    /// Hairline-outlined button on no fill — design `.addbtn`. Reads as an
+    /// invitation rather than a control: quieter than [`Elevated`](Self::Elevated),
+    /// but unlike [`Text`](Self::Text) its edge says where the target is, which
+    /// is what an empty lane's "add" needs.
+    Outlined,
     /// Tinted button: the semantic colour washes the surface at low opacity and
     /// carries the label, instead of filling the button solid. Design `.btn.dsoft`
     /// (a soft [`ButtonColor::Danger`]) — quieter than [`Elevated`](Self::Elevated)
@@ -107,6 +112,11 @@ pub struct Button {
     #[builder(default = true)]
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// Optional keyboard hint, rendered as a small pill against the button's
+    /// trailing edge — design `.kbd`. Write it with
+    /// [`shortcut marks`](crate::theme), never a bare Unicode symbol.
+    #[serde(default)]
+    pub kbd: Option<String>,
     /// Optional leading icon — a Phosphor glyph rendered before the label.
     #[serde(default)]
     pub icon: Option<String>,

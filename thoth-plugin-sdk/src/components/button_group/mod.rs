@@ -53,4 +53,10 @@ pub struct ButtonGroups {
     #[builder(default)]
     #[serde(default)]
     pub active: String,
+    /// Preset size. [`Size::Medium`] is the design's `.seg` (a 23px track);
+    /// [`Size::Small`] is its `.seg.mini` (20px), for a control that sits
+    /// inside a lane or beside a heading rather than standing on its own.
+    #[builder(default)]
+    #[serde(default)]
+    pub size: crate::components::Size,
 }

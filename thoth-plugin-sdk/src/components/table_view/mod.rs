@@ -12,8 +12,10 @@ fn default_true() -> bool {
 
 /// A horizontally-scrollable, virtually-scrolled data grid with a sticky `#`
 /// row-number gutter, compact headers, zebra rows, and grid lines. Columns can
-/// be resized by dragging their edge; double-clicking a header auto-fits that
-/// column to its visible content without shrinking below `min_col_width`.
+/// be resized by dragging their edge, and auto-fitted to their visible content
+/// (never below `min_col_width`) from a header's right-click menu — or by
+/// double-clicking the header, unless [`sortable`](TableView::sortable) has
+/// claimed the click for sorting.
 ///
 /// Each cell is a [`RenderNode`], so cells can be plain text *or* rich nodes
 /// (a `json-tree`, a `badge`, a styled run, …). Only the visible rows are laid
@@ -66,6 +68,62 @@ pub struct TableView {
     #[builder(default = true)]
     #[serde(default = "default_true")]
     pub framed: bool,
+    /// Which column the rows are currently ordered by, if any — drawn as a
+    /// direction arrow in that header. The grid never reorders anything
+    /// itself: it shows a page of a result that may be far larger than the
+    /// page, and sorting only the page would order the wrong rows.
+    #[serde(default)]
+    pub sort: Option<SortBy>,
+    /// Offer sorting at all. When set, clicking a header emits
+    /// [`SORT_COLUMN`](crate::actions::SORT_COLUMN) carrying the sort the
+    /// click moves to (see [`TableView::next_sort`]), and it is the producer's
+    /// job to re-run the query and hand back the reordered rows.
+    ///
+    /// Off by default: a grid whose rows came from somewhere unsortable — a
+    /// plugin's own page, a text index — must not appear to offer it.
+    #[builder(default)]
+    #[serde(default)]
+    pub sortable: bool,
+}
+
+/// How a grid is ordered: one column, one direction.
+///
+/// Serialized as the [`SORT_COLUMN`](crate::actions::SORT_COLUMN) event's
+/// value, where `null` in place of it means the sort was cleared.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SortBy {
+    /// The column's header name — as [`TableView::headers`] spells it, with
+    /// any `"  ·  type"` suffix stripped.
+    pub column: String,
+    /// Largest first.
+    #[serde(default)]
+    pub descending: bool,
+}
+
+impl TableView {
+    /// The sort a click on `column` moves to, given `current`: a fresh column
+    /// starts ascending, a second click reverses it, and a third clears it.
+    ///
+    /// Three states rather than two because a cleared sort is the only way
+    /// back to the order the file itself has, which no direction can express.
+    pub fn next_sort(current: Option<&SortBy>, column: &str) -> Option<SortBy> {
+        match current {
+            Some(sort) if sort.column == column => (!sort.descending).then(|| SortBy {
+                column: column.to_string(),
+                descending: true,
+            }),
+            _ => Some(SortBy {
+                column: column.to_string(),
+                descending: false,
+            }),
+        }
+    }
+}
+
+/// A header label without its `"name  ·  type"` annotation — the name alone is
+/// what a sort names, and what the producer knows the column by.
+pub(crate) fn header_name(label: &str) -> &str {
+    label.split_once("  ·  ").map_or(label, |(name, _)| name)
 }
 
 impl Default for TableView {
@@ -161,5 +219,67 @@ impl ColumnType {
             ColumnType::Timestamp | ColumnType::Date | ColumnType::Time => "string",
             _ => "fg",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn asc(column: &str) -> SortBy {
+        SortBy {
+            column: column.to_string(),
+            descending: false,
+        }
+    }
+
+    fn desc(column: &str) -> SortBy {
+        SortBy {
+            column: column.to_string(),
+            descending: true,
+        }
+    }
+
+    #[test]
+    fn a_column_cycles_ascending_then_descending_then_off() {
+        let first = TableView::next_sort(None, "ts");
+        assert_eq!(first, Some(asc("ts")));
+        let second = TableView::next_sort(first.as_ref(), "ts");
+        assert_eq!(second, Some(desc("ts")));
+        // The third click leaves the file's own order, which no direction says.
+        assert_eq!(TableView::next_sort(second.as_ref(), "ts"), None);
+    }
+
+    #[test]
+    fn another_column_starts_its_own_cycle_rather_than_continuing_this_one() {
+        // Without this, clicking a second column while the first is descending
+        // would open it descending — a direction the user never asked for.
+        assert_eq!(
+            TableView::next_sort(Some(&desc("ts")), "level"),
+            Some(asc("level"))
+        );
+    }
+
+    #[test]
+    fn a_cleared_sort_serializes_as_null() {
+        // The event value is the whole `Option`, so "no sort" has a spelling
+        // and the producer is never left guessing from an empty string.
+        let cleared: Option<SortBy> = None;
+        assert_eq!(serde_json::to_string(&cleared).unwrap(), "null");
+        assert_eq!(
+            serde_json::to_string(&Some(desc("ts"))).unwrap(),
+            r#"{"column":"ts","descending":true}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<Option<SortBy>>("null").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_sort_names_the_column_without_its_type_annotation() {
+        // Headers carry `"name  ·  type"`; the producer knows only `name`.
+        assert_eq!(header_name("ts  ·  TIMESTAMP"), "ts");
+        assert_eq!(header_name("level"), "level");
     }
 }
