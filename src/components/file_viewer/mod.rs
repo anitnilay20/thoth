@@ -156,7 +156,12 @@ fn default_view(path: &Path) -> &'static str {
         // Records — the tree is the point.
         FileType::Json => "json",
         // Already rectangular.
-        FileType::Csv | FileType::Parquet | FileType::Excel | FileType::Arrow | FileType::DB => {
+        FileType::Csv
+        | FileType::Parquet
+        | FileType::Excel
+        | FileType::Arrow
+        | FileType::Avro
+        | FileType::DB => {
             "table"
         }
         // The extension said nothing, but reaching here means DuckDB read it

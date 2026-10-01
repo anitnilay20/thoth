@@ -549,7 +549,8 @@ Each WIT call replenishes fuel to **5,000,000,000 units** (`PLUGIN_FUEL_BUDGET`)
 ## Implementing a File Loader Plugin
 
 > **Pick a format the engine cannot already read.** DuckDB reads JSON, NDJSON,
-> CSV, TSV, Parquet, Excel and SQLite/DuckDB databases natively, and the host
+> CSV, TSV, Parquet, Excel, Arrow, Avro and SQLite/DuckDB databases natively,
+> and the host
 > hands those straight to it — a plugin claiming `.csv` is never consulted for
 > one. Write a loader for what the engine has no reader for: XML, a proprietary
 > binary log, an instrument's export format. The worked example below is an XML

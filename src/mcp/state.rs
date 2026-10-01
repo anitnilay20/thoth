@@ -99,6 +99,7 @@ impl OpenFile {
             FileType::Parquet => "parquet",
             FileType::Excel => "excel",
             FileType::Arrow => "arrow",
+            FileType::Avro => "avro",
             FileType::DB => "database",
             FileType::Plugin => "plugin",
         }

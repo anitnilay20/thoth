@@ -252,6 +252,10 @@ impl DuckdbConnection {
                 self.load_extension("arrow");
                 format!("read_arrow({literal})")
             }
+            FileType::Avro => {
+                self.load_extension("avro");
+                format!("read_avro({literal})")
+            }
             FileType::DB => return self.register_database(alias, scan_path),
         };
         self.execute(&format!(
@@ -1173,6 +1177,43 @@ mod tests {
         tmp.write_all(contents.as_bytes()).unwrap();
         tmp.flush().unwrap();
         tmp
+    }
+
+    /// Needs the reader, which is a separate download — the same bargain
+    /// `excel` and `arrow` make. Run it with the extension installed:
+    /// `duckdb -c "INSTALL avro"`, then `cargo test -- --ignored avro`.
+    #[test]
+    #[ignore = "requires the DuckDB avro extension (INSTALL avro)"]
+    fn an_avro_container_opens_as_a_table() {
+        let mut tmp = tempfile::Builder::new().suffix(".avro").tempfile().unwrap();
+        tmp.write_all(&crate::file::avro_container(&[
+            ("alpha", 1),
+            ("beta", -2),
+            ("gamma", 300),
+        ]))
+        .unwrap();
+        tmp.flush().unwrap();
+
+        let db = DuckdbConnection::new().unwrap();
+        db.register_scan("avro_rows", FileType::Avro, tmp.path())
+            .expect("the avro reader opens the container");
+
+        let rows = db
+            .collect("SELECT name, id FROM avro_rows ORDER BY id")
+            .expect("reading it back");
+        let mut buf = Vec::new();
+        let mut writer = arrow::json::ArrayWriter::new(&mut buf);
+        for batch in &rows {
+            writer.write(batch).unwrap();
+        }
+        writer.finish().unwrap();
+        let json = String::from_utf8(buf).unwrap();
+        // Written by hand from the spec, so this is as much a check of the
+        // container as of the reader: a negative long exercises the zigzag,
+        // and 300 exercises the second varint byte.
+        assert!(json.contains("beta"), "{json}");
+        assert!(json.contains("gamma"), "{json}");
+        assert!(json.contains("300"), "{json}");
     }
 
     #[test]

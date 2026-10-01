@@ -137,6 +137,7 @@ impl From<FileType> for FileKind {
             | FileType::Parquet
             | FileType::Excel
             | FileType::Arrow
+            | FileType::Avro
             | FileType::DB => FileKind::Json,
             FileType::Plugin => FileKind::Plugin,
             FileType::Unknown => FileKind::Json,

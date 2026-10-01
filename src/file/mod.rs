@@ -25,6 +25,7 @@ pub enum FileType {
     Parquet,
     Excel,
     Arrow,
+    Avro,
     DB,
     Plugin,
     #[default]
@@ -52,6 +53,12 @@ impl FileType {
                 if n >= 4 && &head[0..4] == b"PAR1" && has_trailing_par1(&mut file) {
                     return FileType::Parquet;
                 }
+                // Avro object container file: "Obj" and the format's version
+                // byte. The schema follows in the header, which is why an
+                // `.avro` needs no sniffing beyond this.
+                if n >= 4 && &head[0..4] == b"Obj\x01" {
+                    return FileType::Avro;
+                }
             }
         }
 
@@ -67,6 +74,7 @@ impl FileType {
             Some("parquet") | Some("pq") => FileType::Parquet,
             Some("xlsx") | Some("xlsm") => FileType::Excel,
             Some("arrow") | Some("arrows") | Some("ipc") => FileType::Arrow,
+            Some("avro") => FileType::Avro,
             Some("db") | Some("duckdb") | Some("sqlite") | Some("sqlite3") => FileType::DB,
             Some("duckdb_extension") | Some("so") | Some("dll") | Some("dylib") => FileType::Plugin,
             _ => FileType::Unknown,
@@ -94,6 +102,7 @@ impl FileType {
                 | FileType::Parquet
                 | FileType::Excel
                 | FileType::Arrow
+                | FileType::Avro
                 | FileType::DB
         )
     }
@@ -123,6 +132,7 @@ impl FileType {
             FileType::Parquet => "Parquet",
             FileType::Excel => "Excel",
             FileType::Arrow => "Arrow",
+            FileType::Avro => "Avro",
             FileType::DB => "Database",
             FileType::Plugin => "Plugin",
             FileType::Unknown => "Unknown",
@@ -163,4 +173,104 @@ fn has_trailing_par1(file: &mut File) -> bool {
 pub(crate) fn downloaded(name: &str) -> Option<std::path::PathBuf> {
     let path = dirs::home_dir()?.join("Downloads").join(name);
     path.exists().then_some(path)
+}
+
+/// Build a minimal Avro object container file.
+///
+/// Written out by hand rather than pulled from a crate or a committed blob:
+/// the format is a header (`Obj\x01`, a metadata map carrying the writer's
+/// schema, a 16-byte sync marker) followed by blocks of records, and a test
+/// that assembles one checks the detector against the bytes the spec calls
+/// for rather than against a fixture nobody in the repo can read.
+#[cfg(test)]
+pub(crate) fn avro_container(rows: &[(&str, i64)]) -> Vec<u8> {
+    const SCHEMA: &str = concat!(
+        r#"{"type":"record","name":"r","fields":["#,
+        r#"{"name":"name","type":"string"},{"name":"id","type":"long"}]}"#
+    );
+
+    /// Avro writes integers zigzag-encoded, then as a LEB128 varint.
+    fn long(n: i64, out: &mut Vec<u8>) {
+        let mut v = ((n << 1) ^ (n >> 63)) as u64;
+        loop {
+            if v & !0x7f == 0 {
+                out.push(v as u8);
+                return;
+            }
+            out.push(((v & 0x7f) | 0x80) as u8);
+            v >>= 7;
+        }
+    }
+
+    /// A string and a byte string share one encoding: a length, then the bytes.
+    fn bytes(s: &str, out: &mut Vec<u8>) {
+        long(s.len() as i64, out);
+        out.extend_from_slice(s.as_bytes());
+    }
+
+    // Any 16 bytes will do, so long as the header and every block agree.
+    let sync = [0x42u8; 16];
+
+    let mut out = b"Obj\x01".to_vec();
+    long(2, &mut out); // two metadata entries ...
+    bytes("avro.schema", &mut out);
+    bytes(SCHEMA, &mut out);
+    bytes("avro.codec", &mut out);
+    bytes("null", &mut out);
+    long(0, &mut out); // ... and the empty block that ends the map
+    out.extend_from_slice(&sync);
+
+    let mut block = Vec::new();
+    for (name, id) in rows {
+        bytes(name, &mut block);
+        long(*id, &mut block);
+    }
+    long(rows.len() as i64, &mut out);
+    long(block.len() as i64, &mut out);
+    out.extend_from_slice(&block);
+    out.extend_from_slice(&sync);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_avro_container_is_known_by_its_bytes_not_its_name() {
+        // Magic bytes come first for a reason: a file named `.bin` is still
+        // the format its header says it is.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let path = dir.path().join("records.bin");
+        std::fs::write(&path, avro_container(&[("alpha", 1), ("beta", -2)]))
+            .expect("writing the container");
+        assert_eq!(FileType::from_path(&path), FileType::Avro);
+    }
+
+    #[test]
+    fn an_avro_file_is_known_by_its_extension_too() {
+        // Nothing to sniff — an empty file still has a name, and the name is
+        // what the user chose when they saved it.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let path = dir.path().join("records.avro");
+        std::fs::write(&path, b"").expect("writing an empty file");
+        assert_eq!(FileType::from_path(&path), FileType::Avro);
+    }
+
+    #[test]
+    fn a_header_that_only_starts_like_avro_is_not_avro() {
+        // "Obj" without the version byte is some other file beginning with a
+        // word. The fourth byte is what makes it a container.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let path = dir.path().join("notes.bin");
+        std::fs::write(&path, b"Object storage notes").expect("writing the file");
+        assert_ne!(FileType::from_path(&path), FileType::Avro);
+    }
+
+    #[test]
+    fn the_engine_claims_avro_as_its_own() {
+        // `is_native` is what stops a plugin shadowing DuckDB's reader.
+        assert!(FileType::Avro.is_native());
+        assert_eq!(FileType::Avro.label(), "Avro");
+    }
 }

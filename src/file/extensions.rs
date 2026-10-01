@@ -126,6 +126,7 @@ pub fn required_for(file_type: FileType) -> Option<Extension> {
     let wanted: &[&str] = match file_type {
         FileType::Excel => &["xlsx", "xlsm"],
         FileType::Arrow => &["arrow", "arrows", "ipc"],
+        FileType::Avro => &["avro"],
         _ => return None,
     };
     catalog()

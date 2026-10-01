@@ -339,6 +339,15 @@ impl PersistentState {
             .collect()
     }
 
+    /// Every saved query, newest first, whatever file it was written on.
+    ///
+    /// The sidebar lists these as bookmarks: a query names the file it belongs
+    /// to, so choosing one from another file is a request to open that file
+    /// and arrive with the query already applied.
+    pub fn all_saved_queries(&self) -> Vec<&SavedQuery> {
+        self.saved_queries.iter().collect()
+    }
+
     /// One saved query by id.
     pub fn saved_query(&self, id: &str) -> Option<&SavedQuery> {
         self.saved_queries.iter().find(|q| q.id == id)
@@ -584,6 +593,39 @@ mod tests {
         assert_eq!(a[0].name, "errors");
         assert_eq!(state.saved_queries("/b.json").len(), 1);
         assert!(state.saved_queries("/never-opened.json").is_empty());
+    }
+
+    #[test]
+    fn every_saved_query_is_reachable_as_a_bookmark() {
+        // The sidebar lists the open file's queries *and* every other file's,
+        // so a query written on a file you closed is still a way back to it.
+        let mut state = empty_state();
+        state.save_query("/a.json".into(), "errors".into(), spec_on("level"), None);
+        state.save_query("/b.json".into(), "slow".into(), spec_on("ms"), None);
+
+        let all = state.all_saved_queries();
+        assert_eq!(all.len(), 2);
+
+        // Split the way the sidebar splits it: this file, then the rest.
+        let others: Vec<_> = all
+            .iter()
+            .filter(|q| q.file_path != "/a.json")
+            .map(|q| q.name.as_str())
+            .collect();
+        assert_eq!(others, ["slow"]);
+        assert_eq!(state.saved_queries("/a.json").len(), 1);
+    }
+
+    #[test]
+    fn a_bookmark_remembers_which_file_to_open() {
+        // Applying one from another file means opening that file first, so the
+        // path has to survive the round trip through storage.
+        let mut state = empty_state();
+        let id = state.save_query("/logs/b.json".into(), "slow".into(), spec_on("ms"), None);
+        assert_eq!(
+            state.saved_query(&id).expect("just saved").file_path,
+            "/logs/b.json"
+        );
     }
 
     #[test]

@@ -41,6 +41,9 @@ pub struct SidebarProps<'a> {
     pub recent_files: &'a [String],
     /// The open file's saved queries, newest first.
     pub saved_queries: &'a [&'a SavedQuery],
+    /// Saved queries belonging to every *other* file — the bookmark half of
+    /// the list.
+    pub other_saved_queries: &'a [&'a SavedQuery],
     /// Which of them is currently applied.
     pub applied_query: Option<&'a str>,
     pub current_file_path: Option<&'a str>,
@@ -227,6 +230,7 @@ impl Sidebar {
                     ui,
                     SavedQueriesProps {
                         queries: props.saved_queries,
+                        others: props.other_saved_queries,
                         applied: props.applied_query,
                         current_file_path: props.current_file_path,
                     },

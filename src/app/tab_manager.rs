@@ -28,6 +28,12 @@ pub struct TabState {
     pub total_items: usize,
     pub navigation_history: NavigationHistory,
     pub pending_navigation: Option<String>,
+    /// A saved query to apply the moment this tab's file finishes loading.
+    ///
+    /// Opening a file is not instant, and a query applied before the engine
+    /// knows the file's columns is a query against nothing — so a bookmark
+    /// chosen from the sidebar parks its id here and `FileOpened` spends it.
+    pub pending_saved_query: Option<String>,
     pub active_plugin_pane: Option<ActivePluginPane>,
     pub plugin_sidebar_output: Option<UiOutput>,
     pub central_panel: CentralPanel,
@@ -46,6 +52,7 @@ impl TabState {
             total_items: 0,
             navigation_history: NavigationHistory::with_capacity(nav_capacity),
             pending_navigation: None,
+            pending_saved_query: None,
             active_plugin_pane: None,
             plugin_sidebar_output: None,
             central_panel: CentralPanel::default(),
@@ -369,6 +376,17 @@ impl TabManager {
             .insert(id, TabState::new(id, Some(path), nav_capacity));
         self.dock_state.push_to_focused_leaf(id);
         id
+    }
+
+    /// The tab already showing `path`, if one is.
+    ///
+    /// A bookmark that opens a file you have open should take you to it, not
+    /// open a second copy of it beside the first.
+    pub fn tab_for_path(&self, path: &std::path::Path) -> Option<TabId> {
+        self.tabs
+            .iter()
+            .find(|(_, tab)| tab.file_path.as_deref() == Some(path))
+            .map(|(id, _)| *id)
     }
 
     /// Get the ID of the currently focused tab, if any.

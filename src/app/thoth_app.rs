@@ -1806,6 +1806,53 @@ impl ThothApp {
     /// The builder reports the intent and never persists anything itself: only
     /// the host knows which file the query belongs to, and a query saved
     /// against the wrong file is one that fails the moment it is applied.
+    /// Apply a saved query, wherever its file is.
+    ///
+    /// Three cases, and the user should not have to know which they are in:
+    /// its file is the one in front of them, so it applies where they stand;
+    /// its file is open in another tab, so that tab comes forward rather than
+    /// a second copy of the file opening beside it; or the file is not open,
+    /// so it opens and the query is parked until it has loaded.
+    fn apply_saved_query_anywhere(&mut self, id: &str, nav_capacity: usize) {
+        let Some((file_path, spec, sql)) = self
+            .core
+            .persistent_state
+            .saved_query(id)
+            .map(|q| (PathBuf::from(&q.file_path), q.spec.clone(), q.sql.clone()))
+        else {
+            return;
+        };
+
+        let here = self
+            .window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|tab| tab.file_path.clone());
+        if here.as_deref() == Some(file_path.as_path())
+            && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+        {
+            tab.central_panel.apply_saved_query(id, spec, sql);
+            return;
+        }
+
+        if let Some(tab_id) = self.window_state.tab_manager.tab_for_path(&file_path) {
+            self.window_state.tab_manager.focus_tab(tab_id);
+            if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
+                tab.central_panel.apply_saved_query(id, spec, sql);
+            }
+            return;
+        }
+
+        let tab_id = self
+            .window_state
+            .tab_manager
+            .open_file(file_path, nav_capacity);
+        if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
+            tab.pending_saved_query = Some(id.to_string());
+        }
+        self.core.session_dirty = true;
+    }
+
     fn handle_saved_query_requests(&mut self) {
         use thoth_plugin_sdk::components::SavedAction;
 
@@ -1871,6 +1918,7 @@ impl ThothApp {
                     );
                     let _ = self.core.persistent_state.save();
                 }
+                let mut pending_query = None;
                 if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
                     tab.file_path = Some(path);
                     tab.file_type = file_type;
@@ -1879,6 +1927,21 @@ impl ThothApp {
                     tab.plugin_sidebar_output = None;
                     if let Some(pending_path) = tab.pending_navigation.take() {
                         tab.central_panel.navigate_to_path(pending_path);
+                    }
+                    pending_query = tab.pending_saved_query.take();
+                }
+                if let Some(query_id) = pending_query {
+                    // Now the engine knows the file's columns, which is what
+                    // the query is written in terms of.
+                    let saved = self
+                        .core
+                        .persistent_state
+                        .saved_query(&query_id)
+                        .map(|q| (q.spec.clone(), q.sql.clone()));
+                    if let Some((spec, sql)) = saved
+                        && let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
+                    {
+                        tab.central_panel.apply_saved_query(&query_id, spec, sql);
                     }
                 }
                 self.core.session_dirty = true;
@@ -2020,13 +2083,22 @@ impl ThothApp {
         self.window_state.sidebar.set_chart_open(open_charts);
 
         // A query is saved against the file it was written on, so the list is
-        // the open file's and nothing else.
+        // in two halves: the open file's, which apply where the user already
+        // is, and every other file's, which are bookmarks — choosing one opens
+        // its file and arrives with the query applied.
         let file_for_queries = current_file_path
             .as_ref()
             .and_then(|p| p.to_str())
             .unwrap_or_default()
             .to_string();
         let saved_queries = self.core.persistent_state.saved_queries(&file_for_queries);
+        let other_saved_queries: Vec<&crate::app::persistent_state::SavedQuery> = self
+            .core
+            .persistent_state
+            .all_saved_queries()
+            .into_iter()
+            .filter(|q| q.file_path != file_for_queries)
+            .collect();
         let applied_query = self
             .window_state
             .tab_manager
@@ -2038,6 +2110,7 @@ impl ThothApp {
             components::sidebar::SidebarProps {
                 recent_files: self.core.persistent_state.get_recent_files(),
                 saved_queries: &saved_queries,
+                other_saved_queries: &other_saved_queries,
                 applied_query: applied_query.as_deref(),
                 current_file_path: current_file_path.as_ref().and_then(|p| p.to_str()),
                 expanded: self.window_state.sidebar_expanded,
@@ -2131,16 +2204,7 @@ impl ThothApp {
                     let _ = self.core.persistent_state.save();
                 }
                 components::sidebar::SidebarEvent::ApplySavedQuery(id) => {
-                    let saved = self
-                        .core
-                        .persistent_state
-                        .saved_query(&id)
-                        .map(|q| (q.spec.clone(), q.sql.clone()));
-                    if let Some((spec, sql)) = saved
-                        && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                    {
-                        tab.central_panel.apply_saved_query(&id, spec, sql);
-                    }
+                    self.apply_saved_query_anywhere(&id, nav_capacity);
                 }
                 components::sidebar::SidebarEvent::DeleteSavedQuery(id) => {
                     self.core.persistent_state.remove_query(&id);
