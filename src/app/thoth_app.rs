@@ -1774,9 +1774,15 @@ impl ThothApp {
             .persistent_state
             .saved_queries(&file_path)
             .into_iter()
-            .map(|q| SavedQueryRef {
-                id: q.id.clone(),
-                name: q.name.clone(),
+            .map(|q| {
+                let summary = q.spec.summary();
+                SavedQueryRef {
+                    id: q.id.clone(),
+                    name: q.name.clone(),
+                    // Saying the same thing twice is noise, so a query named
+                    // after what it does gets one line, not two.
+                    summary: (summary != q.name).then_some(summary),
+                }
             })
             .collect();
 

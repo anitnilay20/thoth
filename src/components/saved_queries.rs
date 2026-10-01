@@ -80,8 +80,15 @@ impl StatefulComponent for SavedQueries {
 
         // `List` owns its own scroll area — no outer one. `shrink_to_fit` sizes
         // it to its rows and lets the sidebar's scroll area do the scrolling.
+        // The key, written the way this machine writes it. A hardcoded "Cmd+S"
+        // is wrong on every platform but one.
+        let nothing_yet = format!(
+            "Nothing saved yet — {}S saves the query as it stands: table, \
+             filters, grouping and columns together.",
+            crate::shortcuts::marks::command()
+        );
         let empty = match props.current_file_path {
-            Some(_) => "No saved queries for this file — build one and press Cmd+S",
+            Some(_) => nothing_yet.as_str(),
             None => "Open a file to see the queries saved for it",
         };
         let event = List::builder()

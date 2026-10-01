@@ -11,8 +11,8 @@ use egui::{Align, Layout, Margin, vec2};
 
 use crate::components::{
     Badge, Button, ButtonColor, ButtonGroupItem, ButtonGroups, ButtonType, CodeEditor,
-    CodeEditorOutput, ColumnType, IconButton, Input, NumberInput, Select, SelectOption, Size,
-    Typography, TypographyVariant,
+    CodeEditorOutput, ColumnType, ContextMenuItem, IconButton, Input, Menu, NumberInput, Select,
+    SelectOption, Size, Typography, TypographyVariant,
 };
 use crate::theme::{
     FONT_CAPTION, RADIUS_CONTROL, ThemeColors, color_to_hex, edge_stroke, hover_text,
@@ -69,8 +69,13 @@ const VALUE_HALF_WIDTH: f32 = 68.0;
 const SEARCHABLE_FROM: usize = 12;
 /// The inline name field — design `.field.namefield{width:248px}`.
 const NAME_FIELD_W: f32 = 248.0;
-/// The saved-query picker's trigger width.
-const SAVED_SEL_W: f32 = 150.0;
+/// The saved-query menu's trigger — design `.savedsel{max-width:210px}`.
+const SAVED_SEL_W: f32 = 210.0;
+/// Its dropped sheet — design `.menu.savedmenu{min-width:284px}`. Wider than
+/// the trigger because a row says the query as well as its name.
+const SAVED_MENU_W: f32 = 284.0;
+/// Design `.savedsel.dirty .lbl::after` — the one place this dot is used.
+const DIRTY_DOT: &str = " \u{2022}";
 /// Ceiling on the row limit. The builder always bounds its own result; this
 /// bounds how far that bound can be pushed from the spinner.
 const MAX_LIMIT: f64 = 1_000_000.0;
@@ -450,54 +455,35 @@ impl QueryBuilder {
             return;
         }
 
-        // Update is offered only when there is something to update *to* — a
-        // query applied and since edited. Otherwise the picker alone.
-        if self.saved_dirty
-            && let Some(id) = self.saved_id.clone()
-            && ui
-                .add(
-                    Button::builder()
-                        .label("Update")
-                        .icon(egui_phosphor::regular::FLOPPY_DISK)
-                        .button_type(ButtonType::Text)
-                        .button_size(Size::Small)
-                        .hover_text("Point the saved query at the query as it now stands")
-                        .build(),
-                )
-                .clicked()
-        {
-            *saved_action = Some(super::SavedAction::Update(id));
-        }
+        // One control, not three. Saving, re-saving and choosing are all
+        // things you do *to* the saved queries, so they live in the same menu
+        // the queries do — design `.savedmenu`, whose head is the save action
+        // and whose body is the list.
+        let menu = saved_menu(&self.saved, self.saved_id.as_deref(), self.saved_dirty);
 
-        if self.saved.is_empty() {
-            return;
-        }
-        let options: Vec<SelectOption> = self
-            .saved
-            .iter()
-            .map(|q| {
-                SelectOption::builder()
-                    .value(q.id.clone())
-                    .label(q.name.clone())
-                    .build()
-            })
-            .collect();
-        let picked = Select::builder()
+        let picked = Menu::builder()
             .id(format!("{}_saved", self.id))
-            .value(self.saved_id.clone().unwrap_or_default())
-            .options(options)
-            .prefix_label("Saved")
+            .label(menu.label)
             .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+            .items(menu.items)
             .size(Size::Small)
             .width(SAVED_SEL_W)
-            .searchable(self.saved.len() > SEARCHABLE_FROM)
+            .min_width(SAVED_MENU_W)
+            .hover_text(menu.hover)
             .build()
             .show(ui)
-            .inner
-            .selected;
-        if let Some(id) = picked.filter(|id| Some(id) != self.saved_id.as_ref()) {
-            *saved_action = Some(super::SavedAction::Apply(id));
+            .inner;
+
+        if let Some(index) = picked {
+            if index == menu.begins_naming {
+                // Naming *is* the save: there is nothing for the host to store
+                // until the query has something to be called.
+                *naming = true;
+            } else if let Some(action) = menu.actions.get(index).cloned().flatten() {
+                *saved_action = Some(action);
+            }
         }
+
     }
 
     /// The query read back as one chip per clause — design `.qchip`.
@@ -1404,6 +1390,94 @@ fn field_select_focused(
     pill_select_inner(ui, id, current, current, options, searchable, focus)
 }
 
+/// The saved-query menu: its trigger's label and hover, its entries, and what
+/// each entry does.
+struct SavedMenu {
+    label: String,
+    hover: String,
+    items: Vec<ContextMenuItem>,
+    /// What each entry does. `None` for a separator and for the save entry,
+    /// which is `begins_naming` rather than an action — the host has nothing
+    /// to store until the query has a name.
+    actions: Vec<Option<super::SavedAction>>,
+    begins_naming: usize,
+}
+
+/// Build it. Pure, so the one thing that has to be true of it — that there is
+/// always a way to save, including before anything has been saved — is a test
+/// and not a screenshot.
+fn saved_menu(saved: &[super::SavedQueryRef], applied: Option<&str>, dirty: bool) -> SavedMenu {
+    let active = applied.and_then(|id| saved.iter().find(|q| q.id == id));
+
+    let mut items: Vec<ContextMenuItem> = Vec::new();
+    let mut actions: Vec<Option<super::SavedAction>> = Vec::new();
+
+    // Head. Editing a query you applied gives you both choices — overwrite it,
+    // or keep it and start another — because only you know which you meant.
+    if let Some(active) = active.filter(|_| dirty) {
+        items.push(
+            ContextMenuItem::builder()
+                .label(format!("Update \u{201c}{}\u{201d}", active.name))
+                .icon(egui_phosphor::regular::FLOPPY_DISK)
+                .build(),
+        );
+        actions.push(Some(super::SavedAction::Update(active.id.clone())));
+        items.push(
+            ContextMenuItem::builder()
+                .label("Save as new")
+                .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+                .shortcut(format!("{}S", modifier()))
+                .build(),
+        );
+    } else {
+        items.push(
+            ContextMenuItem::builder()
+                .label("Save this query")
+                .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+                .shortcut(format!("{}S", modifier()))
+                .build(),
+        );
+    }
+    // Whichever head was pushed, the save is the last entry of it.
+    let begins_naming = items.len() - 1;
+    actions.push(None);
+
+    if !saved.is_empty() {
+        items.push(ContextMenuItem::separator());
+        actions.push(None);
+        for query in saved {
+            items.push(
+                ContextMenuItem::builder()
+                    .label(query.name.clone())
+                    .maybe_description(query.summary.clone())
+                    .checked(applied == Some(query.id.as_str()))
+                    .build(),
+            );
+            actions.push(Some(super::SavedAction::Apply(query.id.clone())));
+        }
+    }
+
+    let label = match active {
+        Some(active) if dirty => format!("{}{DIRTY_DOT}", active.name),
+        Some(active) => active.name.clone(),
+        None => "Saved".to_string(),
+    };
+    let hover = match active {
+        Some(active) if dirty => format!("{} \u{2014} edited since it was saved", active.name),
+        Some(active) => active.name.clone(),
+        None if saved.len() == 1 => "1 saved query".to_string(),
+        None => format!("{} saved queries", saved.len()),
+    };
+
+    SavedMenu {
+        label,
+        hover,
+        items,
+        actions,
+        begins_naming,
+    }
+}
+
 /// Stable key for one of the builder's remembered focus endpoints.
 fn end_key(id: &str, which: &'static str) -> egui::Id {
     egui::Id::new((id, which))
@@ -1973,6 +2047,100 @@ mod tests {
         // It stays there however often it is pressed, and still adds nothing.
         assert_eq!(press(&mut builder), on_the_button);
         assert_eq!(builder.spec.filters.len(), 1);
+    }
+
+    fn saved_ref(id: &str, name: &str) -> crate::components::SavedQueryRef {
+        crate::components::SavedQueryRef {
+            id: id.to_string(),
+            name: name.to_string(),
+            summary: Some(format!("{name} — level = error")),
+        }
+    }
+
+    /// The bug this menu exists to fix. The picker used to be hidden until
+    /// something had been saved, so on a file with no saved queries there was
+    /// no way to save one except a shortcut nothing on screen mentioned.
+    #[test]
+    fn saving_is_offered_before_anything_has_been_saved() {
+        let menu = saved_menu(&[], None, false);
+        assert_eq!(menu.items.len(), 1, "{:?}", menu.items);
+        assert_eq!(menu.items[0].label, "Save this query");
+        assert_eq!(menu.begins_naming, 0);
+        assert!(
+            menu.items[0].shortcut.is_some(),
+            "and it names the shortcut, so the key is discoverable too"
+        );
+        assert_eq!(menu.label, "Saved");
+    }
+
+    /// Editing a query you applied offers both: overwrite it, or keep it and
+    /// start another. Only the user knows which they meant.
+    #[test]
+    fn an_edited_query_can_be_updated_or_saved_as_a_new_one() {
+        let saved = vec![saved_ref("q1", "Errors")];
+        let menu = saved_menu(&saved, Some("q1"), true);
+
+        assert_eq!(menu.items[0].label, "Update \u{201c}Errors\u{201d}");
+        assert_eq!(
+            menu.actions[0],
+            Some(crate::components::SavedAction::Update("q1".to_string()))
+        );
+        assert_eq!(menu.items[1].label, "Save as new");
+        assert_eq!(menu.begins_naming, 1, "saving as new names it first");
+        assert!(menu.actions[1].is_none());
+
+        // The trigger says which query, and that it has moved on from it.
+        assert_eq!(menu.label, format!("Errors{DIRTY_DOT}"));
+        assert!(menu.hover.contains("edited since it was saved"));
+    }
+
+    /// An unedited query has nothing to update *to*, so it is not offered.
+    #[test]
+    fn an_unedited_query_is_not_offered_an_update() {
+        let saved = vec![saved_ref("q1", "Errors")];
+        let menu = saved_menu(&saved, Some("q1"), false);
+        assert_eq!(menu.items[0].label, "Save this query");
+        assert_eq!(menu.begins_naming, 0);
+        assert_eq!(menu.label, "Errors", "and the trigger wears no dot");
+    }
+
+    /// The queries themselves sit under a rule, each applying itself, with the
+    /// one in force ticked.
+    #[test]
+    fn the_saved_queries_follow_the_head_under_a_rule() {
+        let saved = vec![saved_ref("q1", "Errors"), saved_ref("q2", "Slow")];
+        let menu = saved_menu(&saved, Some("q2"), false);
+
+        assert!(menu.items[1].separator);
+        assert!(menu.actions[1].is_none(), "a rule does nothing");
+        assert_eq!(menu.items[2].label, "Errors");
+        assert_eq!(
+            menu.actions[2],
+            Some(crate::components::SavedAction::Apply("q1".to_string()))
+        );
+        assert!(!menu.items[2].checked);
+        assert!(menu.items[3].checked, "the one in force is ticked");
+        assert!(
+            menu.items[3].description.is_some(),
+            "and says what it does, not only what it is called"
+        );
+        assert_eq!(menu.items.len(), menu.actions.len());
+    }
+
+    /// Every entry's action is reachable at the index the menu reports.
+    #[test]
+    fn no_entry_is_left_without_a_meaning() {
+        let saved = vec![saved_ref("q1", "Errors"), saved_ref("q2", "Slow")];
+        for (applied, dirty) in [(None, false), (Some("q1"), false), (Some("q1"), true)] {
+            let menu = saved_menu(&saved, applied, dirty);
+            assert_eq!(menu.items.len(), menu.actions.len(), "{applied:?} {dirty}");
+            for (index, item) in menu.items.iter().enumerate() {
+                let handled = index == menu.begins_naming
+                    || item.separator
+                    || menu.actions[index].is_some();
+                assert!(handled, "entry {index} ({}) does nothing", item.label);
+            }
+        }
     }
 
     #[test]

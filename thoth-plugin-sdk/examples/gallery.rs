@@ -54,6 +54,7 @@ enum Story {
     Separator,
     Input,
     Select,
+    Menu,
     ToggleSwitch,
     IconButton,
     SidebarHeader,
@@ -90,6 +91,7 @@ const STORIES: &[(Story, &str)] = &[
     (Story::Separator, "Separator"),
     (Story::Input, "Input"),
     (Story::Select, "Select"),
+    (Story::Menu, "Menu"),
     (Story::ToggleSwitch, "Toggle Switch"),
     (Story::IconButton, "Icon Button"),
     (Story::SidebarHeader, "Sidebar Header"),
@@ -144,6 +146,8 @@ struct Gallery {
     select: Select,
     /// Which table the searchable picker is pointed at.
     table: String,
+    /// What the gallery's menu last reported, so a pick is visible.
+    menu_picked: String,
     toggled: bool,
     row_selected: bool,
     last_header_action: Option<usize>,
@@ -186,6 +190,7 @@ impl Default for Gallery {
                 .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
                 .build(),
             table: "events".to_string(),
+            menu_picked: "Errors today".to_string(),
             select: Select::builder()
                 .id("gallery-select")
                 .value("name")
@@ -329,6 +334,7 @@ impl eframe::App for Gallery {
                 Story::Separator => self.separator_story(ui),
                 Story::Input => self.input_story(ui),
                 Story::Select => self.select_story(ui),
+                Story::Menu => self.menu_story(ui),
                 Story::ToggleSwitch => self.toggle_story(ui),
                 Story::IconButton => self.icon_button_story(ui),
                 Story::SidebarHeader => self.sidebar_header_story(ui),
@@ -661,6 +667,72 @@ impl Gallery {
             .count("4,812")
             .width(212.0)
             .disabled(true)
+            .build()
+            .show(ui);
+    }
+
+    fn menu_story(&mut self, ui: &mut egui::Ui) {
+        use thoth_plugin_sdk::components::{ContextMenuItem, Menu};
+
+        ui.heading("Menu");
+        ui.add_space(8.0);
+        ui.label(
+            "A select offers values and keeps the one you pick. A menu offers \
+             actions and keeps nothing — so a head that saves sits in the same \
+             list as the things already saved.",
+        );
+        ui.add_space(12.0);
+
+        let items = vec![
+            ContextMenuItem::builder()
+                .label("Save this query")
+                .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+                .shortcut("\u{2318}S")
+                .build(),
+            ContextMenuItem::separator(),
+            ContextMenuItem::builder()
+                .label("Errors today")
+                .description("level = error · sorted by time")
+                .checked(true)
+                .build(),
+            ContextMenuItem::builder()
+                .label("Slow requests")
+                .description("ms > 500")
+                .build(),
+            ContextMenuItem::builder()
+                .label("Archived")
+                .description("not available on this file")
+                .disabled(true)
+                .build(),
+        ];
+
+        if let Some(index) = Menu::builder()
+            .id("gallery-menu")
+            .label(self.menu_picked.clone())
+            .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+            .items(items.clone())
+            .width(210.0)
+            .min_width(284.0)
+            .hover_text("2 saved queries")
+            .build()
+            .show(ui)
+            .inner
+        {
+            self.menu_picked = items[index].label.clone();
+        }
+
+        ui.add_space(16.0);
+        ui.label("Small, as the query head wears it");
+        ui.add_space(8.0);
+        Menu::builder()
+            .id("gallery-menu-sm")
+            .label("Saved")
+            .icon(egui_phosphor::regular::BOOKMARK_SIMPLE)
+            .items(vec![
+                ContextMenuItem::builder().label("Save this query").build(),
+            ])
+            .size(thoth_plugin_sdk::components::Size::Small)
+            .width(150.0)
             .build()
             .show(ui);
     }

@@ -16,6 +16,11 @@ const ROW_GAP: f32 = 8.0;
 const SEP_INSET: f32 = 6.0;
 /// A disabled row's text, as a fraction of normal.
 const DISABLED_ALPHA: u8 = 110;
+/// Height a second line adds to a row — design `.srow .sub{font-size:10.5px}`
+/// on its own line under the name.
+const DESC_HEIGHT: f32 = 13.0;
+/// The second line's size.
+const FONT_DESC: f32 = 10.5;
 
 impl ContextMenu {
     /// Draw the menu, returning the index of the entry chosen.
@@ -46,8 +51,9 @@ impl ContextMenu {
     /// One entry. Returns whether it was chosen.
     fn row(&self, ui: &mut egui::Ui, item: &ContextMenuItem, colors: &ThemeColors) -> bool {
         let width = ui.available_width().max(self.min_width);
+        let height = FIELD_HEIGHT + if item.description.is_some() { DESC_HEIGHT } else { 0.0 };
         let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(width, FIELD_HEIGHT),
+            egui::vec2(width, height),
             // A disabled entry is shown so the menu keeps its shape, but it
             // does not respond.
             if item.disabled {
@@ -71,10 +77,17 @@ impl ContextMenu {
             colors.fg
         };
 
+        // With a second line the label takes the top line rather than the
+        // row's centre, so the two read as one entry and not as two rows.
+        let line_y = match item.description {
+            Some(_) => rect.top() + FIELD_HEIGHT / 2.0,
+            None => rect.center().y,
+        };
+
         let mut x = rect.left() + ROW_PAD_X;
         if let Some(icon) = item.icon.as_deref() {
             ui.painter().text(
-                egui::pos2(x, rect.center().y),
+                egui::pos2(x, line_y),
                 egui::Align2::LEFT_CENTER,
                 icon,
                 egui::FontId::proportional(FONT_CONTROL),
@@ -84,12 +97,23 @@ impl ContextMenu {
         }
 
         ui.painter().text(
-            egui::pos2(x, rect.center().y),
+            egui::pos2(x, line_y),
             egui::Align2::LEFT_CENTER,
             &item.label,
             egui::FontId::proportional(FONT_CONTROL),
             text_color,
         );
+
+        if let Some(description) = item.description.as_deref() {
+            crate::components::select::ui::paint_truncated(
+                ui.painter(),
+                egui::pos2(x, rect.bottom() - DESC_HEIGHT / 2.0),
+                description,
+                egui::FontId::proportional(FONT_DESC),
+                with_alpha(colors.fg_muted, DISABLED_ALPHA),
+                rect.right() - ROW_PAD_X - x,
+            );
+        }
 
         // The shortcut is a reminder, so it sits right-aligned and quiet.
         if let Some(shortcut) = item.shortcut.as_deref() {

@@ -23,6 +23,10 @@ pub struct ContextMenuItem {
     /// not a control.
     #[serde(default)]
     pub shortcut: Option<String>,
+    /// A quieter second line under the label, for an entry that needs saying
+    /// twice — a saved query's name, and under it the query it stands for.
+    #[serde(default)]
+    pub description: Option<String>,
     /// Draw a tick, for entries that represent a current choice.
     #[builder(default)]
     #[serde(default)]

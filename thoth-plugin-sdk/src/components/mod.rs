@@ -14,6 +14,7 @@ mod checkbox;
 mod code;
 mod code_editor;
 mod context_menu;
+mod menu;
 mod data_row;
 mod data_view;
 #[cfg(feature = "egui")]
@@ -77,6 +78,7 @@ pub use list::{
     ListTextStyle,
 };
 pub use markdown::Markdown;
+pub use menu::Menu;
 pub use modal::Modal;
 pub use multi_select::MultiSelect;
 pub use number_input::NumberInput;

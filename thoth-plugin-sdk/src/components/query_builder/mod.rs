@@ -97,6 +97,10 @@ pub struct SavedQueryRef {
     pub id: String,
     /// What it is called.
     pub name: String,
+    /// The query read back in words, shown under the name. `None` when it
+    /// would only repeat the name.
+    #[serde(default)]
+    pub summary: Option<String>,
 }
 
 /// What the user asked to do with a saved query this frame.
