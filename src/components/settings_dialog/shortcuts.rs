@@ -12,13 +12,18 @@ const BADGE_H: f32 = 26.0;
 const BADGE_FONT: f32 = 12.0;
 /// Horizontal padding inside a badge — design `.pfield{padding:0 10px}`.
 const BADGE_PAD_H: f32 = 10.0;
-/// The literal badge of the tab-switching row. Held in a const so the width
-/// pre-pass measures the same string `static_shortcut_row` paints.
-const TAB_SWITCH_BADGE: &str = if cfg!(target_os = "macos") {
-    "⌘1 – ⌘9"
-} else {
-    "Ctrl+1 – Ctrl+9"
-};
+/// The badge of the tab-switching row. Built once so the width pre-pass
+/// measures the same string `static_shortcut_row` paints, and built from the
+/// shared Phosphor marks rather than a Unicode literal — see
+/// [`crate::shortcuts::marks`].
+fn tab_switch_badge() -> String {
+    if cfg!(target_os = "macos") {
+        let cmd = crate::shortcuts::marks::command();
+        format!("{cmd}1 – {cmd}9")
+    } else {
+        "Ctrl+1 – Ctrl+9".to_string()
+    }
+}
 
 pub struct ShortcutsTab;
 
@@ -52,9 +57,12 @@ impl StatelessComponent for ShortcutsTab {
                 &sc.new_tab,
                 &sc.next_tab,
                 &sc.prev_tab,
-                &sc.focus_search,
-                &sc.next_match,
-                &sc.prev_match,
+                &sc.toggle_query,
+                &sc.run_query,
+                &sc.add_filter,
+                &sc.group_by,
+                &sc.add_aggregate,
+                &sc.add_sort,
                 &sc.nav_back,
                 &sc.nav_forward,
                 &sc.escape,
@@ -66,8 +74,8 @@ impl StatelessComponent for ShortcutsTab {
                 &sc.copy_value,
                 &sc.copy_object,
                 &sc.copy_path,
-                &sc.toggle_bookmark,
-                &sc.open_bookmarks,
+                &sc.save_query,
+                &sc.open_saved_queries,
                 &sc.move_up,
                 &sc.move_down,
                 &sc.settings,
@@ -79,7 +87,7 @@ impl StatelessComponent for ShortcutsTab {
                 .map(|s| s.format())
                 // The static rows paint literal text, which has to be measured
                 // too or a wide literal overflows its badge.
-                .chain(std::iter::once(TAB_SWITCH_BADGE.to_string()))
+                .chain(std::iter::once(tab_switch_badge()))
                 .map(|txt| {
                     if txt.is_empty() {
                         return 0.0_f32;
@@ -120,17 +128,36 @@ impl StatelessComponent for ShortcutsTab {
                     static_shortcut_row(
                         ui,
                         "Switch to tab 1–9",
-                        TAB_SWITCH_BADGE,
+                        &tab_switch_badge(),
                         badge_width,
                         colors,
                     );
                 });
 
+                // ── Query ────────────────────────────────────────────────────
+                group_rows(ui, "QUERY", |ui| {
+                    shortcut_row(
+                        ui,
+                        "Show/hide the query",
+                        &sc.toggle_query,
+                        badge_width,
+                        colors,
+                    );
+                    shortcut_row(ui, "Run the query", &sc.run_query, badge_width, colors);
+                    shortcut_row(ui, "Add a filter", &sc.add_filter, badge_width, colors);
+                    shortcut_row(ui, "Group by a field", &sc.group_by, badge_width, colors);
+                    shortcut_row(
+                        ui,
+                        "Add an aggregate",
+                        &sc.add_aggregate,
+                        badge_width,
+                        colors,
+                    );
+                    shortcut_row(ui, "Add a sort key", &sc.add_sort, badge_width, colors);
+                });
+
                 // ── Navigation ───────────────────────────────────────────────
                 group_rows(ui, "NAVIGATION", |ui| {
-                    shortcut_row(ui, "Focus search", &sc.focus_search, badge_width, colors);
-                    shortcut_row(ui, "Next match", &sc.next_match, badge_width, colors);
-                    shortcut_row(ui, "Previous match", &sc.prev_match, badge_width, colors);
                     shortcut_row(ui, "Navigate back", &sc.nav_back, badge_width, colors);
                     shortcut_row(ui, "Navigate forward", &sc.nav_forward, badge_width, colors);
                     shortcut_row(ui, "Escape / dismiss", &sc.escape, badge_width, colors);
@@ -152,19 +179,13 @@ impl StatelessComponent for ShortcutsTab {
                     shortcut_row(ui, "Copy path", &sc.copy_path, badge_width, colors);
                 });
 
-                // ── Bookmarks ────────────────────────────────────────────────
-                group_rows(ui, "BOOKMARKS", |ui| {
+                // ── Saved queries ────────────────────────────────────────────
+                group_rows(ui, "SAVED QUERIES", |ui| {
+                    shortcut_row(ui, "Save this query", &sc.save_query, badge_width, colors);
                     shortcut_row(
                         ui,
-                        "Toggle bookmark",
-                        &sc.toggle_bookmark,
-                        badge_width,
-                        colors,
-                    );
-                    shortcut_row(
-                        ui,
-                        "Open bookmarks",
-                        &sc.open_bookmarks,
+                        "Open saved queries",
+                        &sc.open_saved_queries,
                         badge_width,
                         colors,
                     );

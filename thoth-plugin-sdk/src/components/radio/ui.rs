@@ -140,5 +140,88 @@ fn option(
         response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     }
 
+    // Assistive technologies read the role and the selected state from here.
+    // The circle and the label are painted, not added as widgets, so without
+    // this the option is an anonymous clickable rectangle: a screen reader is
+    // told nothing about it being a radio, nor which one is chosen. Same call
+    // egui's own `RadioButton` makes.
+    response.widget_info(|| option_info(label, selected, interactive));
+
     response
+}
+
+/// What an option tells assistive technology about itself.
+///
+/// Split out so it can be asserted on: `Response::widget_info` hands this to
+/// accesskit or to an output event, neither of which a headless test can read
+/// back from the response.
+fn option_info(label: &str, selected: bool, interactive: bool) -> egui::WidgetInfo {
+    egui::WidgetInfo::selected(egui::WidgetType::RadioButton, interactive, selected, label)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::SelectOption;
+
+    fn with_ui<R>(f: impl FnOnce(&mut egui::Ui) -> R) -> R {
+        let ctx = egui::Context::default();
+        let mut fonts = egui::FontDefinitions::default();
+        crate::theme::register_phosphor(&mut fonts);
+        ctx.set_fonts(fonts);
+        let mut f = Some(f);
+        let mut out = None;
+        let _ = ctx.run_ui(Default::default(), |ui| {
+            if let Some(f) = f.take() {
+                out = Some(f(ui));
+            }
+        });
+        out.expect("the test frame ran")
+    }
+
+    /// The circle and the label are painted rather than added as widgets, so
+    /// without an explicit `widget_info` each option is an anonymous clickable
+    /// rectangle: a screen reader is told neither that it is a radio nor which
+    /// one is selected.
+    ///
+    /// This pins what is reported. That it is reported at all is the single
+    /// `response.widget_info(...)` line in `option`, which no headless test can
+    /// read back — egui hands it to accesskit or to an output event.
+    #[test]
+    fn an_option_reports_its_role_and_whether_it_is_chosen() {
+        let chosen = option_info("Option B", true, true);
+        assert_eq!(chosen.typ, egui::WidgetType::RadioButton);
+        assert_eq!(chosen.selected, Some(true));
+        assert_eq!(chosen.label.as_deref(), Some("Option B"));
+        assert!(chosen.enabled);
+
+        // An unselected option says so, rather than omitting the state — the
+        // difference between "not chosen" and "not a radio" is the whole point.
+        let other = option_info("Option A", false, true);
+        assert_eq!(other.selected, Some(false));
+    }
+
+    #[test]
+    fn a_disabled_option_still_describes_itself() {
+        let info = option_info("Option A", false, false);
+        assert_eq!(info.typ, egui::WidgetType::RadioButton);
+        assert!(!info.enabled);
+    }
+
+    /// Guards the builder that the host actually uses, so the two cannot drift.
+    #[test]
+    fn the_component_renders_its_options() {
+        let changed = with_ui(|ui| {
+            let mut radio = Radio::builder()
+                .value("b")
+                .options(vec![
+                    SelectOption::builder().value("a").label("A").build(),
+                    SelectOption::builder().value("b").label("B").build(),
+                ])
+                .build();
+            radio.show(ui)
+        });
+        // Nothing was clicked, so nothing changed.
+        assert_eq!(changed, None);
+    }
 }

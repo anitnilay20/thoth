@@ -2,7 +2,12 @@ use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, 
 use std::fs::File;
 use std::io::Write;
 use tempfile::TempDir;
-use thoth::file::loaders::{FileLoader, load_file_auto};
+use thoth::file::loaders::{DuckdbConnection, FileLoader, RecordSource, RecordWindow};
+
+/// Open a file through the query engine, the way the app does.
+fn open(path: &std::path::Path) -> DuckdbConnection {
+    DuckdbConnection::open_path(path).unwrap()
+}
 
 /// Generate a temporary NDJSON file with the specified number of records
 fn create_ndjson_file(temp_dir: &TempDir, num_records: usize) -> std::path::PathBuf {
@@ -58,8 +63,8 @@ fn bench_ndjson_loading(c: &mut Criterion) {
             let file_path = create_ndjson_file(&temp_dir, size);
 
             b.iter(|| {
-                let (_detected, file) = load_file_auto(black_box(&file_path)).unwrap();
-                black_box(file.len())
+                let file = open(black_box(&file_path));
+                black_box(file.len().unwrap())
             });
         });
     }
@@ -78,8 +83,8 @@ fn bench_json_array_loading(c: &mut Criterion) {
             let file_path = create_json_array_file(&temp_dir, size);
 
             b.iter(|| {
-                let (_detected, file) = load_file_auto(black_box(&file_path)).unwrap();
-                black_box(file.len())
+                let file = open(black_box(&file_path));
+                black_box(file.len().unwrap())
             });
         });
     }
@@ -97,11 +102,14 @@ fn bench_sequential_access(c: &mut Criterion) {
             let temp_dir = TempDir::new().unwrap();
             let file_path = create_ndjson_file(&temp_dir, size);
 
+            // A windowed sequential walk — one query per window, which is
+            // how the viewer scrolls.
             b.iter(|| {
-                let (_detected, mut file) = load_file_auto(&file_path).unwrap();
-                let len = file.len();
+                let file = open(&file_path);
+                let len = file.len().unwrap();
+                let mut window = RecordWindow::default();
                 for i in 0..len {
-                    black_box(file.get(black_box(i)).unwrap());
+                    black_box(window.record(&file, black_box(i)).unwrap());
                 }
             });
         });
@@ -121,10 +129,11 @@ fn bench_random_access(c: &mut Criterion) {
     group.throughput(Throughput::Elements(100));
     group.bench_function("random_1000_records", |b| {
         b.iter(|| {
-            let (_detected, mut file) = load_file_auto(&file_path).unwrap();
+            let file = open(&file_path);
+            let mut window = RecordWindow::default();
             // Access 100 random positions
             for i in (0..100).map(|x| (x * 13) % size) {
-                black_box(file.get(black_box(i)).unwrap());
+                black_box(window.record(&file, black_box(i)).unwrap());
             }
         });
     });
@@ -142,15 +151,15 @@ fn bench_raw_bytes_vs_parsed(c: &mut Criterion) {
 
     group.bench_function("raw_bytes", |b| {
         b.iter(|| {
-            let (_detected, file) = load_file_auto(&file_path).unwrap();
+            let file = open(&file_path);
             black_box(file.raw_bytes(black_box(500)).unwrap())
         });
     });
 
     group.bench_function("parsed_json", |b| {
         b.iter(|| {
-            let (_detected, mut file) = load_file_auto(&file_path).unwrap();
-            black_box(file.get(black_box(500)).unwrap())
+            let file = open(&file_path);
+            black_box(file.record(black_box(500)).unwrap())
         });
     });
 
@@ -159,18 +168,18 @@ fn bench_raw_bytes_vs_parsed(c: &mut Criterion) {
 
 /// Benchmark: File type detection overhead
 fn bench_file_type_detection(c: &mut Criterion) {
-    let mut group = c.benchmark_group("file_type_detection");
+    let mut group = c.benchmark_group("file_open");
 
     let temp_dir = TempDir::new().unwrap();
     let ndjson_path = create_ndjson_file(&temp_dir, 1000);
     let json_array_path = create_json_array_file(&temp_dir, 1000);
 
     group.bench_function("ndjson_detection", |b| {
-        b.iter(|| black_box(load_file_auto(black_box(&ndjson_path)).unwrap()));
+        b.iter(|| black_box(open(black_box(&ndjson_path))));
     });
 
     group.bench_function("json_array_detection", |b| {
-        b.iter(|| black_box(load_file_auto(black_box(&json_array_path)).unwrap()));
+        b.iter(|| black_box(open(black_box(&json_array_path))));
     });
 
     group.finish();

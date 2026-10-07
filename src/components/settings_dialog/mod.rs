@@ -410,8 +410,8 @@ impl SettingsDialog {
                 for event in output.events {
                     use performance::PerformanceTabEvent;
                     match event {
-                        PerformanceTabEvent::CacheSizeChanged(size) => {
-                            settings.performance.cache_size = size;
+                        PerformanceTabEvent::IndexCacheBudgetChanged(mb) => {
+                            settings.performance.index_cache_mb = mb;
                         }
                         PerformanceTabEvent::MaxRecentFilesChanged(max) => {
                             settings.performance.max_recent_files = max;
@@ -479,19 +479,24 @@ impl SettingsDialog {
                         }
                         PluginsTabEvent::UninstallPlugin(id) => {
                             if let Some(pm) = crate::plugin::runtime::active_manager() {
-                                let wasm_path =
-                                    pm.registry.get_by_id(&id).and_then(|p| p.location.clone());
-                                if let Some(location) = wasm_path {
-                                    let path = std::path::Path::new(&location);
-                                    if let Some(dir) = path.parent()
-                                        && dir.exists()
-                                        && let Err(e) = std::fs::remove_dir_all(dir)
-                                    {
-                                        eprintln!(
-                                            "Failed to remove plugin directory {}: {e}",
-                                            dir.display()
-                                        );
-                                    }
+                                // A bundled plugin lives in the app's own
+                                // directory and is not the user's to remove —
+                                // `PluginManager::uninstall_plugin` refuses it
+                                // for the same reason, and this path must not
+                                // be the way around that.
+                                let removable = pm
+                                    .registry
+                                    .get_by_id(&id)
+                                    .filter(|p| !p.bundled)
+                                    .and_then(|p| p.location.as_deref())
+                                    .and_then(crate::plugin::manager::plugin_directory);
+                                if let Some(dir) = removable
+                                    && let Err(e) = std::fs::remove_dir_all(&dir)
+                                {
+                                    eprintln!(
+                                        "Failed to remove plugin directory {}: {e}",
+                                        dir.display()
+                                    );
                                 }
                                 settings.plugins.disabled_plugin_ids.retain(|x| x != &id);
                             }
@@ -601,7 +606,7 @@ fn section_is_dirty(tab: SettingsTab, draft: &Settings, baseline: &Settings) -> 
             draft.viewer.syntax_highlighting != baseline.viewer.syntax_highlighting
         }
         SettingsTab::Performance => {
-            draft.performance.cache_size != baseline.performance.cache_size
+            draft.performance.index_cache_mb != baseline.performance.index_cache_mb
                 || draft.performance.max_recent_files != baseline.performance.max_recent_files
                 || draft.performance.navigation_history_size
                     != baseline.performance.navigation_history_size

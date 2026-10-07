@@ -21,7 +21,7 @@ use thoth_plugin_sdk::theme::{FIELD_HEIGHT, FONT_CONTROL};
 
 use super::{
     Aggregation, ChartOptions, ChartSpec, ChartType, ColumnInfo, ProducerKind, ProducerRef,
-    SortMode, series_palette,
+    SortMode, series_palette, source_key,
 };
 use crate::app::tab_manager::TabId;
 use crate::theme::{GUTTER_GAP, ThemeColors};
@@ -67,7 +67,9 @@ const WIDE_BUTTON_H: f32 = 30.0;
 pub enum ChartStudioEvent {
     /// The user picked a data source; the app should resolve its columns and
     /// feed them back via [`ChartStudio::set_columns`].
-    SelectSource(TabId),
+    /// A source was picked: the tab, and which of its relations. See
+    /// [`ProducerRef::relation`].
+    SelectSource(TabId, Option<String>),
     /// Build (or update) a chart tab from this spec.
     Generate(ChartSpec),
     /// Activate an already-open chart tab.
@@ -78,8 +80,9 @@ pub enum ChartStudioEvent {
 pub struct ChartStudio {
     /// Eligible producer tabs (injected by the app each frame).
     producers: Vec<ProducerRef>,
-    /// The currently selected source tab, if any.
-    selected: Option<TabId>,
+    /// The currently selected source, as [`ProducerRef::key`] — a tab *and*
+    /// which of its relations, since a tab may hold several.
+    selected: Option<String>,
     /// Column schema of the selected source (injected after a resolve).
     columns: Vec<ColumnInfo>,
     chart_type: ChartType,
@@ -100,8 +103,8 @@ impl ChartStudio {
     /// Refresh the eligible producer list (called by the app each frame).
     /// Drops the selection if the source tab has gone away.
     pub fn set_producers(&mut self, producers: Vec<ProducerRef>) {
-        if let Some(sel) = self.selected
-            && !producers.iter().any(|p| p.tab_id == sel)
+        if let Some(sel) = self.selected.as_deref()
+            && !producers.iter().any(|p| p.key() == sel)
         {
             self.selected = None;
             self.columns.clear();
@@ -111,8 +114,8 @@ impl ChartStudio {
 
     /// Preselect a data source (e.g. when opened via a plugin's "open in
     /// Charts" action). Also leaves any prior edit mode.
-    pub fn select_source(&mut self, tab_id: TabId) {
-        self.selected = Some(tab_id);
+    pub fn select_source(&mut self, tab_id: TabId, relation: Option<&str>) {
+        self.selected = Some(source_key(tab_id, relation));
         self.editing = None;
     }
 
@@ -127,7 +130,7 @@ impl ChartStudio {
 
     /// Load an existing chart's spec + columns for editing.
     pub fn edit(&mut self, spec: ChartSpec, columns: Vec<ColumnInfo>) {
-        self.selected = Some(spec.source_tab);
+        self.selected = Some(source_key(spec.source_tab, spec.source_relation.as_deref()));
         self.chart_type = spec.chart_type;
         // Clamp indices to the freshly-resolved schema — the source may have
         // fewer columns now than when the chart was created.
@@ -256,7 +259,7 @@ impl ChartStudio {
             for p in self.producers.iter().filter(|p| p.kind == kind) {
                 options.push(
                     SelectOption::builder()
-                        .value(p.tab_id.to_string())
+                        .value(p.key())
                         .label(format!("{glyph}  {}", p.label))
                         .build(),
                 );
@@ -264,7 +267,7 @@ impl ChartStudio {
         }
         let mut select = Select::builder()
             .id("chart_ds")
-            .value(self.selected.map(|t| t.to_string()).unwrap_or_default())
+            .value(self.selected.clone().unwrap_or_default())
             .options(options)
             // Design leads the source trigger with an accent database glyph.
             .icon(egui_phosphor::regular::DATABASE)
@@ -273,11 +276,12 @@ impl ChartStudio {
             .size(Size::Medium)
             .build();
         if let Some(v) = select.show(ui).inner.selected
-            && let Ok(tab) = v.parse::<TabId>()
-            && self.selected != Some(tab)
+            && self.selected.as_deref() != Some(v.as_str())
+            && let Some(picked) = self.producers.iter().find(|p| p.key() == v)
         {
-            self.selected = Some(tab);
-            events.push(ChartStudioEvent::SelectSource(tab));
+            let (tab, relation) = (picked.tab_id, picked.relation.clone());
+            self.selected = Some(v);
+            events.push(ChartStudioEvent::SelectSource(tab, relation));
         }
     }
 
@@ -621,14 +625,14 @@ impl ChartStudio {
             )
             .clicked();
         if clicked
-            && let (Some(tab), Some(src)) = (
-                self.selected,
-                self.selected
-                    .and_then(|id| self.producers.iter().find(|p| p.tab_id == id)),
-            )
+            && let Some(src) = self
+                .selected
+                .as_deref()
+                .and_then(|key| self.producers.iter().find(|p| p.key() == key))
         {
             events.push(ChartStudioEvent::Generate(ChartSpec {
-                source_tab: tab,
+                source_tab: src.tab_id,
+                source_relation: src.relation.clone(),
                 source_label: src.label.clone(),
                 chart_type: self.chart_type,
                 x_col: self.x_col,

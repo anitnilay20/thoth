@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
-use crate::app::persistent_state::Bookmark;
+use crate::app::persistent_state::SavedQuery;
 use crate::app::tab_manager::TabId;
-use crate::components::bookmarks::{Bookmarks, BookmarksEvent, BookmarksProps};
 use crate::components::chart_studio::{
     ChartSpec, ChartStudio, ChartStudioEvent, ColumnInfo, ProducerRef,
 };
@@ -11,12 +10,11 @@ use crate::components::data_source_panel::{
 };
 use crate::components::marketplace::{Marketplace, MarketplaceProps};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
-use crate::components::search::{Search, SearchEvent, SearchProps};
+use crate::components::saved_queries::{SavedQueries, SavedQueriesEvent, SavedQueriesProps};
 use crate::components::traits::StatelessComponent;
 use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
 use crate::plugin::{Plugin, render_node::render_ui_node, wasm_data_source::ConsentRequest};
-use crate::search::SearchMessage;
 use eframe::egui;
 use thoth_plugin_sdk::components::IconButton;
 
@@ -24,8 +22,7 @@ use thoth_plugin_sdk::components::IconButton;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidebarSection {
     RecentFiles,
-    Search,
-    Bookmarks,
+    SavedQueries,
     DataSource {
         plugin_id: String,
     },
@@ -41,17 +38,20 @@ pub enum SidebarSection {
 /// Props passed to the Sidebar (immutable, one-way binding)
 pub struct SidebarProps<'a> {
     pub recent_files: &'a [String],
-    pub bookmarks: &'a [Bookmark],
+    /// The open file's saved queries, newest first.
+    pub saved_queries: &'a [&'a SavedQuery],
+    /// Saved queries belonging to every *other* file — the bookmark half of
+    /// the list.
+    pub other_saved_queries: &'a [&'a SavedQuery],
+    /// Which of them is currently applied.
+    pub applied_query: Option<&'a str>,
     pub current_file_path: Option<&'a str>,
     pub expanded: bool,
     pub sidebar_width: f32,
     pub selected_section: Option<SidebarSection>,
     /// Whether the search section should receive focus (when just opened)
-    pub focus_search: bool,
     /// Current search state with results
-    pub search_state: &'a crate::search::Search,
     /// Search history for the current file
-    pub search_history: Option<&'a Vec<String>>,
     /// All registered data-source plugins — one icon button is shown per plugin.
     pub data_source_plugins: &'a [&'a Plugin],
     /// Pure ui-component plugins (new-ui-component, not data sources) — one icon
@@ -80,18 +80,9 @@ pub enum SidebarEvent {
     /// Open a pure ui-component plugin (by id) in a new tab.
     OpenUiComponentTab(String),
     WidthChanged(f32),
-    // Search events
-    Search(SearchMessage),
-    NavigateToSearchResult {
-        record_index: usize,
-    },
-    ClearSearchHistory,
-    // Bookmark events
-    NavigateToBookmark {
-        file_path: String,
-        path: String,
-    },
-    RemoveBookmark(usize),
+    // Saved-query events
+    ApplySavedQuery(String),
+    DeleteSavedQuery(String),
     JumpToPath(String),
 
     // Datasource Plugin Events
@@ -107,7 +98,7 @@ pub enum SidebarEvent {
     OpenSettings,
     // Chart Studio events
     /// The user picked a chart data source; resolve its columns.
-    ChartSelectSource(TabId),
+    ChartSelectSource(TabId, Option<String>),
     /// Build a chart tab from this spec.
     ChartGenerate(ChartSpec),
     /// Activate an already-open chart tab.
@@ -127,8 +118,7 @@ pub struct SidebarOutput {
 pub struct Sidebar {
     // Child components that Sidebar fully controls
     recent_files: RecentFiles,
-    search: Search,
-    bookmarks: Bookmarks,
+    saved_queries: SavedQueries,
 
     data_source_panel: HashMap<String, DataSourcePanel>,
     chart_studio: ChartStudio,
@@ -138,8 +128,7 @@ impl Default for Sidebar {
     fn default() -> Self {
         Self {
             recent_files: RecentFiles,
-            search: Search::default(),
-            bookmarks: Bookmarks::default(),
+            saved_queries: SavedQueries,
             data_source_panel: HashMap::new(),
             chart_studio: ChartStudio::default(),
         }
@@ -176,8 +165,8 @@ impl Sidebar {
     }
 
     /// Preselect a Chart Studio data source (used by the "open in Charts" action).
-    pub fn select_chart_source(&mut self, tab_id: TabId) {
-        self.chart_studio.select_source(tab_id);
+    pub fn select_chart_source(&mut self, tab_id: TabId, relation: Option<&str>) {
+        self.chart_studio.select_source(tab_id, relation);
     }
 
     /// Update the Chart Studio's "Open Charts" list.
@@ -235,26 +224,23 @@ impl Sidebar {
                     }
                 }
             }
-            Some(SidebarSection::Search) => {
-                self.render_search_section(ui, props, events);
-            }
-            Some(SidebarSection::Bookmarks) => {
-                let output = self.bookmarks.render(
+            Some(SidebarSection::SavedQueries) => {
+                let output = self.saved_queries.render(
                     ui,
-                    BookmarksProps {
-                        bookmarks: props.bookmarks,
+                    SavedQueriesProps {
+                        queries: props.saved_queries,
+                        others: props.other_saved_queries,
+                        applied: props.applied_query,
                         current_file_path: props.current_file_path,
                     },
                 );
-
-                // Convert BookmarksEvent to SidebarEvent
                 for event in output.events {
                     match event {
-                        BookmarksEvent::NavigateToBookmark { file_path, path } => {
-                            events.push(SidebarEvent::NavigateToBookmark { file_path, path });
+                        SavedQueriesEvent::Apply(id) => {
+                            events.push(SidebarEvent::ApplySavedQuery(id));
                         }
-                        BookmarksEvent::JumpToPath(path) => {
-                            events.push(SidebarEvent::JumpToPath(path));
+                        SavedQueriesEvent::Delete(id) => {
+                            events.push(SidebarEvent::DeleteSavedQuery(id));
                         }
                     }
                 }
@@ -307,8 +293,8 @@ impl Sidebar {
             Some(SidebarSection::ChartStudio) => {
                 for ev in self.chart_studio.render(ui) {
                     match ev {
-                        ChartStudioEvent::SelectSource(id) => {
-                            events.push(SidebarEvent::ChartSelectSource(id));
+                        ChartStudioEvent::SelectSource(id, relation) => {
+                            events.push(SidebarEvent::ChartSelectSource(id, relation));
                         }
                         ChartStudioEvent::Generate(spec) => {
                             events.push(SidebarEvent::ChartGenerate(spec));
@@ -366,25 +352,13 @@ impl Sidebar {
         if rail_button(
             ui,
             sidebar_btn(
-                egui_phosphor::regular::MAGNIFYING_GLASS,
-                "Search",
-                props.selected_section == Some(SidebarSection::Search),
-            ),
-            accent,
-        ) {
-            events.push(SidebarEvent::SectionToggled(SidebarSection::Search));
-        }
-
-        if rail_button(
-            ui,
-            sidebar_btn(
                 egui_phosphor::regular::BOOKMARK_SIMPLE,
-                "Bookmarks",
-                props.selected_section == Some(SidebarSection::Bookmarks),
+                "Saved queries",
+                props.selected_section == Some(SidebarSection::SavedQueries),
             ),
             accent,
         ) {
-            events.push(SidebarEvent::SectionToggled(SidebarSection::Bookmarks));
+            events.push(SidebarEvent::SectionToggled(SidebarSection::SavedQueries));
         }
 
         if rail_button(
@@ -484,35 +458,6 @@ impl Sidebar {
             .clicked()
         {
             events.push(SidebarEvent::OpenSettings);
-        }
-    }
-
-    fn render_search_section(
-        &mut self,
-        ui: &mut egui::Ui,
-        props: &SidebarProps<'_>,
-        events: &mut Vec<SidebarEvent>,
-    ) {
-        // Render the Search component using the trait method
-        // Parent determines when to focus via props.focus_search
-        let search_output = self.search.render(
-            ui,
-            SearchProps {
-                just_opened: props.focus_search,
-                search_state: props.search_state,
-                search_history: props.search_history,
-            },
-        );
-
-        // Convert SearchEvent to SidebarEvent
-        for event in search_output.events {
-            match event {
-                SearchEvent::Search(msg) => events.push(SidebarEvent::Search(msg)),
-                SearchEvent::NavigateToResult { record_index } => {
-                    events.push(SidebarEvent::NavigateToSearchResult { record_index })
-                }
-                SearchEvent::ClearHistory => events.push(SidebarEvent::ClearSearchHistory),
-            }
         }
     }
 }

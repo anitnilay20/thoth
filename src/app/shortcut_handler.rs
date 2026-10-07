@@ -10,16 +10,19 @@ pub enum ShortcutAction {
     NewWindow,
 
     // Navigation
-    FocusSearch,
-    NextMatch,
-    PrevMatch,
+    ToggleQueryBuilder,
+    RunQuery,
+    AddFilter,
+    GroupBy,
+    AddAggregate,
+    AddSort,
     NavBack,
     NavForward,
     Escape,
 
     // Bookmarks
-    ToggleBookmark,
-    OpenBookmarks,
+    SaveQuery,
+    OpenSavedQueries,
 
     // Tree operations
     ExpandNode,
@@ -76,18 +79,19 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::NewWindow);
         }
 
-        // Navigation
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.focus_search.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::FocusSearch);
-        }
-
-        // Check more specific shortcuts (with Shift) before less specific ones
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.prev_match.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::PrevMatch);
-        } else if ctx
-            .input_mut(|i| i.consume_shortcut(&shortcuts.next_match.to_keyboard_shortcut()))
-        {
-            actions.push(ShortcutAction::NextMatch);
+        // Query builder lanes. Shift-bearing bindings are tested first so
+        // ⌘⇧A is not swallowed by a plain-⌘ shortcut on the same letter.
+        for (shortcut, action) in [
+            (&shortcuts.toggle_query, ShortcutAction::ToggleQueryBuilder),
+            (&shortcuts.run_query, ShortcutAction::RunQuery),
+            (&shortcuts.add_aggregate, ShortcutAction::AddAggregate),
+            (&shortcuts.add_sort, ShortcutAction::AddSort),
+            (&shortcuts.add_filter, ShortcutAction::AddFilter),
+            (&shortcuts.group_by, ShortcutAction::GroupBy),
+        ] {
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcut.to_keyboard_shortcut())) {
+                actions.push(action);
+            }
         }
 
         // Navigation: ⌘[ / ⌘]
@@ -139,13 +143,15 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::Escape);
         }
 
-        // Bookmarks - Check more specific shortcuts first (with modifiers) before less specific ones
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.open_bookmarks.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::OpenBookmarks);
-        } else if ctx
-            .input_mut(|i| i.consume_shortcut(&shortcuts.toggle_bookmark.to_keyboard_shortcut()))
+        // Saved queries — the shift-bearing binding first, so ⌘⇧D is not
+        // swallowed by a plain-⌘ shortcut on the same letter.
+        if ctx
+            .input_mut(|i| i.consume_shortcut(&shortcuts.open_saved_queries.to_keyboard_shortcut()))
         {
-            actions.push(ShortcutAction::ToggleBookmark);
+            actions.push(ShortcutAction::OpenSavedQueries);
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.save_query.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::SaveQuery);
         }
 
         // Skip tree operations, clipboard, and movement shortcuts when text input has focus

@@ -147,6 +147,29 @@ pub struct MarketplaceUiState {
     /// Slot written by the background fetch thread; polled each frame.
     pub pending: Option<PendingManifest>,
     pub sort: SortOrder,
+    /// Installs of DuckDB's optional file readers, keyed by extension name.
+    ///
+    /// Separate from `install_handles`: an extension is not a plugin. It has
+    /// no manifest, no icon and no version to update to — DuckDB owns the
+    /// bytes and the directory, and all we hold is whether a fetch is running.
+    #[allow(clippy::type_complexity)]
+    pub extension_jobs: HashMap<String, crate::file::indexing::ExtensionJob>,
+    /// The last failure per extension, so the row can say what went wrong
+    /// rather than silently returning to "Install".
+    pub extension_errors: HashMap<String, String>,
+    /// Which readers DuckDB already holds, and the extension revision that was
+    /// read at. See [`MarketplaceUiState::installed_readers`].
+    installed_readers: Option<InstalledReaders>,
+}
+
+/// A cached answer to "which readers are present", with the revision it was
+/// true at.
+#[derive(Clone)]
+struct InstalledReaders {
+    /// [`crate::file::extensions::revision`] when this was read.
+    revision: u64,
+    /// Reader name → whether DuckDB has it.
+    present: HashMap<String, bool>,
 }
 
 impl Default for MarketplaceUiState {
@@ -164,11 +187,84 @@ impl Default for MarketplaceUiState {
             loading: false,
             pending: None,
             sort: SortOrder::default(),
+            extension_jobs: HashMap::new(),
+            extension_errors: HashMap::new(),
+            installed_readers: None,
         }
     }
 }
 
 impl MarketplaceUiState {
+    /// Adopt any finished reader install.
+    ///
+    /// The engine picks a newly installed reader up on its next connection —
+    /// they are files in DuckDB's own directory, not state this process holds
+    /// — so there is nothing to reload here beyond clearing the row.
+    pub fn poll_extension_installs(&mut self) {
+        let finished: Vec<String> = self
+            .extension_jobs
+            .iter()
+            .filter(|(_, job)| job.is_finished())
+            .map(|(name, _)| name.clone())
+            .collect();
+        for name in finished {
+            let Some(job) = self.extension_jobs.remove(&name) else {
+                continue;
+            };
+            match job.take() {
+                Some(Err(message)) => {
+                    self.extension_errors.insert(name, message);
+                }
+                _ => {
+                    self.extension_errors.remove(&name);
+                }
+            }
+        }
+    }
+
+    /// Which of `names` DuckDB already holds.
+    ///
+    /// Answering it costs an engine start-up and a catalog query per reader,
+    /// which is not something to spend a frame on — and `render_readers` runs
+    /// on every one of them, including the repaints while a download is in
+    /// flight. So it is read once and kept until it could have changed: the
+    /// install revision moves, or a reader appears in the catalog that was not
+    /// asked about before (a reader plugin was just installed).
+    pub fn installed_readers(&mut self, names: &[String]) -> &HashMap<String, bool> {
+        let revision = crate::file::extensions::revision();
+        let stale = self.installed_readers.as_ref().is_none_or(|cached| {
+            cached.revision != revision || names.iter().any(|n| !cached.present.contains_key(n))
+        });
+        if stale {
+            let probe = duckdb::Connection::open_in_memory().ok();
+            let present = names
+                .iter()
+                .map(|name| {
+                    let installed = probe
+                        .as_ref()
+                        .is_some_and(|c| crate::file::extensions::is_installed(c, name));
+                    (name.clone(), installed)
+                })
+                .collect();
+            self.installed_readers = Some(InstalledReaders { revision, present });
+        }
+        self.installed_readers
+            .as_ref()
+            .map(|cached| &cached.present)
+            .expect("just filled when stale")
+    }
+
+    /// Start fetching a reader, unless one is already on its way.
+    pub fn install_extension(&mut self, extension: crate::file::extensions::Extension) {
+        if self.extension_jobs.contains_key(&extension.name) {
+            return;
+        }
+        self.extension_errors.remove(&extension.name);
+        self.extension_jobs.insert(
+            extension.name.clone(),
+            crate::file::indexing::ExtensionJob::spawn(extension),
+        );
+    }
     /// Kick off the background manifest fetch if not already loaded/loading.
     pub fn load_if_needed(&mut self, ctx: &egui::Context, force: bool) {
         if (self.loaded || self.loading) && !force {

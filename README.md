@@ -201,7 +201,7 @@ For a complete list of keyboard shortcuts, see the [Keyboard Shortcuts Guide](do
 - `src/mcp/`: MCP server for AI assistant integration
 - `thoth-plugin-sdk/`: Plugin authoring SDK — the shared UI component library + `RenderNode` DSL and plugin helpers (also rendered by the host)
 - `thoth-plugin-sdk-macros/`: Derive macros for the SDK (`PluginMeta`)
-- `plugins/`: Bundled example plugins (csv-loader, url-source, seshat)
+- `plugins/`: Bundled example plugins (url-source, seshat, csv-export, card-view)
 - `wit/`: WIT interface definitions for the plugin ABI
 - `docs/`: Documentation for architecture and design patterns
 

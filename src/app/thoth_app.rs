@@ -6,14 +6,15 @@ use crate::{
     app::{file_picker, pick_file, tab_manager::TabEvent},
     components::{self, traits::ContextComponent},
     core::{CoreAction, CoreEvent, ThothCore},
+    file::FileKind,
     plugin::plugin_ui_host::PluginCore,
     settings, state,
     theme::ThemeColorsExt,
 };
 
 use super::{
-    ShortcutAction, persistent_state::PersistentState, search_handler::SearchHandler,
-    shortcut_handler::ShortcutHandler, update_handler::UpdateHandler,
+    ShortcutAction, persistent_state::PersistentState, shortcut_handler::ShortcutHandler,
+    update_handler::UpdateHandler,
 };
 
 pub struct ThothApp {
@@ -378,27 +379,7 @@ impl App for ThothApp {
             ctx.copy_text(text);
         }
 
-        let sidebar_msg = self.render_sidebar(ui);
-
-        // Handle search messages from sidebar against the active tab.
-        let (msg_to_central, search_error) =
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                SearchHandler::handle_search_messages(
-                    sidebar_msg,
-                    &mut tab.search_engine_state,
-                    &tab.file_path,
-                    &tab.file_type,
-                    &ctx,
-                )
-            } else {
-                (None, None)
-            };
-
-        if let Some(error) = search_error
-            && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-        {
-            tab.error = Some(error);
-        }
+        let _sidebar_msg = self.render_sidebar(ui);
 
         let shortcut_actions =
             ShortcutHandler::handle_shortcuts(ui.ctx(), &self.core.settings.shortcuts);
@@ -523,7 +504,7 @@ impl App for ThothApp {
                         use crate::components::traits::StatelessComponent;
                         MarketplaceDetail::render(ui, MarketplaceDetailProps);
                     } else {
-                        self.render_central_panel(ui, msg_to_central);
+                        self.render_central_panel(ui);
                     }
                 });
         }
@@ -609,26 +590,6 @@ impl ThothApp {
                     self.core.settings.dev.show_profiler = !self.core.settings.dev.show_profiler;
                     self.core.settings_changed = true;
                 }
-                ShortcutAction::FocusSearch => {
-                    let section = components::sidebar::SidebarSection::Search;
-                    if self.window_state.sidebar_expanded
-                        && self.window_state.sidebar_selected_section == Some(section.clone())
-                    {
-                        self.window_state.sidebar_expanded = false;
-                    } else {
-                        self.window_state.sidebar_expanded = true;
-                        self.window_state.sidebar_selected_section = Some(section);
-                    }
-
-                    if self.core.settings.ui.remember_sidebar_state {
-                        self.core
-                            .persistent_state
-                            .set_sidebar_expanded(self.window_state.sidebar_expanded);
-                        let _ = self.core.persistent_state.save();
-                    }
-                }
-                ShortcutAction::NextMatch => {}
-                ShortcutAction::PrevMatch => {}
                 ShortcutAction::NavBack => {
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
                         && let Some(path) = tab.navigation_history.back()
@@ -653,33 +614,49 @@ impl ThothApp {
                         }
                     }
                 }
-                ShortcutAction::ToggleBookmark => {
-                    let info = self
-                        .window_state
-                        .tab_manager
-                        .active_tab_mut()
-                        .and_then(|tab| {
-                            let path = tab.central_panel.get_selected_path()?.clone();
-                            let file_path = tab.file_path.as_ref()?.to_str()?.to_string();
-                            Some((path, file_path))
-                        });
-                    if let Some((selected_path, file_path_str)) = info {
-                        self.core
-                            .persistent_state
-                            .toggle_bookmark(selected_path, file_path_str);
-                        if let Err(e) = self.core.persistent_state.save() {
-                            eprintln!("Failed to save bookmarks: {}", e);
-                        }
+                // ⌘S names the query before saving it. The builder owns the
+                // name field, so this only asks it to start.
+                ShortcutAction::SaveQuery => {
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && tab.active_plugin_pane.is_none()
+                    {
+                        tab.central_panel.queue_query_action(
+                            thoth_plugin_sdk::components::QueryAction::BeginNaming,
+                        );
                     }
                 }
-                ShortcutAction::OpenBookmarks => {
+                ShortcutAction::OpenSavedQueries => {
                     self.window_state.sidebar_expanded = true;
                     self.window_state.sidebar_selected_section =
-                        Some(components::sidebar::SidebarSection::Bookmarks);
+                        Some(components::sidebar::SidebarSection::SavedQueries);
 
                     if self.core.settings.ui.remember_sidebar_state {
                         self.core.persistent_state.set_sidebar_expanded(true);
                         let _ = self.core.persistent_state.save();
+                    }
+                }
+                // Query-builder lanes. Only a *file* tab answers these: a
+                // plugin pane owns its own keys, and handing ⌘F to a builder
+                // that is not on screen would take it from whatever is.
+                ShortcutAction::ToggleQueryBuilder
+                | ShortcutAction::RunQuery
+                | ShortcutAction::AddFilter
+                | ShortcutAction::GroupBy
+                | ShortcutAction::AddAggregate
+                | ShortcutAction::AddSort => {
+                    use thoth_plugin_sdk::components::QueryAction;
+                    let lane = match action {
+                        ShortcutAction::ToggleQueryBuilder => QueryAction::ToggleLanes,
+                        ShortcutAction::RunQuery => QueryAction::Run,
+                        ShortcutAction::AddFilter => QueryAction::AddFilter,
+                        ShortcutAction::GroupBy => QueryAction::AddGroupBy,
+                        ShortcutAction::AddAggregate => QueryAction::AddAggregate,
+                        _ => QueryAction::AddSort,
+                    };
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                        && tab.active_plugin_pane.is_none()
+                    {
+                        tab.central_panel.queue_query_action(lane);
                     }
                 }
                 ShortcutAction::ExpandNode => {
@@ -713,31 +690,31 @@ impl ThothApp {
                     }
                 }
                 ShortcutAction::CopyKey => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_key()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_key();
                     }
                 }
                 ShortcutAction::CopyValue => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_value()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_value();
                     }
                 }
                 ShortcutAction::CopyObject => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_object()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_object();
                     }
                 }
                 ShortcutAction::CopyPath => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(text) = tab.central_panel.copy_selected_path()
-                    {
-                        self.clipboard_text = Some(text);
+                    // The tree copies from the node itself, so nothing comes
+                    // back here to put on the clipboard.
+                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                        tab.central_panel.copy_selected_path();
                     }
                 }
                 ShortcutAction::CloseTab => {
@@ -1239,12 +1216,8 @@ impl ThothApp {
                 let fwd = tab.navigation_history.can_go_forward();
                 (tab.file_type, tab.file_path.clone(), back, fwd)
             } else {
-                (
-                    crate::file::lazy_loader::FileKind::default(),
-                    None,
-                    false,
-                    false,
-                )
+                // TODO: Check if this needs fixing
+                (FileKind::default(), None, false, false)
             };
 
         let output = self.window_state.toolbar.render(
@@ -1576,79 +1549,51 @@ impl ThothApp {
             .tab_manager
             .tabs
             .iter()
-            .filter_map(|(id, t)| match t.active_plugin_pane.as_ref() {
+            .map(|(id, t)| match t.active_plugin_pane.as_ref() {
                 // Plugin producer/consumer instances.
-                Some(p) => Some(p.loader.instance_id().to_string()),
+                Some(p) => p.loader.instance_id().to_string(),
                 // Core file tabs act as dataset producers under a stable marker.
-                None if t.file_path.is_some() => Some(format!("core#{id}")),
-                None => None,
+                // Keyed on the tab existing, not on `file_path` — that is set an
+                // event later than the sheet is published, so testing it here
+                // would reap a freshly-opened file on its very first frame.
+                None => format!("core#{id}"),
             })
             .collect();
         crate::plugin::signals::retain_instances(&open_instances);
         // Datasets are cleared when their producing instance closes too.
-        crate::plugin::datasets::retain_instances(&open_instances);
+        crate::papyrus::retain_instances(&open_instances);
         // Release cached plugin renders whose dataset is gone (producer closed).
-        let live_handles: std::collections::HashSet<String> = crate::plugin::datasets::list()
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
+        let live_handles: std::collections::HashSet<String> =
+            crate::papyrus::list().into_iter().map(|m| m.id).collect();
         prune_render_cache(&live_handles);
 
-        let (
-            file_path_opt,
-            file_type,
-            total_items,
-            error_present,
-            search_scanning,
-            _search_results_len,
-            filtered_count,
-            selected_path,
-            active_plugin_id,
-        ) = if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-            let search = &tab.search_engine_state.search;
-            let scanning = search.scanning;
-            let results_len = search.results.len();
-            let query_non_empty = !search.query.is_empty();
-            let filtered = if query_non_empty && results_len > 0 {
-                Some(results_len)
+        let (file_path_opt, file_type, total_items, error_present, selected_path, active_plugin_id) =
+            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                let sel_path = tab.central_panel.get_selected_path().cloned();
+                // A plugin pane tab: (plugin_id, instance_id) drives the
+                // instance-scoped status bar.
+                let plugin_id = tab
+                    .active_plugin_pane
+                    .as_ref()
+                    .map(|p| (p.plugin_id.clone(), p.loader.instance_id().to_string()));
+                (
+                    tab.file_path.clone(),
+                    tab.file_type,
+                    tab.total_items,
+                    tab.error.is_some(),
+                    sel_path,
+                    plugin_id,
+                )
             } else {
-                None
+                (None, FileKind::default(), 0, false, None, None)
             };
-            let sel_path = tab.central_panel.get_selected_path().cloned();
-            // A plugin pane tab: (plugin_id, instance_id) drives the
-            // instance-scoped status bar.
-            let plugin_id = tab
-                .active_plugin_pane
-                .as_ref()
-                .map(|p| (p.plugin_id.clone(), p.loader.instance_id().to_string()));
-            (
-                tab.file_path.clone(),
-                tab.file_type,
-                tab.total_items,
-                tab.error.is_some(),
-                scanning,
-                results_len,
-                filtered,
-                sel_path,
-                plugin_id,
-            )
-        } else {
-            (
-                None,
-                crate::file::lazy_loader::FileKind::default(),
-                0,
-                false,
-                false,
-                0,
-                None,
-                None,
-                None,
-            )
-        };
 
-        let status = if search_scanning {
-            components::status_bar::StatusBarStatus::Searching
-        } else if filtered_count.is_some() {
+        // A filtered count belongs to the query builder's result and is not
+        // wired to the status bar yet (#53 replaced the scan it used to come
+        // from).
+        let filtered_count: Option<usize> = None;
+
+        let status = if filtered_count.is_some() {
             components::status_bar::StatusBarStatus::Filtered
         } else if error_present {
             components::status_bar::StatusBarStatus::Error
@@ -1656,7 +1601,65 @@ impl ThothApp {
             components::status_bar::StatusBarStatus::Ready
         };
 
+        // Adopt any finished index and announce it, then report the progress of
+        // whatever is still running on the active tab.
+        let finished: Vec<(crate::app::tab_manager::TabId, String, usize)> = self
+            .window_state
+            .tab_manager
+            .tabs
+            .iter_mut()
+            .filter_map(|(id, tab)| {
+                tab.central_panel
+                    .poll_index(*id)
+                    .map(|(name, total)| (*id, name, total))
+            })
+            .collect();
+        if !finished.is_empty() {
+            // A finished index just added to the cache, so this is the moment
+            // to bring it back under budget. Doing it here rather than on a
+            // timer means the cache is only trimmed when it actually grew, and
+            // never while a file is mid-index.
+            let budget = self.core.settings.performance.index_cache_mb as u64 * 1024 * 1024;
+            // Caches an open tab is reading from are off limits, whatever their
+            // age -- evicting one would take its tab down with it.
+            let in_use: std::collections::HashSet<std::path::PathBuf> = self
+                .window_state
+                .tab_manager
+                .tabs
+                .values()
+                .filter_map(|t| t.file_path.as_ref())
+                .filter_map(|p| crate::file::index_cache::database_path(p).ok())
+                .collect();
+            crate::file::index_cache::enforce_budget(budget, &in_use);
+        }
+        // The tab was reporting its preview's size; now it knows the real one.
+        for (id, _, total) in &finished {
+            if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(id) {
+                tab.total_items = *total;
+            }
+        }
+        for (_, name, _) in finished {
+            crate::notification::NotificationManager::notify(
+                crate::notification::Notification::new(
+                    "File indexed",
+                    &format!("{name} is ready to browse."),
+                )
+                .with_kind(crate::notification::NotificationKind::Success),
+            );
+        }
+
         let active_id = self.window_state.tab_manager.active_tab_id();
+        let indexing_progress: Option<f32> = active_id
+            .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
+            .and_then(|t| match t.central_panel.index_progress() {
+                Some(crate::file::indexing::Progress::Running { fraction }) => Some(fraction),
+                _ => None,
+            });
+
+        let showing_preview = active_id
+            .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
+            .is_some_and(|t| t.central_panel.showing_preview());
+
         let chart_summary: Option<String> = active_id
             .and_then(|id| self.window_state.tab_manager.tabs.get(&id))
             .and_then(|t| t.chart.as_ref().map(|c| c.status_summary()));
@@ -1674,6 +1677,8 @@ impl ThothApp {
                     .as_ref()
                     .map(|(p, i)| (p.as_str(), i.as_str())),
                 chart_summary: chart_summary.as_deref(),
+                indexing: indexing_progress,
+                preview: showing_preview,
             },
         );
 
@@ -1690,16 +1695,11 @@ impl ThothApp {
     }
 
     /// Render the DockArea that hosts all open tabs.
-    fn render_central_panel(
-        &mut self,
-        ui: &mut egui::Ui,
-        search_message: Option<crate::search::SearchMessage>,
-    ) {
+    fn render_central_panel(&mut self, ui: &mut egui::Ui) {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         let nav_capacity = self.core.settings.performance.navigation_history_size;
-        let focused_id = self.window_state.tab_manager.active_tab_id();
 
         let colors = ui.ctx().memory(|m| {
             m.data.get_temp::<crate::theme::ThemeColors>(egui::Id::new(
@@ -1721,7 +1721,6 @@ impl ThothApp {
             settings: &self.core.settings,
             persistent_state: &mut self.core.persistent_state,
             nav_capacity,
-            search_msg: search_message.zip(focused_id).map(|(msg, id)| (id, msg)),
             events: Vec::new(),
             colors,
         };
@@ -1747,6 +1746,161 @@ impl ThothApp {
         for event in events {
             self.handle_tab_event(event, nav_capacity);
         }
+
+        self.handle_saved_query_requests();
+        self.refresh_saved_queries();
+    }
+
+    /// Show the active tab's builder the queries saved for its file, and
+    /// whether the one it holds has been edited since.
+    ///
+    /// Recomputed per frame because it is a handful of comparisons over a
+    /// per-file list, and a stale "saved" marker is worse than the cost: the
+    /// dot is the only thing saying an Update is worth making.
+    fn refresh_saved_queries(&mut self) {
+        use thoth_plugin_sdk::components::SavedQueryRef;
+
+        let Some(file_path) = self
+            .window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|tab| tab.file_path.as_ref().and_then(|p| p.to_str()))
+            .map(str::to_string)
+        else {
+            return;
+        };
+        let saved: Vec<SavedQueryRef> = self
+            .core
+            .persistent_state
+            .saved_queries(&file_path)
+            .into_iter()
+            .map(|q| {
+                let summary = q.spec.summary();
+                SavedQueryRef {
+                    id: q.id.clone(),
+                    name: q.name.clone(),
+                    // Saying the same thing twice is noise, so a query named
+                    // after what it does gets one line, not two.
+                    summary: (summary != q.name).then_some(summary),
+                }
+            })
+            .collect();
+
+        let Some(tab) = self.window_state.tab_manager.active_tab_mut() else {
+            return;
+        };
+        let applied = tab.central_panel.applied_query().map(str::to_string);
+        let (spec, sql) = tab.central_panel.current_query();
+        let dirty = applied
+            .as_deref()
+            .and_then(|id| self.core.persistent_state.saved_query(id))
+            .is_some_and(|q| q.spec != spec || q.sql != sql);
+
+        if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+            tab.central_panel.set_saved_queries(saved, dirty);
+        }
+    }
+
+    /// Store what the active tab's query builder asked for.
+    ///
+    /// The builder reports the intent and never persists anything itself: only
+    /// the host knows which file the query belongs to, and a query saved
+    /// against the wrong file is one that fails the moment it is applied.
+    /// Apply a saved query, wherever its file is.
+    ///
+    /// Three cases, and the user should not have to know which they are in:
+    /// its file is the one in front of them, so it applies where they stand;
+    /// its file is open in another tab, so that tab comes forward rather than
+    /// a second copy of the file opening beside it; or the file is not open,
+    /// so it opens and the query is parked until it has loaded.
+    fn apply_saved_query_anywhere(&mut self, id: &str, nav_capacity: usize) {
+        let Some((file_path, spec, sql)) = self
+            .core
+            .persistent_state
+            .saved_query(id)
+            .map(|q| (PathBuf::from(&q.file_path), q.spec.clone(), q.sql.clone()))
+        else {
+            return;
+        };
+
+        let here = self
+            .window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|tab| tab.file_path.clone());
+        if here.as_deref() == Some(file_path.as_path())
+            && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+        {
+            tab.central_panel.apply_saved_query(id, spec, sql);
+            return;
+        }
+
+        if let Some(tab_id) = self.window_state.tab_manager.tab_for_path(&file_path) {
+            self.window_state.tab_manager.focus_tab(tab_id);
+            if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
+                tab.central_panel.apply_saved_query(id, spec, sql);
+            }
+            return;
+        }
+
+        let tab_id = self
+            .window_state
+            .tab_manager
+            .open_file(file_path, nav_capacity);
+        if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
+            tab.pending_saved_query = Some(id.to_string());
+        }
+        self.core.session_dirty = true;
+    }
+
+    fn handle_saved_query_requests(&mut self) {
+        use thoth_plugin_sdk::components::SavedAction;
+
+        let Some(tab) = self.window_state.tab_manager.active_tab_mut() else {
+            return;
+        };
+        let Some(request) = tab.central_panel.take_saved_request() else {
+            return;
+        };
+        let Some(file_path) = tab
+            .file_path
+            .as_ref()
+            .and_then(|p| p.to_str())
+            .map(str::to_string)
+        else {
+            return;
+        };
+        let (spec, sql) = tab.central_panel.current_query();
+
+        match request {
+            SavedAction::Save(name) => {
+                let id = self
+                    .core
+                    .persistent_state
+                    .save_query(file_path, name, spec, sql);
+                if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
+                    tab.central_panel.set_applied_query(Some(id));
+                }
+            }
+            SavedAction::Update(id) => {
+                self.core.persistent_state.update_query(&id, spec, sql);
+            }
+            SavedAction::Apply(id) => {
+                let saved = self
+                    .core
+                    .persistent_state
+                    .saved_query(&id)
+                    .map(|q| (q.spec.clone(), q.sql.clone()));
+                if let Some((spec, sql)) = saved
+                    && let Some(tab) = self.window_state.tab_manager.active_tab_mut()
+                {
+                    tab.central_panel.apply_saved_query(&id, spec, sql);
+                }
+            }
+        }
+        if let Err(e) = self.core.persistent_state.save() {
+            eprintln!("Failed to save queries: {e}");
+        }
     }
 
     fn handle_tab_event(&mut self, event: TabEvent, nav_capacity: usize) {
@@ -1764,6 +1918,7 @@ impl ThothApp {
                     );
                     let _ = self.core.persistent_state.save();
                 }
+                let mut pending_query = None;
                 if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id) {
                     tab.file_path = Some(path);
                     tab.file_type = file_type;
@@ -1772,6 +1927,21 @@ impl ThothApp {
                     tab.plugin_sidebar_output = None;
                     if let Some(pending_path) = tab.pending_navigation.take() {
                         tab.central_panel.navigate_to_path(pending_path);
+                    }
+                    pending_query = tab.pending_saved_query.take();
+                }
+                if let Some(query_id) = pending_query {
+                    // Now the engine knows the file's columns, which is what
+                    // the query is written in terms of.
+                    let saved = self
+                        .core
+                        .persistent_state
+                        .saved_query(&query_id)
+                        .map(|q| (q.spec.clone(), q.sql.clone()));
+                    if let Some((spec, sql)) = saved
+                        && let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
+                    {
+                        tab.central_panel.apply_saved_query(&query_id, spec, sql);
                     }
                 }
                 self.core.session_dirty = true;
@@ -1825,8 +1995,6 @@ impl ThothApp {
                 self.create_new_window();
             }
             TabEvent::BrowsePlugins => {
-                self.window_state.previous_sidebar_section =
-                    self.window_state.sidebar_selected_section.clone();
                 self.window_state.sidebar_expanded = true;
                 self.window_state.sidebar_selected_section =
                     Some(components::sidebar::SidebarSection::MarketPlace);
@@ -1850,23 +2018,11 @@ impl ThothApp {
         }
     }
 
-    fn render_sidebar(&mut self, ui: &mut egui::Ui) -> Option<crate::search::SearchMessage> {
+    fn render_sidebar(&mut self, ui: &mut egui::Ui) -> Option<String> {
         #[cfg(feature = "profiling")]
         puffin::profile_function!();
 
         use crate::components::traits::ContextComponent;
-
-        let section_changed_to_search = self.window_state.sidebar_selected_section
-            == Some(components::sidebar::SidebarSection::Search)
-            && self.window_state.previous_sidebar_section
-                != Some(components::sidebar::SidebarSection::Search);
-
-        let sidebar_reopened_with_search = self.window_state.sidebar_expanded
-            && !self.window_state.previous_sidebar_expanded
-            && self.window_state.sidebar_selected_section
-                == Some(components::sidebar::SidebarSection::Search);
-
-        let focus_search = section_changed_to_search || sidebar_reopened_with_search;
 
         let plugin_manager = self.core.plugins.manager();
         let ds_plugins: Vec<&crate::plugin::Plugin> = plugin_manager
@@ -1880,15 +2036,11 @@ impl ThothApp {
             .unwrap_or_default();
 
         // Snapshot per-tab data we need for SidebarProps (avoids complex lifetime issues).
-        let (current_file_path, search_state_clone) =
-            if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                (
-                    tab.file_path.clone(),
-                    tab.search_engine_state.search.clone(),
-                )
-            } else {
-                (None, crate::search::Search::default())
-            };
+        let current_file_path = self
+            .window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|tab| tab.file_path.clone());
 
         // The mounted plugin sidebar (independent of any tab) drives the sidebar
         // panel and the icon-highlight state.
@@ -1918,13 +2070,6 @@ impl ThothApp {
                 _ => None,
             };
 
-        let search_history = current_file_path
-            .as_ref()
-            .and_then(|p| p.to_str())
-            .and_then(|path_str| {
-                super::persistent_state::PersistentState::load_search_history(path_str).ok()
-            });
-
         // Feed the Chart Studio its live source list + open-chart list.
         let producers = self.gather_producers();
         self.window_state.sidebar.set_chart_producers(producers);
@@ -1937,30 +2082,46 @@ impl ThothApp {
             .collect();
         self.window_state.sidebar.set_chart_open(open_charts);
 
+        // A query is saved against the file it was written on, so the list is
+        // in two halves: the open file's, which apply where the user already
+        // is, and every other file's, which are bookmarks — choosing one opens
+        // its file and arrives with the query applied.
+        let file_for_queries = current_file_path
+            .as_ref()
+            .and_then(|p| p.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let saved_queries = self.core.persistent_state.saved_queries(&file_for_queries);
+        let other_saved_queries: Vec<&crate::app::persistent_state::SavedQuery> = self
+            .core
+            .persistent_state
+            .all_saved_queries()
+            .into_iter()
+            .filter(|q| q.file_path != file_for_queries)
+            .collect();
+        let applied_query = self
+            .window_state
+            .tab_manager
+            .active_tab_mut()
+            .and_then(|tab| tab.central_panel.applied_query().map(str::to_string));
+
         let output = self.window_state.sidebar.render(
             ui,
             components::sidebar::SidebarProps {
                 recent_files: self.core.persistent_state.get_recent_files(),
-                bookmarks: self.core.persistent_state.get_bookmarks(),
+                saved_queries: &saved_queries,
+                other_saved_queries: &other_saved_queries,
+                applied_query: applied_query.as_deref(),
                 current_file_path: current_file_path.as_ref().and_then(|p| p.to_str()),
                 expanded: self.window_state.sidebar_expanded,
                 sidebar_width: self.core.persistent_state.get_sidebar_width(),
                 selected_section: self.window_state.sidebar_selected_section.clone(),
-                focus_search,
-                search_state: &search_state_clone,
-                search_history: search_history.as_ref(),
                 data_source_plugins: &ds_plugins,
                 ui_component_plugins: &ui_plugins,
                 active_datasource_plugin_id: sidebar_plugin_id.as_deref(),
                 plugin_sidebar: plugin_sidebar_prop,
             },
         );
-
-        if focus_search {
-            self.window_state.previous_sidebar_section =
-                self.window_state.sidebar_selected_section.clone();
-        }
-        self.window_state.previous_sidebar_expanded = self.window_state.sidebar_expanded;
 
         let nav_capacity = self.core.settings.performance.navigation_history_size;
 
@@ -2022,11 +2183,7 @@ impl ThothApp {
                             && self.window_state.sidebar_selected_section == Some(section.clone())
                         {
                             self.window_state.sidebar_expanded = false;
-                            self.window_state.previous_sidebar_section =
-                                self.window_state.sidebar_selected_section.clone();
                         } else {
-                            self.window_state.previous_sidebar_section =
-                                self.window_state.sidebar_selected_section.clone();
                             self.window_state.sidebar_expanded = true;
                             self.window_state.sidebar_selected_section = Some(section);
                         }
@@ -2046,71 +2203,20 @@ impl ThothApp {
                     self.core.persistent_state.set_sidebar_width(new_width);
                     let _ = self.core.persistent_state.save();
                 }
-                components::sidebar::SidebarEvent::Search(msg) => {
+                components::sidebar::SidebarEvent::ApplySavedQuery(id) => {
+                    self.apply_saved_query_anywhere(&id, nav_capacity);
+                }
+                components::sidebar::SidebarEvent::DeleteSavedQuery(id) => {
+                    self.core.persistent_state.remove_query(&id);
+                    // The lanes still hold it, but it is no longer saved — so
+                    // the head must stop claiming it is.
                     if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(file_path) = &tab.file_path
-                        && let Some(path_str) = file_path.to_str()
-                        && let Some(entry) = msg.history_entry()
+                        && tab.central_panel.applied_query() == Some(id.as_str())
                     {
-                        let _ = super::persistent_state::PersistentState::add_search_query(
-                            path_str, entry,
-                        );
+                        tab.central_panel.set_applied_query(None);
                     }
-                    return Some(msg);
-                }
-                components::sidebar::SidebarEvent::NavigateToSearchResult { record_index } => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                        tab.central_panel.navigate_to_record(record_index);
-                    }
-                }
-                components::sidebar::SidebarEvent::ClearSearchHistory => {
-                    if let Some(tab) = self.window_state.tab_manager.active_tab_mut()
-                        && let Some(file_path) = &tab.file_path
-                        && let Some(path_str) = file_path.to_str()
-                    {
-                        let _ = super::persistent_state::PersistentState::clear_search_history(
-                            path_str,
-                        );
-                    }
-                }
-                components::sidebar::SidebarEvent::NavigateToBookmark { file_path, path } => {
-                    let current_file =
-                        self.window_state
-                            .tab_manager
-                            .active_tab_mut()
-                            .and_then(|tab| {
-                                tab.file_path
-                                    .as_ref()
-                                    .and_then(|p| p.to_str())
-                                    .map(|s| s.to_string())
-                            });
-
-                    if current_file.as_deref() != Some(file_path.as_str()) {
-                        let path_buf = std::path::PathBuf::from(&file_path);
-                        let id = self
-                            .window_state
-                            .tab_manager
-                            .open_file(path_buf, nav_capacity);
-                        if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
-                            tab.error = None;
-                            tab.pending_navigation = Some(path.clone());
-                        }
-                        self.core.persistent_state.add_recent_file(
-                            file_path.clone(),
-                            self.core.settings.performance.max_recent_files,
-                        );
-                        let _ = self.core.persistent_state.save();
-                    } else {
-                        if let Some(tab) = self.window_state.tab_manager.active_tab_mut() {
-                            tab.navigation_history.push(path.clone());
-                            tab.central_panel.navigate_to_path(path);
-                        }
-                    }
-                }
-                components::sidebar::SidebarEvent::RemoveBookmark(index) => {
-                    self.core.persistent_state.remove_bookmark(index);
                     if let Err(e) = self.core.persistent_state.save() {
-                        eprintln!("Failed to save bookmarks: {}", e);
+                        eprintln!("Failed to save queries: {e}");
                     }
                 }
                 components::sidebar::SidebarEvent::JumpToPath(path) => {
@@ -2144,8 +2250,8 @@ impl ThothApp {
                 components::sidebar::SidebarEvent::OpenSettings => {
                     self.settings_dialog.open(&self.core.settings);
                 }
-                components::sidebar::SidebarEvent::ChartSelectSource(tab_id) => {
-                    self.chart_select_source(tab_id);
+                components::sidebar::SidebarEvent::ChartSelectSource(tab_id, relation) => {
+                    self.chart_select_source(tab_id, relation.as_deref());
                 }
                 components::sidebar::SidebarEvent::ChartGenerate(spec) => {
                     self.chart_generate(spec);
@@ -2163,60 +2269,81 @@ impl ThothApp {
     /// whose manifest declares the `data-producer` capability (and whose loader
     /// supports the call), plus every open file tab (core JSON/NDJSON and
     /// file-loader plugins are producers by default).
-    fn gather_producers(&self) -> Vec<crate::components::chart_studio::ProducerRef> {
+    fn gather_producers(&mut self) -> Vec<crate::components::chart_studio::ProducerRef> {
         use crate::components::chart_studio::{ProducerKind, ProducerRef};
+
+        // Resolved before the tab loop, which borrows the tabs mutably.
+        let manager = self.core.plugins.manager();
+        fn declares_producer(
+            pm: Option<&crate::plugin::manager::PluginManager>,
+            plugin_id: &str,
+        ) -> bool {
+            pm.is_some_and(|pm| {
+                pm.get_plugin_by_id(plugin_id).is_some_and(|p| {
+                    p.capabilities
+                        .contains(&crate::plugin::Capability::DataProducer)
+                })
+            })
+        }
         self.window_state
             .tab_manager
             .tabs
-            .iter()
-            .filter_map(|(id, tab)| {
+            .iter_mut()
+            .flat_map(|(id, tab)| {
                 // Plugin producer tabs: must declare the capability in their
                 // manifest AND export a working provide-dataset.
                 if let Some(pane) = tab.active_plugin_pane.as_ref() {
                     if !pane.loader.is_data_producer()
-                        || !self.plugin_declares_producer(&pane.plugin_id)
+                        || !declares_producer(manager.as_deref(), &pane.plugin_id)
                     {
-                        return None;
+                        return Vec::new();
                     }
                     let label = pane
                         .cached_tab_title
                         .clone()
                         .unwrap_or_else(|| pane.plugin_id.clone());
-                    return Some(ProducerRef {
+                    return vec![ProducerRef {
                         tab_id: *id,
+                        relation: None,
                         label,
                         kind: ProducerKind::Plugin,
-                    });
+                    }];
                 }
                 // Core producer: any open file tab. This includes files loaded
-                // by a file-loader plugin (csv-loader, …), because the tab's
-                // live loader exposes records uniformly.
+                // by a file-loader plugin, because the tab's live loader
+                // exposes records uniformly.
                 if let Some(path) = tab.file_path.as_ref() {
-                    let label = path
+                    let file = path
                         .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("file")
                         .to_string();
-                    return Some(ProducerRef {
-                        tab_id: *id,
-                        label,
-                        kind: ProducerKind::File,
-                    });
+                    // A tab is not one dataset. An object holding five arrays
+                    // holds five, and a database a table each — so each is
+                    // offered on its own rather than the chart following
+                    // whichever the grid happens to be showing.
+                    let relations = tab.central_panel.relations();
+                    if relations.is_empty() {
+                        return vec![ProducerRef {
+                            tab_id: *id,
+                            relation: None,
+                            label: file,
+                            kind: ProducerKind::File,
+                        }];
+                    }
+                    return relations
+                        .into_iter()
+                        .map(|name| ProducerRef {
+                            tab_id: *id,
+                            label: format!("{file} · {name}"),
+                            relation: Some(name),
+                            kind: ProducerKind::File,
+                        })
+                        .collect();
                 }
-                None
+                Vec::new()
             })
             .collect()
-    }
-
-    /// Whether the plugin with `plugin_id` declares the `data-producer`
-    /// capability in its manifest.
-    fn plugin_declares_producer(&self, plugin_id: &str) -> bool {
-        self.core.plugins.manager().is_some_and(|pm| {
-            pm.get_plugin_by_id(plugin_id).is_some_and(|p| {
-                p.capabilities
-                    .contains(&crate::plugin::Capability::DataProducer)
-            })
-        })
     }
 
     /// Resolve a producer tab's data directly (no registry): file tabs read
@@ -2225,6 +2352,7 @@ impl ThothApp {
     fn resolve_dataset(
         &mut self,
         tab_id: crate::app::tab_manager::TabId,
+        relation: Option<&str>,
     ) -> Option<ResolvedDataset> {
         let tab = self.window_state.tab_manager.tabs.get_mut(&tab_id)?;
         if tab.active_plugin_pane.is_none() {
@@ -2234,7 +2362,13 @@ impl ThothApp {
                 .and_then(|n| n.to_str())
                 .unwrap_or("file")
                 .to_string();
-            let (cols, rows) = tab.central_panel.to_dataset()?;
+            // Named, so a chart reads the relation it was built against
+            // rather than whichever one the grid has since moved to.
+            let name = match relation {
+                Some(r) => format!("{name} · {r}"),
+                None => name,
+            };
+            let (cols, rows) = tab.central_panel.to_dataset_for(relation)?;
             return Some((name, cols, rows));
         }
         let pane = tab.active_plugin_pane.as_ref()?;
@@ -2251,9 +2385,25 @@ impl ThothApp {
         // Refresh the producer list so the tab is a valid selection this frame,
         // then preselect it and resolve its columns for the axis pickers.
         let producers = self.gather_producers();
+        // A tab may offer several relations; Chart opens on the one the grid
+        // is showing, which is the one the user was looking at when they
+        // pressed it.
+        let relation = self
+            .window_state
+            .tab_manager
+            .tabs
+            .get(&tab_id)
+            .and_then(|tab| tab.central_panel.showing_relation());
+        let relation = producers
+            .iter()
+            .find(|p| p.tab_id == tab_id && p.relation == relation)
+            .or_else(|| producers.iter().find(|p| p.tab_id == tab_id))
+            .and_then(|p| p.relation.clone());
         self.window_state.sidebar.set_chart_producers(producers);
-        self.window_state.sidebar.select_chart_source(tab_id);
-        self.chart_select_source(tab_id);
+        self.window_state
+            .sidebar
+            .select_chart_source(tab_id, relation.as_deref());
+        self.chart_select_source(tab_id, relation.as_deref());
         self.window_state.sidebar_expanded = true;
         self.window_state.sidebar_selected_section =
             Some(components::sidebar::SidebarSection::ChartStudio);
@@ -2261,24 +2411,33 @@ impl ThothApp {
 
     /// The user picked a chart data source: resolve it, cache the snapshot, and
     /// feed the column schema (name + numeric flag) to the config panel.
-    fn chart_select_source(&mut self, tab_id: crate::app::tab_manager::TabId) {
-        let Some((_name, cols, rows)) = self.resolve_dataset(tab_id) else {
+    fn chart_select_source(
+        &mut self,
+        tab_id: crate::app::tab_manager::TabId,
+        relation: Option<&str>,
+    ) {
+        let Some((_name, cols, rows)) = self.resolve_dataset(tab_id, relation) else {
             Self::notify_dataset_unavailable();
             return;
         };
         let columns = columns_info(&cols, &rows);
         let colnames = cols.into_iter().map(|(n, _)| n).collect();
-        self.core.chart_source = Some((tab_id, colnames, rows));
+        let key = crate::components::chart_studio::source_key(tab_id, relation);
+        self.core.chart_source = Some((key, colnames, rows));
         self.window_state.sidebar.set_chart_columns(columns);
     }
 
     /// Build a chart from a spec: either update the edited tab in place or open
     /// a new dock tab.
     fn chart_generate(&mut self, spec: crate::components::chart_studio::ChartSpec) {
+        let key = crate::components::chart_studio::source_key(
+            spec.source_tab,
+            spec.source_relation.as_deref(),
+        );
         let resolved = match &self.core.chart_source {
-            Some((t, cols, rows)) if *t == spec.source_tab => Some((cols.clone(), rows.clone())),
+            Some((cached, cols, rows)) if *cached == key => Some((cols.clone(), rows.clone())),
             _ => self
-                .resolve_dataset(spec.source_tab)
+                .resolve_dataset(spec.source_tab, spec.source_relation.as_deref())
                 .map(|(_n, cols, rows)| (cols.into_iter().map(|(n, _)| n).collect(), rows)),
         };
         let Some((colnames, rows)) = resolved else {
@@ -2326,11 +2485,15 @@ impl ThothApp {
         spec.edit_target = Some(tab_id);
         // Best-effort: resolve the source's current columns so the axis pickers
         // are populated (empty if the source tab is gone).
-        let columns = match self.resolve_dataset(spec.source_tab) {
+        let key = crate::components::chart_studio::source_key(
+            spec.source_tab,
+            spec.source_relation.as_deref(),
+        );
+        let columns = match self.resolve_dataset(spec.source_tab, spec.source_relation.as_deref()) {
             Some((_n, cols, rows)) => {
                 let ci = columns_info(&cols, &rows);
                 let colnames = cols.into_iter().map(|(n, _)| n).collect();
-                self.core.chart_source = Some((spec.source_tab, colnames, rows));
+                self.core.chart_source = Some((key, colnames, rows));
                 ci
             }
             None => Vec::new(),
@@ -2343,16 +2506,20 @@ impl ThothApp {
 
     /// Re-fetch a chart tab's source data and rebuild it (incl. axis names).
     fn chart_refresh(&mut self, tab_id: crate::app::tab_manager::TabId) {
-        let Some(source) = self
+        // Refresh re-reads the relation the chart was *built* against, not
+        // whatever the tab has since been switched to — that silent re-point
+        // is what keying a chart on the tab alone used to allow.
+        let Some((source, relation)) = self
             .window_state
             .tab_manager
             .tabs
             .get(&tab_id)
-            .and_then(|t| t.chart.as_ref().map(|c| c.source_tab()))
+            .and_then(|t| t.chart.as_ref())
+            .map(|c| (c.source_tab(), c.source_relation().map(str::to_string)))
         else {
             return;
         };
-        let Some((_name, cols, rows)) = self.resolve_dataset(source) else {
+        let Some((_name, cols, rows)) = self.resolve_dataset(source, relation.as_deref()) else {
             Self::notify_dataset_unavailable();
             return;
         };
@@ -2391,11 +2558,19 @@ impl ThothApp {
             return;
         };
 
-        let Some(meta) = crate::plugin::datasets::meta(handle) else {
+        let Some(meta) = crate::papyrus::meta(handle) else {
             Self::notify_dataset_unavailable();
             return;
         };
         let source = meta.source_plugin.clone();
+
+        // A built-in format is written by the host from the dataset it already
+        // holds — the same read Copy makes — so there is no plugin to hand it
+        // to and nothing to consent to.
+        if let Some(format) = exporter_id.strip_prefix("builtin:") {
+            Self::export_builtin(handle, format, &meta.name);
+            return;
+        }
 
         // Consent-gate handing *another* producer's data to the exporter plugin
         // (exporting your own plugin's dataset needs no prompt). On approval the
@@ -2432,11 +2607,51 @@ impl ThothApp {
     fn drain_pending_exports(&mut self) {
         for (handle, exporter_id) in drain_queued_exports() {
             // The dataset may have been dropped between approval and now.
-            let Some(meta) = crate::plugin::datasets::meta(&handle) else {
+            let Some(meta) = crate::papyrus::meta(&handle) else {
                 Self::notify_dataset_unavailable();
                 continue;
             };
             self.perform_export(&handle, &exporter_id, &meta.name);
+        }
+    }
+
+    /// Write a dataset out in one of the host's own formats (#55).
+    ///
+    /// The whole result, not the page on screen: `dataset_pages` walks the
+    /// registry to the end, so exporting an aggregate keeps every group rather
+    /// than the first screenful of them.
+    fn export_builtin(handle: &str, format: &str, name: &str) {
+        let Some((columns, rows)) = dataset_grid(handle) else {
+            Self::notify_dataset_unavailable();
+            return;
+        };
+        let (bytes, ext) = match format {
+            "csv" => (csv_bytes(&columns, &rows), "csv"),
+            _ => (json_records(&columns, &rows), "json"),
+        };
+        Self::save_export(&bytes, name, ext);
+    }
+
+    /// Offer a save dialog and write `bytes`, reporting either way.
+    fn save_export(bytes: &[u8], name: &str, ext: &str) {
+        use crate::notification::{Notification, NotificationManager};
+
+        let default_name = format!("{}.{}", sanitize_filename(name), ext);
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name(&default_name)
+            .add_filter(ext, &[ext])
+            .save_file()
+        {
+            match std::fs::write(&path, bytes) {
+                Ok(()) => NotificationManager::notify(
+                    Notification::new("Exported", &format!("Saved to {}", path.display()))
+                        .with_toast(true),
+                ),
+                Err(e) => NotificationManager::notify_error(Notification::new(
+                    "Export failed",
+                    &e.to_string(),
+                )),
+            };
         }
     }
 
@@ -2491,24 +2706,7 @@ impl ThothApp {
             }
         };
 
-        // Save via a native dialog.
-        let default_name = format!("{}.{}", sanitize_filename(name), ext);
-        if let Some(path) = rfd::FileDialog::new()
-            .set_file_name(&default_name)
-            .add_filter(&ext, &[ext.as_str()])
-            .save_file()
-        {
-            match std::fs::write(&path, &bytes) {
-                Ok(()) => NotificationManager::notify(
-                    Notification::new("Exported", &format!("Saved to {}", path.display()))
-                        .with_toast(true),
-                ),
-                Err(e) => NotificationManager::notify_error(Notification::new(
-                    "Export failed",
-                    &e.to_string(),
-                )),
-            };
-        }
+        Self::save_export(&bytes, name, &ext);
     }
 
     /// Activate an existing tab by id.
@@ -2588,7 +2786,6 @@ impl ThothApp {
                             tab.error = None;
                             tab.file_path = None;
                             tab.total_items = 0;
-                            tab.search_engine_state.search = crate::search::Search::default();
                         }
                     }
                 }
@@ -2714,13 +2911,112 @@ pub fn list_renderers_for_view() -> Vec<thoth_plugin_sdk::dataset::RendererInfo>
 
 /// Serialize a dataset (paged reads) into the `{columns, rows}` records-json the
 /// exporter/renderer plugins consume.
+/// A whole dataset as `(column names, rows of cells)`, or `None` when the
+/// handle no longer resolves.
+///
+/// A cell that was NULL comes back as `None`, which is the distinction the
+/// encoders need: in JSON it is `null` rather than `""`, and the two mean very
+/// different things about the record.
+type Cell = Option<String>;
+fn dataset_grid(handle: &str) -> Option<(Vec<String>, Vec<Vec<Cell>>)> {
+    let mut columns: Vec<String> = Vec::new();
+    let mut rows: Vec<Vec<Cell>> = Vec::new();
+    let mut offset: u64 = 0;
+    let mut seen = false;
+    while let Some(page) = crate::papyrus::read(handle, offset, crate::papyrus::MAX_READ_LIMIT) {
+        seen = true;
+        if columns.is_empty() {
+            columns = page.columns.iter().map(|c| c.name.clone()).collect();
+        }
+        let got = page.rows.len() as u64;
+        for (r, row) in page.rows.iter().enumerate() {
+            rows.push(
+                row.iter()
+                    .enumerate()
+                    .map(|(c, cell)| {
+                        // `nulls` is empty for sources that cannot tell a NULL
+                        // from an empty string, and then nothing is null.
+                        let is_null = page
+                            .nulls
+                            .get(r)
+                            .and_then(|mask| mask.get(c))
+                            .copied()
+                            .unwrap_or(false);
+                        (!is_null).then(|| cell.clone())
+                    })
+                    .collect(),
+            );
+        }
+        offset += got;
+        if got == 0 || offset >= page.total {
+            break;
+        }
+    }
+    seen.then_some((columns, rows))
+}
+
+/// A grid as RFC 4180 CSV. A field is quoted when it has to be — a comma, a
+/// quote or a newline in it — because quoting everything makes a file that is
+/// correct and unreadable.
+fn csv_bytes(columns: &[String], rows: &[Vec<Cell>]) -> Vec<u8> {
+    fn field(value: &str) -> String {
+        if value.contains([',', '"', '\n', '\r']) {
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_string()
+        }
+    }
+    let mut out = String::new();
+    out.push_str(
+        &columns
+            .iter()
+            .map(|c| field(c))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    out.push('\n');
+    for row in rows {
+        out.push_str(
+            &row.iter()
+                .map(|cell| field(cell.as_deref().unwrap_or("")))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        out.push('\n');
+    }
+    out.into_bytes()
+}
+
+/// A grid as an array of JSON objects — one per row, keyed by column.
+///
+/// Values are the strings the registry holds, except a NULL, which is `null`.
+/// The registry stores display text, so a number exports as `"42"`; making it
+/// a JSON number here would mean guessing a type the page no longer carries.
+fn json_records(columns: &[String], rows: &[Vec<Cell>]) -> Vec<u8> {
+    let records: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            let mut object = serde_json::Map::new();
+            for (name, cell) in columns.iter().zip(row) {
+                object.insert(
+                    name.clone(),
+                    match cell {
+                        Some(value) => serde_json::Value::String(value.clone()),
+                        None => serde_json::Value::Null,
+                    },
+                );
+            }
+            serde_json::Value::Object(object)
+        })
+        .collect();
+    serde_json::to_vec_pretty(&records).unwrap_or_default()
+}
+
 fn dataset_records_json(handle: &str) -> String {
     let mut columns: Vec<String> = Vec::new();
     let mut rows: Vec<Vec<String>> = Vec::new();
     let mut offset: u64 = 0;
-    while let Some(page) =
-        crate::plugin::datasets::read(handle, offset, crate::plugin::datasets::MAX_READ_LIMIT)
-    {
+    while let Some(page) = crate::papyrus::read(handle, offset, crate::papyrus::MAX_READ_LIMIT) {
         if columns.is_empty() {
             columns = page.columns.iter().map(|c| c.name.clone()).collect();
         }
@@ -2767,7 +3063,7 @@ pub fn render_dataset_with_plugin(
     use crate::notification::{Notification, NotificationManager};
     use thoth_plugin_sdk::dataset::PluginRenderResult;
 
-    let Some(meta) = crate::plugin::datasets::meta(handle) else {
+    let Some(meta) = crate::papyrus::meta(handle) else {
         return PluginRenderResult::Unavailable;
     };
     let source = meta.source_plugin.clone();
@@ -2861,7 +3157,7 @@ pub fn resolve_dataset_for_view(
     handle: &str,
     limit: u32,
 ) -> Option<thoth_plugin_sdk::dataset::DatasetPage> {
-    let page = crate::plugin::datasets::read(handle, 0, limit)?;
+    let page = crate::papyrus::read(handle, 0, limit)?;
     Some(thoth_plugin_sdk::dataset::DatasetPage {
         columns: page
             .columns
@@ -2872,6 +3168,7 @@ pub fn resolve_dataset_for_view(
             })
             .collect(),
         rows: page.rows,
+        nulls: page.nulls,
         total: page.total,
     })
 }
@@ -2937,4 +3234,58 @@ fn column_is_numeric(rows: &[Vec<String>], c: usize) -> bool {
         })
         .count();
     ok * 2 >= sample
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    fn cell(value: &str) -> Cell {
+        Some(value.to_string())
+    }
+
+    #[test]
+    fn a_csv_field_is_quoted_only_when_it_has_to_be() {
+        let columns = vec!["name".to_string(), "note".to_string()];
+        let rows = vec![
+            vec![cell("ada"), cell("plain")],
+            // A comma, a quote and a newline are each a reason to quote, and
+            // an embedded quote is doubled rather than escaped.
+            vec![cell("bob, jr"), cell("said \"hi\"\nthen left")],
+            vec![cell(""), None],
+        ];
+        let csv = String::from_utf8(csv_bytes(&columns, &rows)).unwrap();
+        assert_eq!(
+            csv,
+            "name,note\n\
+             ada,plain\n\
+             \"bob, jr\",\"said \"\"hi\"\"\nthen left\"\n\
+             ,\n"
+        );
+    }
+
+    #[test]
+    fn a_null_exports_as_null_and_an_empty_string_as_a_string() {
+        // The mask is the only thing that separates a field the record does
+        // not carry from one that carries "", and an export that loses it
+        // cannot be read back into the same records.
+        let columns = vec!["a".to_string(), "b".to_string()];
+        let rows = vec![vec![cell(""), None]];
+        let json = String::from_utf8(json_records(&columns, &rows)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed[0]["a"], serde_json::json!(""));
+        assert_eq!(parsed[0]["b"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn an_empty_result_still_exports_its_header() {
+        // A query that matched nothing is an answer; a zero-byte file is not.
+        let csv =
+            String::from_utf8(csv_bytes(&["hour".to_string(), "events".to_string()], &[])).unwrap();
+        assert_eq!(csv, "hour,events\n");
+        assert_eq!(
+            String::from_utf8(json_records(&["hour".to_string()], &[])).unwrap(),
+            "[]"
+        );
+    }
 }

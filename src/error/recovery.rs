@@ -62,6 +62,12 @@ impl ErrorRecovery {
             // Download/save errors
             ThothError::DownloadError { .. } => RecoveryAction::Retry,
             ThothError::FileSaveError { .. } => RecoveryAction::ShowError,
+
+            // Database errors
+            ThothError::DatabaseError { .. } => RecoveryAction::ShowError,
+            ThothError::DatabaseConversionError { .. } => RecoveryAction::ShowError,
+            ThothError::DatabaseQueryError { .. } => RecoveryAction::ShowError,
+            ThothError::DatabaseParameterError { .. } => RecoveryAction::ShowError,
         }
     }
 

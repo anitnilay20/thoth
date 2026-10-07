@@ -669,26 +669,89 @@ impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
 pub(crate) mod secret_store {
     use super::KEYRING_SERVICE;
 
+    /// What the OS store failed at, in terms of what the person can do next.
+    ///
+    /// Every failure used to arrive as one string, so "you cancelled the
+    /// prompt", "the keychain is locked" and "this Linux session has no
+    /// Secret Service running" were indistinguishable — despite needing three
+    /// completely different responses.
+    fn explain(action: &str, err: &keyring::Error) -> String {
+        // The OS's own words are already in `err`'s Display (macOS resolves
+        // them through `SecCopyErrorMessageString`), so the value added here
+        // is what to *do*, which the OS never says.
+        let hint = match err {
+            keyring::Error::NoStorageAccess(_) => Some(unreachable_hint()),
+            keyring::Error::PlatformFailure(_) => Some(refused_hint()),
+            _ => None,
+        };
+        match hint {
+            Some(hint) => format!("could not {action} the saved password: {err}. {hint}"),
+            None => format!("could not {action} the saved password: {err}"),
+        }
+    }
+
+    /// The store itself could not be reached.
+    fn unreachable_hint() -> &'static str {
+        #[cfg(target_os = "macos")]
+        {
+            "Your login keychain may be locked — unlock it in Keychain Access and try again."
+        }
+        #[cfg(target_os = "windows")]
+        {
+            "Windows Credential Manager could not be reached."
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            "No Secret Service is running. Thoth stores passwords through GNOME Keyring, \
+             KWallet or another org.freedesktop.secrets provider, which a headless or \
+             minimal session may not have — start one, or re-enter the password each time."
+        }
+    }
+
+    /// The store was reached and said no.
+    fn refused_hint() -> &'static str {
+        #[cfg(target_os = "macos")]
+        {
+            "macOS asks permission when the app that saved a password is not byte-for-byte \
+             the app asking for it, which is every rebuild or update of an unsigned build. \
+             Note that the dialog wants the password of the *keychain*, which is not your \
+             login password if your login keychain was ever reset — look for a \
+             `login_renamed_*.keychain-db` in ~/Library/Keychains, which is macOS's sign \
+             that it was. Re-saving the password stores it afresh for this build."
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            "The credential store refused the request."
+        }
+    }
+
     pub(crate) fn write(account: &str, secret: &str) -> Result<(), String> {
         keyring::Entry::new(KEYRING_SERVICE, account)
             .and_then(|e| e.set_password(secret))
-            .map_err(|e| e.to_string())
+            .map_err(|e| explain("save", &e))
     }
 
+    /// The saved password, or `None` when none was ever saved.
+    ///
+    /// Only a genuine absence is `None`. A store that is locked, missing or
+    /// refusing is an error: answering `None` would read as "no password
+    /// saved" and quietly send the user to re-type one that is already there.
     pub(crate) fn read(account: &str) -> Result<Option<String>, String> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
+        let entry =
+            keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| explain("read", &e))?;
         match entry.get_password() {
             Ok(p) => Ok(Some(p)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(explain("read", &e)),
         }
     }
 
     pub(crate) fn delete(account: &str) -> Result<(), String> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| e.to_string())?;
+        let entry =
+            keyring::Entry::new(KEYRING_SERVICE, account).map_err(|e| explain("forget", &e))?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(explain("forget", &e)),
         }
     }
 }
@@ -765,7 +828,7 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
         columns: Vec<thoth::plugin::data_producer::DatasetColumn>,
         rows: Vec<Vec<String>>,
     ) -> String {
-        crate::plugin::datasets::publish(
+        crate::papyrus::publish(
             &self.plugin_id,
             &self.instance_id,
             name,
@@ -783,7 +846,7 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
         rows: Vec<Vec<String>>,
     ) {
         // Scoped to this instance so a plugin can only mutate its own datasets.
-        crate::plugin::datasets::update(
+        crate::papyrus::update(
             &self.instance_id,
             &handle,
             to_registry_columns(columns),
@@ -792,7 +855,7 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
     }
 
     fn append(&mut self, handle: String, rows: Vec<Vec<String>>) {
-        crate::plugin::datasets::append(&self.instance_id, &handle, rows);
+        crate::papyrus::append(&self.instance_id, &handle, rows);
         // The app is reactive; a background stream must nudge egui or the newly
         // appended rows won't show until the next user interaction.
         if let Some(ctx) = crate::EGUI_CTX.get() {
@@ -801,17 +864,17 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
     }
 
     fn release(&mut self, handle: String) {
-        crate::plugin::datasets::release(&self.instance_id, &handle);
+        crate::papyrus::release(&self.instance_id, &handle);
     }
 }
 
 /// Map WIT dataset columns to the host registry's column type.
 fn to_registry_columns(
     columns: Vec<thoth::plugin::data_producer::DatasetColumn>,
-) -> Vec<crate::plugin::datasets::DatasetColumn> {
+) -> Vec<crate::papyrus::DatasetColumn> {
     columns
         .into_iter()
-        .map(|c| crate::plugin::datasets::DatasetColumn {
+        .map(|c| crate::papyrus::DatasetColumn {
             name: c.name,
             type_hint: c.type_hint,
         })

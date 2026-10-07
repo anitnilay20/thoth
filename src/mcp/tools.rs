@@ -1,6 +1,6 @@
 //! MCP tool definitions for the Thoth server.
 //!
-//! Uses rmcp's `#[tool_router]` macro to expose Thoth's file and search
+//! Uses rmcp's `#[tool_router]` macro to expose Thoth's file
 //! capabilities as MCP tools.
 
 use std::path::PathBuf;
@@ -29,7 +29,9 @@ impl ThothMcpServer {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
 pub struct OpenFileParams {
-    /// Absolute or relative path to the JSON/NDJSON file to open.
+    /// Absolute or relative path to the file to open. JSON, NDJSON, CSV,
+    /// Parquet and database files are read natively; other formats are read
+    /// through an installed file-loader plugin.
     pub path: String,
 }
 
@@ -39,10 +41,13 @@ pub struct OpenFileResult {
     pub handle: String,
     /// The resolved file path.
     pub path: String,
-    /// Detected format: "ndjson", "json_array", or "json_object".
+    /// Detected format: "ndjson", "json", "csv", "parquet", "excel", "arrow",
+    /// "database" or "plugin".
     pub file_type: String,
     /// Number of top-level records in the file.
     pub record_count: usize,
+    /// The name SQL should reference this file by (see query_file).
+    pub alias: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -69,6 +74,8 @@ pub struct GetFileInfoResult {
     pub path: String,
     pub file_type: String,
     pub record_count: usize,
+    /// The name SQL should reference this file by (see query_file).
+    pub alias: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
@@ -99,41 +106,28 @@ pub struct GetRecordCountResult {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema, Default)]
-pub struct SearchParams {
-    /// Handle of the open file to search.
+pub struct QueryFileParams {
+    /// Handle of the open file to query.
     pub handle: String,
-    /// The search query string. For text search, this is a substring.
-    /// For JSONPath, prefix with `$` (e.g. `$.user.name`).
-    pub query: String,
-    /// Search mode: "text" or "jsonpath". Defaults to "text".
-    /// If the query starts with "$", jsonpath mode is used automatically.
-    pub mode: Option<String>,
-    /// Whether to match case-sensitively. Defaults to false.
-    pub match_case: Option<bool>,
-    /// Maximum number of results to return. Defaults to 50.
-    pub max_results: Option<usize>,
+    /// SQL to run. Reference the file by the alias reported in the result of
+    /// open_file, e.g. `SELECT * FROM sales WHERE amount > 100`.
+    pub sql: String,
+    /// Maximum rows to return. Defaults to 100.
+    pub max_rows: Option<usize>,
 }
 
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct SearchResult {
-    /// Total number of matching records.
-    pub total_matches: usize,
-    /// The matches returned (up to max_results).
-    pub matches: Vec<SearchMatch>,
-    /// The query that was executed.
-    pub query: String,
-    /// The mode used: "text" or "jsonpath".
-    pub mode: String,
-}
-
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct SearchMatch {
-    /// Zero-based record index.
-    pub record_index: usize,
-    /// Short preview snippet of the match.
-    pub preview: Option<String>,
-    /// JSONPath or field path where the match occurred (if available).
-    pub match_path: Option<String>,
+pub struct QueryFileResult {
+    /// The alias the file is registered under, for use in SQL.
+    pub alias: String,
+    /// Column names of the file, in schema order.
+    pub columns: Vec<String>,
+    /// Result rows as JSON, capped at max_rows.
+    pub rows: Vec<serde_json::Value>,
+    /// Number of rows returned (after capping).
+    pub row_count: usize,
+    /// Error message when the query failed; absent on success.
+    pub error: Option<String>,
 }
 
 // ─── Phase 2: Data tool parameter / output types ─────────────────────────────
@@ -227,7 +221,7 @@ pub struct GetSchemaResult {
 impl ThothMcpServer {
     #[tool(
         name = "open_file",
-        description = "Open a JSON, NDJSON, or GeoJSON file for inspection. Returns a handle for use with other tools."
+        description = "Open a data file for inspection. JSON, NDJSON, CSV, Parquet and database files are read natively; other formats need a file-loader plugin. Returns a handle for use with other tools."
     )]
     fn open_file(&self, Parameters(params): Parameters<OpenFileParams>) -> Json<OpenFileResult> {
         let path = PathBuf::from(&params.path);
@@ -241,6 +235,7 @@ impl ThothMcpServer {
                 path: info.path,
                 file_type: info.file_type,
                 record_count: info.record_count,
+                alias: info.alias,
             }),
             Err(e) => {
                 // Return error as a result with empty handle so the LLM sees the message
@@ -249,6 +244,7 @@ impl ThothMcpServer {
                     path: resolved.display().to_string(),
                     file_type: format!("error: {}", e),
                     record_count: 0,
+                    alias: String::new(),
                 })
             }
         }
@@ -277,12 +273,14 @@ impl ThothMcpServer {
                 path: info.path,
                 file_type: info.file_type,
                 record_count: info.record_count,
+                alias: info.alias,
             }),
             None => Json(GetFileInfoResult {
                 handle: params.handle.clone(),
                 path: String::new(),
                 file_type: format!("error: no file with handle '{}'", params.handle),
                 record_count: 0,
+                alias: String::new(),
             }),
         }
     }
@@ -292,16 +290,16 @@ impl ThothMcpServer {
         description = "Retrieve a single JSON record by its zero-based index from an open file."
     )]
     fn get_record(&self, Parameters(params): Parameters<GetRecordParams>) -> Json<GetRecordResult> {
-        let result = self.state.with_file(&params.handle, |file| {
-            match file.file_type.get(params.index) {
+        let result = self
+            .state
+            .with_file(&params.handle, |file| match file.record(params.index) {
                 Ok(value) => {
                     let record =
                         serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
                     Ok(record)
                 }
                 Err(e) => Err(format!("{}", e)),
-            }
-        });
+            });
 
         match result {
             Some(Ok(record)) => Json(GetRecordResult {
@@ -337,106 +335,43 @@ impl ThothMcpServer {
     }
 
     #[tool(
-        name = "search",
-        description = "Search records in an open file using text substring match or JSONPath query. Returns matching record indices with preview snippets."
+        name = "query_file",
+        description = "Run a read-only SQL query against an open file. SELECT / WITH / DESCRIBE / SHOW / EXPLAIN only, one statement at a time. Supports WHERE, ORDER BY, GROUP BY, aggregates and window functions. Reference the file by the alias returned here or by open_file."
     )]
-    fn search(&self, Parameters(params): Parameters<SearchParams>) -> Json<SearchResult> {
-        use crate::search::{QueryMode, Search};
+    fn query_file(&self, Parameters(params): Parameters<QueryFileParams>) -> Json<QueryFileResult> {
+        let max_rows = params.max_rows.unwrap_or(100);
 
-        let max_results = params.max_results.unwrap_or(50);
-        let match_case = params.match_case.unwrap_or(false);
-
-        // Auto-detect mode from query prefix if not explicitly specified
-        let mode = match params.mode.as_deref() {
-            Some("jsonpath") => QueryMode::JsonPath,
-            Some("text") => QueryMode::Text,
-            _ => {
-                if params.query.starts_with('$') {
-                    QueryMode::JsonPath
-                } else {
-                    QueryMode::Text
+        let result = self.state.with_file(&params.handle, |file| {
+            let alias = file.alias();
+            let columns = file.columns().unwrap_or_default();
+            match file.query(&params.sql, max_rows) {
+                Ok(rows) => {
+                    let row_count = rows.len();
+                    QueryFileResult {
+                        alias,
+                        columns,
+                        rows,
+                        row_count,
+                        error: None,
+                    }
                 }
+                Err(e) => QueryFileResult {
+                    alias,
+                    columns,
+                    rows: vec![],
+                    row_count: 0,
+                    error: Some(e.to_string()),
+                },
             }
-        };
+        });
 
-        let mode_str = match mode {
-            QueryMode::Text => "text",
-            QueryMode::JsonPath => "jsonpath",
-        };
-
-        // Read file path and kind atomically to avoid race with concurrent close.
-        let file_context = self
-            .state
-            .with_file_read2(&params.handle, |file| (file.path.clone(), file.file_kind));
-
-        let (file_path, file_kind) = match file_context {
-            Some((p, k)) => (p, k),
-            None => {
-                return Json(SearchResult {
-                    total_matches: 0,
-                    matches: vec![],
-                    query: params.query,
-                    mode: mode_str.to_string(),
-                });
-            }
-        };
-
-        // Use Search engine — it reopens the file internally for thread-safe parallel scanning
-        let mut search = Search {
-            query: params.query.clone(),
-            match_case,
-            query_mode: mode,
-            ..Search::default()
-        };
-
-        let path_opt = Some(file_path);
-        search.start_scanning_internal(&path_opt, &file_kind);
-
-        if let Some(err) = &search.error {
-            return Json(SearchResult {
-                total_matches: 0,
-                matches: vec![SearchMatch {
-                    record_index: 0,
-                    preview: Some(format!("Search error: {}", err)),
-                    match_path: None,
-                }],
-                query: params.query,
-                mode: mode_str.to_string(),
-            });
-        }
-
-        let hits = search.results.hits();
-        let total = hits.len();
-        let capped = &hits[..total.min(max_results)];
-
-        let matches: Vec<SearchMatch> = capped
-            .iter()
-            .map(|hit| {
-                let preview = hit
-                    .preview
-                    .as_ref()
-                    .map(|p| format!("{}«{}»{}", p.before, p.highlight, p.after));
-
-                let match_path = hit
-                    .fragments
-                    .first()
-                    .and_then(|f| f.path.as_ref())
-                    .map(|p| p.to_string());
-
-                SearchMatch {
-                    record_index: hit.record_index,
-                    preview,
-                    match_path,
-                }
-            })
-            .collect();
-
-        Json(SearchResult {
-            total_matches: total,
-            matches,
-            query: params.query,
-            mode: mode_str.to_string(),
-        })
+        Json(result.unwrap_or_else(|| QueryFileResult {
+            alias: String::new(),
+            columns: vec![],
+            rows: vec![],
+            row_count: 0,
+            error: Some(format!("no file with handle '{}'", params.handle)),
+        }))
     }
 
     // ─── Phase 2: Data tools ─────────────────────────────────────────────
@@ -452,7 +387,7 @@ impl ThothMcpServer {
         use crate::helpers::walk_rel;
 
         let result = self.state.with_file(&params.handle, |file| {
-            let record = file.file_type.get(params.index)?;
+            let record = file.record(params.index)?;
             if params.path.is_empty() {
                 Ok(record)
             } else {
@@ -503,21 +438,20 @@ impl ThothMcpServer {
             let count = total.min(sample_size);
             let mut keys = BTreeSet::new();
 
-            for i in 0..count {
-                if let Ok(record) = file.file_type.get(i) {
-                    let target = if path.is_empty() {
-                        record
-                    } else {
-                        match walk_rel(record, path) {
-                            Ok(v) => v,
-                            Err(_) => continue,
-                        }
-                    };
+            // One windowed read for the whole sample, not `count` of them.
+            for record in file.records(0, count).unwrap_or_default() {
+                let target = if path.is_empty() {
+                    record
+                } else {
+                    match walk_rel(record, path) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    }
+                };
 
-                    if let Some(obj) = target.as_object() {
-                        for key in obj.keys() {
-                            keys.insert(key.clone());
-                        }
+                if let Some(obj) = target.as_object() {
+                    for key in obj.keys() {
+                        keys.insert(key.clone());
                     }
                 }
             }
@@ -574,7 +508,7 @@ impl ThothMcpServer {
 
             let mut records = Vec::with_capacity(indices.len());
             for idx in &indices {
-                if let Ok(value) = file.file_type.get(*idx) {
+                if let Ok(value) = file.record(*idx) {
                     let record_str =
                         serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
                     records.push(SampledRecord {
@@ -611,14 +545,7 @@ impl ThothMcpServer {
         let result = self.state.with_file(&params.handle, |file| {
             let total = file.record_count();
             let count = total.min(sample_size);
-            let mut sampled_values = Vec::with_capacity(count);
-
-            for i in 0..count {
-                if let Ok(value) = file.file_type.get(i) {
-                    sampled_values.push(value);
-                }
-            }
-
+            let sampled_values = file.records(0, count).unwrap_or_default();
             let schema = infer_schema(&sampled_values);
             (schema, count)
         });
@@ -644,9 +571,10 @@ impl ServerHandler for ThothMcpServer {
         let mut info = rmcp::model::ServerInfo::default();
         info.server_info = rmcp::model::Implementation::new("thoth", env!("CARGO_PKG_VERSION"));
         info.instructions = Some(
-            "Thoth is a high-performance JSON/NDJSON file inspector. \
-             Use open_file to load a file, then use tools like get_record, search, \
-             extract_keys, sample_records, and get_schema to explore the data."
+            "Thoth is a high-performance data file inspector backed by DuckDB. \
+             Use open_file to load a JSON, NDJSON, CSV, Parquet or database file, \
+             then use query_file to run SQL against it, or get_record, extract_keys, \
+             sample_records and get_schema to explore it record by record."
                 .to_string(),
         );
         info

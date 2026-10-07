@@ -102,6 +102,7 @@ impl Checkbox {
         if interactive {
             response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
         }
+        crate::theme::paint_focus_ring(ui, &response, RADIUS_CHECK);
 
         response
     }

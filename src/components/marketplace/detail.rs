@@ -3,10 +3,8 @@
 // grid of README and `.meta-side` metadata.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 
 use eframe::egui;
-use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use thoth_plugin_sdk::components::{
     Badge, Button, ButtonColor, ButtonSize, ButtonType, Icon, Progress, Separator, Size, Spinner,
@@ -615,22 +613,16 @@ fn render_readme(ui: &mut egui::Ui, plugin: &MarketPlacePlugin, colors: &ThemeCo
 
     match (&entry.content, &entry.error, entry.pending.is_some()) {
         (Some(text), _, _) => {
-            // The SDK's `Markdown` builds a fresh `CommonMarkCache` per call,
-            // which would re-parse a long README every frame — so the viewer is
-            // driven directly off a cache kept in egui memory.
-            let cache_id = egui::Id::new("mp_readme_md_cache");
-            let cache_arc = ui.ctx().data_mut(|d| {
-                d.get_temp::<Arc<Mutex<CommonMarkCache>>>(cache_id)
-                    .unwrap_or_else(|| Arc::new(Mutex::new(CommonMarkCache::default())))
+            // The SDK's `Markdown` owns the render cache now, so this is the
+            // component rather than a second copy of it here.
+            egui::Frame::NONE.fill(colors.bg).show(ui, |ui| {
+                ui.set_height(ui.available_height());
+                thoth_plugin_sdk::components::Markdown::builder()
+                    .id("mp_readme")
+                    .value(text.clone())
+                    .build()
+                    .show(ui);
             });
-            {
-                let mut cache = cache_arc.lock().unwrap();
-                egui::Frame::NONE.fill(colors.bg).show(ui, |ui| {
-                    ui.set_height(ui.available_height());
-                    CommonMarkViewer::new().show(ui, &mut cache, text);
-                });
-            }
-            ui.ctx().data_mut(|d| d.insert_temp(cache_id, cache_arc));
         }
         (_, Some(err), _) => {
             Typography::body_muted(ui, &format!("Failed to load README: {err}"));

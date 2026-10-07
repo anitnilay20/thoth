@@ -1,0 +1,11 @@
+{
+  "kind": "critique-panel",
+  "score": 5,
+  "axes": {
+    "clarity":    { "score": 5, "notes": "Builder and SQL are two readings of one spec, so they sit side by side as peers instead of one folded inside the other. The footer — status, limit, Reset, Run — stays under both, because it acts on the query rather than on either representation. The SQL panel states that it is compiled and read-only, which a tab would otherwise imply is an editor." },
+    "hierarchy":  { "score": 5, "notes": "The head reads left to right as collapse, representation, then state: toggle, Builder/SQL, and the count and Saved control at the far end. Tabs and summary chips are mutually exclusive — collapsed there is no panel to switch, so the tabs give way to the query in words and the strip never carries both." },
+    "typography": { "score": 5, "notes": "Inter for the two tab labels, Fira Code for the SQL and its caption. The panel keeps the editor surface (base, not panel) so the compiled statement reads as code rather than chrome." },
+    "motion":     { "score": 4, "notes": "One disclosure removed rather than added: the SQL caret and its 90ms rotation are gone, since a tab does not disclose. What remains is the facet caret, the JSON twisty and the query spinner." },
+    "brand":      { "score": 5, "notes": "No new component — the tabs are the existing segmented control at 22px, matching the other head controls, and deliberately not the file tab strip's .tab, which would put two tab bars 34px apart and confuse which level of navigation is which. The SQL panel is sized to the four lanes so switching never jumps the layout." }
+  }
+}

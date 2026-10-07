@@ -68,6 +68,10 @@ pub struct ChartTab {
     // ── source spec, kept so Refresh can re-shape and Edit can reconstruct ──
     /// The producer tab this chart was built from (for Refresh / Edit).
     source_tab: TabId,
+    /// Which of the tab's relations this chart reads. `None` means the tab's
+    /// primary — which is what a chart restored from a session has, since its
+    /// source is gone by then anyway.
+    source_relation: Option<String>,
     source_label: String,
     /// X / Y column indices into the *source* dataset (pre-shaping).
     src_x_col: usize,
@@ -113,6 +117,7 @@ impl ChartTab {
             y_cols: shaped.y_cols,
             options: spec.options,
             source_tab: spec.source_tab,
+            source_relation: spec.source_relation.clone(),
             source_label: spec.source_label.clone(),
             src_x_col: spec.x_col,
             src_y_cols: spec.y_cols.clone(),
@@ -132,6 +137,11 @@ impl ChartTab {
 
     pub fn source_tab(&self) -> TabId {
         self.source_tab
+    }
+
+    /// Which of the source tab's relations this chart reads.
+    pub fn source_relation(&self) -> Option<&str> {
+        self.source_relation.as_deref()
     }
 
     /// Serialize the chart (data snapshot + spec) for session persistence.
@@ -169,6 +179,7 @@ impl ChartTab {
             y_cols: p.y_cols,
             options: p.options,
             source_tab: TabId::MAX,
+            source_relation: None,
             source_label: p.source_label,
             src_x_col: p.src_x_col,
             src_y_cols: p.src_y_cols,
@@ -196,6 +207,7 @@ impl ChartTab {
     pub fn to_spec(&self) -> ChartSpec {
         ChartSpec {
             source_tab: self.source_tab,
+            source_relation: self.source_relation.clone(),
             source_label: self.source_label.clone(),
             chart_type: self.chart_type,
             x_col: self.src_x_col,

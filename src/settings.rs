@@ -88,9 +88,13 @@ pub struct UpdateSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PerformanceSettings {
-    /// LRU cache size for parsed JSON values (default: 100)
-    /// Higher values use more memory but improve performance when re-visiting nodes
-    pub cache_size: usize,
+    /// Disk budget for cached file indexes, in megabytes (default: 1024).
+    ///
+    /// Opening a large file builds an index -- line offsets, or its collections
+    /// as DuckDB tables -- so a second open is near-instant. Those live on disk
+    /// and would otherwise accumulate forever; the least recently used are
+    /// dropped to stay within this.
+    pub index_cache_mb: usize,
 
     /// Number of recent files to remember (default: 10)
     pub max_recent_files: usize,
@@ -210,7 +214,7 @@ impl Default for UpdateSettings {
 impl Default for PerformanceSettings {
     fn default() -> Self {
         Self {
-            cache_size: 100,
+            index_cache_mb: 1024,
             max_recent_files: 10,
             navigation_history_size: 100,
         }
@@ -304,11 +308,10 @@ impl Settings {
     /// Returns: ~/.config/thoth/settings.toml on Linux/macOS
     ///          %APPDATA%/thoth/settings.toml on Windows
     pub fn settings_file_path() -> Result<PathBuf> {
-        let config_dir = dirs::config_dir().ok_or_else(|| ThothError::SettingsLoadError {
-            reason: "Failed to get config directory".to_string(),
-        })?;
-
-        let thoth_config_dir = config_dir.join("thoth");
+        let thoth_config_dir =
+            crate::config_dir::config_root().ok_or_else(|| ThothError::SettingsLoadError {
+                reason: "Failed to get config directory".to_string(),
+            })?;
 
         // Create directory if it doesn't exist
         if !thoth_config_dir.exists() {
@@ -354,17 +357,17 @@ impl Settings {
         }
 
         // Validate performance settings
-        if self.performance.cache_size == 0 {
+        if self.performance.index_cache_mb == 0 {
             return Err(ThothError::SettingsLoadError {
-                reason: "Invalid cache_size: 0. Must be at least 1".to_string(),
+                reason: "Invalid index_cache_mb: 0. Must be at least 1".to_string(),
             });
         }
 
-        if self.performance.cache_size > 10000 {
+        if self.performance.index_cache_mb > 16384 {
             return Err(ThothError::SettingsLoadError {
                 reason: format!(
-                    "Invalid cache_size: {}. Maximum is 10000 (recommended: 100-1000)",
-                    self.performance.cache_size
+                    "Invalid index_cache_mb: {}. Maximum is 16384 (16 GB)",
+                    self.performance.index_cache_mb
                 ),
             });
         }
@@ -481,7 +484,7 @@ mod tests {
         assert_eq!(settings.font_size, 14.0);
         assert_eq!(settings.window.default_width, 1800.0);
         assert_eq!(settings.window.default_height, 1200.0);
-        assert_eq!(settings.performance.cache_size, 100);
+        assert_eq!(settings.performance.index_cache_mb, 1024);
         assert_eq!(settings.performance.max_recent_files, 10);
         assert!(settings.viewer.syntax_highlighting);
         assert_eq!(settings.ui.sidebar_width, 350.0);
@@ -496,8 +499,8 @@ mod tests {
         assert_eq!(settings.dark_mode, deserialized.dark_mode);
         assert_eq!(settings.font_size, deserialized.font_size);
         assert_eq!(
-            settings.performance.cache_size,
-            deserialized.performance.cache_size
+            settings.performance.index_cache_mb,
+            deserialized.performance.index_cache_mb
         );
         assert_eq!(
             settings.viewer.syntax_highlighting,
@@ -524,12 +527,12 @@ mod tests {
     }
 
     #[test]
-    fn test_validation_invalid_cache_size() {
+    fn test_validation_invalid_index_cache_budget() {
         let mut settings = Settings::default();
-        settings.performance.cache_size = 0;
+        settings.performance.index_cache_mb = 0;
         assert!(settings.validate().is_err());
 
-        settings.performance.cache_size = 20000;
+        settings.performance.index_cache_mb = 20000;
         assert!(settings.validate().is_err());
     }
 
@@ -558,7 +561,7 @@ mod tests {
     #[test]
     fn test_performance_settings_defaults() {
         let perf = PerformanceSettings::default();
-        assert_eq!(perf.cache_size, 100);
+        assert_eq!(perf.index_cache_mb, 1024);
         assert_eq!(perf.max_recent_files, 10);
     }
 

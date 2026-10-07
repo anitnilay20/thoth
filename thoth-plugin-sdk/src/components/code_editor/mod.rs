@@ -75,10 +75,23 @@ pub struct CodeEditor {
     /// default when unset.
     #[serde(default)]
     pub rows: Option<usize>,
-    /// Disable editing (renders read-only / dimmed).
+    /// Disable the editor: dimmed, and nothing can be clicked or typed. Use it
+    /// for an editor that is temporarily unavailable — for one that is only
+    /// ever for reading, prefer [`read_only`](CodeEditor::read_only), which
+    /// keeps the text at full contrast.
     #[builder(default)]
     #[serde(default)]
     pub disabled: bool,
+    /// Show the text for reading rather than editing: full contrast, clickable
+    /// and selectable, with keystrokes discarded — an HTML `readonly` field,
+    /// not a disabled one.
+    ///
+    /// The difference matters for text whose whole job is to be read, such as a
+    /// statement generated from something else on screen: dimming it to say
+    /// "you cannot edit this" also says "you need not read this".
+    #[builder(default)]
+    #[serde(default)]
+    pub read_only: bool,
     /// Draw a themed border around the whole editor. Defaults to `true`.
     #[builder(default = true)]
     #[serde(default = "default_true")]
@@ -375,8 +388,18 @@ impl CodeEditor {
                         None
                     };
 
-                    let output = editor.show_with_completer(ui, &mut self.value, &mut completer);
-                    let changed = output.response.changed();
+                    // A read-only editor is shown against a scratch copy, so
+                    // the caret, selection and scrolling all work and anything
+                    // typed lands nowhere.
+                    let mut scratch;
+                    let text = if self.read_only {
+                        scratch = self.value.clone();
+                        &mut scratch
+                    } else {
+                        &mut self.value
+                    };
+                    let output = editor.show_with_completer(ui, text, &mut completer);
+                    let changed = !self.read_only && output.response.changed();
 
                     // Caret + selection as character offsets, for run-at-cursor /
                     // run-selection.
@@ -476,5 +499,90 @@ impl CodeEditor {
             }
         }
         out
+    }
+}
+
+#[cfg(all(test, feature = "egui"))]
+mod tests {
+    use super::*;
+
+    /// Draw `editor` for one frame, delivering `events` to it.
+    fn frame(ctx: &egui::Context, editor: &mut CodeEditor, events: Vec<egui::Event>) {
+        let input = egui::RawInput {
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| {
+            editor.show(ui);
+        });
+    }
+
+    /// Click into an editor and type a character, returning what it holds
+    /// afterwards.
+    fn click_and_type(read_only: bool) -> String {
+        use egui::{Event, PointerButton, pos2};
+
+        let ctx = egui::Context::default();
+        let mut editor = CodeEditor::builder()
+            .id("editor")
+            .value("SELECT 1")
+            .syntax("sql")
+            .read_only(read_only)
+            .build();
+
+        // One frame to lay it out, one to focus it, one to type into it.
+        frame(&ctx, &mut editor, Vec::new());
+        let at = pos2(60.0, 30.0);
+        let modifiers = egui::Modifiers::default();
+        frame(
+            &ctx,
+            &mut editor,
+            vec![
+                Event::PointerMoved(at),
+                Event::PointerButton {
+                    pos: at,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers,
+                },
+                Event::PointerButton {
+                    pos: at,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers,
+                },
+            ],
+        );
+        frame(&ctx, &mut editor, vec![Event::Text("X".to_string())]);
+        editor.value.clone()
+    }
+
+    #[test]
+    fn a_read_only_editor_keeps_its_text_while_an_editable_one_takes_the_keystroke() {
+        // The two halves are one test on purpose: without the editable case,
+        // "the text did not change" would also pass if the keystroke never
+        // reached the editor at all, and the read-only half would prove
+        // nothing.
+        assert_ne!(
+            click_and_type(false),
+            "SELECT 1",
+            "the keystroke never reached the editor, so this test proves nothing"
+        );
+        assert_eq!(
+            click_and_type(true),
+            "SELECT 1",
+            "a read-only editor took an edit"
+        );
+    }
+
+    #[test]
+    fn read_only_survives_the_wire() {
+        let json = serde_json::to_string(&CodeEditor::builder().value("x").read_only(true).build())
+            .unwrap();
+        let back: CodeEditor = serde_json::from_str(&json).unwrap();
+        assert!(back.read_only);
+        // A plugin that predates the field still deserialises, as editable.
+        let old: CodeEditor = serde_json::from_str(r#"{"value":"x"}"#).unwrap();
+        assert!(!old.read_only);
     }
 }

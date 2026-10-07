@@ -79,16 +79,63 @@ pub struct MarketPlacePlugin {
 
 pub type ManifestData = HashMap<String, MarketPlacePlugin>;
 
+/// How long to wait for the connection itself. Short: a host we cannot reach
+/// should fail quickly rather than look like a slow download.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How long a whole transfer may take.
+///
+/// `reqwest::blocking` defaults this to **30 seconds**, which on a slow link
+/// is a size limit wearing a clock's clothing: a download progressing
+/// perfectly well is killed at the 30-second mark. A 1.5 KB plugin took 75
+/// seconds on a degraded connection and failed for exactly that reason, and
+/// the message — "error sending request for url" — said nothing about why.
+///
+/// Generous rather than absent: the blocking client has no separate read
+/// timeout, so disabling this entirely would let a stalled connection hang
+/// forever. Ten minutes is far longer than any plugin needs and still bounded.
+const TRANSFER_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// The HTTP client every marketplace fetch uses.
+fn http_client() -> reqwest::Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .user_agent("thoth-updater")
+        // Unreachable host: fail quickly rather than look like a slow download.
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(TRANSFER_TIMEOUT)
+        .build()
+}
+
+/// A network error with its cause, not just its headline.
+///
+/// `reqwest`'s `Display` is "error sending request for url (…)" whatever went
+/// wrong underneath — a timeout, DNS, a refused connection and a TLS failure
+/// all read identically, which makes the difference between "you are offline"
+/// and "this took too long" invisible to whoever is reading the message.
+fn describe(err: &reqwest::Error) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut source = std::error::Error::source(err);
+    while let Some(cause) = source {
+        parts.push(cause.to_string());
+        source = cause.source();
+    }
+    if err.is_timeout() {
+        parts.push("the connection stalled — check your network and try again".to_string());
+    }
+    parts.join(": ")
+}
+
 impl MarketPlacePlugin {
     fn download_file_from_github() -> Result<String> {
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("thoth-updater")
-            .build()?;
+        let client = http_client()?;
 
         let response = client.get(constants::MANIFEST_URL).send().map_err(|err| {
             ThothError::DownloadError {
                 url: constants::MANIFEST_URL.to_string(),
-                reason: format!("Unable to download manifest file from github - {}", err),
+                reason: format!(
+                    "Unable to download manifest file from github - {}",
+                    describe(&err)
+                ),
             }
         })?;
 
@@ -141,37 +188,80 @@ impl MarketPlacePlugin {
     }
 
     pub fn get_icon_file(&self, ctx: egui::Context) -> Result<PathBuf> {
+        // A plugin need not have an icon. Asking for one anyway downloaded
+        // nothing into a file that then looked like a cached icon.
+        if self.icon_url.trim().is_empty() {
+            return Err(ThothError::DownloadError {
+                url: String::new(),
+                reason: format!("{} declares no icon", self.id),
+            });
+        }
+
         let path = PersistentState::plugin_icon_file(&self.id)?;
         let one_week = Duration::from_secs(7 * 24 * 60 * 60);
 
-        let needs_download = !path.exists()
-            || fs::metadata(&path)
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.elapsed().ok())
-                .map(|elapsed| elapsed > one_week)
-                .unwrap_or(true);
+        let meta = fs::metadata(&path).ok();
+        // An empty file is not a cached icon, it is the wreckage of a download
+        // that failed — so it must not suppress the next attempt for a week.
+        let cached = meta.as_ref().is_some_and(|m| m.len() > 0);
+        let fresh = meta
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|elapsed| elapsed <= one_week);
 
-        if needs_download {
+        if !(cached && fresh) {
             let path_clone = path.clone();
             let icon_url = self.icon_url.clone();
-            thread::spawn(move || match File::create(&path_clone) {
-                Err(e) => eprintln!(
-                    "warn: failed to create icon file {}: {e}",
-                    path_clone.display()
-                ),
-                Ok(mut file) => match reqwest::blocking::get(&icon_url) {
-                    Err(e) => eprintln!("warn: failed to download icon from {icon_url}: {e}"),
-                    Ok(mut response) => {
-                        if let Err(e) = std::io::copy(&mut response, &mut file) {
-                            eprintln!(
-                                "warn: failed to write icon to {}: {e}",
-                                path_clone.display()
-                            );
-                        }
-                        ctx.request_repaint();
+            let id = self.id.clone();
+            thread::spawn(move || {
+                // Fetched whole before anything is written. Creating the file
+                // first meant a failure — a dead URL, an empty one, a 404 page
+                // — left a zero-byte file behind that every later frame tried
+                // to decode and every later open treated as already cached.
+                let client = match http_client() {
+                    Ok(client) => client,
+                    Err(e) => {
+                        eprintln!("warn: could not build an http client for {id}: {e}");
+                        return;
                     }
-                },
+                };
+                let bytes = match client.get(&icon_url).send() {
+                    Err(e) => {
+                        eprintln!(
+                            "warn: failed to download icon for {id} from {icon_url}: {}",
+                            describe(&e)
+                        );
+                        return;
+                    }
+                    Ok(response) => {
+                        if !response.status().is_success() {
+                            eprintln!(
+                                "warn: icon for {id} at {icon_url} returned {}",
+                                response.status()
+                            );
+                            return;
+                        }
+                        match response.bytes() {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                eprintln!("warn: failed to read icon for {id}: {e}");
+                                return;
+                            }
+                        }
+                    }
+                };
+                if bytes.is_empty() {
+                    eprintln!("warn: icon for {id} at {icon_url} was empty");
+                    return;
+                }
+                if let Err(e) = fs::write(&path_clone, &bytes) {
+                    eprintln!(
+                        "warn: failed to write icon to {}: {e}",
+                        path_clone.display()
+                    );
+                    return;
+                }
+                ctx.request_repaint();
             });
         }
 
@@ -183,7 +273,7 @@ impl MarketPlacePlugin {
     }
 
     pub fn fetch_readme(url: &str) -> Result<String> {
-        let mut response = reqwest::blocking::get(url)?;
+        let mut response = http_client()?.get(url).send()?;
         let mut readme = String::new();
         response.read_to_string(&mut readme)?;
         Ok(readme)
@@ -230,9 +320,7 @@ impl MarketPlacePlugin {
     ) -> Result<InstallOutcome> {
         use sha2::{Digest, Sha256};
 
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("thoth-updater")
-            .build()?;
+        let client = http_client()?;
 
         let mut response = client
             .get(url)
@@ -240,7 +328,7 @@ impl MarketPlacePlugin {
             .map_err(|e| ThothError::PluginDownloadError {
                 name: plugin_id.to_string(),
                 url: url.to_string(),
-                reason: e.to_string(),
+                reason: describe(&e),
             })?;
 
         if !response.status().is_success() {

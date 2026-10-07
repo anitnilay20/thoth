@@ -429,14 +429,9 @@ pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
 
     let mut fonts = egui::FontDefinitions::default();
 
-    // Register Phosphor first so its font data is available, then expose it as
-    // a dedicated named family. Icon widgets use FontFamily::Name("phosphor")
-    // directly instead of relying on fallback order in Proportional.
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    fonts.families.insert(
-        egui::FontFamily::Name("phosphor".into()),
-        vec!["phosphor".into()],
-    );
+    // Icons first: the named family and both fallback chains, so a glyph is
+    // drawable wherever it lands.
+    thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
 
     if let Some(family) = &settings.font_family
         && let Some(bytes) = crate::platform::find_font_bytes(family)
@@ -804,6 +799,110 @@ impl BgColorOptions {
             Self::SurfaceRaised | Self::Surface1 => Some(c.surface_raised),
             Self::SurfaceActive | Self::Surface2 => Some(c.surface_active),
             Self::FgMuted | Self::Overlay1 => Some(c.fg_muted),
+        }
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::Theme;
+    use eframe::egui;
+    use thoth_plugin_sdk::theme::{lightness, selected_row_fill};
+
+    /// Every theme the app ships.
+    fn all() -> Vec<Theme> {
+        vec![
+            Theme::mocha(),
+            Theme::latte(),
+            Theme::frappe(),
+            Theme::macchiato(),
+            Theme::dracula(),
+            Theme::nord(),
+            Theme::gruvbox_dark(),
+            Theme::tokyo_night(),
+            Theme::rose_pine(),
+            Theme::github_light(),
+            Theme::solarized_dark(),
+            Theme::solarized_light(),
+        ]
+    }
+
+    fn relative_luminance(c: egui::Color32) -> f32 {
+        fn linearise(x: f32) -> f32 {
+            if x <= 0.04045 {
+                x / 12.92
+            } else {
+                ((x + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        0.2126 * linearise(f32::from(c.r()) / 255.0)
+            + 0.7152 * linearise(f32::from(c.g()) / 255.0)
+            + 0.0722 * linearise(f32::from(c.b()) / 255.0)
+    }
+
+    fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
+        let (x, y) = (relative_luminance(a), relative_luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    /// A selected row has to be as obvious on Nord as it is on Latte.
+    ///
+    /// It was not: a fixed alpha over `surface_active` lands 10 L* from the
+    /// background in Nord and 27 in Solarized Light, so the selection was
+    /// plain on the light themes and nearly invisible on several dark ones.
+    #[test]
+    fn the_selected_row_is_equally_visible_in_every_theme() {
+        for theme in all() {
+            let colors = theme.colors();
+            let fill = selected_row_fill(&colors);
+            let delta = (lightness(fill) - lightness(colors.bg)).abs();
+            assert!(
+                delta >= 17.0,
+                "{}: selected row is only {delta:.1} L* from the row under it",
+                theme.name
+            );
+        }
+    }
+
+    /// And the row's own text has to survive being selected.
+    #[test]
+    fn cell_text_stays_readable_on_a_selected_row() {
+        for theme in all() {
+            let colors = theme.colors();
+            let fill = selected_row_fill(&colors);
+            let on_fill = contrast(colors.fg, fill);
+            // 3:1 is the floor. Solarized Light's text clears only 4.99 on its
+            // own background, so the bar is what the theme can bear, not an
+            // absolute.
+            assert!(
+                on_fill >= 3.0,
+                "{}: cell text drops to {on_fill:.2}:1 on a selected row",
+                theme.name
+            );
+        }
+    }
+
+    /// The selection must not be mistakable for the zebra stripe, which is
+    /// what it was competing with on the dark themes.
+    #[test]
+    fn the_selection_is_distinct_from_the_zebra_stripe() {
+        for theme in all() {
+            let colors = theme.colors();
+            let fill = selected_row_fill(&colors);
+            // The stripe is `fg` at alpha 8 over the row — see `ZEBRA_ALPHA`.
+            let a = 8.0 / 255.0;
+            let blend = |f: u8, b: u8| (f32::from(f) * a + f32::from(b) * (1.0 - a)) as u8;
+            let zebra = egui::Color32::from_rgb(
+                blend(colors.fg.r(), colors.bg.r()),
+                blend(colors.fg.g(), colors.bg.g()),
+                blend(colors.fg.b(), colors.bg.b()),
+            );
+            let delta = (lightness(fill) - lightness(zebra)).abs();
+            assert!(
+                delta >= 14.0,
+                "{}: selection is only {delta:.1} L* from a striped row",
+                theme.name
+            );
         }
     }
 }
