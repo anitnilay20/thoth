@@ -42,14 +42,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
 
-      # Test the host plus the SDK crates. `cargo test` runs unit, integration
-      # (tests/*) and doc tests in one pass — the workspace `default-members` is
-      # just the host crate, so the SDK + macros are named explicitly (the wasm
-      # plugins are excluded: they only build for the wasm32 target). A separate
-      # `cargo test --test '*'` step used to follow but ran with a different
-      # (default) feature set, forcing a full second recompile for no coverage.
+      # Test the host, the SDK and the macros crate. `cargo test` runs unit,
+      # integration (tests/*) and doc tests in one pass — the workspace
+      # `default-members` is just the host crate, so the SDK + macros are named
+      # explicitly (the wasm plugins are excluded: they only build for wasm32).
+      # The SDK's UI tests live behind its `egui` feature, so it is built and
+      # tested in a second command with that feature on. The host's `profiling`
+      # feature (puffin + dhat) is deliberately not enabled: it slows the build
+      # and buys nothing for the test pass.
       - name: Run tests
-        run: cargo test -p thoth -p thoth-plugin-sdk -p thoth-plugin-sdk-macros --all-features
+        run: |
+          cargo test -p thoth -p thoth-plugin-sdk-macros
+          cargo test -p thoth-plugin-sdk --features egui
 
   clippy:
     name: Clippy
@@ -103,22 +107,25 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
 
       - name: Setup Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
 
-      # Fetch a prebuilt cargo-tarpaulin binary instead of `cargo install`
-      # compiling it from source. The old install was cached on the project's
-      # Cargo.lock hash, so every dependency change re-compiled tarpaulin (minutes).
-      - name: Install cargo-tarpaulin
+      # llvm-cov instead of tarpaulin: tarpaulin re-runs every test binary under
+      # its own instrumentation, which is where most of its ~46 minutes went.
+      # llvm-cov runs the binaries normally and post-processes the `.profraw`
+      # files they emit, cutting the coverage job to roughly the build time.
+      - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-tarpaulin
+          tool: cargo-llvm-cov
 
       - name: Generate coverage
-        run: cargo tarpaulin --out Xml --all-features
+        run: cargo llvm-cov test --all-features --cobertura --output-path cobertura.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
