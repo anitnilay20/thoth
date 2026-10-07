@@ -1783,6 +1783,7 @@ mod tests {
             sort: vec![Sort {
                 field: "service".into(),
                 descending: false,
+                ..Default::default()
             }],
             ..Default::default()
         };

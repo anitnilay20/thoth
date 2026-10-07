@@ -249,6 +249,42 @@ pub struct Sort {
     /// Largest first.
     #[serde(default)]
     pub descending: bool,
+    /// Where nulls sit relative to the values. `None` leaves it to the engine
+    /// (DuckDB: nulls last when ascending, first when descending).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nulls: Option<NullsOrder>,
+}
+
+/// Where a sort key puts nulls, relative to its values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NullsOrder {
+    /// Nulls before every value.
+    First,
+    /// Nulls after every value.
+    Last,
+}
+
+impl NullsOrder {
+    /// How it reads on the sort lane's toggle.
+    pub fn label(self) -> &'static str {
+        match self {
+            NullsOrder::First => "nulls first",
+            NullsOrder::Last => "nulls last",
+        }
+    }
+}
+
+impl Sort {
+    /// The null ordering the toggle moves to: unset → first → last → unset —
+    /// the same three-state cycle the direction button uses.
+    pub fn next_nulls(&self) -> Option<NullsOrder> {
+        match self.nulls {
+            None => Some(NullsOrder::First),
+            Some(NullsOrder::First) => Some(NullsOrder::Last),
+            Some(NullsOrder::Last) => None,
+        }
+    }
 }
 
 /// Everything the lanes describe.
@@ -393,17 +429,7 @@ impl QuerySpec {
             sql.push_str(&format!("\nGROUP BY {}", keys.join(", ")));
         }
         if !self.sort.is_empty() {
-            let keys: Vec<String> = self
-                .sort
-                .iter()
-                .map(|s| {
-                    format!(
-                        "{} {}",
-                        field_ident(&s.field),
-                        if s.descending { "DESC" } else { "ASC" }
-                    )
-                })
-                .collect();
+            let keys: Vec<String> = self.sort.iter().map(sort_sql).collect();
             sql.push_str(&format!("\nORDER BY {}", keys.join(", ")));
         }
         sql.push_str(&format!("\nLIMIT {}", self.limit.max(1)));
@@ -432,6 +458,21 @@ fn aggregate_sql(aggregate: &Aggregate) -> Result<String, QueryError> {
         AggregateFn::Maximum => format!("max({column})"),
         AggregateFn::Count => "count(*)".to_string(),
     })
+}
+
+/// One sort key as SQL: the field path, the direction, and — when the user
+/// asked for it rather than the engine's default — where nulls sit.
+fn sort_sql(sort: &Sort) -> String {
+    let direction = if sort.descending { "DESC" } else { "ASC" };
+    match sort.nulls {
+        Some(NullsOrder::First) => {
+            format!("{} {} NULLS FIRST", field_ident(&sort.field), direction)
+        }
+        Some(NullsOrder::Last) => {
+            format!("{} {} NULLS LAST", field_ident(&sort.field), direction)
+        }
+        None => format!("{} {}", field_ident(&sort.field), direction),
+    }
 }
 
 fn filter_sql(filter: &Filter) -> Result<String, QueryError> {
@@ -749,16 +790,75 @@ mod tests {
                 Sort {
                     field: "level".into(),
                     descending: false,
+                    ..Default::default()
                 },
                 Sort {
                     field: "ts".into(),
                     descending: true,
+                    ..Default::default()
                 },
             ],
             ..Default::default()
         };
         let sql = spec.compile("logs").unwrap();
         assert!(sql.contains("ORDER BY \"level\" ASC, \"ts\" DESC"));
+    }
+
+    #[test]
+    fn a_sort_key_can_name_where_nulls_sit() {
+        // An explicit null order overrides the engine's default; a key with no
+        // opinion contributes none, so it keeps the engine's.
+        let spec = QuerySpec {
+            sort: vec![
+                Sort {
+                    field: "price".into(),
+                    descending: true,
+                    nulls: Some(NullsOrder::Last),
+                },
+                Sort {
+                    field: "created".into(),
+                    descending: false,
+                    nulls: Some(NullsOrder::First),
+                },
+                Sort {
+                    field: "id".into(),
+                    descending: false,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let sql = spec.compile("t").unwrap();
+        assert!(
+            sql.contains(
+                r#"ORDER BY "price" DESC NULLS LAST, "created" ASC NULLS FIRST, "id" ASC"#
+            ),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn the_nulls_toggle_cycles_unset_first_last() {
+        let mut sort = Sort::default();
+        assert_eq!(sort.nulls, None);
+        sort.nulls = sort.next_nulls();
+        assert_eq!(sort.nulls, Some(NullsOrder::First));
+        sort.nulls = sort.next_nulls();
+        assert_eq!(sort.nulls, Some(NullsOrder::Last));
+        sort.nulls = sort.next_nulls();
+        assert_eq!(sort.nulls, None);
+    }
+
+    #[test]
+    fn nulls_order_labels_and_serializes() {
+        assert_eq!(NullsOrder::First.label(), "nulls first");
+        assert_eq!(NullsOrder::Last.label(), "nulls last");
+        assert_eq!(
+            serde_json::to_string(&NullsOrder::First).unwrap(),
+            r#""first""#
+        );
+        let back: NullsOrder = serde_json::from_str(r#""last""#).unwrap();
+        assert_eq!(back, NullsOrder::Last);
     }
 
     // ── Quoting, which is where this would go wrong silently ────────────────
@@ -783,6 +883,7 @@ mod tests {
             sort: vec![Sort {
                 field: "user.name".to_string(),
                 descending: false,
+                ..Default::default()
             }],
             ..Default::default()
         };
@@ -915,6 +1016,7 @@ mod tests {
             sort: vec![Sort {
                 field: "count".into(),
                 descending: true,
+                ..Default::default()
             }],
             ..Default::default()
         };
@@ -938,6 +1040,7 @@ mod tests {
             sort: vec![Sort {
                 field: "id".into(),
                 descending: true,
+                ..Default::default()
             }],
             group_by: vec!["g".into()],
             limit: 25,

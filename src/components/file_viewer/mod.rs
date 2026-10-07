@@ -161,9 +161,7 @@ fn default_view(path: &Path) -> &'static str {
         | FileType::Excel
         | FileType::Arrow
         | FileType::Avro
-        | FileType::DB => {
-            "table"
-        }
+        | FileType::DB => "table",
         // The extension said nothing, but reaching here means DuckDB read it
         // anyway — so there is a grid to show.
         FileType::Plugin | FileType::Unknown => "table",
@@ -913,6 +911,7 @@ impl FileViewer {
                 self.query.spec.sort = vec![thoth_plugin_sdk::components::Sort {
                     field: sort.column,
                     descending: sort.descending,
+                    ..Default::default()
                 }];
             }
         }
@@ -945,6 +944,7 @@ impl FileViewer {
                 .push(thoth_plugin_sdk::components::Sort {
                     field: column.to_string(),
                     descending: false,
+                    ..Default::default()
                 });
             return;
         };
@@ -1884,6 +1884,7 @@ mod tests {
         viewer.query.spec.sort = vec![thoth_plugin_sdk::components::Sort {
             field: "ts".to_string(),
             descending: true,
+            ..Default::default()
         }];
         viewer.query.sql_override = Some("SELECT 1".to_string());
         viewer.sort_queued = true;
@@ -2039,6 +2040,7 @@ mod tests {
         viewer.query.spec.sort = vec![thoth_plugin_sdk::components::Sort {
             field: "ts".to_string(),
             descending: true,
+            ..Default::default()
         }];
         viewer.sort_by("not json");
         assert_eq!(

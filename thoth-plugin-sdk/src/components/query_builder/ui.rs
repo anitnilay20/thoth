@@ -19,7 +19,7 @@ use crate::theme::{
 };
 
 use super::{
-    Aggregate, AggregateFn, Combine, Filter, Operator, QueryBuilder, QueryBuilderOutput,
+    Aggregate, AggregateFn, Combine, Filter, NullsOrder, Operator, QueryBuilder, QueryBuilderOutput,
     QueryError, QueryField, QuerySpec, Sort,
 };
 
@@ -929,6 +929,26 @@ impl QueryBuilder {
                                 sort.descending = !sort.descending;
                                 *edited = true;
                             }
+                            // Nulls first/last cycles like the direction button:
+                            // unset -> first -> last -> unset. Unset leaves the
+                            // engine's own default (nulls last ascending, first
+                            // descending), so a key with no opinion keeps none.
+                            let nulls_label = sort.nulls.map(NullsOrder::label).unwrap_or("nulls");
+                            if ui
+                                .add(
+                                    Button::builder()
+                                        .id(format!("{id}_s{index}_nulls"))
+                                        .label(nulls_label)
+                                        .button_type(ButtonType::Text)
+                                        .button_size(Size::Small)
+                                        .hover_text("Where nulls sit: first, last, or the engine's default")
+                                        .build(),
+                                )
+                                .clicked()
+                            {
+                                sort.nulls = sort.next_nulls();
+                                *edited = true;
+                            }
                             if remove_button(ui, "Remove this sort key") {
                                 remove = Some(index);
                             }
@@ -1228,6 +1248,7 @@ impl QueryBuilder {
                 self.spec.sort.push(Sort {
                     field,
                     descending: false,
+                    ..Default::default()
                 });
                 true
             }
@@ -2243,6 +2264,7 @@ mod tests {
         builder.spec.sort = vec![Sort {
             field: "count".to_string(),
             descending: true,
+            ..Default::default()
         }];
         let sql = builder.sql().expect("compiles");
         assert!(sql.contains(r#"count(*) AS "count""#), "{sql}");
@@ -2395,6 +2417,7 @@ mod tests {
         qb.spec.sort = vec![Sort {
             field: "amount".to_string(),
             descending: true,
+            ..Default::default()
         }];
         let out = with_ui(|ui| qb.show(ui));
         assert!(!out.changed);

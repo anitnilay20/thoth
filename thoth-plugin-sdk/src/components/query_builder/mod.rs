@@ -5,7 +5,9 @@ mod ui;
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
-pub use spec::{Aggregate, AggregateFn, Combine, Filter, Operator, QueryError, QuerySpec, Sort};
+pub use spec::{
+    Aggregate, AggregateFn, Combine, Filter, NullsOrder, Operator, QueryError, QuerySpec, Sort,
+};
 
 use crate::components::ColumnType;
 
