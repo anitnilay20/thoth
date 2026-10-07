@@ -246,20 +246,6 @@ impl ServerState {
         inner.files.get_mut(handle).map(f)
     }
 
-    /// Run a closure with mutable access to an open file, returning two values atomically.
-    // TODO(#53): used again once the search tool returns.
-    #[allow(dead_code)]
-    pub fn with_file_read2<F, A, B>(&self, handle: &str, f: F) -> Option<(A, B)>
-    where
-        F: FnOnce(&mut OpenFile) -> (A, B),
-    {
-        let mut inner = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        inner.files.get_mut(handle).map(f)
-    }
-
     /// Get info about an open file.
     pub fn file_info(&self, handle: &str) -> Option<FileInfo> {
         let inner = self

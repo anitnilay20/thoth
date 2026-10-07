@@ -11,7 +11,6 @@ use crate::components::data_source_panel::{
 use crate::components::marketplace::{Marketplace, MarketplaceProps};
 use crate::components::recent_files::{RecentFiles, RecentFilesEvent, RecentFilesProps};
 use crate::components::saved_queries::{SavedQueries, SavedQueriesEvent, SavedQueriesProps};
-// TODO(#53): restored with the DuckDB-backed filter.
 use crate::components::traits::StatelessComponent;
 use crate::components::traits::{ContextComponent, StatefulComponent};
 use crate::constants::{MAX_SIDEBAR_WIDTH_RATIO, MIN_SIDEBAR_WIDTH};
