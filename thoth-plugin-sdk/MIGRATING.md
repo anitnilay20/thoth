@@ -15,6 +15,36 @@ reach a plugin two ways, and both are listed.
 
 ## Unreleased — squircle redesign (#156)
 
+### `TableView::sort` / `DataView::sort` hold several keys — *source*
+
+`TableView::sort` and `DataView::sort` were `Option<SortBy>` — at most one
+column could be marked with a sort arrow. They are now `Vec<SortBy>`, so a
+multi-column sort shows an arrow on every key, and the builder method is
+`sort(Vec<SortBy>)` rather than `maybe_sort(Option<SortBy>)`.
+
+A plugin that marked one column now pushes it into a vec:
+
+```rust
+// before
+DataView::builder().handle("h").maybe_sort(Some(sort_by)).build();
+// after
+DataView::builder().handle("h").sort(vec![sort_by]).build();
+```
+
+`SortBy` also gained an `append` flag (see below); it defaults to `false`.
+
+### `SortBy` gained `append` — *payload*
+
+`SortBy` has a new `append: bool` field, written only when it is `true`. A
+header Shift-click now emits `{"column":"a","append":true}` instead of a plain
+cycle, and the producer is expected to add that column to its order rather than
+replace the order with it.
+
+An old payload (or an unchanged `.wasm`) is unaffected — `append` defaults to
+`false` — and the old single `"sort": null` / `"sort": {...}` spellings are
+still deserialized into the new list, so nothing errors and nothing renders
+differently beyond now having room for several arrows.
+
 ### `Separator` no longer derives `Copy` — *source*
 
 `Separator` gained a `color: Option<String>` field, and `String` is not `Copy`,

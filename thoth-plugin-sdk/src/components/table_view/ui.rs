@@ -49,6 +49,7 @@ impl TableView {
         let moved = move_selection(ui, &mut selected, row_count);
         let requested_auto_fit = std::cell::Cell::new(None::<usize>);
         let requested_sort = std::cell::Cell::new(None::<usize>);
+        let requested_append = std::cell::Cell::new(false);
         let sort = self.sort.clone();
         let sortable = self.sortable;
         // Per-column right-alignment from the (optional) SQL types.
@@ -99,14 +100,11 @@ impl TableView {
                             table
                                 .header(HEADER_H, |header_row| {
                                     let hit = paint_header_row(
-                                        header_row,
-                                        &headers,
-                                        &colors,
-                                        sort.as_ref(),
-                                        sortable,
+                                        header_row, &headers, &colors, &sort, sortable,
                                     );
                                     requested_auto_fit.set(hit.auto_fit);
                                     requested_sort.set(hit.sorted);
+                                    requested_append.set(hit.append);
                                 })
                                 .body(|body| {
                                     body.rows(ROW_H, rows.len(), |mut row| {
@@ -214,7 +212,7 @@ impl TableView {
         }
 
         if let Some(col) = requested_sort.get() {
-            emit_sort(events, &headers, col, sort.as_ref());
+            emit_sort(events, &headers, col, &sort, requested_append.get());
         }
 
         // Resolve a requested copy to clipboard text, now that the grid is drawn
@@ -329,7 +327,7 @@ impl TableView {
                                     // Rows built on demand come from somewhere this
                                     // view cannot reorder, so the header only fits.
                                     let hit =
-                                        paint_header_row(header_row, headers, &colors, None, false);
+                                        paint_header_row(header_row, headers, &colors, &[], false);
                                     requested_auto_fit.set(hit.auto_fit);
                                 })
                                 .body(|body| {
@@ -654,7 +652,7 @@ fn paint_header_row(
     mut header_row: egui_extras::TableRow<'_, '_>,
     headers: &[String],
     colors: &ThemeColors,
-    sort: Option<&SortBy>,
+    sort: &[SortBy],
     sortable: bool,
 ) -> HeaderHit {
     let mut hit = HeaderHit::default();
@@ -666,7 +664,8 @@ fn paint_header_row(
     });
     for (col, h) in headers.iter().enumerate() {
         let direction = sort
-            .filter(|s| s.column == header_name(h))
+            .iter()
+            .find(|s| s.column == header_name(h))
             .map(|s| s.descending);
         let (_, resp) = header_row.col(|ui| {
             ui.painter()
@@ -677,7 +676,7 @@ fn paint_header_row(
         let resp = crate::theme::hover_text(
             resp,
             if sortable {
-                format!("{h}\nClick to sort · drag edge to resize")
+                format!("{h}\nClick to sort · Shift-click to add a sort · drag edge to resize")
             } else {
                 format!("{h}\nDouble-click to fit column · drag edge to resize")
             },
@@ -695,6 +694,9 @@ fn paint_header_row(
             // the menu, where it is at least nameable.
             if resp.clicked() {
                 hit.sorted = Some(col);
+                // Shift changes the meaning: add/cycle this column within the
+                // order rather than replace the order with it.
+                hit.append = resp.ctx.input(|i| i.modifiers.shift);
             }
         } else if resp.double_clicked() {
             hit.auto_fit = Some(col);
@@ -710,6 +712,8 @@ struct HeaderHit {
     auto_fit: Option<usize>,
     /// Move this column's sort on a step.
     sorted: Option<usize>,
+    /// The click that sorted was a Shift-click: add to the order, don't replace.
+    append: bool,
 }
 
 /// A header's right-click menu. Returns whether "Fit to contents" was picked.
@@ -727,11 +731,30 @@ fn header_menu(ui: &mut egui::Ui) -> bool {
 
 /// Emit the sort a click on `col` moves to, as the reserved
 /// [`SORT_COLUMN`](crate::actions::SORT_COLUMN) event.
-fn emit_sort(events: &mut Vec<UiEvent>, headers: &[String], col: usize, current: Option<&SortBy>) {
+///
+/// A plain click cycles the column's own direction (replacing the order);
+/// a Shift-click (`append`) only names the column and leaves the direction to
+/// the producer, which holds the whole multi-key order.
+fn emit_sort(
+    events: &mut Vec<UiEvent>,
+    headers: &[String],
+    col: usize,
+    current: &[SortBy],
+    append: bool,
+) {
     let Some(label) = headers.get(col) else {
         return;
     };
-    let next = TableView::next_sort(current, header_name(label));
+    let column = header_name(label);
+    let next = if append {
+        Some(SortBy {
+            column: column.to_string(),
+            descending: false,
+            append: true,
+        })
+    } else {
+        TableView::next_sort(current.first(), column)
+    };
     if let Ok(value) = serde_json::to_string(&next) {
         events.push(UiEvent {
             id: crate::actions::SORT_COLUMN.to_string(),

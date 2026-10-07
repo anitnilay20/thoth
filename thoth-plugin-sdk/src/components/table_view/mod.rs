@@ -68,12 +68,13 @@ pub struct TableView {
     #[builder(default = true)]
     #[serde(default = "default_true")]
     pub framed: bool,
-    /// Which column the rows are currently ordered by, if any — drawn as a
-    /// direction arrow in that header. The grid never reorders anything
+    /// Which columns the rows are currently ordered by, in order — each drawn
+    /// as a direction arrow in its header. The grid never reorders anything
     /// itself: it shows a page of a result that may be far larger than the
     /// page, and sorting only the page would order the wrong rows.
-    #[serde(default)]
-    pub sort: Option<SortBy>,
+    #[builder(default)]
+    #[serde(default, deserialize_with = "deserialize_sorts")]
+    pub sort: Vec<SortBy>,
     /// Offer sorting at all. When set, clicking a header emits
     /// [`SORT_COLUMN`](crate::actions::SORT_COLUMN) carrying the sort the
     /// click moves to (see [`TableView::next_sort`]), and it is the producer's
@@ -89,7 +90,9 @@ pub struct TableView {
 /// How a grid is ordered: one column, one direction.
 ///
 /// Serialized as the [`SORT_COLUMN`](crate::actions::SORT_COLUMN) event's
-/// value, where `null` in place of it means the sort was cleared.
+/// value, where `null` in place of it means the sort was cleared. `append`
+/// marks a Shift-click: the producer is asked to add the column to the order
+/// it already holds rather than replace that order with it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SortBy {
     /// The column's header name — as [`TableView::headers`] spells it, with
@@ -98,11 +101,48 @@ pub struct SortBy {
     /// Largest first.
     #[serde(default)]
     pub descending: bool,
+    /// Add this column to the order rather than replacing it with it. Set when
+    /// the header click that produced this sort was a Shift-click; the producer
+    /// — which holds the whole multi-key order — decides whether the column is
+    /// being appended or cycled out. Ignored when a `SortBy` merely *displays*
+    /// the current order.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub append: bool,
+}
+
+/// `serde(skip_serializing_if)` helper: `append` is only worth spelling when it
+/// is true, so a plain click keeps the short `{"column","descending"}` shape.
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// Deserialize a [`TableView::sort`] that was written by an older SDK as an
+/// `Option<SortBy>` — `null` when unsorted, a single object when one column was
+/// marked — as well as the current list form. A payload that only ever knew one
+/// arrow keeps working; nothing errors, it just now has room for several.
+pub(crate) fn deserialize_sorts<'de, D>(de: D) -> Result<Vec<SortBy>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        One(SortBy),
+        Many(Vec<SortBy>),
+        Null,
+    }
+
+    Ok(match Raw::deserialize(de)? {
+        Raw::One(sort) => vec![sort],
+        Raw::Many(sorts) => sorts,
+        Raw::Null => Vec::new(),
+    })
 }
 
 impl TableView {
-    /// The sort a click on `column` moves to, given `current`: a fresh column
-    /// starts ascending, a second click reverses it, and a third clears it.
+    /// The sort a click on `column` moves to, given `current` — the *primary*
+    /// sort key: a fresh column starts ascending, a second click reverses it,
+    /// and a third clears it.
     ///
     /// Three states rather than two because a cleared sort is the only way
     /// back to the order the file itself has, which no direction can express.
@@ -111,10 +151,12 @@ impl TableView {
             Some(sort) if sort.column == column => (!sort.descending).then(|| SortBy {
                 column: column.to_string(),
                 descending: true,
+                ..Default::default()
             }),
             _ => Some(SortBy {
                 column: column.to_string(),
                 descending: false,
+                ..Default::default()
             }),
         }
     }
@@ -230,6 +272,7 @@ mod tests {
         SortBy {
             column: column.to_string(),
             descending: false,
+            ..Default::default()
         }
     }
 
@@ -237,6 +280,7 @@ mod tests {
         SortBy {
             column: column.to_string(),
             descending: true,
+            ..Default::default()
         }
     }
 
@@ -281,5 +325,54 @@ mod tests {
         // Headers carry `"name  ·  type"`; the producer knows only `name`.
         assert_eq!(header_name("ts  ·  TIMESTAMP"), "ts");
         assert_eq!(header_name("level"), "level");
+    }
+
+    #[test]
+    fn a_shift_click_marks_the_sort_as_append() {
+        // A plain click replaces the order; a Shift-click asks to add to it.
+        // The flag is spelled only when it is true, so a plain click keeps the
+        // same shape it always had.
+        assert_eq!(
+            serde_json::to_string(&Some(desc("ts"))).unwrap(),
+            r#"{"column":"ts","descending":true}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Some(SortBy {
+                column: "ts".to_string(),
+                descending: false,
+                append: true,
+            }))
+            .unwrap(),
+            r#"{"column":"ts","descending":false,"append":true}"#
+        );
+        // And it round-trips, defaulting to false when absent.
+        let plain: SortBy = serde_json::from_str(r#"{"column":"ts"}"#).unwrap();
+        assert!(!plain.append);
+        let appended: SortBy = serde_json::from_str(r#"{"column":"ts","append":true}"#).unwrap();
+        assert!(appended.append);
+    }
+
+    #[test]
+    fn an_old_single_sort_deserializes_into_the_list() {
+        // An older SDK wrote `sort` as `Option<SortBy>`: `null` when unsorted,
+        // one object otherwise. The new `Vec` reads both without error.
+        #[derive(serde::Deserialize)]
+        struct Holder {
+            #[serde(default, deserialize_with = "deserialize_sorts")]
+            sort: Vec<SortBy>,
+        }
+
+        let null: Holder = serde_json::from_str(r#"{"sort":null}"#).unwrap();
+        assert!(null.sort.is_empty());
+
+        let one: Holder =
+            serde_json::from_str(r#"{"sort":{"column":"ts","descending":true}}"#).unwrap();
+        assert_eq!(one.sort, vec![desc("ts")]);
+
+        let many: Holder =
+            serde_json::from_str(r#"{"sort":[{"column":"a"},{"column":"b","descending":true}]}"#)
+                .unwrap();
+        assert_eq!(many.sort.len(), 2);
+        assert_eq!(many.sort[1].column, "b");
     }
 }

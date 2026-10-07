@@ -33,7 +33,9 @@ pub const SELECT_TABLE: &str = "thoth:select-table";
 /// Order a [`DataView`](crate::components::DataView)'s rows by one of its
 /// columns. Emitted by the grid's header when a sortable column is clicked;
 /// the event value is a JSON [`SortBy`](crate::components::SortBy) — or `null`
-/// when the click cleared the sort.
+/// when the click cleared the sort. A Shift-click carries
+/// [`SortBy::append`](crate::components::SortBy::append), asking the producer
+/// to add the column to the order rather than replace it.
 ///
 /// The grid only ever reports the choice: it holds one page of a result that
 /// may be far larger, so ordering it here would sort the page rather than the

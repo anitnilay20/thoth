@@ -899,20 +899,23 @@ impl FileViewer {
     /// Only the sort lane is touched — the filters the user set still hold, so
     /// reordering a result never quietly changes which rows it holds.
     ///
-    /// A header click replaces the whole sort rather than adding to it: the
-    /// grid marks one column with one arrow, and a second, invisible key would
-    /// make the order it shows unexplainable from what it shows.
+    /// A plain click replaces the whole sort with a single key on the column;
+    /// a Shift-click (`SortBy::append`) adds it to — or cycles it out of — the
+    /// keys already there, so several columns can order the result together.
     fn sort_by(&mut self, value: &str) {
         let Ok(next) = serde_json::from_str::<Option<SortBy>>(value) else {
             return;
         };
-        self.query.spec.sort = next
-            .into_iter()
-            .map(|sort| thoth_plugin_sdk::components::Sort {
-                field: sort.column,
-                descending: sort.descending,
-            })
-            .collect();
+        match next {
+            None => self.query.spec.sort.clear(),
+            Some(sort) if sort.append => self.append_sort_key(&sort.column),
+            Some(sort) => {
+                self.query.spec.sort = vec![thoth_plugin_sdk::components::Sort {
+                    field: sort.column,
+                    descending: sort.descending,
+                }];
+            }
+        }
         // A click that lands mid-query must not be dropped: the header shows
         // the new arrow the moment it is clicked, so the rows have to catch up.
         if self.query_job.is_some() {
@@ -920,6 +923,36 @@ impl FileViewer {
             return;
         }
         self.run_query();
+    }
+
+    /// The Shift-click half of [`sort_by`]: add `column` to the keys already
+    /// held, or step it through its own cycle within them.
+    ///
+    /// A fresh column enters ascending; a second Shift-click flips it to
+    /// descending; a third removes it, so the file's own order stays reachable
+    /// for any one key without disturbing the rest.
+    fn append_sort_key(&mut self, column: &str) {
+        let Some(existing) = self
+            .query
+            .spec
+            .sort
+            .iter_mut()
+            .find(|sort| sort.field == column)
+        else {
+            self.query
+                .spec
+                .sort
+                .push(thoth_plugin_sdk::components::Sort {
+                    field: column.to_string(),
+                    descending: false,
+                });
+            return;
+        };
+        if existing.descending {
+            self.query.spec.sort.retain(|sort| sort.field != column);
+        } else {
+            existing.descending = true;
+        }
     }
 
     /// Run the query the lanes describe, on a worker thread.
@@ -1289,10 +1322,18 @@ impl FileViewer {
             // there is one to re-run: an engine-backed file whose lanes are not
             // paused behind typed SQL.
             .sortable(self.engine.is_some() && !self.query.is_overridden())
-            .maybe_sort(self.query.spec.sort.first().map(|s| SortBy {
-                column: s.field.clone(),
-                descending: s.descending,
-            }))
+            .sort(
+                self.query
+                    .spec
+                    .sort
+                    .iter()
+                    .map(|s| SortBy {
+                        column: s.field.clone(),
+                        descending: s.descending,
+                        ..Default::default()
+                    })
+                    .collect(),
+            )
             .build();
         // Consumed, so a shortcut fires once rather than every frame until the
         // next one replaces it.
@@ -1962,6 +2003,34 @@ mod tests {
         // Through all of it, the filter the user set is still the filter.
         assert_eq!(viewer.query.spec.filters.len(), 1);
         assert_eq!(viewer.query.spec.filters[0].values, ["error"]);
+    }
+
+    #[test]
+    fn a_shift_click_adds_and_cycles_a_second_sort_key() {
+        let mut viewer = FileViewer::new();
+
+        // A plain click orders by that one column.
+        viewer.sort_by(r#"{"column":"ts","descending":false}"#);
+        assert_eq!(viewer.query.spec.sort.len(), 1);
+        assert_eq!(viewer.query.spec.sort[0].field, "ts");
+
+        // A Shift-click on another column appends it rather than replacing.
+        viewer.sort_by(r#"{"column":"level","append":true}"#);
+        assert_eq!(viewer.query.spec.sort.len(), 2);
+        assert_eq!(viewer.query.spec.sort[0].field, "ts");
+        assert_eq!(viewer.query.spec.sort[1].field, "level");
+        assert!(!viewer.query.spec.sort[1].descending);
+
+        // A second Shift-click on the same column flips it to descending.
+        viewer.sort_by(r#"{"column":"level","append":true}"#);
+        assert_eq!(viewer.query.spec.sort.len(), 2);
+        assert!(viewer.query.spec.sort[1].descending);
+
+        // A third Shift-click removes just that key, leaving the first intact.
+        viewer.sort_by(r#"{"column":"level","append":true}"#);
+        assert_eq!(viewer.query.spec.sort.len(), 1);
+        assert_eq!(viewer.query.spec.sort[0].field, "ts");
+        assert!(!viewer.query.spec.sort[0].descending);
     }
 
     #[test]

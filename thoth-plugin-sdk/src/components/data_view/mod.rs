@@ -80,10 +80,14 @@ pub struct DataView {
     /// Which of [`tables`](DataView::tables) the `handle` currently points at.
     #[serde(default, rename = "selected-table")]
     pub selected_table: Option<String>,
-    /// Which column the rows are ordered by, shown as an arrow in the table
-    /// view's header.
-    #[serde(default)]
-    pub sort: Option<crate::components::SortBy>,
+    /// Which columns the rows are ordered by, in order — each shown as an arrow
+    /// in the table view's header.
+    #[builder(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::components::table_view::deserialize_sorts"
+    )]
+    pub sort: Vec<crate::components::SortBy>,
     /// Let the table view's headers be clicked to sort, emitting
     /// [`SORT_COLUMN`](crate::actions::SORT_COLUMN). Off by default: the rows
     /// behind a handle are a page of something the view cannot reorder, so
@@ -601,7 +605,7 @@ impl DataView {
                         .column_types(column_types)
                         .framed(false)
                         .sortable(self.sortable)
-                        .maybe_sort(self.sort.clone())
+                        .sort(self.sort.clone())
                         .build()
                         .show(ui, events);
                 }

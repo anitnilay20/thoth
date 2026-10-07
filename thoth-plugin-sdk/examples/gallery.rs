@@ -151,9 +151,9 @@ struct Gallery {
     toggled: bool,
     row_selected: bool,
     last_header_action: Option<usize>,
-    /// Which column the Table View story is sorted by — the grid reports the
+    /// Which columns the Table View story is sorted by — the grid reports the
     /// click and the story, as its own producer, reorders the rows.
-    table_sort: Option<SortBy>,
+    table_sort: Vec<SortBy>,
 
     // New-component state.
     checked: bool,
@@ -204,7 +204,7 @@ impl Default for Gallery {
             toggled: true,
             row_selected: false,
             last_header_action: None,
-            table_sort: None,
+            table_sort: Vec::new(),
             checked: true,
             slider_value: 0.5,
             number_value: 8080.0,
@@ -893,7 +893,7 @@ impl Gallery {
                 )
             })
             .collect();
-        if let Some(sort) = &self.table_sort {
+        if let Some(sort) = self.table_sort.first() {
             match sort.column.as_str() {
                 "name" => records.sort_by(|a, b| a.1.cmp(&b.1)),
                 "lang" => records.sort_by(|a, b| a.2.cmp(&b.2).then(a.0.cmp(&b.0))),
@@ -916,7 +916,7 @@ impl Gallery {
                     .collect(),
             )
             .sortable(true)
-            .maybe_sort(self.table_sort.clone())
+            .sort(self.table_sort.clone())
             .build();
         let mut events = Vec::new();
         if let Some(row) = table.show(ui, &mut events) {
@@ -924,7 +924,26 @@ impl Gallery {
         }
         for event in events {
             if event.id == thoth_plugin_sdk::actions::SORT_COLUMN {
-                self.table_sort = serde_json::from_str(&event.value).unwrap_or(None);
+                // The story mirrors the host: a plain click replaces the order,
+                // a Shift-click adds to or cycles out the column.
+                match serde_json::from_str::<Option<SortBy>>(&event.value) {
+                    Ok(None) => self.table_sort.clear(),
+                    Ok(Some(sort)) if sort.append => {
+                        let Some(existing) =
+                            self.table_sort.iter_mut().find(|s| s.column == sort.column)
+                        else {
+                            self.table_sort.push(sort);
+                            continue;
+                        };
+                        if existing.descending {
+                            self.table_sort.retain(|s| s.column != sort.column);
+                        } else {
+                            existing.descending = true;
+                        }
+                    }
+                    Ok(Some(sort)) => self.table_sort = vec![sort],
+                    Err(_) => {}
+                }
             }
         }
     }
