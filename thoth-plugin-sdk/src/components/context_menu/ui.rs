@@ -51,7 +51,12 @@ impl ContextMenu {
     /// One entry. Returns whether it was chosen.
     fn row(&self, ui: &mut egui::Ui, item: &ContextMenuItem, colors: &ThemeColors) -> bool {
         let width = ui.available_width().max(self.min_width);
-        let height = FIELD_HEIGHT + if item.description.is_some() { DESC_HEIGHT } else { 0.0 };
+        let height = FIELD_HEIGHT
+            + if item.description.is_some() {
+                DESC_HEIGHT
+            } else {
+                0.0
+            };
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(width, height),
             // A disabled entry is shown so the menu keeps its shape, but it

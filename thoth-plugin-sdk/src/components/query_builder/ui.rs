@@ -19,8 +19,8 @@ use crate::theme::{
 };
 
 use super::{
-    Aggregate, AggregateFn, Combine, Filter, NullsOrder, Operator, QueryBuilder, QueryBuilderOutput,
-    QueryError, QueryField, QuerySpec, Sort,
+    Aggregate, AggregateFn, Combine, Filter, NullsOrder, Operator, QueryBuilder,
+    QueryBuilderOutput, QueryError, QueryField, QuerySpec, Sort,
 };
 
 // ── Design metrics ────────────────────────────────────────────────────────────
@@ -314,20 +314,19 @@ impl QueryBuilder {
                 ui.set_min_height(HEAD_HEIGHT);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = ITEM_GAP;
-                    let head_button = ui
-                        .add(
-                            Button::builder()
-                                .label("Query")
-                                .icon(caret(lanes_open))
-                                .button_type(ButtonType::Text)
-                                .button_size(Size::Small)
-                                .hover_text(if lanes_open {
-                                    format!("Hide the query builder ({}/)", modifier())
-                                } else {
-                                    format!("Show the query builder ({}/)", modifier())
-                                })
-                                .build(),
-                        );
+                    let head_button = ui.add(
+                        Button::builder()
+                            .label("Query")
+                            .icon(caret(lanes_open))
+                            .button_type(ButtonType::Text)
+                            .button_size(Size::Small)
+                            .hover_text(if lanes_open {
+                                format!("Hide the query builder ({}/)", modifier())
+                            } else {
+                                format!("Show the query builder ({}/)", modifier())
+                            })
+                            .build(),
+                    );
                     // Where a Tab that runs off the end of the panel comes
                     // back to — see `theme::trap_focus`.
                     remember_end(ui.ctx(), &self.id, "qb_first", head_button.id);
@@ -483,7 +482,6 @@ impl QueryBuilder {
                 *saved_action = Some(action);
             }
         }
-
     }
 
     /// The query read back as one chip per clause — design `.qchip`.
@@ -524,8 +522,8 @@ impl QueryBuilder {
         let fields = self.fields.clone();
         let id = self.id.clone();
         let focus = self.focus_control.clone();
-        let focus_add = focus.as_deref()
-            == Some(add_target(&self.id, super::QueryAction::AddFilter).as_str());
+        let focus_add =
+            focus.as_deref() == Some(add_target(&self.id, super::QueryAction::AddFilter).as_str());
         let cull = self.cull_focused;
         let spec = &mut self.spec;
         let mut remove = None;
@@ -687,8 +685,8 @@ impl QueryBuilder {
         let fields = self.fields.clone();
         let id = self.id.clone();
         let focus = self.focus_control.clone();
-        let focus_add = focus.as_deref()
-            == Some(add_target(&self.id, super::QueryAction::AddGroupBy).as_str());
+        let focus_add =
+            focus.as_deref() == Some(add_target(&self.id, super::QueryAction::AddGroupBy).as_str());
         let cull = self.cull_focused;
         let mut remove = None;
 
@@ -870,8 +868,8 @@ impl QueryBuilder {
         let fields = self.sort_keys();
         let id = self.id.clone();
         let focus = self.focus_control.clone();
-        let focus_add = focus.as_deref()
-            == Some(add_target(&self.id, super::QueryAction::AddSort).as_str());
+        let focus_add =
+            focus.as_deref() == Some(add_target(&self.id, super::QueryAction::AddSort).as_str());
         let cull = self.cull_focused;
         let mut remove = None;
 
@@ -941,7 +939,9 @@ impl QueryBuilder {
                                         .label(nulls_label)
                                         .button_type(ButtonType::Text)
                                         .button_size(Size::Small)
-                                        .hover_text("Where nulls sit: first, last, or the engine's default")
+                                        .hover_text(
+                                            "Where nulls sit: first, last, or the engine's default",
+                                        )
                                         .build(),
                                 )
                                 .clicked()
@@ -1076,20 +1076,19 @@ impl QueryBuilder {
                     // first, the strip reads Limit · Reset · Run on screen.
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let runnable = compiled.is_ok();
-                        let run_button = ui
-                            .add(
-                                Button::builder()
-                                    .label("Run")
-                                    .icon(egui_phosphor::regular::PLAY)
-                                    .color(ButtonColor::Primary)
-                                    .enabled(runnable)
-                                    .hover_text(if runnable {
-                                        format!("Run the query ({}{})", modifier(), return_key())
-                                    } else {
-                                        "Finish the query before running it".to_string()
-                                    })
-                                    .build(),
-                            );
+                        let run_button = ui.add(
+                            Button::builder()
+                                .label("Run")
+                                .icon(egui_phosphor::regular::PLAY)
+                                .color(ButtonColor::Primary)
+                                .enabled(runnable)
+                                .hover_text(if runnable {
+                                    format!("Run the query ({}{})", modifier(), return_key())
+                                } else {
+                                    "Finish the query before running it".to_string()
+                                })
+                                .build(),
+                        );
                         remember_end(ui.ctx(), &self.id, "qb_last", run_button.id);
                         run = run_button.clicked();
 
@@ -1311,22 +1310,21 @@ fn lane(ui: &mut egui::Ui, add: AddButton, items: impl FnOnce(&mut egui::Ui)) ->
                 // what is left: laid out right-to-left it lands on the edge, and
                 // the wrapping row then fills the space before it.
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                    let add_response = ui
-                        .add(
-                            Button::builder()
-                                .label(add.label)
-                                .icon(add.icon)
-                                // Design `.addbtn`: a hairline edge on no fill.
-                                // An empty lane then reads as an invitation
-                                // rather than as a control that failed to load,
-                                // which is what a bare text button looked like.
-                                .button_type(ButtonType::Outlined)
-                                .button_size(Size::Small)
-                                .enabled(add.enabled)
-                                .hover_text(add.tooltip)
-                                .kbd(add.kbd)
-                                .build(),
-                        );
+                    let add_response = ui.add(
+                        Button::builder()
+                            .label(add.label)
+                            .icon(add.icon)
+                            // Design `.addbtn`: a hairline edge on no fill.
+                            // An empty lane then reads as an invitation
+                            // rather than as a control that failed to load,
+                            // which is what a bare text button looked like.
+                            .button_type(ButtonType::Outlined)
+                            .button_size(Size::Small)
+                            .enabled(add.enabled)
+                            .hover_text(add.tooltip)
+                            .kbd(add.kbd)
+                            .build(),
+                    );
                     if add.focus {
                         add_response.request_focus();
                     }
@@ -2156,9 +2154,8 @@ mod tests {
             let menu = saved_menu(&saved, applied, dirty);
             assert_eq!(menu.items.len(), menu.actions.len(), "{applied:?} {dirty}");
             for (index, item) in menu.items.iter().enumerate() {
-                let handled = index == menu.begins_naming
-                    || item.separator
-                    || menu.actions[index].is_some();
+                let handled =
+                    index == menu.begins_naming || item.separator || menu.actions[index].is_some();
                 assert!(handled, "entry {index} ({}) does nothing", item.label);
             }
         }

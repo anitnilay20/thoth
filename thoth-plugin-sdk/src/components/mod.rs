@@ -14,7 +14,6 @@ mod checkbox;
 mod code;
 mod code_editor;
 mod context_menu;
-mod menu;
 mod data_row;
 mod data_view;
 #[cfg(feature = "egui")]
@@ -28,6 +27,7 @@ mod layout;
 mod link;
 mod list;
 mod markdown;
+mod menu;
 mod modal;
 mod multi_select;
 mod number_input;
