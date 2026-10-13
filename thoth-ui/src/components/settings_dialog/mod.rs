@@ -1,0 +1,1269 @@
+use crate::theme::ThemeExt;
+// Settings dialog components module
+//
+// This module contains the settings dialog and all its sub-components:
+// - Main SettingsDialog (context component with panels and navigation)
+// - General settings tab
+// - Appearance settings tab
+// - Performance settings tab
+// - Viewer settings tab
+// - Shortcuts settings tab
+// - Updates settings tab
+// - Advanced settings tab
+
+mod advanced;
+mod general;
+mod helpers;
+mod interface;
+mod performance;
+mod plugins;
+mod shortcuts;
+mod theme_picker;
+mod updates;
+mod viewer;
+
+#[cfg(test)]
+mod tests;
+
+pub use advanced::AdvancedTab;
+pub use general::GeneralTab;
+pub use performance::PerformanceTab;
+pub use shortcuts::ShortcutsTab;
+pub use updates::UpdatesTab;
+pub use viewer::ViewerTab;
+
+use crate::components::settings_dialog::plugins::{PluginsTab, PluginsTabEvent, PluginsTabProps};
+use crate::components::traits::ContextComponent;
+use crate::notification::{Notification, NotificationManager, NotificationStatus};
+use crate::settings::Settings;
+use crate::theme::{self, Theme, ThemeColors, icon_rich_text, phosphor_font_id};
+use eframe::egui;
+use std::sync::{Arc, Mutex};
+use thoth_plugin_sdk::components::{
+    Button, ButtonColor, ButtonType, IconButton, Input, Typography, TypographyVariant,
+};
+use thoth_plugin_sdk::theme::{
+    FONT_CONTROL, ICON_CONTROL, RADIUS_CONTROL, color_to_hex, with_alpha,
+};
+
+// ── Window chrome metrics ────────────────────────────────────────────────────
+
+/// Smallest the window may get before the two-column layout stops working.
+const MIN_W: f32 = 800.0;
+/// …and its vertical counterpart.
+const MIN_H: f32 = 520.0;
+/// Fraction of the parent window the settings window opens at.
+const OPEN_FRACTION: f32 = 0.85;
+
+/// Title bar height — design `.stitle{height:32px}`.
+const TITLE_H: f32 = 32.0;
+/// …and the gap between its items — design `.stitle{gap:8px}`.
+const TITLE_GAP: f32 = 8.0;
+/// Close button — design `.stitle .x{width:24px;height:24px}`…
+const CLOSE_SIZE: f32 = 24.0;
+/// …with a 14px glyph — design `.stitle .x{font-size:14px}`.
+const CLOSE_GLYPH: f32 = 14.0;
+
+/// Nav rail width — design `.snav{width:230px}`.
+const NAV_W: f32 = 230.0;
+/// Rail padding — design `.snav{padding:12px 10px}`.
+const NAV_PAD_H: i8 = 10;
+/// …vertical component of the same rule.
+const NAV_PAD_V: i8 = 12;
+/// Space under the rail heading — design `.snav .h{padding:0 4px 8px}`.
+const NAV_HEADING_BOTTOM: f32 = 8.0;
+/// …and its side inset.
+const NAV_HEADING_PAD: f32 = 4.0;
+/// Space under the search field — design `.snav .search{margin-bottom:8px}`.
+const NAV_SEARCH_BOTTOM: f32 = 8.0;
+
+/// Nav row height — design `.nitem{height:34px}`.
+const NAV_ITEM_H: f32 = 34.0;
+/// …its horizontal padding — design `.nitem{padding:0 9px}`.
+const NAV_ITEM_PAD: f32 = 9.0;
+/// …the gap between glyph and label — design `.nitem{gap:9px}`.
+const NAV_ITEM_GAP: f32 = 9.0;
+/// …and the space between rows — design `.snav .items{gap:1px}`.
+const NAV_ITEM_SPACING: f32 = 1.0;
+/// Nav glyph size — design `.nitem i{font-size:16px}`.
+const NAV_GLYPH: f32 = 16.0;
+/// Hover wash — design `.nitem:hover{background:text@6%}`.
+const NAV_HOVER_ALPHA: u8 = 15; // 6% of 255
+/// Selected wash — design `.nitem.on{background:mauve@14%}`.
+const NAV_SELECTED_ALPHA: u8 = 36; // 14% of 255
+/// Selected stripe — design `.nitem.on::before{width:3px;border-radius:3px}`…
+const NAV_STRIPE_W: f32 = 3.0;
+/// …inset this far from the row's top and bottom — design `{top:8px;bottom:8px}`.
+const NAV_STRIPE_INSET_Y: f32 = 8.0;
+/// …and sitting at the rail's own left edge — design `{left:-10px}`.
+const NAV_STRIPE_OFFSET_X: f32 = NAV_PAD_H as f32;
+/// Trailing unsaved-change dot — design `.nitem .dot{width:6px}`.
+const NAV_DOT_RADIUS: f32 = 3.0;
+
+/// Rail footer — design `.snav .foot{padding:8px 6px 2px}`.
+const NAV_FOOT_PAD_H: f32 = 6.0;
+/// …its top padding.
+const NAV_FOOT_PAD_TOP: f32 = 8.0;
+/// …the gap between glyph and filename — design `.snav .foot{gap:7px}`.
+const NAV_FOOT_GAP: f32 = 7.0;
+/// …its text size — design `.snav .foot{font-size:11.5px}`.
+const NAV_FOOT_FONT: f32 = 11.5;
+/// …and its glyph size — design `.snav .foot i{font-size:14px}`.
+const NAV_FOOT_GLYPH: f32 = 14.0;
+/// Height reserved for the footer row: 8px top padding, one 11.5px line, 2px below.
+const NAV_FOOT_H: f32 = 26.0;
+
+/// Content padding — design `.spane{padding:18px 20px}`.
+const PANE_PAD_V: i8 = 18;
+/// …horizontal component of the same rule.
+const PANE_PAD_H: i8 = 20;
+
+/// Footer bar height — design `.sfoot{height:52px}`.
+const FOOT_H: f32 = 52.0;
+/// …its horizontal padding — design `.sfoot{padding:0 18px}`.
+const FOOT_PAD_H: i8 = 18;
+/// Top hairline — design `.sfoot{box-shadow:inset 0 1px 0 surface1@26%}`.
+const FOOT_RULE_ALPHA: u8 = 66; // 26% of 255
+/// Dirty dot — design `.sfoot .dirty .d{width:7px}`.
+const FOOT_DOT_RADIUS: f32 = 3.5;
+/// …the gap after it — design `.sfoot .dirty{gap:7px}`.
+const FOOT_DOT_GAP: f32 = 7.0;
+/// Gap between the footer's action buttons — design `.sfoot .sp{gap:8px}`.
+const FOOT_BTN_GAP: f32 = 8.0;
+/// Dirty label size — design `.sfoot .dirty{font-size:12px}`.
+const FOOT_LABEL_FONT: f32 = 12.0;
+
+/// Settings dialog with modern UI
+pub struct SettingsDialog {
+    /// Whether the dialog is open
+    pub open: bool,
+
+    /// Currently selected tab
+    selected_tab: SettingsTab,
+
+    /// Current settings being edited (not saved until Apply)
+    draft_settings: Settings,
+
+    /// Shared state for viewport communication
+    viewport_result: Arc<Mutex<Option<Settings>>>,
+
+    /// Shared draft settings for live preview (updated by viewport)
+    viewport_draft: Arc<Mutex<Settings>>,
+
+    /// Original settings at dialog-open time — used as dirty baseline.
+    /// Reset still goes to Settings::default(), not this.
+    viewport_baseline: Arc<Mutex<Settings>>,
+
+    /// Flag to indicate viewport was closed/cancelled
+    viewport_closed: Arc<Mutex<bool>>,
+
+    /// Shared selected tab for viewport
+    viewport_selected_tab: Arc<Mutex<SettingsTab>>,
+
+    /// Shared events collected from the dialog
+    viewport_events: Arc<Mutex<Vec<SettingsDialogEvent>>>,
+
+    /// Plugin Id for selected plugin settings (shared into viewport closure)
+    open_plugin_settings_id: Arc<Mutex<Option<String>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SettingsTab {
+    General,
+    Interface,
+    Viewer,
+    Performance,
+    Shortcuts,
+    Plugins,
+    Updates,
+    Developer,
+}
+
+impl SettingsTab {
+    fn label(self) -> &'static str {
+        match self {
+            SettingsTab::General => "General",
+            SettingsTab::Interface => "Interface",
+            SettingsTab::Viewer => "Viewer",
+            SettingsTab::Performance => "Performance",
+            SettingsTab::Shortcuts => "Shortcuts",
+            SettingsTab::Plugins => "Plugins",
+            SettingsTab::Updates => "Updates",
+            SettingsTab::Developer => "Developer",
+        }
+    }
+
+    fn subtitle(self) -> &'static str {
+        match self {
+            SettingsTab::General => "Theme, typography, window defaults",
+            SettingsTab::Interface => "Sidebar, toolbar, status bar, animations",
+            SettingsTab::Viewer => "Syntax highlighting and display",
+            SettingsTab::Performance => "Cache, history and recent files",
+            SettingsTab::Shortcuts => "Keyboard shortcuts per action",
+            SettingsTab::Plugins => "Installed plugins and network policies",
+            SettingsTab::Updates => "Auto-update and version info",
+            SettingsTab::Developer => "Profiler and configuration file",
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            SettingsTab::General => egui_phosphor::regular::SLIDERS,
+            SettingsTab::Interface => egui_phosphor::regular::SIDEBAR,
+            SettingsTab::Viewer => egui_phosphor::regular::EYE,
+            SettingsTab::Performance => egui_phosphor::regular::GAUGE,
+            SettingsTab::Shortcuts => egui_phosphor::regular::KEYBOARD,
+            SettingsTab::Plugins => egui_phosphor::regular::PLUGS,
+            SettingsTab::Updates => egui_phosphor::regular::ARROWS_CLOCKWISE,
+            SettingsTab::Developer => egui_phosphor::regular::WRENCH,
+        }
+    }
+
+    fn all() -> &'static [SettingsTab] {
+        &[
+            SettingsTab::General,
+            SettingsTab::Interface,
+            SettingsTab::Viewer,
+            SettingsTab::Performance,
+            SettingsTab::Shortcuts,
+            SettingsTab::Plugins,
+            SettingsTab::Updates,
+            SettingsTab::Developer,
+        ]
+    }
+}
+
+impl Default for SettingsDialog {
+    fn default() -> Self {
+        Self {
+            open: false,
+            selected_tab: SettingsTab::General,
+            draft_settings: Settings::default(),
+            viewport_result: Arc::new(Mutex::new(None)),
+            viewport_draft: Arc::new(Mutex::new(Settings::default())),
+            viewport_baseline: Arc::new(Mutex::new(Settings::default())),
+            viewport_closed: Arc::new(Mutex::new(false)),
+            viewport_selected_tab: Arc::new(Mutex::new(SettingsTab::General)),
+            viewport_events: Arc::new(Mutex::new(Vec::new())),
+            open_plugin_settings_id: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+impl SettingsDialog {
+    /// Open the settings dialog with current settings
+    pub fn open(&mut self, current_settings: &Settings) {
+        self.open_with_tab(current_settings, None);
+    }
+
+    /// Open the settings dialog on the Updates tab
+    pub fn open_updates(&mut self, current_settings: &Settings) {
+        self.open_with_tab(current_settings, Some(SettingsTab::Updates));
+    }
+
+    /// Open the settings dialog with a specific tab selected
+    fn open_with_tab(&mut self, current_settings: &Settings, tab: Option<SettingsTab>) {
+        self.open = true;
+        self.draft_settings = current_settings.clone();
+
+        // Set the selected tab if specified
+        if let Some(tab) = tab {
+            self.selected_tab = tab;
+        }
+
+        // Update viewport_draft and baseline with current settings
+        if let Ok(mut draft) = self.viewport_draft.lock() {
+            *draft = current_settings.clone();
+        }
+        if let Ok(mut baseline) = self.viewport_baseline.lock() {
+            *baseline = current_settings.clone();
+        }
+
+        // Reset closed flag
+        if let Ok(mut closed) = self.viewport_closed.lock() {
+            *closed = false;
+        }
+
+        // Update selected tab
+        if let Ok(mut viewport_tab) = self.viewport_selected_tab.lock() {
+            *viewport_tab = self.selected_tab;
+        }
+
+        // Clear any previous events
+        if let Ok(mut events) = self.viewport_events.lock() {
+            events.clear();
+        }
+    }
+
+    /// Helper method to render tab content with proper event handling
+    /// This consolidates the duplicate tab rendering logic
+    #[allow(clippy::too_many_arguments)]
+    fn render_tab_content(
+        ui: &mut egui::Ui,
+        tab: SettingsTab,
+        settings: &mut Settings,
+        baseline: &Settings,
+        theme_colors: &ThemeColors,
+        update_state: Option<&crate::update::UpdateState>,
+        last_check: Option<chrono::DateTime<chrono::Utc>>,
+        current_version: &str,
+        dialog_events: &mut Vec<SettingsDialogEvent>,
+        open_plugin_settings_id: &Arc<Mutex<Option<String>>>,
+    ) {
+        use crate::components::traits::StatelessComponent;
+
+        match tab {
+            SettingsTab::General => {
+                let output = GeneralTab::render(
+                    ui,
+                    general::GeneralTabProps {
+                        settings,
+                        baseline,
+                        theme_colors,
+                    },
+                );
+                for event in output.events {
+                    use general::GeneralTabEvent;
+                    match event {
+                        GeneralTabEvent::ThemeName(name) => {
+                            settings.theme = Theme::from_name(&name);
+                        }
+                        GeneralTabEvent::FontSize(s) => {
+                            settings.font_size = s;
+                        }
+                        GeneralTabEvent::FontFamily(f) => {
+                            settings.font_family = f;
+                        }
+                        GeneralTabEvent::WindowWidth(w) => {
+                            settings.window.default_width = w;
+                        }
+                        GeneralTabEvent::WindowHeight(h) => {
+                            settings.window.default_height = h;
+                        }
+                    }
+                }
+            }
+            SettingsTab::Interface => {
+                let output = interface::InterfaceTab::render(
+                    ui,
+                    interface::InterfaceTabProps {
+                        ui_settings: &settings.ui,
+                        baseline: &baseline.ui,
+                        theme_colors,
+                    },
+                );
+                for event in output.events {
+                    use interface::InterfaceTabEvent;
+                    match event {
+                        InterfaceTabEvent::SidebarWidthChanged(w) => {
+                            settings.ui.sidebar_width = w;
+                        }
+                        InterfaceTabEvent::RememberSidebarStateChanged(v) => {
+                            settings.ui.remember_sidebar_state = v;
+                        }
+                        InterfaceTabEvent::ShowToolbarChanged(v) => {
+                            settings.ui.show_toolbar = v;
+                        }
+                        InterfaceTabEvent::ShowStatusBarChanged(v) => {
+                            settings.ui.show_status_bar = v;
+                        }
+                        InterfaceTabEvent::EnableAnimationsChanged(v) => {
+                            settings.ui.enable_animations = v;
+                        }
+                    }
+                }
+            }
+            SettingsTab::Developer => {
+                let is_in_path = crate::platform::path_registry::is_in_path();
+                let output = AdvancedTab::render(
+                    ui,
+                    advanced::AdvancedTabProps {
+                        dev_settings: &settings.dev,
+                        theme_colors,
+                        is_in_path,
+                    },
+                );
+                for event in output.events {
+                    use advanced::AdvancedTabEvent;
+                    match event {
+                        AdvancedTabEvent::ShowProfilerChanged(v) => {
+                            settings.dev.show_profiler = v;
+                        }
+                        AdvancedTabEvent::RegisterInPath => {
+                            dialog_events.push(SettingsDialogEvent::RegisterInPath);
+                        }
+                        AdvancedTabEvent::UnregisterFromPath => {
+                            dialog_events.push(SettingsDialogEvent::UnregisterFromPath);
+                        }
+                    }
+                }
+            }
+            SettingsTab::Performance => {
+                let output = PerformanceTab::render(
+                    ui,
+                    performance::PerformanceTabProps {
+                        performance_settings: &settings.performance,
+                        theme_colors,
+                    },
+                );
+
+                // Handle events
+                for event in output.events {
+                    use performance::PerformanceTabEvent;
+                    match event {
+                        PerformanceTabEvent::IndexCacheBudgetChanged(mb) => {
+                            settings.performance.index_cache_mb = mb;
+                        }
+                        PerformanceTabEvent::MaxRecentFilesChanged(max) => {
+                            settings.performance.max_recent_files = max;
+                        }
+                        PerformanceTabEvent::NavigationHistorySizeChanged(size) => {
+                            settings.performance.navigation_history_size = size;
+                        }
+                    }
+                }
+            }
+            SettingsTab::Viewer => {
+                let output = ViewerTab::render(
+                    ui,
+                    viewer::ViewerTabProps {
+                        viewer_settings: &settings.viewer,
+                        theme_colors,
+                    },
+                );
+
+                // Handle events
+                for event in output.events {
+                    use viewer::ViewerTabEvent;
+                    match event {
+                        ViewerTabEvent::SyntaxHighlightingChanged(enabled) => {
+                            settings.viewer.syntax_highlighting = enabled;
+                        }
+                    }
+                }
+            }
+            SettingsTab::Shortcuts => {
+                let _output = ShortcutsTab::render(
+                    ui,
+                    shortcuts::ShortcutsTabProps {
+                        shortcuts: &settings.shortcuts,
+                        theme_colors,
+                    },
+                );
+                // No events to handle yet - shortcuts are read-only
+            }
+            SettingsTab::Plugins => {
+                // let current_ui = plugin_settings_ui.lock().ok().and_then(|g| g.clone());
+
+                let output = PluginsTab::render(
+                    ui,
+                    PluginsTabProps {
+                        plugin_settings: settings.plugins.clone(),
+                        active_plugin_settings: open_plugin_settings_id
+                            .lock()
+                            .ok()
+                            .and_then(|g| g.clone()),
+                    },
+                );
+
+                for event in output.events {
+                    match event {
+                        PluginsTabEvent::EnablePlugins(enabled) => {
+                            settings.plugins.enabled = enabled;
+                        }
+                        PluginsTabEvent::TogglePlugin { id, enabled } => {
+                            if enabled {
+                                settings.plugins.disabled_plugin_ids.retain(|x| x != &id);
+                            } else if !settings.plugins.disabled_plugin_ids.contains(&id) {
+                                settings.plugins.disabled_plugin_ids.push(id);
+                            }
+                        }
+                        PluginsTabEvent::UninstallPlugin(id) => {
+                            if let Some(pm) = crate::plugin::runtime::active_manager() {
+                                // A bundled plugin lives in the app's own
+                                // directory and is not the user's to remove —
+                                // `PluginManager::uninstall_plugin` refuses it
+                                // for the same reason, and this path must not
+                                // be the way around that.
+                                let removable = pm
+                                    .registry
+                                    .get_by_id(&id)
+                                    .filter(|p| !p.bundled)
+                                    .and_then(|p| p.location.as_deref())
+                                    .and_then(crate::plugin::manager::plugin_directory);
+                                if let Some(dir) = removable
+                                    && let Err(e) = std::fs::remove_dir_all(&dir)
+                                {
+                                    eprintln!(
+                                        "Failed to remove plugin directory {}: {e}",
+                                        dir.display()
+                                    );
+                                }
+                                settings.plugins.disabled_plugin_ids.retain(|x| x != &id);
+                            }
+                        }
+                        // TODO: more specific events for different setting types so the UI doesn't have to re-render the entire settings page on every change
+                        // PluginsTabEvent::PluginUpdateSetting(plugin_id, plugin_settings) => {
+                        //     settings
+                        //         .plugins
+                        //         .plugin_settings
+                        //         .insert(plugin_id, plugin_settings);
+                        // }
+                        PluginsTabEvent::OpenSettingsForPlugin(plugin_id) => {
+                            if let Ok(mut id) = open_plugin_settings_id.lock() {
+                                *id = plugin_id;
+                            }
+                        }
+                        PluginsTabEvent::UpdateNetworkPolicy { plugin_id, policy } => {
+                            settings.plugins.network_policies.insert(plugin_id, policy);
+                        }
+                    }
+                }
+            }
+            SettingsTab::Updates => {
+                let output = UpdatesTab::render(
+                    ui,
+                    updates::UpdatesTabProps {
+                        update_settings: &settings.updates,
+                        update_state,
+                        last_check,
+                        current_version,
+                        theme_colors,
+                    },
+                );
+
+                // Handle events
+                for event in output.events {
+                    use updates::UpdatesTabEvent;
+                    match event {
+                        UpdatesTabEvent::AutoCheckChanged(value) => {
+                            settings.updates.auto_check = value;
+                        }
+                        UpdatesTabEvent::CheckIntervalChanged(hours) => {
+                            settings.updates.check_interval_hours = hours;
+                        }
+                        UpdatesTabEvent::CheckForUpdates => {
+                            dialog_events.push(SettingsDialogEvent::CheckForUpdates);
+                        }
+                        UpdatesTabEvent::DownloadUpdate => {
+                            dialog_events.push(SettingsDialogEvent::DownloadUpdate);
+                        }
+                        UpdatesTabEvent::InstallUpdate => {
+                            dialog_events.push(SettingsDialogEvent::InstallUpdate);
+                        }
+                    }
+                }
+            } // Developer tab is handled inline above via AdvancedTab
+        }
+    }
+}
+
+/// Props for SettingsDialog when used as a ContextComponent
+pub struct SettingsDialogProps<'a> {
+    /// Current update state (optional - for Updates tab)
+    pub update_state: Option<&'a crate::update::UpdateState>,
+    /// Timestamp of the last update check
+    pub last_check: Option<chrono::DateTime<chrono::Utc>>,
+    /// Current version string
+    pub current_version: &'a str,
+}
+
+/// Events from SettingsDialog that need to be handled by the application
+#[derive(Debug, Clone)]
+pub enum SettingsDialogEvent {
+    CheckForUpdates,
+    DownloadUpdate,
+    InstallUpdate,
+    RegisterInPath,
+    UnregisterFromPath,
+}
+
+/// Output from SettingsDialog
+pub struct SettingsDialogOutput {
+    /// New settings if Apply was clicked
+    pub new_settings: Option<Settings>,
+    /// Events that need to be handled by the application
+    pub events: Vec<SettingsDialogEvent>,
+}
+
+/// Returns true when a section's fields differ from the baseline.
+fn section_is_dirty(tab: SettingsTab, draft: &Settings, baseline: &Settings) -> bool {
+    match tab {
+        SettingsTab::General => {
+            draft.theme != baseline.theme
+                || draft.font_size != baseline.font_size
+                || draft.font_family != baseline.font_family
+                || draft.window.default_width != baseline.window.default_width
+                || draft.window.default_height != baseline.window.default_height
+        }
+        SettingsTab::Interface => {
+            draft.ui.sidebar_width != baseline.ui.sidebar_width
+                || draft.ui.show_toolbar != baseline.ui.show_toolbar
+                || draft.ui.show_status_bar != baseline.ui.show_status_bar
+                || draft.ui.enable_animations != baseline.ui.enable_animations
+                || draft.ui.remember_sidebar_state != baseline.ui.remember_sidebar_state
+        }
+        SettingsTab::Viewer => {
+            draft.viewer.syntax_highlighting != baseline.viewer.syntax_highlighting
+        }
+        SettingsTab::Performance => {
+            draft.performance.index_cache_mb != baseline.performance.index_cache_mb
+                || draft.performance.max_recent_files != baseline.performance.max_recent_files
+                || draft.performance.navigation_history_size
+                    != baseline.performance.navigation_history_size
+        }
+        SettingsTab::Shortcuts => false,
+        SettingsTab::Plugins => {
+            draft.plugins.enabled != baseline.plugins.enabled
+                || draft.plugins.disabled_plugin_ids != baseline.plugins.disabled_plugin_ids
+                || draft.plugins.network_policies != baseline.plugins.network_policies
+                || draft.plugins.plugin_settings != baseline.plugins.plugin_settings
+        }
+        SettingsTab::Updates => {
+            draft.updates.auto_check != baseline.updates.auto_check
+                || draft.updates.check_interval_hours != baseline.updates.check_interval_hours
+        }
+        SettingsTab::Developer => draft.dev.show_profiler != baseline.dev.show_profiler,
+    }
+}
+
+/// Reset a section's fields in `draft` back to defaults.
+fn reset_section(tab: SettingsTab, draft: &mut Settings) {
+    let def = Settings::default();
+    match tab {
+        SettingsTab::General => {
+            draft.theme = def.theme;
+            draft.font_size = def.font_size;
+            draft.font_family = def.font_family;
+            draft.window = def.window;
+        }
+        SettingsTab::Interface => {
+            draft.ui = def.ui;
+        }
+        SettingsTab::Viewer => {
+            draft.viewer = def.viewer;
+        }
+        SettingsTab::Performance => {
+            draft.performance = def.performance;
+        }
+        SettingsTab::Updates => {
+            draft.updates = def.updates;
+        }
+        SettingsTab::Developer => {
+            draft.dev = def.dev;
+        }
+        SettingsTab::Plugins => {
+            draft.plugins.disabled_plugin_ids = def.plugins.disabled_plugin_ids;
+            draft.plugins.plugin_settings = def.plugins.plugin_settings;
+        }
+        _ => {}
+    }
+}
+
+/// Build the settings window — design `.swin`, which is a window in its own
+/// right, so it wears the same chrome as the app's main window (`app-mockup`'s
+/// squircle `.win`).
+///
+/// The rounded corners and the drop shadow are the platform's: macOS only rounds
+/// a *titled* window, and an undecorated one is borderless — which is what left
+/// this window square. So instead of dropping the decorations, keep the native
+/// frame and make its title bar transparent and button-less, exactly as
+/// `main.rs` does for the main window; our own `.stitle` then owns the top row.
+/// No other platform splits a window that way, so there they stay undecorated.
+fn settings_viewport(width: f32, height: f32) -> egui::ViewportBuilder {
+    let builder = egui::ViewportBuilder::default()
+        .with_title("Thoth - Settings")
+        .with_inner_size([width, height])
+        .with_min_inner_size([MIN_W, MIN_H]);
+
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .with_fullsize_content_view(true)
+        .with_titlebar_shown(false)
+        .with_title_shown(false)
+        .with_titlebar_buttons_shown(false);
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.with_decorations(false);
+
+    builder
+}
+
+impl ContextComponent for SettingsDialog {
+    type Props<'a> = SettingsDialogProps<'a>;
+    type Output = SettingsDialogOutput;
+
+    fn render(&mut self, ui: &mut egui::Ui, props: Self::Props<'_>) -> Self::Output {
+        // If not open, return early
+        if !self.open {
+            return SettingsDialogOutput {
+                new_settings: None,
+                events: Vec::new(),
+            };
+        }
+
+        // Use viewport mode (separate OS window) for settings
+        let viewport_id = egui::ViewportId::from_hash_of("thoth_settings");
+
+        // Clone Arc for use in the closure
+        let viewport_result = Arc::clone(&self.viewport_result);
+        let viewport_closed = Arc::clone(&self.viewport_closed);
+        let draft_settings = Arc::clone(&self.viewport_draft);
+        let selected_tab = Arc::clone(&self.viewport_selected_tab);
+        let viewport_events = Arc::clone(&self.viewport_events);
+        let open_plugin_settings_id = Arc::clone(&self.open_plugin_settings_id);
+        let viewport_baseline = Arc::clone(&self.viewport_baseline);
+
+        // Clone update state and version for the viewport
+        let update_state_clone = props.update_state.cloned();
+        let last_check_clone = props.last_check;
+        let current_version = props.current_version.to_string();
+
+        // Size the settings window to a fraction of the parent window, clamped
+        // to a sensible minimum so the layout never breaks on small screens.
+        let parent_size = ui.ctx().content_rect().size();
+        let settings_w = (parent_size.x * OPEN_FRACTION).max(MIN_W);
+        let settings_h = (parent_size.y * OPEN_FRACTION).max(MIN_H);
+
+        ui.ctx().show_viewport_deferred(
+            viewport_id,
+            settings_viewport(settings_w, settings_h),
+            move |ui, class| {
+                let ctx = ui.ctx().clone();
+
+                // Check if viewport is being closed (X button clicked)
+                if class == egui::ViewportClass::Deferred
+                    && ctx.input(|i| i.viewport().close_requested())
+                {
+                    if let Ok(mut closed) = viewport_closed.lock() {
+                        *closed = true;
+                    }
+                    return;
+                }
+
+                // Apply theme from draft settings so changes preview in real-time
+                if let Ok(settings) = draft_settings.lock() {
+                    theme::apply_theme(&ctx, &settings);
+                }
+
+                // Get theme colors
+                let theme_colors = ctx.memory(|mem| {
+                    mem.data
+                        .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
+                        .unwrap_or_else(|| {
+                            theme::Theme::for_dark_mode(ctx.global_style().visuals.dark_mode)
+                                .colors()
+                        })
+                });
+
+                let mut new_settings = None;
+
+                // ── Title bar — design `.stitle` ──────────────────────────
+                egui::Panel::top("settings_titlebar")
+                    .exact_size(TITLE_H)
+                    .frame(
+                        egui::Frame::default()
+                            .fill(theme_colors.bg_panel)
+                            .inner_margin(egui::Margin {
+                                left: 12,
+                                right: 8,
+                                top: 0,
+                                bottom: 0,
+                            }),
+                    )
+                    .show_inside(ui, |ui| {
+                        // Make the whole bar draggable so the window can be moved
+                        let drag_resp = ui.interact(
+                            ui.available_rect_before_wrap(),
+                            ui.id().with("titlebar_drag"),
+                            egui::Sense::click_and_drag(),
+                        );
+                        if drag_resp.dragged() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                        }
+
+                        ui.horizontal_centered(|ui| {
+                            // Every gap is explicit — design `.stitle{gap:8px}`.
+                            ui.spacing_mut().item_spacing.x = 0.0;
+
+                            // Leading accent glyph — design `.stitle .ico`.
+                            ui.label(
+                                icon_rich_text(
+                                    egui_phosphor::regular::TREE_STRUCTURE,
+                                    ICON_CONTROL,
+                                )
+                                .color(theme_colors.accent),
+                            );
+                            ui.add_space(TITLE_GAP);
+                            // `.stitle .t` — 12.5px in the subdued title colour.
+                            ui.add(
+                                Typography::builder()
+                                    .text("Settings")
+                                    .size(FONT_CONTROL)
+                                    .color(color_to_hex(theme_colors.fg_subtle()))
+                                    .build(),
+                            );
+
+                            // Ghost close button — design `.stitle .x`.
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let close_out = ui.add(
+                                        IconButton::builder()
+                                            .icon(egui_phosphor::regular::X)
+                                            .tooltip("Close")
+                                            .frame(false)
+                                            .size_px(CLOSE_SIZE)
+                                            .icon_size(CLOSE_GLYPH)
+                                            .build(),
+                                    );
+                                    if close_out.clicked() {
+                                        if let Ok(mut closed) = viewport_closed.lock() {
+                                            *closed = true;
+                                        }
+                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    }
+                                },
+                            );
+                        });
+                    });
+
+                // ── Nav rail — design `.snav` ─────────────────────────────
+                egui::Panel::left("settings_sidebar")
+                    .resizable(false)
+                    .exact_size(NAV_W)
+                    .frame(
+                        egui::Frame::default()
+                            .fill(theme_colors.bg_panel)
+                            .inner_margin(egui::Margin::symmetric(NAV_PAD_H, NAV_PAD_V)),
+                    )
+                    .show_inside(ui, |ui| {
+                        // ── Settings file, pinned to the bottom — design `.snav .foot`
+                        egui::Panel::bottom("sidebar_settings_file")
+                            .exact_size(NAV_FOOT_H)
+                            .frame(
+                                egui::Frame::default()
+                                    .fill(theme_colors.bg_panel)
+                                    .inner_margin(egui::Margin {
+                                        left: NAV_FOOT_PAD_H as i8,
+                                        right: NAV_FOOT_PAD_H as i8,
+                                        top: NAV_FOOT_PAD_TOP as i8,
+                                        bottom: 0,
+                                    }),
+                            )
+                            .show_inside(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    // Every gap is explicit — design `.foot{gap:7px}`.
+                                    ui.spacing_mut().item_spacing.x = 0.0;
+                                    ui.label(
+                                        icon_rich_text(
+                                            egui_phosphor::regular::FILE_TEXT,
+                                            NAV_FOOT_GLYPH,
+                                        )
+                                        .color(theme_colors.fg_muted),
+                                    );
+                                    ui.add_space(NAV_FOOT_GAP);
+
+                                    let path_str = crate::settings::Settings::settings_file_path()
+                                        .map(|p| {
+                                            p.file_name()
+                                                .and_then(|n| n.to_str())
+                                                .unwrap_or("settings.toml")
+                                                .to_string()
+                                        })
+                                        .unwrap_or_else(|_| "settings.toml".to_string());
+                                    // `.foot .fn` — the filename reads in monospace.
+                                    let name = ui
+                                        .add(
+                                            Typography::builder()
+                                                .text(path_str)
+                                                .variant(TypographyVariant::Mono)
+                                                .size(NAV_FOOT_FONT)
+                                                .color(color_to_hex(theme_colors.fg_muted))
+                                                .build(),
+                                        )
+                                        .interact(egui::Sense::click());
+                                    if name.hovered() {
+                                        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if name.clicked()
+                                        && let Ok(path) =
+                                            crate::settings::Settings::settings_file_path()
+                                    {
+                                        let _ = open::that(path);
+                                    }
+                                    thoth_plugin_sdk::theme::hover_text(
+                                        name,
+                                        crate::settings::Settings::settings_file_path()
+                                            .map(|p| p.to_string_lossy().to_string())
+                                            .unwrap_or_default(),
+                                    );
+                                });
+                            });
+
+                        // Heading — design `.snav .h{font-size:14px;font-weight:700}`.
+                        ui.horizontal(|ui| {
+                            ui.add_space(NAV_HEADING_PAD);
+                            Typography::title(ui, "Settings");
+                        });
+                        ui.add_space(NAV_HEADING_BOTTOM);
+
+                        // Search field — design `.snav .search`.
+                        let search_id = egui::Id::new("settings_search_query");
+                        let mut search_query: String =
+                            ctx.data(|d| d.get_temp(search_id).unwrap_or_default());
+                        let mut input = Input::builder()
+                            .value(search_query.clone())
+                            .placeholder("Search settings…")
+                            .icon(egui_phosphor::regular::MAGNIFYING_GLASS)
+                            .rows(1)
+                            .build();
+                        if input.show(ui).inner {
+                            search_query = input.value.clone();
+                        }
+                        ctx.data_mut(|d| d.insert_temp(search_id, search_query.clone()));
+                        ui.add_space(NAV_SEARCH_BOTTOM);
+
+                        // ── Nav items — design `.nitem` ──────────────────
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                // Compute dirty-ness per section so we can show dots
+                                let (current_tab, dirty_sections) =
+                                    if let (Ok(tab), Ok(draft), Ok(baseline)) = (
+                                        selected_tab.lock(),
+                                        draft_settings.lock(),
+                                        viewport_baseline.lock(),
+                                    ) {
+                                        let dirty: std::collections::HashSet<SettingsTab> =
+                                            SettingsTab::all()
+                                                .iter()
+                                                .filter(|&&t| {
+                                                    section_is_dirty(t, &draft, &baseline)
+                                                })
+                                                .copied()
+                                                .collect();
+                                        (*tab, dirty)
+                                    } else {
+                                        (SettingsTab::General, Default::default())
+                                    };
+
+                                let filter_lower = search_query.to_lowercase();
+
+                                // `.snav .items{gap:1px}`
+                                ui.spacing_mut().item_spacing.y = NAV_ITEM_SPACING;
+
+                                for &tab in SettingsTab::all() {
+                                    if !filter_lower.is_empty() {
+                                        let matches =
+                                            tab.label().to_lowercase().contains(&filter_lower)
+                                                || tab
+                                                    .subtitle()
+                                                    .to_lowercase()
+                                                    .contains(&filter_lower);
+                                        if !matches {
+                                            continue;
+                                        }
+                                    }
+                                    let is_selected = tab == current_tab;
+                                    let is_dirty = dirty_sections.contains(&tab);
+
+                                    let (rect, resp) = ui.allocate_exact_size(
+                                        egui::vec2(ui.available_width(), NAV_ITEM_H),
+                                        egui::Sense::click(),
+                                    );
+
+                                    // `.nitem.on` fills with mauve@14%, `:hover` with text@6%.
+                                    let (fill, tint) = if is_selected {
+                                        (
+                                            Some(with_alpha(
+                                                theme_colors.accent,
+                                                NAV_SELECTED_ALPHA,
+                                            )),
+                                            theme_colors.accent,
+                                        )
+                                    } else if resp.hovered() {
+                                        (
+                                            Some(with_alpha(theme_colors.fg, NAV_HOVER_ALPHA)),
+                                            theme_colors.fg,
+                                        )
+                                    } else {
+                                        (None, theme_colors.fg_muted)
+                                    };
+                                    if let Some(fill) = fill {
+                                        ui.painter().rect_filled(
+                                            rect,
+                                            egui::CornerRadius::from(RADIUS_CONTROL),
+                                            fill,
+                                        );
+                                    }
+
+                                    // `.nitem.on::before` — 3px stripe at the rail's
+                                    // edge, which sits outside the scroll
+                                    // viewport, so widen the clip to reach it.
+                                    if is_selected {
+                                        let painter = ui.painter().with_clip_rect(
+                                            ui.clip_rect()
+                                                .expand2(egui::vec2(NAV_STRIPE_OFFSET_X, 0.0)),
+                                        );
+                                        painter.rect_filled(
+                                            egui::Rect::from_min_max(
+                                                egui::pos2(
+                                                    rect.left() - NAV_STRIPE_OFFSET_X,
+                                                    rect.top() + NAV_STRIPE_INSET_Y,
+                                                ),
+                                                egui::pos2(
+                                                    rect.left() - NAV_STRIPE_OFFSET_X
+                                                        + NAV_STRIPE_W,
+                                                    rect.bottom() - NAV_STRIPE_INSET_Y,
+                                                ),
+                                            ),
+                                            egui::CornerRadius::from(NAV_STRIPE_W),
+                                            theme_colors.accent,
+                                        );
+                                    }
+
+                                    // Glyph, then label one gap to its right.
+                                    let glyph_x = rect.left() + NAV_ITEM_PAD;
+                                    ui.painter().text(
+                                        egui::pos2(glyph_x, rect.center().y),
+                                        egui::Align2::LEFT_CENTER,
+                                        tab.icon(),
+                                        phosphor_font_id(NAV_GLYPH),
+                                        tint,
+                                    );
+                                    ui.painter().text(
+                                        egui::pos2(
+                                            glyph_x + NAV_GLYPH + NAV_ITEM_GAP,
+                                            rect.center().y,
+                                        ),
+                                        egui::Align2::LEFT_CENTER,
+                                        tab.label(),
+                                        egui::FontId::proportional(FONT_CONTROL),
+                                        tint,
+                                    );
+
+                                    // `.nitem .dot` — trailing unsaved-change marker.
+                                    if is_dirty {
+                                        ui.painter().circle_filled(
+                                            egui::pos2(
+                                                rect.right() - NAV_ITEM_PAD - NAV_DOT_RADIUS,
+                                                rect.center().y,
+                                            ),
+                                            NAV_DOT_RADIUS,
+                                            theme_colors.accent,
+                                        );
+                                    }
+
+                                    if resp.hovered() {
+                                        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if resp.clicked()
+                                        && let Ok(mut t) = selected_tab.lock()
+                                    {
+                                        *t = tab;
+                                    }
+                                }
+                            });
+                    });
+
+                // ── Footer bar — design `.sfoot` ──────────────────────────
+                egui::Panel::bottom("settings_bottom")
+                    .exact_size(FOOT_H)
+                    .frame(
+                        egui::Frame::default()
+                            .fill(theme_colors.bg_panel)
+                            .inner_margin(egui::Margin::symmetric(FOOT_PAD_H, 0)),
+                    )
+                    .show_inside(ui, |ui| {
+                        // Top hairline — design `.sfoot{box-shadow:inset 0 1px 0 …}`.
+                        ui.painter().hline(
+                            ui.clip_rect().x_range(),
+                            ui.clip_rect().top(),
+                            egui::Stroke::new(
+                                1.0,
+                                with_alpha(theme_colors.surface_raised, FOOT_RULE_ALPHA),
+                            ),
+                        );
+
+                        ui.horizontal_centered(|ui| {
+                            // Every gap in the bar is explicit.
+                            ui.spacing_mut().item_spacing.x = 0.0;
+
+                            // Dirty indicator — design `.sfoot .dirty`.
+                            // `section_dirty` is the selected tab alone — the
+                            // reset action below only touches that section.
+                            let (is_dirty, dirty_count, section_dirty) =
+                                if let (Ok(draft), Ok(baseline), Ok(tab)) = (
+                                    draft_settings.lock(),
+                                    viewport_baseline.lock(),
+                                    selected_tab.lock(),
+                                ) {
+                                    let count = SettingsTab::all()
+                                        .iter()
+                                        .filter(|&&t| section_is_dirty(t, &draft, &baseline))
+                                        .count();
+                                    (count > 0, count, section_is_dirty(*tab, &draft, &baseline))
+                                } else {
+                                    (false, 0, false)
+                                };
+
+                            if is_dirty {
+                                let (dot, _) = ui.allocate_exact_size(
+                                    egui::Vec2::splat(FOOT_DOT_RADIUS * 2.0),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter().circle_filled(
+                                    dot.center(),
+                                    FOOT_DOT_RADIUS,
+                                    theme_colors.accent,
+                                );
+                                ui.add_space(FOOT_DOT_GAP);
+                                let label = if dirty_count == 1 {
+                                    "1 unsaved change".to_string()
+                                } else {
+                                    format!("{dirty_count} unsaved changes")
+                                };
+                                ui.add(
+                                    Typography::builder()
+                                        .text(label)
+                                        .size(FOOT_LABEL_FONT)
+                                        .color(color_to_hex(theme_colors.fg_subtle()))
+                                        .build(),
+                                );
+                            }
+
+                            // Actions, right-aligned — design `.sfoot .sp{gap:8px}`.
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.spacing_mut().item_spacing.x = 0.0;
+
+                                    // `.btn.primary`
+                                    let save_btn = ui.add(
+                                        Button::builder()
+                                            .label("Save changes")
+                                            .button_type(ButtonType::Elevated)
+                                            .color(ButtonColor::Primary)
+                                            .enabled(is_dirty)
+                                            .build(),
+                                    );
+                                    if save_btn.clicked()
+                                        && let Ok(settings) = draft_settings.lock()
+                                    {
+                                        new_settings = Some(settings.clone());
+                                        NotificationManager::notify(
+                                            Notification::new("Setting saved.", "")
+                                                .with_toast(true)
+                                                .with_status(NotificationStatus::Completed),
+                                        );
+                                    }
+
+                                    ui.add_space(FOOT_BTN_GAP);
+
+                                    // `.btn.default`
+                                    let cancel_btn = ui.add(
+                                        Button::builder()
+                                            .label("Cancel")
+                                            .button_type(ButtonType::Elevated)
+                                            .color(ButtonColor::Default)
+                                            .build(),
+                                    );
+                                    if cancel_btn.clicked() {
+                                        if let Ok(mut closed) = viewport_closed.lock() {
+                                            *closed = true;
+                                        }
+                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                    }
+
+                                    // `.btn.text` — only offered when there is something to reset.
+                                    if section_dirty {
+                                        ui.add_space(FOOT_BTN_GAP);
+                                        let reset_btn = ui.add(
+                                            Button::builder()
+                                                .label("Reset section")
+                                                .button_type(ButtonType::Text)
+                                                .color(ButtonColor::Default)
+                                                .build(),
+                                        );
+                                        if reset_btn.clicked()
+                                            && let (Ok(mut draft), Ok(tab)) =
+                                                (draft_settings.lock(), selected_tab.lock())
+                                        {
+                                            reset_section(*tab, &mut draft);
+                                        }
+                                    }
+                                },
+                            );
+                        });
+                    });
+
+                // ── Content pane — design `.spane{padding:18px 20px}` ─────
+                egui::CentralPanel::default()
+                    .frame(
+                        egui::Frame::default()
+                            .fill(theme_colors.bg)
+                            .inner_margin(egui::Margin::symmetric(PANE_PAD_H, PANE_PAD_V)),
+                    )
+                    .show_inside(ui, |ui| {
+                        if let (Ok(current_tab), Ok(mut settings), Ok(mut events), Ok(baseline)) = (
+                            selected_tab.lock(),
+                            draft_settings.lock(),
+                            viewport_events.lock(),
+                            viewport_baseline.lock(),
+                        ) {
+                            Self::render_tab_content(
+                                ui,
+                                *current_tab,
+                                &mut settings,
+                                &baseline,
+                                &theme_colors,
+                                update_state_clone.as_ref(),
+                                last_check_clone,
+                                &current_version,
+                                &mut events,
+                                &open_plugin_settings_id,
+                            );
+                        }
+                    });
+
+                // If Apply was clicked, store result and close viewport
+                if let Some(settings) = new_settings {
+                    if let Ok(mut result) = viewport_result.lock() {
+                        *result = Some(settings);
+                    }
+                    if let Ok(mut closed) = viewport_closed.lock() {
+                        *closed = true;
+                    }
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            },
+        );
+
+        // Check if viewport was closed or Apply was clicked
+        let mut result = None;
+        let mut collected_events = Vec::new();
+
+        if let Ok(mut closed) = self.viewport_closed.lock()
+            && *closed
+        {
+            self.open = false;
+            *closed = false; // Reset for next time
+
+            // Check if Apply was clicked (result will be Some)
+            if let Ok(mut viewport_result) = self.viewport_result.lock() {
+                result = viewport_result.take();
+            }
+        }
+
+        // Collect any events that were generated
+        if let Ok(mut events) = self.viewport_events.lock() {
+            collected_events = events.drain(..).collect();
+        }
+
+        SettingsDialogOutput {
+            new_settings: result,
+            events: collected_events,
+        }
+    }
+}

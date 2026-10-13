@@ -2,6 +2,25 @@
 
 Conventions that are easy to violate by accident, and expensive to unpick later.
 
+## Crates: logic / CLI / UI are separate
+
+The host is three crates with a one-way graph — `thoth-ui` → `thoth-cli` →
+`thoth-core`.
+
+- **`thoth-core` must stay free of `egui`/`eframe`** (and of `rfd`, `muda`,
+  `fontdb`, `egui_*`). Check with
+  `cargo tree -p thoth-core | grep -E 'egui|eframe'` — it must print nothing.
+- When core needs something only the display can do, add a **seam** rather than
+  a dependency: `thoth_core::repaint::request()` for a repaint,
+  `thoth_core::dialogs` for native file dialogs. `thoth-ui` installs both in
+  `install_host_seams`.
+- Serialisable data that both read (e.g. `Settings`, `Theme`, `Shortcut`) lives
+  in core; the egui-facing methods are extension traits in `thoth-ui`
+  (`ThemeExt`, `ShortcutExt`, `SettingsCtx`) that call sites must import.
+- The plugin UI *renderer* (`render_ui_node`) and the marketplace browser live
+  in `thoth-ui`/`plugin`; the runtime, loaders and registry live in
+  `thoth-core`/`plugin` and are re-exported upward.
+
 ## UI: use the SDK's components
 
 **Every widget comes from `thoth-plugin-sdk`.** Do not hand-roll `ui.label`,

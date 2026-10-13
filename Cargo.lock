@@ -7015,42 +7015,40 @@ dependencies = [
 ]
 
 [[package]]
-name = "thoth"
+name = "thoth-cli"
+version = "0.4.7"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap_complete",
+ "duckdb",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thoth-core",
+ "thoth-plugin-sdk",
+ "unicode-width",
+]
+
+[[package]]
+name = "thoth-core"
 version = "0.4.7"
 dependencies = [
  "anyhow",
  "arrow",
  "chrono",
- "clap",
- "clap_complete",
- "criterion",
- "dhat",
  "dirs",
  "duckdb",
- "eframe",
- "egui-notify",
- "egui-phosphor",
- "egui_code_editor",
- "egui_commonmark",
- "egui_dock",
- "egui_extras",
- "egui_plot",
  "flate2",
- "fontdb",
  "futures-util",
  "getrandom 0.3.4",
- "image",
  "keyring",
  "memchr",
- "muda",
  "objc2 0.5.2",
  "open",
  "proptest",
- "puffin",
- "raw-window-handle",
  "rayon",
  "reqwest",
- "rfd",
  "rmcp",
  "rustls 0.23.35",
  "schemars 0.8.22",
@@ -7100,6 +7098,48 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.110",
+]
+
+[[package]]
+name = "thoth-ui"
+version = "0.4.7"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "criterion",
+ "dhat",
+ "dirs",
+ "duckdb",
+ "eframe",
+ "egui-notify",
+ "egui-phosphor",
+ "egui_code_editor",
+ "egui_commonmark",
+ "egui_dock",
+ "egui_extras",
+ "egui_plot",
+ "fontdb",
+ "getrandom 0.3.4",
+ "image",
+ "muda",
+ "objc2 0.5.2",
+ "open",
+ "proptest",
+ "puffin",
+ "raw-window-handle",
+ "reqwest",
+ "rfd",
+ "rustls 0.23.35",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thoth-cli",
+ "thoth-core",
+ "thoth-plugin-sdk",
+ "toml 0.8.2",
+ "tracing",
+ "zip 0.6.6",
 ]
 
 [[package]]

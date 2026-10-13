@@ -1,0 +1,141 @@
+use std::path::PathBuf;
+
+use crate::update;
+
+#[cfg(test)]
+mod tests;
+
+/// Navigation history for back/forward navigation through viewed JSON paths
+#[derive(Debug, Clone)]
+pub struct NavigationHistory {
+    /// Stack of visited paths (e.g., "0.user.name", "1.items[2]")
+    history: Vec<String>,
+    /// Current position in history (index into history vec)
+    current_index: Option<usize>,
+    /// Maximum history size to prevent unbounded growth
+    max_history: usize,
+}
+
+impl NavigationHistory {
+    pub const DEFAULT_CAPACITY: usize = 100;
+}
+
+impl NavigationHistory {
+    /// Create a new navigation history with default max size
+    pub fn new() -> Self {
+        Self::with_capacity(Self::DEFAULT_CAPACITY)
+    }
+
+    /// Create a new navigation history with specified max size
+    pub fn with_capacity(max_history: usize) -> Self {
+        Self {
+            history: Vec::new(),
+            current_index: None,
+            max_history,
+        }
+    }
+
+    /// Add a new path to history
+    /// If we're not at the end of history, this truncates forward history
+    pub fn push(&mut self, path: String) {
+        // Don't add if it's the same as the current path
+        if let Some(idx) = self.current_index
+            && idx < self.history.len()
+            && self.history[idx] == path
+        {
+            return;
+        }
+
+        // If we're in the middle of history, truncate everything after current
+        if let Some(idx) = self.current_index {
+            self.history.truncate(idx + 1);
+        }
+
+        // Add the new path
+        self.history.push(path);
+
+        // Maintain max size (remove oldest entries)
+        if self.history.len() > self.max_history {
+            self.history.remove(0);
+            // Adjust current_index since we removed from front
+            if let Some(idx) = self.current_index {
+                self.current_index = Some(idx.saturating_sub(1));
+            }
+        }
+
+        // Update current index to point to the new entry
+        self.current_index = Some(self.history.len() - 1);
+    }
+
+    /// Navigate back in history, returns the previous path if available
+    pub fn back(&mut self) -> Option<String> {
+        let idx = self.current_index?;
+
+        if idx > 0 {
+            self.current_index = Some(idx - 1);
+            Some(self.history[idx - 1].clone())
+        } else {
+            None
+        }
+    }
+
+    /// Navigate forward in history, returns the next path if available
+    pub fn forward(&mut self) -> Option<String> {
+        let idx = self.current_index?;
+
+        if idx + 1 < self.history.len() {
+            self.current_index = Some(idx + 1);
+            Some(self.history[idx + 1].clone())
+        } else {
+            None
+        }
+    }
+
+    /// Check if we can navigate back
+    pub fn can_go_back(&self) -> bool {
+        self.current_index.is_some_and(|idx| idx > 0)
+    }
+
+    /// Check if we can navigate forward
+    pub fn can_go_forward(&self) -> bool {
+        self.current_index
+            .is_some_and(|idx| idx + 1 < self.history.len())
+    }
+
+    // Test-only methods
+    #[cfg(test)]
+    pub fn current(&self) -> Option<&String> {
+        self.current_index.and_then(|idx| self.history.get(idx))
+    }
+
+    #[cfg(test)]
+    pub fn clear(&mut self) {
+        self.history.clear();
+        self.current_index = None;
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.history.len()
+    }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.history.is_empty()
+    }
+}
+
+impl Default for NavigationHistory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Default)]
+pub struct ApplicationUpdateState {
+    pub update_manager: update::UpdateManager,
+    pub update_status: update::UpdateStatus,
+    pub pending_download_release: Option<update::ReleaseInfo>,
+    pub pending_install_path: Option<PathBuf>,
+    pub update_notification_shown: bool,
+}
