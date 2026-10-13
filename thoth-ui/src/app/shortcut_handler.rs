@@ -1,0 +1,253 @@
+use crate::shortcuts::ShortcutExt;
+use eframe::egui;
+
+use crate::shortcuts::KeyboardShortcuts;
+
+/// Actions that can be triggered by keyboard shortcuts
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShortcutAction {
+    // File operations
+    OpenFile,
+    NewWindow,
+
+    // Navigation
+    ToggleQueryBuilder,
+    RunQuery,
+    AddFilter,
+    GroupBy,
+    AddAggregate,
+    AddSort,
+    NavBack,
+    NavForward,
+    Escape,
+
+    // Bookmarks
+    SaveQuery,
+    OpenSavedQueries,
+
+    // Tree operations
+    ExpandNode,
+    CollapseNode,
+    ExpandAll,
+    CollapseAll,
+
+    // Clipboard
+    CopyKey,
+    CopyValue,
+    CopyObject,
+    CopyPath,
+
+    // Movement
+    MoveUp,
+    MoveDown,
+
+    // UI
+    Settings,
+    ToggleTheme,
+
+    // Developer
+    ToggleProfiler,
+
+    // Tabs
+    CloseTab,
+    NewTab,
+    NextTab,
+    PrevTab,
+    /// Switch to the tab at 0-based visual index in the focused leaf.
+    SwitchToTab(usize),
+}
+
+/// Handle keyboard shortcuts and return triggered actions
+pub struct ShortcutHandler;
+
+impl ShortcutHandler {
+    /// Check for keyboard shortcuts and return any triggered actions
+    pub fn handle_shortcuts(
+        ctx: &egui::Context,
+        shortcuts: &KeyboardShortcuts,
+    ) -> Vec<ShortcutAction> {
+        let mut actions = Vec::new();
+
+        // Check if any text input has focus - if so, skip navigation shortcuts
+        let text_input_has_focus = ctx.memory(|mem| mem.focused().is_some());
+
+        // File operations
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.open_file.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::OpenFile);
+        }
+
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.new_window.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::NewWindow);
+        }
+
+        // Query builder lanes. Shift-bearing bindings are tested first so
+        // ⌘⇧A is not swallowed by a plain-⌘ shortcut on the same letter.
+        for (shortcut, action) in [
+            (&shortcuts.toggle_query, ShortcutAction::ToggleQueryBuilder),
+            (&shortcuts.run_query, ShortcutAction::RunQuery),
+            (&shortcuts.add_aggregate, ShortcutAction::AddAggregate),
+            (&shortcuts.add_sort, ShortcutAction::AddSort),
+            (&shortcuts.add_filter, ShortcutAction::AddFilter),
+            (&shortcuts.group_by, ShortcutAction::GroupBy),
+        ] {
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcut.to_keyboard_shortcut())) {
+                actions.push(action);
+            }
+        }
+
+        // Navigation: ⌘[ / ⌘]
+        if ctx.input_mut(|i| {
+            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket)
+        }) {
+            actions.push(ShortcutAction::NavBack);
+        }
+
+        if ctx.input_mut(|i| {
+            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket)
+        }) {
+            actions.push(ShortcutAction::NavForward);
+        }
+
+        // Tab cycling: ⌘⌥→ / ⌘⌥← — arrow keys have no char-composition issues.
+        if ctx.input_mut(|i| {
+            i.modifiers.command
+                && i.modifiers.alt
+                && i.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+                    egui::Key::ArrowRight,
+                )
+        }) {
+            actions.push(ShortcutAction::NextTab);
+        }
+
+        if ctx.input_mut(|i| {
+            i.modifiers.command
+                && i.modifiers.alt
+                && i.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::ALT,
+                    egui::Key::ArrowLeft,
+                )
+        }) {
+            actions.push(ShortcutAction::PrevTab);
+        }
+
+        // Browser-style mouse back/forward buttons
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1)) {
+            actions.push(ShortcutAction::NavBack);
+        }
+
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra2)) {
+            actions.push(ShortcutAction::NavForward);
+        }
+
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.escape.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::Escape);
+        }
+
+        // Saved queries — the shift-bearing binding first, so ⌘⇧D is not
+        // swallowed by a plain-⌘ shortcut on the same letter.
+        if ctx
+            .input_mut(|i| i.consume_shortcut(&shortcuts.open_saved_queries.to_keyboard_shortcut()))
+        {
+            actions.push(ShortcutAction::OpenSavedQueries);
+        }
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.save_query.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::SaveQuery);
+        }
+
+        // Skip tree operations, clipboard, and movement shortcuts when text input has focus
+        if !text_input_has_focus {
+            // Tree operations
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.expand_node.to_keyboard_shortcut()))
+            {
+                actions.push(ShortcutAction::ExpandNode);
+            }
+
+            if ctx
+                .input_mut(|i| i.consume_shortcut(&shortcuts.collapse_node.to_keyboard_shortcut()))
+            {
+                actions.push(ShortcutAction::CollapseNode);
+            }
+
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.expand_all.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::ExpandAll);
+            }
+
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.collapse_all.to_keyboard_shortcut()))
+            {
+                actions.push(ShortcutAction::CollapseAll);
+            }
+
+            // Clipboard
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_key.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::CopyKey);
+            }
+
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_value.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::CopyValue);
+            }
+
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_object.to_keyboard_shortcut()))
+            {
+                actions.push(ShortcutAction::CopyObject);
+            }
+
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_path.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::CopyPath);
+            }
+
+            // Movement
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.move_up.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::MoveUp);
+            }
+
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.move_down.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::MoveDown);
+            }
+        }
+
+        // UI
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.settings.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::Settings);
+        }
+
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.toggle_theme.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::ToggleTheme);
+        }
+
+        // Developer
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.toggle_profiler.to_keyboard_shortcut()))
+        {
+            actions.push(ShortcutAction::ToggleProfiler);
+        }
+
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.close_tab.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::CloseTab);
+        }
+
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.new_tab.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::NewTab);
+        }
+
+        // ⌘1–⌘9 / Ctrl+1–9: switch to tab by position.
+        const TAB_KEYS: [egui::Key; 9] = [
+            egui::Key::Num1,
+            egui::Key::Num2,
+            egui::Key::Num3,
+            egui::Key::Num4,
+            egui::Key::Num5,
+            egui::Key::Num6,
+            egui::Key::Num7,
+            egui::Key::Num8,
+            egui::Key::Num9,
+        ];
+        for (idx, key) in TAB_KEYS.iter().enumerate() {
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, *key)) {
+                actions.push(ShortcutAction::SwitchToTab(idx));
+                break;
+            }
+        }
+
+        actions
+    }
+}

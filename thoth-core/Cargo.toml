@@ -1,0 +1,67 @@
+[package]
+name = "thoth-core"
+version = "0.4.7"
+edition = "2024"
+rust-version = "1.92"
+repository = "https://github.com/anitnilay20/thoth"
+authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
+description = "Display-independent core logic for Thoth: data loading, the Papyrus data bus, the sandboxed WebAssembly plugin runtime, MCP, settings and updates."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "thoth_core"
+path = "src/lib.rs"
+
+[dependencies]
+thoth-plugin-sdk = { path = "../thoth-plugin-sdk" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+dirs = "5.0"
+anyhow = "1.0"
+rayon = "1.11.0"
+memchr = "2.7"
+self_update = { version = "0.41", features = [
+  "archive-tar",
+  "archive-zip",
+  "compression-flate2",
+] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+tokio = { version = "1.42", features = ["rt", "rt-multi-thread", "sync", "macros", "io-std"] }
+chrono = "0.4"
+flate2 = "1.0"
+tar = "0.4"
+zip = "0.6"
+sha2 = "0.10"
+open = "5.0"
+which = "7.0"
+wasmtime = { version = "43.0.0", features = ["component-model", "cache"] }
+wasmtime-wasi = "43.0.0"
+wasmtime-wasi-http = "43"
+# Host-terminated TLS for the plugin tcp-client import.
+rustls = "0.23"
+webpki-roots = "0.26"
+# WebSocket connections brokered for the plugin `websocket` import.
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+# OS keychain for the plugin secure-storage import.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+wit-bindgen = "0.54.0"
+tempfile = "3.15"
+rmcp = { version = "1.5", features = ["server", "transport-io", "macros"] }
+schemars = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+duckdb = { version = "~1.10505.0", features = ["bundled", "json", "parquet", "vtab-arrow"] }
+# Same arrow build duckdb links against; the `json` feature gives us the
+# Arrow -> JSON writer used at the edges (tree viewer, search, MCP).
+arrow = { version = "58.4", features = ["json"] }
+getrandom = "0.3"
+unicode-width = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+
+[dev-dependencies]
+proptest = "1.5"

@@ -1,0 +1,336 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+// Set up dhat allocator for memory profiling (only when profiling feature is enabled)
+#[cfg(feature = "profiling")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
+use eframe::{
+    NativeOptions,
+    egui::{self},
+};
+use std::path::PathBuf;
+use thoth::{
+    CONSENT_MANAGER, NOTIFICATION_MANAGER, app, consent::manager::ConsentManager, error::Result,
+    helpers::load_icon, notification::NotificationManager, settings,
+};
+
+/// Parse command-line arguments to extract file path
+fn parse_file_argument(args: &[String]) -> Result<Option<PathBuf>> {
+    // Skip first argument (executable name)
+    if args.len() < 2 {
+        return Ok(None);
+    }
+
+    let file_path_str = &args[1];
+
+    // Validate and sanitize the path
+    let path = PathBuf::from(file_path_str);
+
+    // Resolve to absolute path
+    let canonical_path = match path.canonicalize() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Error: Cannot open file '{}': {}", file_path_str, e);
+            return Err(format!("Cannot open file '{}': {}", file_path_str, e).into());
+        }
+    };
+
+    // Verify it's a file (not a directory)
+    if !canonical_path.is_file() {
+        eprintln!("Error: '{}' is not a file", file_path_str);
+        return Err(format!("Not a file: {}", file_path_str).into());
+    }
+
+    // Verify file extension is JSON-related
+    if let Some(ext) = canonical_path.extension() {
+        let ext_lower = ext.to_string_lossy().to_lowercase();
+        if !matches!(ext_lower.as_str(), "json" | "ndjson" | "jsonl" | "geojson") {
+            eprintln!(
+                "Warning: File '{}' does not have a JSON extension",
+                file_path_str
+            );
+            // Allow opening anyway - user might know what they're doing
+        }
+    }
+
+    Ok(Some(canonical_path))
+}
+
+/// File-association launches still use the desktop app. Every other argument
+/// selects the command-line interface.
+fn is_file_invocation(args: &[String], plugin_commands: &[String]) -> bool {
+    args.len() == 2
+        && !thoth::cli::is_known_command(&args[1], plugin_commands)
+        && PathBuf::from(&args[1]).is_file()
+}
+
+fn main() -> Result<()> {
+    // Initialize dhat heap profiler (only when profiling feature is enabled)
+    // When the app exits, dhat writes 'dhat-heap.json' which can be viewed at:
+    // https://nnethercote.github.io/dh_view/dh_view.html
+    // This shows per-component memory allocations with full call stacks
+    #[cfg(feature = "profiling")]
+    let _profiler = dhat::Profiler::new_heap();
+
+    // Initialize puffin profiler (only when profiling feature is enabled)
+    #[cfg(feature = "profiling")]
+    puffin::set_scopes_on(true);
+
+    // Install a process-wide rustls crypto provider before any TLS handshake.
+    // Both aws-lc-rs and ring are present in the tree, so rustls 0.23 can't
+    // auto-select one for the WebSocket broker's `wss://` connections
+    // (tokio-tungstenite) — pin aws-lc-rs explicitly. Ignore the error if a
+    // provider was already installed.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+    // Parse command-line arguments for file path
+    let args: Vec<String> = std::env::args().collect();
+
+    // ── MCP server branch ────────────────────────────────────────────────
+    // Must happen BEFORE any GUI init — stdout must stay clean for JSON-RPC.
+    if args.get(1).map(|s| s.as_str()) == Some("mcp") {
+        let mcp_args: Vec<String> = args[2..].to_vec();
+        return thoth::mcp::run_mcp_command(&mcp_args)
+            .map_err(|e| format!("MCP error: {e}").into());
+    }
+
+    let settings = settings::Settings::load().unwrap_or_else(|e| {
+        eprintln!("Warning: Failed to load settings: {}. Using defaults.", e);
+        settings::Settings::default()
+    });
+    // Only discover plugin command names when a single argument is also an
+    // existing file. This resolves collisions in favour of commands without
+    // adding a second discovery pass to ordinary CLI or file launches.
+    let plugin_commands = if args.len() == 2
+        && PathBuf::from(&args[1]).is_file()
+        && !thoth::cli::is_known_command(&args[1], &[])
+    {
+        thoth::cli::discover_command_ids(settings.clone()).unwrap_or_else(|error| {
+            eprintln!("Warning: failed to discover plugin commands: {error}");
+            Vec::new()
+        })
+    } else {
+        Vec::new()
+    };
+
+    // Any non-file arguments select the display-free CLI. Keep this before
+    // notification, consent, icon, and eframe initialization.
+    if args.len() > 1 && !is_file_invocation(&args, &plugin_commands) {
+        let output = thoth::cli::run(args, settings.clone());
+        print!("{}", output.stdout);
+        eprint!("{}", output.stderr);
+        std::process::exit(output.exit_code);
+    }
+
+    let file_to_open = parse_file_argument(&args)?;
+
+    NOTIFICATION_MANAGER
+        .set(std::sync::Mutex::new(NotificationManager::new()))
+        .ok();
+    CONSENT_MANAGER
+        .set(std::sync::Mutex::new(ConsentManager::new()))
+        .ok();
+
+    let icon = load_icon(include_bytes!("../../assets/thoth_icon_256.png"));
+
+    // Configure window from settings
+    let mut viewport = egui::ViewportBuilder::default();
+    if let Some(icon_data) = icon {
+        viewport = viewport.with_icon(icon_data);
+    }
+    let options = NativeOptions {
+        viewport: viewport
+            .with_inner_size([
+                settings.window.default_width,
+                settings.window.default_height,
+            ])
+            // macOS-specific: Unified title bar (like VS Code)
+            // This extends content into title bar area, allowing toolbar to share row with traffic lights
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false)
+            .with_title_shown(false),
+        ..Default::default()
+    };
+
+    // Issue #67: Install macOS file association handlers.
+    // Phase 1: Register NSAppleEventManager handler + hook willFinishLaunching
+    // to inject application:openURLs: before macOS processes odoc events.
+    #[cfg(target_os = "macos")]
+    thoth::platform::macos::install_all_handlers();
+
+    let result = eframe::run_native(
+        "Thoth",
+        options,
+        Box::new(move |cc| {
+            // Initialize Phosphor icon fonts and register the named family so
+            // FontFamily::Name("phosphor") is available from the very first frame.
+            let mut fonts = egui::FontDefinitions::default();
+            thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
+            cc.egui_ctx.set_fonts(fonts);
+
+            // Publish the egui context and install the core seams (repaint
+            // notifications and the plugin file-dialog picker).
+            thoth::install_host_seams(&cc.egui_ctx);
+
+            // Register egui's image loaders so components can decode embedded
+            // image bytes (e.g. a plugin's `CardIcon::Image` / list logo tiles).
+            egui_extras::install_image_loaders(&cc.egui_ctx);
+
+            // Let `DataView` render nodes read dataset rows from the host's
+            // single-owned registry by handle (the data never enters plugins).
+            thoth_plugin_sdk::dataset::set_dataset_resolver(app::resolve_dataset_for_view);
+            // Lazy, node-at-a-time access to the same handles, so a `data-view`
+            // can draw a tree over a file far larger than memory by reading only
+            // the nodes it is showing.
+            thoth_plugin_sdk::dataset::set_dataset_access(
+                thoth_plugin_sdk::dataset::DatasetAccess {
+                    total: thoth::papyrus::total,
+                    records_expandable: thoth::papyrus::records_expandable,
+                    children: thoth::papyrus::children,
+                    node_preview: thoth::papyrus::node_preview,
+                    node_json: thoth::papyrus::node_json,
+                },
+            );
+            // Populate the DataView "Export" dropdown with installed exporters.
+            thoth_plugin_sdk::dataset::set_exporters_provider(app::list_exporters_for_view);
+            // Populate the DataView view dropdown with installed renderer plugins,
+            // and let it render a dataset through the chosen one.
+            thoth_plugin_sdk::dataset::set_renderers_provider(app::list_renderers_for_view);
+            thoth_plugin_sdk::dataset::set_plugin_renderer(app::render_dataset_with_plugin);
+
+            let mut app = app::ThothApp::new(settings, file_to_open);
+            app.core.plugins.install_as_active();
+            app.core.papyrus.install_as_active();
+            app.core.plugins.start(
+                app.core.settings.plugins.enabled,
+                app.core.settings.plugins.plugin_settings.clone(),
+            );
+            app.setup_native_menu(cc);
+            Ok(Box::new(app))
+        }),
+    );
+
+    // When profiling is enabled, remind user about dhat output
+    #[cfg(feature = "profiling")]
+    eprintln!("\n📊 Profiling data saved to dhat-heap.json");
+    #[cfg(feature = "profiling")]
+    eprintln!("   View at: https://nnethercote.github.io/dh_view/dh_view.html\n");
+
+    if let Err(e) = result {
+        eprintln!("Error running application: {e:?}");
+        return Err("Failed to run application".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_no_arguments() {
+        let args = vec!["thoth".to_string()];
+        let result = parse_file_argument(&args).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn existing_file_is_a_gui_invocation() {
+        let test_file = tempfile::NamedTempFile::new().unwrap();
+        let args = vec![
+            "thoth".to_string(),
+            test_file.path().to_string_lossy().into_owned(),
+        ];
+
+        assert!(is_file_invocation(&args, &[]));
+    }
+
+    #[test]
+    fn command_arguments_are_not_file_invocations() {
+        let args = vec!["thoth".to_string(), "plugins".to_string()];
+        assert!(!is_file_invocation(&args, &[]));
+    }
+
+    #[test]
+    fn discovered_command_takes_precedence_over_same_named_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("seshat");
+        std::fs::write(&path, "not a data file").unwrap();
+        let command = path.to_string_lossy().into_owned();
+        let args = vec!["thoth".to_string(), command.clone()];
+
+        assert!(!is_file_invocation(&args, &[command]));
+    }
+
+    #[test]
+    fn test_parse_valid_file() {
+        // Create a temporary test file
+        let test_file = std::env::temp_dir().join("test_parse.json");
+        std::fs::write(&test_file, r#"{"test": true}"#).unwrap();
+
+        let args = vec!["thoth".to_string(), test_file.to_string_lossy().to_string()];
+        let result = parse_file_argument(&args).unwrap();
+        assert!(result.is_some());
+
+        let path = result.unwrap();
+        assert!(path.exists());
+        assert!(path.is_file());
+
+        // Cleanup
+        std::fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_parse_nonexistent_file() {
+        let args = vec!["thoth".to_string(), "/nonexistent/file.json".to_string()];
+        let result = parse_file_argument(&args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_directory_not_file() {
+        let temp_dir = std::env::temp_dir();
+        let args = vec!["thoth".to_string(), temp_dir.to_string_lossy().to_string()];
+        let result = parse_file_argument(&args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_relative_path() {
+        // Create a test file in temp
+        let test_file = std::env::temp_dir().join("test_relative.json");
+        std::fs::write(&test_file, r#"{"test": true}"#).unwrap();
+
+        // Change to temp directory
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(std::env::temp_dir()).unwrap();
+
+        let args = vec!["thoth".to_string(), "test_relative.json".to_string()];
+        let result = parse_file_argument(&args).unwrap();
+        assert!(result.is_some());
+
+        let path = result.unwrap();
+        assert!(path.is_absolute());
+
+        // Restore directory and cleanup
+        std::env::set_current_dir(original_dir).unwrap();
+        std::fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_parse_json_extensions() {
+        let extensions = vec!["json", "ndjson", "jsonl", "geojson"];
+
+        for ext in extensions {
+            let test_file = std::env::temp_dir().join(format!("test.{}", ext));
+            std::fs::write(&test_file, r#"{"test": true}"#).unwrap();
+
+            let args = vec!["thoth".to_string(), test_file.to_string_lossy().to_string()];
+            let result = parse_file_argument(&args).unwrap();
+            assert!(result.is_some(), "Failed for extension: {}", ext);
+
+            std::fs::remove_file(&test_file).ok();
+        }
+    }
+}
