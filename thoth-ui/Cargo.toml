@@ -1,0 +1,142 @@
+[package]
+name = "thoth-ui"
+version = "0.4.7"
+edition = "2024"
+repository = "https://github.com/anitnilay20/thoth"
+authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
+description = "Thoth is a fast, native desktop workspace for exploring your data. This crate is the eframe/egui desktop application and the `thoth` binary."
+license = "MIT OR Apache-2.0"
+readme = "../README.md"
+rust-version = "1.92"
+autobenches = false
+build = "build.rs"
+
+[package.metadata.release]
+publish = false
+sign-commit = false
+sign-tag = false
+push = true
+tag-name = "v{{version}}"
+pre-release-commit-message = "chore: release v{{version}}"
+
+[lib]
+name = "thoth"
+path = "src/lib.rs"
+
+[[bin]]
+name = "thoth"
+path = "src/main.rs"
+
+# cargo-packager configuration (stable cross-platform bundler)
+[package.metadata.packager]
+product_name = "Thoth"
+identifier = "com.thoth.app"
+category = "DeveloperTool"
+copyright = "Copyright (c) Anit Nilay 2024. All rights reserved."
+publisher = "Anit Nilay"
+homepage = "https://github.com/anitnilay20/thoth"
+license_file = "../LICENSE"
+
+icons = [
+  "../assets/thoth_icon_256.png",
+  "../assets/Thoth.icns",
+  "../assets/thoth_icon_256.ico",
+]
+
+resources = ["../assets"]
+
+file_associations = [
+  { extensions = ["json"], name = "JSON File", description = "JSON File", role = "editor", mime_type = "application/json" },
+  { extensions = ["ndjson", "jsonl"], name = "NDJSON File", description = "Newline Delimited JSON File", role = "editor", mime_type = "application/x-ndjson" },
+  { extensions = ["geojson"], name = "GeoJSON File", description = "GeoJSON File", role = "editor", mime_type = "application/geo+json" },
+]
+
+[package.metadata.packager.macos]
+info_plist_path = "../assets/Info.plist"
+
+[package.metadata.packager.windows]
+
+[package.metadata.packager.wix]
+fragment_paths = ["../assets/wix/file-type-icons.wxs"]
+component_group_refs = ["FileTypeIconsGroup"]
+
+[package.metadata.packager.deb]
+depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
+desktop_template = "../assets/thoth.desktop"
+
+[package.metadata.packager.deb.files]
+"../assets/mime/application-json.png" = "/usr/share/icons/hicolor/256x256/mimetypes/application-json.png"
+"../assets/mime/application-x-ndjson.png" = "/usr/share/icons/hicolor/256x256/mimetypes/application-x-ndjson.png"
+"../assets/mime/application-geo+json.png" = "/usr/share/icons/hicolor/256x256/mimetypes/application-geo+json.png"
+
+[dependencies]
+thoth-core = { path = "../thoth-core" }
+thoth-cli = { path = "../thoth-cli" }
+thoth-plugin-sdk = { path = "../thoth-plugin-sdk", features = ["egui"] }
+eframe = "0.34"
+egui-phosphor = "0.12"
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "ico",
+] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+getrandom = "0.3"
+toml = "0.8"
+dirs = "5.0"
+fontdb = "0.23"
+rfd = "0.15.4"
+anyhow = "1.0"
+chrono = "0.4"
+open = "5.0"
+egui-notify = "0.22.0"
+egui_extras = { version = "0.34.1", features = ["image"] }
+egui_code_editor = "0.2.24"
+egui_commonmark = "0.23"
+egui_dock = "0.19"
+egui_plot = "0.35"
+raw-window-handle = "0.6.2"
+tracing = "0.1"
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+sha2 = "0.10"
+zip = "0.6"
+rustls = "0.23"
+duckdb = { version = "~1.10505.0", features = ["bundled", "json", "parquet", "vtab-arrow"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+muda = "0.19.2"
+
+[dependencies.puffin]
+git = "https://github.com/EmbarkStudios/puffin"
+optional = true
+
+[dependencies.dhat]
+version = "0.3"
+optional = true
+
+[dev-dependencies]
+proptest = "1.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+egui-phosphor = "0.12"
+tempfile = "3.15"
+
+[features]
+default = []
+profiling = ["puffin", "dhat"]
+
+[[bench]]
+name = "file_loading"
+harness = false
+
+# TODO(#53): restored with the search engine, which is being rebuilt as a
+# DuckDB filter.
+# [[bench]]
+# name = "search"
+# harness = false
+
+[[bench]]
+name = "parsing"
+harness = false
