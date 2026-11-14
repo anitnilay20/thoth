@@ -10,7 +10,7 @@ use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::app::persistent_state::PersistentState;
+use crate::persistent_state::PersistentState;
 use crate::consent::manager::{ConsentCallback, ConsentManager};
 use crate::error::{Result, ThothError};
 use crate::plugin::network_policy::{CheckOutcome, NetworkPolicy};
@@ -32,7 +32,7 @@ fn refuel(store: &mut Store<DataSourcePluginState>) -> Result<()> {
 }
 
 wasmtime::component::bindgen!({
-    path: "wit/thoth-plugin.wit",
+    path: "../wit/thoth-plugin.wit",
     world: "data-source-plugin",
 });
 

@@ -15,7 +15,7 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView};
 use crate::error::{Result, ThothError};
 
 wasmtime::component::bindgen!({
-    path: "wit/thoth-plugin.wit",
+    path: "../wit/thoth-plugin.wit",
     world: "exporter-plugin",
 });
 
