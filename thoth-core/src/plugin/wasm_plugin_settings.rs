@@ -9,7 +9,7 @@ use crate::error::{Result, ThothError};
 use crate::plugin::render_node::UiOutput;
 
 wasmtime::component::bindgen!({
-    path: "wit/thoth-plugin.wit",
+    path: "../wit/thoth-plugin.wit",
     world: "base-plugin",
 });
 

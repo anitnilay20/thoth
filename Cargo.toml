@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "plugins/url-source", "plugins/seshat", "plugins/csv-export", "plugins/card-view", "thoth-plugin-sdk", "thoth-plugin-sdk-macros"]
+members = [".", "thoth-core", "thoth-cli", "plugins/url-source", "plugins/seshat", "plugins/csv-export", "plugins/card-view", "thoth-plugin-sdk", "thoth-plugin-sdk-macros"]
 # Plugins are wasm32 crates built separately with `cargo component build`.
 # default-members restricts `cargo build` / `cargo check` at the workspace
 # root to the host application only, so plugins are not compiled for the
@@ -102,6 +102,8 @@ desktop_template = "assets/thoth.desktop"
 
 
 [dependencies]
+thoth-core = { path = "thoth-core" }
+thoth-cli = { path = "thoth-cli" }
 thoth-plugin-sdk = { path = "thoth-plugin-sdk", features = ["egui"] }
 clap = { version = "4.5", features = ["derive", "string"] }
 clap_complete = "4.5"

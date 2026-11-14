@@ -6,9 +6,9 @@ use wasmtime::component::ResourceTable;
 use wasmtime::{Cache, CacheConfig, Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 
-use crate::app::persistent_state::PersistentState;
 use crate::error::Result;
 use crate::notification::{Notification, NotificationManager, NotificationStatus};
+use crate::persistent_state::PersistentState;
 use crate::plugin::Capability;
 use crate::plugin::network_policy::NetworkPolicy;
 use crate::plugin::plugin_registry::PluginRegistry;
@@ -395,7 +395,7 @@ impl PluginManager {
         // compile time, so CARGO_MANIFEST_DIR is always available here.
         #[cfg(debug_assertions)]
         if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
-            dirs.push((Ok(PathBuf::from(manifest_dir).join("assets")), true));
+            dirs.push((Ok(PathBuf::from(manifest_dir).join("../assets")), true));
         }
 
         dirs

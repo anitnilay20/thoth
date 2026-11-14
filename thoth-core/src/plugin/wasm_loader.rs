@@ -8,17 +8,9 @@ use wasmtime_wasi::{DirPerms, FilePerms, ResourceTable, WasiCtx, WasiCtxBuilder,
 
 use crate::error::{Result, ThothError};
 
-/// Mirrors the WIT `display-mode` enum. Defined separately so the rest of the
-/// host codebase doesn't depend on wasmtime bindgen internals.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DisplayMode {
-    Table,
-    Custom,
-}
-
 wasmtime::component::bindgen!({
-    path: "wit/thoth-plugin.wit",
-    world: "file-viewer-plugin",
+    path: "../wit/thoth-plugin.wit",
+    world: "file-loader-plugin",
 });
 
 pub(crate) struct PluginState {
@@ -35,20 +27,26 @@ impl wasmtime_wasi::WasiView for PluginState {
     }
 }
 
-struct WasmViewerInner {
+struct WasmLoaderInner {
     store: Store<PluginState>,
-    bindings: FileViewerPlugin,
+    bindings: FileLoaderPlugin,
 }
 
-pub struct WasmFileViewerLoader {
-    inner: Mutex<WasmViewerInner>,
+pub struct WasmFileLoader {
+    inner: Mutex<WasmLoaderInner>,
     record_count: usize,
 }
 
-impl WasmFileViewerLoader {
+impl WasmFileLoader {
     pub fn open(engine: &Engine, wasm_path: &Path, file_path: &Path) -> Result<Self> {
+        // Grant the plugin read access to the file's parent directory so it can
+        // open the file via the WASI filesystem API.
         let parent_dir = file_path.parent().unwrap_or(Path::new("."));
         let parent_str = parent_dir.to_string_lossy();
+        // Intentional WASI grants:
+        //   inherit_stdio  — plugins may write debug output to stderr during development.
+        //   preopened_dir  — plugins must be able to open the file being loaded; they are
+        //                    sandboxed to the file's parent directory (read-only).
         let wasi = WasiCtxBuilder::new()
             .inherit_stdio()
             .preopened_dir(
@@ -69,8 +67,12 @@ impl WasmFileViewerLoader {
                 table: ResourceTable::new(),
             },
         );
+        // File-loader plugins read the entire file into WASM memory during open().
+        // Use a very generous fuel budget — these run locally and the file size
+        // is unbounded, so treating fuel as a hard cap here would break large files.
+        let fuel_budget = u64::MAX / 2;
         store
-            .set_fuel(u64::MAX / 2)
+            .set_fuel(fuel_budget)
             .map_err(|e| ThothError::PluginLoadError {
                 path: wasm_path.to_path_buf(),
                 reason: e.to_string(),
@@ -91,13 +93,14 @@ impl WasmFileViewerLoader {
         })?;
 
         let bindings =
-            FileViewerPlugin::instantiate(&mut store, &component, &linker).map_err(|e| {
+            FileLoaderPlugin::instantiate(&mut store, &component, &linker).map_err(|e| {
                 ThothError::PluginLoadError {
                     path: wasm_path.to_path_buf(),
                     reason: e.to_string(),
                 }
             })?;
 
+        // Call open() to index the file and get the total record count
         let path_str = file_path.to_string_lossy().to_string();
         let record_count = bindings
             .thoth_plugin_file_loader()
@@ -112,7 +115,7 @@ impl WasmFileViewerLoader {
             })? as usize;
 
         Ok(Self {
-            inner: Mutex::new(WasmViewerInner { store, bindings }),
+            inner: Mutex::new(WasmLoaderInner { store, bindings }),
             record_count,
         })
     }
@@ -127,7 +130,8 @@ impl WasmFileViewerLoader {
     }
 
     pub fn get(&mut self, idx: usize) -> Result<Value> {
-        let WasmViewerInner { store, bindings } = self.inner.get_mut().unwrap();
+        let WasmLoaderInner { store, bindings } = self.inner.get_mut().unwrap();
+        // Replenish fuel before each call to prevent exhaustion on large files
         store
             .set_fuel(u64::MAX / 2)
             .map_err(|e| ThothError::Unknown {
@@ -145,7 +149,7 @@ impl WasmFileViewerLoader {
 
     /// Bulk sequential read of `[start, start + count)` — one WASM call.
     pub fn get_range(&mut self, start: usize, count: usize) -> Result<Vec<Value>> {
-        let WasmViewerInner { store, bindings } = self.inner.get_mut().unwrap();
+        let WasmLoaderInner { store, bindings } = self.inner.get_mut().unwrap();
         store
             .set_fuel(u64::MAX / 2)
             .map_err(|e| ThothError::Unknown {
@@ -164,8 +168,8 @@ impl WasmFileViewerLoader {
     }
 
     pub fn raw_bytes(&self, idx: usize) -> Result<Vec<u8>> {
-        let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let WasmViewerInner { store, bindings } = &mut *guard;
+        let mut guard = self.inner.lock().unwrap();
+        let WasmLoaderInner { store, bindings } = &mut *guard;
         store
             .set_fuel(u64::MAX / 2)
             .map_err(|e| ThothError::Unknown {
@@ -180,43 +184,35 @@ impl WasmFileViewerLoader {
             .map_err(|e| ThothError::Unknown { message: e.message })
     }
 
-    pub fn preferred_display(&mut self) -> DisplayMode {
-        let WasmViewerInner { store, bindings } = self.inner.get_mut().unwrap();
-        let _ = store.set_fuel(u64::MAX / 2);
-        match bindings
-            .thoth_plugin_file_viewer()
-            .call_preferred_display(store)
-        {
-            Ok(exports::thoth::plugin::file_viewer::DisplayMode::Table) => DisplayMode::Table,
-            Ok(exports::thoth::plugin::file_viewer::DisplayMode::Custom) => DisplayMode::Custom,
-            Err(_) => DisplayMode::Table,
-        }
-    }
+    pub fn on_load(&mut self, settings_data: &str) -> Result<()> {
+        let mut guard = self.inner.lock().unwrap();
+        let WasmLoaderInner { store, bindings } = &mut *guard;
 
-    pub fn column_headers(&mut self) -> Option<Vec<String>> {
-        let WasmViewerInner { store, bindings } = self.inner.get_mut().unwrap();
-        let _ = store.set_fuel(u64::MAX / 2);
-        bindings
-            .thoth_plugin_file_viewer()
-            .call_column_headers(store)
-            .ok()
-            .flatten()
-    }
-
-    pub fn render_record(&mut self, record_json: &str) -> Result<String> {
-        let WasmViewerInner { store, bindings } = self.inner.get_mut().unwrap();
         store
             .set_fuel(u64::MAX / 2)
             .map_err(|e| ThothError::Unknown {
                 message: e.to_string(),
             })?;
-        let output = bindings
-            .thoth_plugin_file_viewer()
-            .call_render_record(store, record_json)
-            .map_err(|e| ThothError::Unknown {
-                message: e.to_string(),
-            })?
-            .map_err(|e| ThothError::Unknown { message: e.message })?;
-        Ok(output.node_json)
+
+        // Invoke the plugin lifecycle hook so plugins can initialize state.
+        bindings
+            .thoth_plugin_plugin_lifecycle()
+            .call_on_load(store, settings_data)
+            .map_err(|e| ThothError::PluginLoadError {
+                path: Path::new("<plugin on_load>").to_path_buf(),
+                reason: e.to_string(),
+            })?;
+
+        Ok(())
+    }
+}
+
+impl Drop for WasmFileLoader {
+    fn drop(&mut self) {
+        let WasmLoaderInner { store, bindings } = self.inner.get_mut().unwrap();
+        let _ = store.set_fuel(u64::MAX / 2);
+        let _ = bindings
+            .thoth_plugin_plugin_lifecycle()
+            .call_on_close(store);
     }
 }

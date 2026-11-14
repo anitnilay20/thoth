@@ -10,9 +10,9 @@ use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::app::persistent_state::PersistentState;
 use crate::consent::manager::{ConsentCallback, ConsentManager};
 use crate::error::{Result, ThothError};
+use crate::persistent_state::PersistentState;
 use crate::plugin::network_policy::{CheckOutcome, NetworkPolicy};
 use crate::settings::PluginSettingData;
 
@@ -32,7 +32,7 @@ fn refuel(store: &mut Store<DataSourcePluginState>) -> Result<()> {
 }
 
 wasmtime::component::bindgen!({
-    path: "wit/thoth-plugin.wit",
+    path: "../wit/thoth-plugin.wit",
     world: "data-source-plugin",
 });
 
@@ -2050,7 +2050,7 @@ mod live_db_tests {
     ///   SESHAT_PG_HOST=127.0.0.1 SESHAT_PG_PORT=5432 \
     ///   SESHAT_PG_DB=... SESHAT_PG_USER=... SESHAT_PG_PASSWORD=... \
     ///   SESHAT_PG_SQL='SELECT * FROM some_table LIMIT 3' \
-    ///   cargo test -p thoth --lib seshat_select_star_live_postgres -- --ignored --nocapture
+    ///   cargo test -p thoth-core --lib seshat_select_star_live_postgres -- --ignored --nocapture
     #[test]
     #[ignore = "requires a live Postgres; configure with SESHAT_PG_* env vars"]
     fn seshat_select_star_live_postgres() {

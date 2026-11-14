@@ -14,8 +14,8 @@ use eframe::egui;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    app::persistent_state::PersistentState,
     error::{Result, ThothError},
+    persistent_state::PersistentState,
 };
 
 #[derive(Clone, Debug)]

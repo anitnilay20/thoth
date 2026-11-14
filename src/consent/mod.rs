@@ -1,5 +1,6 @@
-pub mod manager;
-pub mod modal;
+//! Consent presentation. The queue lives in `thoth-core`.
 
-pub use manager::{ConsentManager, ConsentRequest, PendingConsent, PermissionEntry};
+pub use thoth_core::consent::*;
+
+pub mod modal;
 pub use modal::{ConsentModal, ConsentModalProps};
