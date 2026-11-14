@@ -14,7 +14,7 @@ use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::app::persistent_state::PersistentState;
+use crate::persistent_state::PersistentState;
 use crate::error::{Result, ThothError};
 use crate::plugin::plugin_ui_host::{PluginCore, PluginUi, TabOpenRequest};
 use crate::plugin::render_node::{UiEvent, UiOutput};
@@ -32,7 +32,7 @@ fn refuel(store: &mut Store<UiComponentPluginState>) -> Result<()> {
 }
 
 wasmtime::component::bindgen!({
-    path: "wit/thoth-plugin.wit",
+    path: "../wit/thoth-plugin.wit",
     world: "ui-component-plugin",
 });
 

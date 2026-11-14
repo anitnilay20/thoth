@@ -1645,9 +1645,9 @@ mod tests {
     fn an_envelope_reaches_the_picker_with_every_collection_it_holds() {
         use std::io::Write;
 
-        let _cache = crate::file::index_cache::tests::exclusive();
-        let _papyrus = crate::papyrus::tests::exclusive();
-        crate::file::index_cache::tests::isolate();
+        let _cache = crate::test_support::cache_lock();
+        let _papyrus = crate::test_support::registry_lock();
+        crate::test_support::isolate_cache();
 
         let mut tmp = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
         tmp.write_all(
@@ -1706,9 +1706,9 @@ mod tests {
     fn a_document_is_drawn_as_a_document_not_as_a_dataset() {
         use std::io::Write;
 
-        let _cache = crate::file::index_cache::tests::exclusive();
-        let _papyrus = crate::papyrus::tests::exclusive();
-        crate::file::index_cache::tests::isolate();
+        let _cache = crate::test_support::cache_lock();
+        let _papyrus = crate::test_support::registry_lock();
+        crate::test_support::isolate_cache();
         // A file DuckDB declines is text, and a text tab has no engine — which
         // is what routes it to `TextView` instead of `DataView` and its table
         // picker, format switcher, Copy and Export.
@@ -1760,9 +1760,9 @@ mod tests {
     fn a_document_longer_than_one_page_is_read_whole_and_the_note_matches() {
         use std::io::Write;
 
-        let _cache = crate::file::index_cache::tests::exclusive();
-        crate::file::index_cache::tests::isolate();
-        let _papyrus = crate::papyrus::tests::exclusive();
+        let _cache = crate::test_support::cache_lock();
+        crate::test_support::isolate_cache();
+        let _papyrus = crate::test_support::registry_lock();
 
         // `papyrus::read` caps one read at MAX_READ_LIMIT, so asking for
         // DOCUMENT_LINES in a single call returned 1,000 lines however long
@@ -1805,9 +1805,9 @@ mod tests {
     fn a_document_is_read_once_and_not_on_every_frame() {
         use std::io::Write;
 
-        let _cache = crate::file::index_cache::tests::exclusive();
-        crate::file::index_cache::tests::isolate();
-        let _papyrus = crate::papyrus::tests::exclusive();
+        let _cache = crate::test_support::cache_lock();
+        crate::test_support::isolate_cache();
+        let _papyrus = crate::test_support::registry_lock();
 
         let mut tmp = tempfile::Builder::new().suffix(".log").tempfile().unwrap();
         for i in 0..1_200 {
@@ -1844,9 +1844,9 @@ mod tests {
     fn reopening_a_tab_adopts_the_new_index_rather_than_the_old_one() {
         use std::io::Write;
 
-        let _cache = crate::file::index_cache::tests::exclusive();
-        crate::file::index_cache::tests::isolate();
-        let _papyrus = crate::papyrus::tests::exclusive();
+        let _cache = crate::test_support::cache_lock();
+        crate::test_support::isolate_cache();
+        let _papyrus = crate::test_support::registry_lock();
 
         // Opening is how a tab is *reused*: installing a reader reopens the
         // same viewer in place. `index_announced` is set once per file, and
@@ -1902,9 +1902,9 @@ mod tests {
     fn every_array_in_an_object_is_its_own_chart_source() {
         use std::io::Write;
 
-        let _cache = crate::file::index_cache::tests::exclusive();
-        crate::file::index_cache::tests::isolate();
-        let _papyrus = crate::papyrus::tests::exclusive();
+        let _cache = crate::test_support::cache_lock();
+        crate::test_support::isolate_cache();
+        let _papyrus = crate::test_support::registry_lock();
 
         // A tab is not one dataset. An object holding three arrays holds
         // three, and charting used to get whichever the grid was showing —
@@ -1951,9 +1951,9 @@ mod tests {
     fn a_file_that_is_one_table_offers_no_relations_to_choose_between() {
         use std::io::Write;
 
-        let _cache = crate::file::index_cache::tests::exclusive();
-        crate::file::index_cache::tests::isolate();
-        let _papyrus = crate::papyrus::tests::exclusive();
+        let _cache = crate::test_support::cache_lock();
+        crate::test_support::isolate_cache();
+        let _papyrus = crate::test_support::registry_lock();
 
         let mut tmp = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
         tmp.write_all(b"a,b\n1,x\n").unwrap();

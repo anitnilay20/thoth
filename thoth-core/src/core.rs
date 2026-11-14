@@ -8,8 +8,8 @@
 use std::{collections::VecDeque, path::PathBuf};
 
 use crate::{
-    app::{persistent_state::PersistentState, tab_manager::TabId},
     papyrus::PapyrusStore,
+    persistent_state::PersistentState,
     plugin::runtime::PluginRuntime,
     settings::Settings,
     state::ApplicationUpdateState,
@@ -38,16 +38,16 @@ pub struct ThothCore {
     pub plugins: PluginRuntime,
     /// Host-owned dataset registry shared with plugin WIT and SDK callbacks.
     pub papyrus: PapyrusStore,
-    pub(crate) settings_changed: bool,
-    pub(crate) session_dirty: bool,
-    pub(crate) pending_plugin_restores: Vec<(String, Option<String>)>,
-    pub(crate) session_restore_active_index: Option<usize>,
-    pub(crate) last_active_plugin_tab: Option<TabId>,
-    pub(crate) chart_counter: usize,
+    pub settings_changed: bool,
+    pub session_dirty: bool,
+    pub pending_plugin_restores: Vec<(String, Option<String>)>,
+    pub session_restore_active_index: Option<usize>,
+    pub last_active_plugin_tab: Option<usize>,
+    pub chart_counter: usize,
     /// The resolved snapshot for the chart source currently selected, keyed
     /// by [`chart_studio::source_key`](crate::components::chart_studio::source_key)
     /// — a tab *and* which of its relations, since a tab may hold several.
-    pub(crate) chart_source: Option<(String, Vec<String>, Vec<Vec<String>>)>,
+    pub chart_source: Option<(String, Vec<String>, Vec<Vec<String>>)>,
     events: VecDeque<CoreEvent>,
 }
 
@@ -57,7 +57,7 @@ impl ThothCore {
         Self::with_persistent_state(settings, PersistentState::default())
     }
 
-    pub(crate) fn with_persistent_state(
+    pub fn with_persistent_state(
         settings: Settings,
         persistent_state: PersistentState,
     ) -> Self {
