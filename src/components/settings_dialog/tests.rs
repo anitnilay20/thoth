@@ -1,6 +1,7 @@
 use super::*;
 use crate::components::traits::StatelessComponent;
 use crate::settings::*;
+use crate::theme::ThemeExt;
 use crate::theme::{Theme, ThemeColors};
 
 fn create_test_theme_colors() -> ThemeColors {

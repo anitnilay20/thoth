@@ -177,7 +177,5 @@ pub fn spawn(
 /// Deliver an event to the app and wake the UI to render it.
 fn emit(tx: &std::sync::mpsc::Sender<(String, WsEvent)>, conn_id: &str, event: WsEvent) {
     let _ = tx.send((conn_id.to_string(), event));
-    if let Some(ctx) = crate::EGUI_CTX.get() {
-        ctx.request_repaint();
-    }
+    crate::repaint::request();
 }

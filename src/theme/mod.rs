@@ -1,0 +1,775 @@
+//! egui-facing theme: parsed colours, and applying a theme to a context.
+//!
+//! The serialisable [`Theme`] (hex strings) and the built-in palettes live in
+//! `thoth-core`; this module re-exports them and adds the rendering half.
+
+use eframe::egui::{self, Color32};
+use egui_code_editor::ColorTheme;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+pub use thoth_core::theme::*;
+
+use crate::settings::Settings;
+
+// Squircle radius ladder + floating-panel chrome, owned by the SDK.
+pub use thoth_plugin_sdk::theme::{
+    GUTTER_GAP, RADIUS_CHIP, RADIUS_CONTROL, RADIUS_PANEL, RADIUS_WINDOW,
+};
+
+// Pure colour/font helpers are owned by the plugin SDK so host-native and
+// SDK-provided widgets share one implementation. Re-exported so existing
+// `crate::theme::{get_contrast_text_color, phosphor_font_id}` paths keep working.
+pub use thoth_plugin_sdk::theme::{
+    FAMILY_MEDIUM, FAMILY_SEMIBOLD, color_to_hex, get_contrast_text_color, hover_text,
+    medium_font_id, phosphor_font_id, resolve_color, semibold_font_id, with_alpha,
+};
+
+// Floating-panel chrome (`--edge`, `--shadow-panel`, `--shadow-menu`,
+// `--shadow-dialog`) also lives in the SDK, so a plugin's panels and the host's
+// pick up identical elevation. Re-exported for `crate::theme::edge_stroke` etc.
+pub use thoth_plugin_sdk::theme::{
+    dialog_shadow, edge_stroke, focus_stroke, glow_shadow, panel_shadow, popover_shadow,
+    slider_thumb_shadow, thumb_shadow,
+};
+
+// Type/metric tokens, so host chrome sizes controls from the same scale the SDK
+// widgets do rather than re-deriving the numbers.
+pub use thoth_plugin_sdk::theme::{
+    FIELD_HEIGHT, FONT_BODY, FONT_CAPTION, FONT_CONTROL, ICON_CONTROL, RADIUS_CHECK, RADIUS_PILL,
+    RADIUS_POPOVER, ROW_HEIGHT,
+};
+
+/// Document-tab height — design `.etabs .tab{height:30px}`. Also drives the pill
+/// radius, which is exactly half of it.
+const TAB_H: f32 = 30.0;
+
+/// egui-facing methods on the core [`Theme`].
+pub trait ThemeExt {
+    /// Returns parsed [`ThemeColors`] (all `Color32` values) from this theme.
+    fn colors(&self) -> ThemeColors;
+}
+
+impl ThemeExt for Theme {
+    /// Returns parsed [`ThemeColors`] (all `Color32` values) from this theme.
+    fn colors(&self) -> ThemeColors {
+        ThemeColors {
+            bg: parse_color(&self.bg),
+            bg_panel: parse_color(&self.bg_panel),
+            bg_sunken: parse_color(&self.bg_sunken),
+
+            surface: parse_color(&self.surface),
+            surface_raised: parse_color(&self.surface_raised),
+            surface_active: parse_color(&self.surface_active),
+
+            fg: parse_color(&self.fg),
+            fg_muted: parse_color(&self.fg_muted),
+
+            syntax_key: parse_color(&self.syntax_key),
+            syntax_string: parse_color(&self.syntax_string),
+            syntax_number: parse_color(&self.syntax_number),
+            syntax_bool: parse_color(&self.syntax_bool),
+            syntax_punctuation: parse_color(&self.syntax_punctuation),
+
+            success: parse_color(&self.success),
+            warning: parse_color(&self.warning),
+            error: parse_color(&self.error),
+            info: parse_color(&self.info),
+
+            accent: parse_color(&self.accent),
+            accent_secondary: parse_color(&self.accent_secondary),
+
+            sidebar_hover: parse_color_with_alpha(&self.sidebar_hover),
+            sidebar_header: parse_color(&self.sidebar_header),
+            indent_guide: parse_color(&self.indent_guide),
+        }
+    }
+}
+
+/// Parse an infallible `#rrggbb` hex string (defaults to black).
+pub fn parse_color(hex: &str) -> Color32 {
+    let hex = hex.trim_start_matches('#');
+    if hex.len() != 6 {
+        return Color32::BLACK;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
+    let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
+    let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
+    Color32::from_rgb(r, g, b)
+}
+
+fn parse_color_with_alpha(hex: &str) -> Color32 {
+    let hex = hex.trim_start_matches('#');
+    if hex.len() == 8 {
+        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
+        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
+        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
+        let a = u8::from_str_radix(&hex[6..8], 16).unwrap_or(255);
+        Color32::from_rgba_unmultiplied(r, g, b, a)
+    } else {
+        parse_color(hex)
+    }
+}
+
+// ── ThemeColors (parsed Color32 form) ────────────────────────────────────────
+
+// The canonical parsed palette type lives in the plugin SDK so that exactly one
+// `ThemeColors` type flows through egui memory (key
+// [`thoth_plugin_sdk::theme::THEME_MEMORY_ID`]): the host publishes it and both
+// host-native and SDK-provided widgets read it back. Re-exported here so all
+// existing `crate::theme::ThemeColors` references keep working.
+pub use thoth_plugin_sdk::theme::ThemeColors;
+
+/// Host-only rendering helpers on [`ThemeColors`].
+///
+/// These build themes for the host's `egui_code_editor` / `egui_dock`
+/// dependencies, which the SDK deliberately does not pull in. Defined as an
+/// extension trait because `ThemeColors` is a foreign type owned by the SDK.
+pub trait ThemeColorsExt {
+    /// Build an `egui_code_editor` `ColorTheme` from the current palette.
+    fn code_editor_theme(&self) -> ColorTheme;
+
+    /// Build a themed [`egui_dock::Style`] from these colors.
+    fn dock_style(&self, egui_style: &egui::Style) -> egui_dock::Style;
+}
+
+impl ThemeColorsExt for ThemeColors {
+    /// Build an `egui_code_editor` `ColorTheme` from the current palette.
+    ///
+    /// Called per-frame from `render_ui_node`; `hex()` interns each unique
+    /// colour in a static cache to avoid per-frame allocations.
+    fn code_editor_theme(&self) -> ColorTheme {
+        fn hex(c: Color32) -> &'static str {
+            use std::collections::HashMap;
+            use std::sync::Mutex;
+            static CACHE: std::sync::OnceLock<Mutex<HashMap<u32, &'static str>>> =
+                std::sync::OnceLock::new();
+            let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+            let key = ((c.r() as u32) << 16) | ((c.g() as u32) << 8) | (c.b() as u32);
+            let mut map = cache.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(&s) = map.get(&key) {
+                return s;
+            }
+            let s = Box::leak(format!("{:02x}{:02x}{:02x}", c.r(), c.g(), c.b()).into_boxed_str());
+            map.insert(key, s);
+            s
+        }
+        let is_dark = get_contrast_text_color(self.bg) == Color32::WHITE;
+        let fg_hex = hex(self.fg);
+        let string_hex = hex(self.syntax_string);
+        ColorTheme {
+            name: if is_dark { "Thoth Dark" } else { "Thoth Light" },
+            dark: is_dark,
+            // Match the surrounding panel background so the editor blends in
+            // rather than reading as a distinct sunken box.
+            bg: hex(self.bg),
+            cursor: fg_hex,
+            selection: hex(self.surface_raised),
+            comments: hex(self.fg_muted),
+            functions: hex(self.syntax_key),
+            keywords: hex(self.accent),
+            literals: string_hex,
+            numerics: hex(self.syntax_number),
+            punctuation: fg_hex,
+            strs: string_hex,
+            types: hex(self.info),
+            special: hex(self.error),
+        }
+    }
+
+    fn dock_style(&self, egui_style: &egui::Style) -> egui_dock::Style {
+        let mut style = egui_dock::Style::from_egui(egui_style);
+
+        // ── Tab bar — strip floats on the panel background ───────────────────
+        style.tab_bar.bg_fill = self.bg_panel;
+        style.tab_bar.height = TAB_H;
+        // The strip's fill differs from the dock panel's, so its top corners must
+        // match the panel radius exactly or a sliver of panel fill shows through.
+        style.tab_bar.corner_radius = egui::CornerRadius {
+            nw: RADIUS_PANEL as u8,
+            ne: RADIUS_PANEL as u8,
+            sw: 0,
+            se: 0,
+        };
+        style.tab_bar.inner_margin = egui::Margin {
+            left: 12,
+            right: 12,
+            top: 0,
+            bottom: 0,
+        };
+        // No rule under the strip: design `.etabs` carries no border or shadow —
+        // the editor/dock panel is one unbroken card, and the active tab's own
+        // pill is what separates the strip from the body.
+        style.tab_bar.hline_color = Color32::TRANSPARENT;
+
+        // ── Tab body ──────────────────────────────────────────────────────────
+        style.tab.tab_body.bg_fill = self.bg;
+        style.tab.tab_body.inner_margin = egui::Margin::ZERO;
+        style.tab.tab_body.stroke = egui::Stroke::NONE;
+
+        // Document tabs are *pills* — design `.etabs .tab{border-radius:--r-pill}`,
+        // active filled `surface0` with a hairline edge. This is deliberately not
+        // the underline treatment the in-pane `Tabs` component uses: app-mockup
+        // gives the two tab surfaces different vocabularies (`.etabs .tab` here,
+        // `.rtabs .rtab` there). An outline box around the active tab, which is
+        // what this used to draw, is neither.
+        // Safari's tab shape rather than the sheet's `--r-pill`: a rounded
+        // *rectangle*, not a lozenge. A full pill on a 30pt tab needs a 15pt
+        // radius, which rounds the short ends so hard that a two-word title reads
+        // as a capsule floating in the strip; Safari keeps the ends square enough
+        // that the tab still reads as a rectangular surface you could stack.
+        //
+        // Also note `RADIUS_PILL as u8` saturates to 255, and egui_dock derives its
+        // "connect the tab to the body" hline from the *raw* corner radius
+        // (`min.x + sw ..= max.x - se`) — at 255 that range inverts on any normal
+        // tab and paints a stray 2px line. Staying on the ladder avoids that.
+        let tab_radius = egui::CornerRadius::same(RADIUS_PANEL as u8);
+        // The design's `.tab.active{box-shadow:var(--edge)}` hairline, carried a
+        // little brighter than `edge_stroke`'s 34% so the active tab reads as a
+        // raised surface the way Safari's does. egui_dock has no shadow field on a
+        // tab, so the border is the only elevation cue available.
+        //
+        // It must be set on *every* state explicitly: egui_dock's `from_egui_*`
+        // defaults derive `outline_color` from `widgets.hovered.bg_stroke`, which
+        // this theme sets to the accent, so a mauve ring leaks through otherwise.
+        let edge = with_alpha(self.surface_raised, 130); // surface1@51%
+
+        // ── Active / focused tab: filled rounded rect with a hairline edge ─────
+        style.tab.active.bg_fill = self.surface;
+        style.tab.active.text_color = self.fg;
+        style.tab.active.outline_color = edge;
+        style.tab.active.corner_radius = tab_radius;
+
+        style.tab.focused.bg_fill = self.surface;
+        style.tab.focused.text_color = self.fg;
+        style.tab.focused.outline_color = edge;
+        style.tab.focused.corner_radius = tab_radius;
+
+        // ── Inactive tab: bare label on the strip, no chrome at all ───────────
+        style.tab.inactive.bg_fill = Color32::TRANSPARENT;
+        style.tab.inactive.text_color = self.fg_muted;
+        style.tab.inactive.outline_color = Color32::TRANSPARENT;
+        style.tab.inactive.corner_radius = tab_radius;
+
+        // ── Hovered tab ───────────────────────────────────────────────────────
+        style.tab.hovered.bg_fill = with_alpha(self.fg, 20); // text@8%
+        style.tab.hovered.text_color = self.fg;
+        style.tab.hovered.outline_color = Color32::TRANSPARENT;
+        style.tab.hovered.corner_radius = tab_radius;
+
+        style.tab.inactive_with_kb_focus = style.tab.inactive.clone();
+        style.tab.active_with_kb_focus = style.tab.active.clone();
+        style.tab.focused_with_kb_focus = style.tab.focused.clone();
+
+        style.tab.hline_below_active_tab_name = false;
+
+        // ── Close (×) button: invisible until cursor enters the × hit-area ───
+        // egui_dock doesn't support "show × on tab hover" — the best available
+        // approximation is keeping the × transparent until the pointer is over
+        // the × itself. The hit-target is always present for middle-click close.
+        style.buttons.close_tab_color = Color32::TRANSPARENT;
+        style.buttons.close_tab_active_color = self.fg_muted;
+        style.buttons.close_tab_bg_fill = self.surface_raised;
+
+        // ── Separator between split panes ─────────────────────────────────────
+        style.separator.width = 4.0;
+        style.separator.color_idle = self.surface;
+        style.separator.color_hovered = self.accent;
+        style.separator.color_dragged = self.accent;
+
+        style
+    }
+}
+
+// ── apply_fonts ───────────────────────────────────────────────────────────────
+
+/// Rebuild and apply `FontDefinitions` only when `font_family` changes.
+/// Comparing against a cached value in egui memory prevents the expensive
+/// re-rasterise from running every frame.
+pub fn apply_fonts(ctx: &egui::Context, settings: &Settings) {
+    let cache_key = egui::Id::new("applied_font_family");
+    let last: Option<Option<String>> = ctx.memory(|m| m.data.get_temp(cache_key));
+
+    // `last == None` means never applied yet — always run on first call.
+    if last.as_ref().map(|v| v.as_deref()) == Some(settings.font_family.as_deref()) {
+        return;
+    }
+
+    let mut fonts = egui::FontDefinitions::default();
+
+    // Icons first: the named family and both fallback chains, so a glyph is
+    // drawable wherever it lands.
+    thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
+
+    if let Some(family) = &settings.font_family
+        && let Some(bytes) = crate::platform::find_font_bytes(family)
+    {
+        fonts.font_data.insert(
+            family.clone(),
+            std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+        );
+
+        // Monospace-style fonts: prepend to both Proportional and Monospace stacks.
+        // Purely proportional fonts (e.g. Inter) only go into Proportional.
+        let is_mono = !matches!(family.as_str(), "Inter");
+        for target in [egui::FontFamily::Proportional]
+            .iter()
+            .chain(is_mono.then_some(&egui::FontFamily::Monospace))
+        {
+            if let Some(list) = fonts.families.get_mut(target) {
+                list.insert(0, family.clone());
+            }
+        }
+    }
+
+    // ── Real weight axes ─────────────────────────────────────────────────────
+    // egui resolves a `FontId` to a *family*, with no weight axis, so the design's
+    // `font-weight: 500` / `600` can only be honoured by registering those faces as
+    // named families. Everything that wanted a weight previously faked it by
+    // painting the galley twice a fraction of a pixel apart, which smears at small
+    // sizes and reads heavier than intended.
+    //
+    // The UI face is Inter per the design; a user-chosen `font_family` overrides it.
+    // Each named family always resolves — it falls back to the Proportional stack —
+    // so `medium_font_id`/`semibold_font_id` are safe to call regardless of what is
+    // installed.
+    let ui_family = settings.font_family.as_deref().unwrap_or("Inter");
+    for (name, weight) in [
+        (crate::theme::FAMILY_MEDIUM, fontdb::Weight::MEDIUM),
+        (crate::theme::FAMILY_SEMIBOLD, fontdb::Weight::SEMIBOLD),
+    ] {
+        let stack = match crate::platform::has_weight(ui_family, weight)
+            .then(|| crate::platform::find_font_bytes_weighted(ui_family, weight))
+            .flatten()
+        {
+            Some(bytes) => {
+                let key = format!("{ui_family}-{}", weight.0);
+                fonts.font_data.insert(
+                    key.clone(),
+                    std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+                );
+                // The weighted face covers only its own glyph set, and egui walks a
+                // family's entries in order for missing glyphs — so keep the normal
+                // stack behind it or emoji/CJK/icons render as tofu.
+                let mut stack = vec![key];
+                stack.extend(
+                    fonts
+                        .families
+                        .get(&egui::FontFamily::Proportional)
+                        .cloned()
+                        .unwrap_or_default(),
+                );
+                stack
+            }
+            // No real face at this weight — alias the family to the normal stack so
+            // callers degrade to regular text rather than to a missing font.
+            None => fonts
+                .families
+                .get(&egui::FontFamily::Proportional)
+                .cloned()
+                .unwrap_or_default(),
+        };
+        fonts
+            .families
+            .insert(egui::FontFamily::Name(name.into()), stack);
+    }
+
+    ctx.set_fonts(fonts);
+    ctx.memory_mut(|m| m.data.insert_temp(cache_key, settings.font_family.clone()));
+}
+
+/// Returns a [`egui::RichText`] pre-configured with the Phosphor icon font.
+/// Use this for any inline icon rendered as a label or inside a widget.
+pub fn icon_rich_text(icon: &str, size: f32) -> egui::RichText {
+    egui::RichText::new(icon).font(phosphor_font_id(size))
+}
+
+/// Parse a `#rrggbb` hex string into a color, returning `None` for anything
+/// else so callers choose their own fallback. (Unlike [`Theme::parse_color`],
+/// which is infallible and defaults to black.)
+pub fn parse_hex_color(s: &str) -> Option<Color32> {
+    let s = s.strip_prefix('#')?;
+    if s.len() == 6 {
+        let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+        Some(Color32::from_rgb(r, g, b))
+    } else {
+        None
+    }
+}
+
+// ── apply_theme ───────────────────────────────────────────────────────────────
+
+pub fn apply_theme(ctx: &egui::Context, settings: &Settings) {
+    apply_fonts(ctx, settings);
+
+    let theme = &settings.theme;
+    let is_dark = theme.dark_mode;
+    let colors = theme.colors();
+
+    ctx.memory_mut(|mem| {
+        mem.data.insert_temp(
+            egui::Id::new(thoth_plugin_sdk::theme::THEME_MEMORY_ID),
+            colors,
+        );
+    });
+
+    ctx.set_visuals(build_visuals(is_dark, &colors));
+
+    let system_theme = if is_dark {
+        egui::viewport::SystemTheme::Dark
+    } else {
+        egui::viewport::SystemTheme::Light
+    };
+    ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(system_theme));
+
+    let mut style = (*ctx.global_style()).clone();
+    style.spacing.item_spacing = egui::vec2(SPACING_MEDIUM, SPACING_SMALL);
+    style.spacing.button_padding = egui::vec2(SPACING_MEDIUM, SPACING_SMALL);
+    style.spacing.indent = TREE_INDENT;
+
+    let font_size = settings.font_size;
+    style.text_styles.insert(
+        egui::TextStyle::Small,
+        egui::FontId::proportional(font_size * 0.85),
+    );
+    style
+        .text_styles
+        .insert(egui::TextStyle::Body, egui::FontId::proportional(font_size));
+    style.text_styles.insert(
+        egui::TextStyle::Button,
+        egui::FontId::proportional(font_size),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Heading,
+        egui::FontId::proportional(font_size * 1.2),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Monospace,
+        egui::FontId::monospace(font_size),
+    );
+
+    if !settings.ui.enable_animations {
+        style.animation_time = 0.0;
+    }
+    ctx.set_global_style(style);
+}
+
+/// Build [`egui::Visuals`] from [`ThemeColors`].
+///
+/// We override every colour egui might render so no dark/light default bleeds
+/// through — especially important for light themes applied on top of the
+/// `Visuals::light()` base which still carries different defaults than ours.
+fn build_visuals(dark_mode: bool, c: &ThemeColors) -> egui::Visuals {
+    let mut v = if dark_mode {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+
+    // ── Backgrounds ──────────────────────────────────────────────────────────
+    v.override_text_color = Some(c.fg);
+    // Content background for `Frame::central_panel` (used inside each dock tab),
+    // so it blends with the floating dock panel's fill. NOT the root canvas —
+    // that is crust and comes from `App::clear_color`; using bg_sunken here would
+    // paint a square crust rect over the dock panel's rounded corners.
+    v.panel_fill = c.bg;
+    v.window_fill = c.bg_panel; // modal / popup backgrounds
+    v.extreme_bg_color = c.surface; // TextEdit / ComboBox text-area background
+    v.code_bg_color = c.surface; // inline code spans
+    v.faint_bg_color =
+        Color32::from_rgba_unmultiplied(c.surface.r(), c.surface.g(), c.surface.b(), 77);
+
+    // ── Widget fills ─────────────────────────────────────────────────────────
+    // noninteractive = labels, separators (use surface so read-only fields match)
+    // inactive        = resting inputs, buttons, selects
+    // hovered         = cursor-over state
+    // active          = pressed / being edited
+    // open            = ComboBox dropdown open
+    v.widgets.noninteractive.bg_fill = c.surface;
+    v.widgets.inactive.bg_fill = c.surface;
+    v.widgets.hovered.bg_fill = c.surface_raised;
+    v.widgets.active.bg_fill = c.surface_active;
+    v.widgets.open.bg_fill = c.surface_raised;
+
+    // ── Widget text / stroke ─────────────────────────────────────────────────
+    // egui uses fg_stroke to paint text inside labels, buttons, and inputs.
+    // Not overriding these is the main reason dark text appears on light themes.
+    let fg_stroke = egui::Stroke::new(1.0, c.fg);
+    let muted_stroke = egui::Stroke::new(1.0, c.fg_muted);
+    v.widgets.noninteractive.fg_stroke = muted_stroke;
+    v.widgets.inactive.fg_stroke = fg_stroke;
+    v.widgets.hovered.fg_stroke = fg_stroke;
+    v.widgets.active.fg_stroke = egui::Stroke::new(1.5, c.fg);
+    v.widgets.open.fg_stroke = fg_stroke;
+
+    // ── Widget borders ───────────────────────────────────────────────────────
+    let border = egui::Stroke::new(1.0, c.surface_raised);
+    v.widgets.noninteractive.bg_stroke = border;
+    v.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, c.accent);
+    v.widgets.active.bg_stroke = egui::Stroke::new(1.0, c.accent);
+
+    // ── Windows / popups ─────────────────────────────────────────────────────
+    v.window_stroke = edge_stroke(c);
+    v.popup_shadow = dialog_shadow(dark_mode);
+    v.window_shadow = dialog_shadow(dark_mode);
+
+    // ── Selection & links ────────────────────────────────────────────────────
+    v.selection.bg_fill =
+        Color32::from_rgba_unmultiplied(c.accent.r(), c.accent.g(), c.accent.b(), 60);
+    v.selection.stroke = egui::Stroke::new(1.0, c.accent);
+    v.hyperlink_color = c.syntax_key;
+
+    // ── Text cursor ──────────────────────────────────────────────────────────
+    v.text_cursor.stroke = egui::Stroke::new(2.0, c.accent);
+
+    v
+}
+
+// ── Row helpers ───────────────────────────────────────────────────────────────
+
+pub fn row_fill(i: usize, ui: &egui::Ui) -> Color32 {
+    if i % 2 == 1 {
+        ui.visuals().faint_bg_color
+    } else {
+        Color32::TRANSPARENT
+    }
+}
+
+pub fn selected_row_bg(ui: &egui::Ui) -> Color32 {
+    ui.visuals().widgets.active.bg_fill
+}
+
+pub fn hover_row_bg(ui: &egui::Ui) -> Color32 {
+    ui.visuals().widgets.hovered.bg_fill
+}
+
+// ── Syntax token helpers ──────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum TextToken {
+    Key,
+    Str,
+    Number,
+    Boolean,
+    Bracket,
+}
+
+impl From<&Value> for TextToken {
+    fn from(value: &Value) -> Self {
+        match value {
+            Value::String(_) => Self::Str,
+            Value::Number(_) => Self::Number,
+            Value::Bool(_) => Self::Boolean,
+            Value::Array(_) | Value::Object(_) => Self::Bracket,
+            Value::Null => Self::Boolean,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct TextPalette {
+    pub key: Color32,
+    pub string: Color32,
+    pub number: Color32,
+    pub boolean: Color32,
+    pub bracket: Color32,
+}
+
+impl TextPalette {
+    pub fn from_context(ctx: &egui::Context) -> Self {
+        ctx.memory(|mem| {
+            let tc = mem
+                .data
+                .get_temp::<ThemeColors>(egui::Id::new("theme_colors"))
+                .unwrap_or_else(|| {
+                    Theme::for_dark_mode(ctx.global_style().visuals.dark_mode).colors()
+                });
+            Self {
+                key: tc.syntax_key,
+                string: tc.syntax_string,
+                number: tc.syntax_number,
+                boolean: tc.syntax_bool,
+                bracket: tc.syntax_punctuation,
+            }
+        })
+    }
+
+    pub fn color(&self, token: TextToken) -> Color32 {
+        match token {
+            TextToken::Key => self.key,
+            TextToken::Str => self.string,
+            TextToken::Number => self.number,
+            TextToken::Boolean => self.boolean,
+            TextToken::Bracket => self.bracket,
+        }
+    }
+
+    pub fn color_with_highlighting(
+        &self,
+        token: TextToken,
+        enabled: bool,
+        base: Color32,
+    ) -> Color32 {
+        if enabled { self.color(token) } else { base }
+    }
+}
+
+// ── BgColorOptions ────────────────────────────────────────────────────────────
+
+/// Named background-colour slots usable in the plugin DSL `bg-color` field.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum BgColorOptions {
+    #[default]
+    None,
+    /// `bg` — main app background.
+    Bg,
+    /// `bg-panel` — sidebar / secondary panels.
+    BgPanel,
+    /// `bg-sunken` — status bar / deepest inset.
+    BgSunken,
+    /// `surface` — resting widget fill.
+    Surface,
+    /// `surface-raised` — hover / elevated widget fill.
+    SurfaceRaised,
+    /// `surface-active` — pressed / active widget fill.
+    SurfaceActive,
+    /// `fg-muted` — muted foreground (useful for subtle dividers).
+    FgMuted,
+    // Legacy aliases kept for backwards-compatibility with existing plugin JSON.
+    /// Alias for `bg`.
+    Base,
+    /// Alias for `bg-panel`.
+    Mantle,
+    /// Alias for `bg-sunken`.
+    Crust,
+    /// Alias for `surface`.
+    Surface0,
+    /// Alias for `surface-raised`.
+    Surface1,
+    /// Alias for `surface-active`.
+    Surface2,
+    /// Alias for `fg-muted`.
+    Overlay1,
+}
+
+impl BgColorOptions {
+    pub fn into_color(self, c: &ThemeColors) -> Option<Color32> {
+        match self {
+            Self::None => None,
+            Self::Bg | Self::Base => Some(c.bg),
+            Self::BgPanel | Self::Mantle => Some(c.bg_panel),
+            Self::BgSunken | Self::Crust => Some(c.bg_sunken),
+            Self::Surface | Self::Surface0 => Some(c.surface),
+            Self::SurfaceRaised | Self::Surface1 => Some(c.surface_raised),
+            Self::SurfaceActive | Self::Surface2 => Some(c.surface_active),
+            Self::FgMuted | Self::Overlay1 => Some(c.fg_muted),
+        }
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::{Theme, ThemeExt};
+    use eframe::egui;
+    use thoth_plugin_sdk::theme::{lightness, selected_row_fill};
+
+    /// Every theme the app ships.
+    fn all() -> Vec<Theme> {
+        vec![
+            Theme::mocha(),
+            Theme::latte(),
+            Theme::frappe(),
+            Theme::macchiato(),
+            Theme::dracula(),
+            Theme::nord(),
+            Theme::gruvbox_dark(),
+            Theme::tokyo_night(),
+            Theme::rose_pine(),
+            Theme::github_light(),
+            Theme::solarized_dark(),
+            Theme::solarized_light(),
+        ]
+    }
+
+    fn relative_luminance(c: egui::Color32) -> f32 {
+        fn linearise(x: f32) -> f32 {
+            if x <= 0.04045 {
+                x / 12.92
+            } else {
+                ((x + 0.055) / 1.055).powf(2.4)
+            }
+        }
+        0.2126 * linearise(f32::from(c.r()) / 255.0)
+            + 0.7152 * linearise(f32::from(c.g()) / 255.0)
+            + 0.0722 * linearise(f32::from(c.b()) / 255.0)
+    }
+
+    fn contrast(a: egui::Color32, b: egui::Color32) -> f32 {
+        let (x, y) = (relative_luminance(a), relative_luminance(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    /// A selected row has to be as obvious on Nord as it is on Latte.
+    ///
+    /// It was not: a fixed alpha over `surface_active` lands 10 L* from the
+    /// background in Nord and 27 in Solarized Light, so the selection was
+    /// plain on the light themes and nearly invisible on several dark ones.
+    #[test]
+    fn the_selected_row_is_equally_visible_in_every_theme() {
+        for theme in all() {
+            let colors = theme.colors();
+            let fill = selected_row_fill(&colors);
+            let delta = (lightness(fill) - lightness(colors.bg)).abs();
+            assert!(
+                delta >= 17.0,
+                "{}: selected row is only {delta:.1} L* from the row under it",
+                theme.name
+            );
+        }
+    }
+
+    /// And the row's own text has to survive being selected.
+    #[test]
+    fn cell_text_stays_readable_on_a_selected_row() {
+        for theme in all() {
+            let colors = theme.colors();
+            let fill = selected_row_fill(&colors);
+            let on_fill = contrast(colors.fg, fill);
+            // 3:1 is the floor. Solarized Light's text clears only 4.99 on its
+            // own background, so the bar is what the theme can bear, not an
+            // absolute.
+            assert!(
+                on_fill >= 3.0,
+                "{}: cell text drops to {on_fill:.2}:1 on a selected row",
+                theme.name
+            );
+        }
+    }
+
+    /// The selection must not be mistakable for the zebra stripe, which is
+    /// what it was competing with on the dark themes.
+    #[test]
+    fn the_selection_is_distinct_from_the_zebra_stripe() {
+        for theme in all() {
+            let colors = theme.colors();
+            let fill = selected_row_fill(&colors);
+            // The stripe is `fg` at alpha 8 over the row — see `ZEBRA_ALPHA`.
+            let a = 8.0 / 255.0;
+            let blend = |f: u8, b: u8| (f32::from(f) * a + f32::from(b) * (1.0 - a)) as u8;
+            let zebra = egui::Color32::from_rgb(
+                blend(colors.fg.r(), colors.bg.r()),
+                blend(colors.fg.g(), colors.bg.g()),
+                blend(colors.fg.b(), colors.bg.b()),
+            );
+            let delta = (lightness(fill) - lightness(zebra)).abs();
+            assert!(
+                delta >= 14.0,
+                "{}: selection is only {delta:.1} L* from a striped row",
+                theme.name
+            );
+        }
+    }
+}

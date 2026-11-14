@@ -594,8 +594,8 @@ fn typed_cell(cell: &str, type_hint: &str) -> Value {
 }
 
 /// Row text and syntax token for a pushed cell.
-fn cell_preview(cell: &str, type_hint: &str) -> (String, thoth_plugin_sdk::theme::TextToken) {
-    use thoth_plugin_sdk::theme::TextToken;
+fn cell_preview(cell: &str, type_hint: &str) -> (String, thoth_plugin_sdk::TextToken) {
+    use thoth_plugin_sdk::TextToken;
     match typed_cell(cell, type_hint) {
         Value::Number(n) => (n.to_string(), TextToken::Number),
         Value::Bool(b) => (b.to_string(), TextToken::Boolean),
@@ -828,6 +828,7 @@ pub(crate) mod tests {
     ///
     /// For tests elsewhere that *publish* — opening a file does — which would
     /// otherwise race the counting assertions here.
+    #[allow(dead_code)]
     pub(crate) fn exclusive() -> std::sync::MutexGuard<'static, ()> {
         TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }

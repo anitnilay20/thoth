@@ -1,3 +1,4 @@
+use crate::theme::ThemeExt;
 // WelcomePanel — design sheet `welcome.html` (`.welcome`), which supersedes the
 // slimmer `screens.html` §1 sheet this module was first built from. One calm
 // composition: a hero, three `.acard` start actions, a drop affordance, and a

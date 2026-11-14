@@ -1,8 +1,9 @@
+use crate::SettingsCtx;
+use crate::theme::ThemeExt;
 use eframe::{App, Frame, egui};
 use std::path::PathBuf;
 
 use crate::{
-    NOTIFICATION_MANAGER,
     app::{file_picker, pick_file, tab_manager::TabEvent},
     components::{self, traits::ContextComponent},
     core::{CoreAction, CoreEvent, ThothCore},
@@ -334,11 +335,7 @@ impl App for ThothApp {
             self.settings_dialog.open_updates(&self.core.settings);
         }
 
-        if let Some(nm) = NOTIFICATION_MANAGER.get()
-            && let Ok(mut nm) = nm.lock()
-        {
-            nm.show_notifications(ctx);
-        }
+        crate::notification::show_notifications(ctx);
 
         // Restore plugin tabs that were deferred while the core runtime initialized.
         self.poll_pending_plugin_restores();

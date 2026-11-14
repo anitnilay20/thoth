@@ -1,3 +1,4 @@
+use crate::theme::ThemeExt;
 use eframe::egui::{
     self, Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, RichText, Sense,
 };

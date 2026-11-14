@@ -14,8 +14,8 @@ use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::persistent_state::PersistentState;
 use crate::error::{Result, ThothError};
+use crate::persistent_state::PersistentState;
 use crate::plugin::plugin_ui_host::{PluginCore, PluginUi, TabOpenRequest};
 use crate::plugin::render_node::{UiEvent, UiOutput};
 use crate::settings::PluginSettingData;

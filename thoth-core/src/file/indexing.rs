@@ -198,9 +198,7 @@ impl IndexJob {
                     .scanned
                     .store(worker_shared.total, Ordering::Relaxed);
                 worker_shared.finished.store(true, Ordering::Release);
-                if let Some(ctx) = crate::EGUI_CTX.get() {
-                    ctx.request_repaint();
-                }
+                crate::repaint::request();
                 return;
             }
 
@@ -210,9 +208,7 @@ impl IndexJob {
                 Ok(Some(Some(indexed))) => {
                     *worker_result.lock().unwrap_or_else(|e| e.into_inner()) = Some(indexed);
                     worker_shared.finished.store(true, Ordering::Release);
-                    if let Some(ctx) = crate::EGUI_CTX.get() {
-                        ctx.request_repaint();
-                    }
+                    crate::repaint::request();
                     return;
                 }
                 // Cancelled mid-scan.
@@ -247,9 +243,7 @@ impl IndexJob {
             }
             worker_shared.finished.store(true, Ordering::Release);
 
-            if let Some(ctx) = crate::EGUI_CTX.get() {
-                ctx.request_repaint();
-            }
+            crate::repaint::request();
         });
 
         Self {
@@ -327,9 +321,7 @@ impl StageJob {
                 worker_failed.store(true, Ordering::Relaxed);
             }
             worker_done.store(true, Ordering::Release);
-            if let Some(ctx) = crate::EGUI_CTX.get() {
-                ctx.request_repaint();
-            }
+            crate::repaint::request();
         });
 
         Self {
@@ -402,9 +394,7 @@ impl QueryJob {
                 });
             *worker_outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
             worker_done.store(true, Ordering::Release);
-            if let Some(ctx) = crate::EGUI_CTX.get() {
-                ctx.request_repaint();
-            }
+            crate::repaint::request();
         });
 
         Self {
@@ -1265,9 +1255,7 @@ impl ExtensionJob {
                 });
             *worker_outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
             worker_finished.store(true, Ordering::Release);
-            if let Some(ctx) = crate::EGUI_CTX.get() {
-                ctx.request_repaint();
-            }
+            crate::repaint::request();
         });
 
         Self {
