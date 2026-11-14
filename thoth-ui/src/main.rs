@@ -132,7 +132,7 @@ fn main() -> Result<()> {
         .set(std::sync::Mutex::new(ConsentManager::new()))
         .ok();
 
-    let icon = load_icon(include_bytes!("../assets/thoth_icon_256.png"));
+    let icon = load_icon(include_bytes!("../../assets/thoth_icon_256.png"));
 
     // Configure window from settings
     let mut viewport = egui::ViewportBuilder::default();

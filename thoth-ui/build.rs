@@ -3,12 +3,12 @@ use std::{env, fs};
 
 fn main() {
     // Re-run if any plugin source or WIT contract changes
-    println!("cargo:rerun-if-changed=plugins/");
-    println!("cargo:rerun-if-changed=wit/");
+    println!("cargo:rerun-if-changed=../plugins/");
+    println!("cargo:rerun-if-changed=../wit/");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let plugins_src = format!("{manifest_dir}/plugins");
-    let plugins_dst = format!("{manifest_dir}/assets/plugins");
+    let plugins_src = format!("{manifest_dir}/../plugins");
+    let plugins_dst = format!("{manifest_dir}/../assets/plugins");
 
     let Ok(entries) = fs::read_dir(&plugins_src) else {
         return; // no plugins directory yet — skip silently
@@ -108,7 +108,7 @@ fn main() {
         // In a Cargo workspace the target/ directory is at the workspace root,
         // not inside the individual plugin crate.
         let wasm_src = format!(
-            "{manifest_dir}/target/wasm32-wasip1/release/{}.wasm",
+            "{manifest_dir}/../target/wasm32-wasip1/release/{}.wasm",
             plugin_name.replace('-', "_")
         );
 
