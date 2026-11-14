@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 pub mod dataset_grants;
 pub mod manager;
-pub mod marketplace;
 pub mod network_policy;
 pub mod plugin_registry;
 pub mod plugin_ui_host;

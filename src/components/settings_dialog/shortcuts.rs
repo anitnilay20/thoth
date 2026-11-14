@@ -1,3 +1,4 @@
+use crate::shortcuts::ShortcutExt;
 use eframe::egui;
 
 use crate::components::settings_dialog::helpers::{group_rows, section_header, setting_row};

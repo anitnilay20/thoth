@@ -1,15 +1,8 @@
-//! Host-side plugin UI rendering.
+//! Host-side plugin UI node types.
 //!
 //! Plugins describe their UI as a [`thoth_plugin_sdk::render_node::RenderNode`]
-//! tree, serialized to JSON across the WIT boundary. The host deserializes that
-//! JSON into [`RenderNode`] and renders it via the SDK's renderer, collecting
-//! interaction events to route back to the plugin's `handle-event`.
-//!
-//! This module is a thin adapter: the DSL, components, and rendering all live
-//! in the `thoth-plugin-sdk` crate (single source of truth for both plugin
-//! authors and the host).
-
-use eframe::egui;
+//! tree, serialized to JSON across the WIT boundary. The types here are the
+//! display-independent half; the egui renderer lives in `thoth-ui`.
 
 pub use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -38,18 +31,4 @@ pub struct UiOutput {
     pub node_json: String,
     /// Height hint in points; `0` means auto-size.
     pub height_hint: u32,
-}
-
-/// Render a plugin [`RenderNode`] tree, collecting interaction events.
-///
-/// SDK events (`id`/`kind`/`value`) are mapped onto host [`UiEvent`]s
-/// (`widget_id`/`kind`/`value`) for the existing event-dispatch path.
-pub fn render_ui_node(ui: &mut egui::Ui, node: &mut RenderNode, events: &mut Vec<UiEvent>) {
-    let mut sdk_events = Vec::new();
-    node.show(ui, &mut sdk_events);
-    events.extend(sdk_events.into_iter().map(|e| UiEvent {
-        widget_id: e.id,
-        kind: e.kind,
-        value: e.value,
-    }));
 }

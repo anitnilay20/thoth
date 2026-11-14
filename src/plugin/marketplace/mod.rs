@@ -14,7 +14,7 @@ use eframe::egui;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    persistent_state::PersistentState,
+    app::persistent_state::PersistentState,
     error::{Result, ThothError},
 };
 

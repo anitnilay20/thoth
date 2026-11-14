@@ -1,4 +1,4 @@
-//! Consent presentation. The queue lives in `thoth-core`.
+//! egui presentation of consent requests. The queue lives in `thoth-core`.
 
 pub use thoth_core::consent::*;
 

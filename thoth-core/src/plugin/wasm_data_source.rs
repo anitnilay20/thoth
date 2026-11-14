@@ -10,9 +10,9 @@ use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use crate::persistent_state::PersistentState;
 use crate::consent::manager::{ConsentCallback, ConsentManager};
 use crate::error::{Result, ThothError};
+use crate::persistent_state::PersistentState;
 use crate::plugin::network_policy::{CheckOutcome, NetworkPolicy};
 use crate::settings::PluginSettingData;
 
@@ -858,9 +858,7 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
         crate::papyrus::append(&self.instance_id, &handle, rows);
         // The app is reactive; a background stream must nudge egui or the newly
         // appended rows won't show until the next user interaction.
-        if let Some(ctx) = crate::EGUI_CTX.get() {
-            ctx.request_repaint();
-        }
+        crate::repaint::request();
     }
 
     fn release(&mut self, handle: String) {
@@ -953,9 +951,7 @@ impl thoth::plugin::websocket::Host for DataSourcePluginState {
                             },
                         ));
                     }
-                    if let Some(ctx) = crate::EGUI_CTX.get() {
-                        ctx.request_repaint();
-                    }
+                    crate::repaint::request();
                 });
 
                 ConsentManager::push_http_consent(&domain, &self.plugin_id, on_allow, on_deny);
@@ -1022,19 +1018,6 @@ fn fd_err(message: impl Into<String>) -> thoth::plugin::file_dialog::PluginError
     }
 }
 
-/// Apply `title` and an optional single suffix filter to a file dialog.
-fn fd_dialog(title: &str, extensions: &[String]) -> rfd::FileDialog {
-    let mut dialog = rfd::FileDialog::new();
-    if !title.is_empty() {
-        dialog = dialog.set_title(title);
-    }
-    if !extensions.is_empty() {
-        let exts: Vec<&str> = extensions.iter().map(String::as_str).collect();
-        dialog = dialog.add_filter("", &exts);
-    }
-    dialog
-}
-
 impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
     fn open_file(
         &mut self,
@@ -1044,7 +1027,7 @@ impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
         Option<thoth::plugin::file_dialog::OpenedFile>,
         thoth::plugin::file_dialog::PluginError,
     > {
-        let Some(path) = fd_dialog(&title, &extensions).pick_file() else {
+        let Some(path) = crate::dialogs::pick_open(&title, &extensions) else {
             return Ok(None);
         };
         let contents = std::fs::read_to_string(&path).map_err(|e| fd_err(e.to_string()))?;
@@ -1061,11 +1044,7 @@ impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
         extensions: Vec<String>,
         contents: String,
     ) -> std::result::Result<Option<String>, thoth::plugin::file_dialog::PluginError> {
-        let mut dialog = fd_dialog(&title, &extensions);
-        if !default_name.is_empty() {
-            dialog = dialog.set_file_name(&default_name);
-        }
-        let Some(path) = dialog.save_file() else {
+        let Some(path) = crate::dialogs::pick_save(&title, &default_name, &extensions) else {
             return Ok(None);
         };
         std::fs::write(&path, contents).map_err(|e| fd_err(e.to_string()))?;

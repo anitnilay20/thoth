@@ -1,5 +1,4 @@
 use crate::error::{Result, ThothError};
-use eframe::egui;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -254,53 +253,6 @@ impl Default for PluginSettings {
 }
 
 impl Settings {
-    const CTX_ID: &'static str = "app_settings";
-    const CTX_DIRTY_ID: &'static str = "app_settings_dirty";
-
-    /// Write settings into the egui context. Call once at the top of each frame.
-    pub fn store(ctx: &egui::Context, settings: &Self) {
-        ctx.data_mut(|d| {
-            d.insert_temp(egui::Id::new(Self::CTX_ID), settings.clone());
-            d.insert_temp(egui::Id::new(Self::CTX_DIRTY_ID), false);
-        });
-    }
-
-    /// Read settings from the egui context.
-    /// Falls back to `Settings::default()` if not yet stored (first frame).
-    pub fn read(ctx: &egui::Context) -> Self {
-        ctx.data(|d| d.get_temp(egui::Id::new(Self::CTX_ID)).unwrap_or_default())
-    }
-
-    /// Mutate settings in the egui context.
-    /// Any component can call this; `ThothApp` picks up the change at end of frame.
-    ///
-    /// Example:
-    /// ```ignore
-    /// Settings::update(ui.ctx(), |s| s.ui.show_toolbar = false);
-    /// ```
-    pub fn update(ctx: &egui::Context, f: impl FnOnce(&mut Self)) {
-        ctx.data_mut(|d| {
-            let mut s: Self = d.get_temp(egui::Id::new(Self::CTX_ID)).unwrap_or_default();
-            f(&mut s);
-            d.insert_temp(egui::Id::new(Self::CTX_ID), s);
-            d.insert_temp(egui::Id::new(Self::CTX_DIRTY_ID), true);
-        });
-    }
-
-    /// Returns `Some(settings)` if any component called `update()` this frame, otherwise `None`.
-    /// Resets the dirty flag. Call once at the end of each frame from `ThothApp`.
-    pub fn take_if_dirty(ctx: &egui::Context) -> Option<Self> {
-        let dirty: bool = ctx
-            .data(|d| d.get_temp(egui::Id::new(Self::CTX_DIRTY_ID)))
-            .unwrap_or(false);
-        if dirty {
-            ctx.data_mut(|d| d.insert_temp(egui::Id::new(Self::CTX_DIRTY_ID), false));
-            ctx.data(|d| d.get_temp(egui::Id::new(Self::CTX_ID)))
-        } else {
-            None
-        }
-    }
-
     /// Current configuration version
     pub const CURRENT_VERSION: u32 = 1;
 

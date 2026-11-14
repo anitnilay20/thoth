@@ -1,3 +1,5 @@
+use crate::SettingsCtx;
+use crate::theme::ThemeExt;
 use crate::theme::icon_rich_text;
 use eframe::egui;
 use std::path::Path;

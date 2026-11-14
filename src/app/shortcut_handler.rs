@@ -1,3 +1,4 @@
+use crate::shortcuts::ShortcutExt;
 use eframe::egui;
 
 use crate::shortcuts::KeyboardShortcuts;

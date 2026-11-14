@@ -1,3 +1,4 @@
+use crate::shortcuts::ShortcutExt;
 use std::path::{Path, PathBuf};
 
 use eframe::egui;

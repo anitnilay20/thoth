@@ -1,3 +1,5 @@
+use crate::SettingsCtx;
+use crate::theme::ThemeExt;
 mod detail;
 mod list;
 mod state;

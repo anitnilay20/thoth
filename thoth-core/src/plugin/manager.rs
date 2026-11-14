@@ -6,9 +6,9 @@ use wasmtime::component::ResourceTable;
 use wasmtime::{Cache, CacheConfig, Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView};
 
-use crate::persistent_state::PersistentState;
 use crate::error::Result;
 use crate::notification::{Notification, NotificationManager, NotificationStatus};
+use crate::persistent_state::PersistentState;
 use crate::plugin::Capability;
 use crate::plugin::network_policy::NetworkPolicy;
 use crate::plugin::plugin_registry::PluginRegistry;
@@ -395,6 +395,8 @@ impl PluginManager {
         // compile time, so CARGO_MANIFEST_DIR is always available here.
         #[cfg(debug_assertions)]
         if let Some(manifest_dir) = option_env!("CARGO_MANIFEST_DIR") {
+            // thoth-core lives one level below the workspace root, where `assets`
+            // sits, so `cargo run` finds bundled plugins without a full install.
             dirs.push((Ok(PathBuf::from(manifest_dir).join("../assets")), true));
         }
 
