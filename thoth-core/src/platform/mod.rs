@@ -6,7 +6,7 @@
 /// # Example
 /// ```no_run
 /// use std::fs::File;
-/// use thoth::platform::FileIO;
+/// use thoth_core::platform::FileIO;
 ///
 /// let file = File::open("data.json")?;
 /// let mut buffer = vec![0u8; 1024];

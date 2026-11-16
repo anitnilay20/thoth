@@ -18,7 +18,7 @@ use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView};
 
 use crate::error::{Result, ThothError};
 use crate::{
-    app::persistent_state::PersistentState,
+    persistent_state::PersistentState,
     plugin::{
         network_policy::{CheckOutcome, NetworkPolicy},
         wasm_data_source::{
@@ -29,7 +29,7 @@ use crate::{
 };
 
 wasmtime::component::bindgen!({
-    path: "wit/thoth-plugin.wit",
+    path: "../wit/thoth-plugin.wit",
     world: "cli-plugin",
 });
 

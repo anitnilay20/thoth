@@ -1,0 +1,28 @@
+[package]
+name = "thoth-cli"
+version = "0.4.7"
+edition = "2024"
+rust-version = "1.92"
+repository = "https://github.com/anitnilay20/thoth"
+authors = ["Anit Nilay <anit.nilay20@gmail.com>"]
+description = "Display-free command-line interface for Thoth."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "thoth_cli"
+path = "src/lib.rs"
+
+[dev-dependencies]
+tempfile = "3.15"
+
+[dependencies]
+thoth-core = { path = "../thoth-core" }
+thoth-plugin-sdk = { path = "../thoth-plugin-sdk" }
+clap = { version = "4.5", features = ["derive", "string"] }
+clap_complete = "4.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+unicode-width = "0.2"
+anyhow = "1.0"
+duckdb = { version = "~1.10505.0", features = ["bundled", "json", "parquet", "vtab-arrow"] }

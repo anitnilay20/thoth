@@ -42,17 +42,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev pkg-config
 
-      # Test the host, the SDK and the macros crate. `cargo test` runs unit,
-      # integration (tests/*) and doc tests in one pass — the workspace
-      # `default-members` is just the host crate, so the SDK + macros are named
-      # explicitly (the wasm plugins are excluded: they only build for wasm32).
-      # The SDK's UI tests live behind its `egui` feature, so it is built and
-      # tested in a second command with that feature on. The host's `profiling`
-      # feature (puffin + dhat) is deliberately not enabled: it slows the build
-      # and buys nothing for the test pass.
+      # Test the host crates, the SDK and the macros crate. `cargo test` runs
+      # unit, integration (tests/*) and doc tests in one pass — the workspace
+      # `default-members` is just the host crate, so the logic/CLI crates, the
+      # SDK and the macros crate are named explicitly (the wasm plugins are
+      # excluded: they only build for wasm32). The SDK's UI tests live behind
+      # its `egui` feature, so it is built and tested in a second command with
+      # that feature on. The host's `profiling` feature (puffin + dhat) is
+      # deliberately not enabled: it slows the build and buys nothing for the
+      # test pass.
       - name: Run tests
         run: |
-          cargo test -p thoth -p thoth-plugin-sdk-macros
+          cargo test -p thoth-core -p thoth-cli -p thoth -p thoth-plugin-sdk-macros
           cargo test -p thoth-plugin-sdk --features egui
 
   clippy:
@@ -125,7 +126,7 @@ jobs:
           tool: cargo-llvm-cov
 
       - name: Generate coverage
-        run: cargo llvm-cov test --all-features --cobertura --output-path cobertura.xml
+        run: cargo llvm-cov test -p thoth-core -p thoth-cli -p thoth --all-features --cobertura --output-path cobertura.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
