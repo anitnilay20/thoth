@@ -1,0 +1,25 @@
+# Coverage policy
+#
+# The display-free logic — `thoth-core` and `thoth-cli` — is held to a 50%
+# floor. The egui desktop layer is exercised manually and through integration
+# tests rather than unit tests, so it is excluded from the gate instead of
+# dragging the logic crates below the floor. Before the split the desktop crate
+# lived at the repository root (`src/`), so both layouts are ignored.
+#
+# The ignore entries are anchored regular expressions so they match only the
+# top-level UI tree and not `thoth-core/src/…` or `thoth-cli/src/…`.
+coverage:
+  status:
+    project:
+      default:
+        target: 50%
+        threshold: 0%
+    patch:
+      default:
+        target: 50%
+        threshold: 5%
+        if_not_found: success
+
+ignore:
+  - "^src/.*"
+  - "^thoth-ui/.*"
