@@ -295,9 +295,16 @@ mod mark_tests {
     /// explained — and so is this file, which has to spell them to ban them.
     #[test]
     fn no_source_file_hand_writes_a_key_symbol() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .expect("thoth-ui lives one level below the workspace root");
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        // The desktop crate is the workspace root in the first extraction step
+        // and `thoth-ui` afterwards; use whichever tree actually exists.
+        let root = if manifest.join("thoth-core").is_dir() {
+            manifest
+        } else {
+            manifest
+                .parent()
+                .expect("thoth-ui lives one level below the workspace root")
+        };
         let mut offenders = Vec::new();
 
         fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -322,9 +329,23 @@ mod mark_tests {
         }
 
         let mut files = Vec::new();
-        for crate_src in ["thoth-core", "thoth-cli", "thoth-ui", "thoth-plugin-sdk"] {
-            walk(&root.join(crate_src).join("src"), &mut files);
+        for source in [
+            "src",
+            "thoth-core/src",
+            "thoth-cli/src",
+            "thoth-ui/src",
+            "thoth-plugin-sdk/src",
+        ] {
+            let dir = root.join(source);
+            if dir.is_dir() {
+                walk(&dir, &mut files);
+            }
         }
+        assert!(
+            !files.is_empty(),
+            "the key-symbol scan found no source files; scan root is {}",
+            root.display()
+        );
 
         for file in files {
             // This file spells the symbols in order to forbid them.

@@ -197,7 +197,7 @@ The host is split into three crates with a one-way dependency graph
 
 - `thoth-core/`: Display-independent logic — file handling and lazy loading, the Papyrus data bus, the sandboxed WebAssembly plugin runtime, MCP, settings and updates. Carries no `egui`/`eframe` dependency; UI needs reach it through small seams (repaint notifications, the native file picker).
 - `thoth-cli/`: The display-free command runtime and `clap` front-end (`cli`, `headless`).
-- `thoth-ui/`: The `eframe`/`egui` desktop application and the `thoth` binary — all panels, the theme/dock rendering, and the plugin UI renderer.
+- `thoth-ui/`: The `eframe`/`egui` desktop application and the `thoth` binary — all panels, the theme/dock rendering, and the plugin UI renderer. The split is staged: this crate is introduced by the final step, and until that step the desktop is the repository-root `thoth` package whose sources live in `src/`.
 - `thoth-plugin-sdk/`: Plugin authoring SDK — the shared UI component library + `RenderNode` DSL and plugin helpers (also rendered by the host)
 - `thoth-plugin-sdk-macros/`: Derive macros for the SDK (`PluginMeta`)
 - `plugins/`: Bundled example plugins (url-source, seshat, csv-export, card-view)

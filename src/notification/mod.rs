@@ -19,20 +19,27 @@ fn toasts() -> &'static Mutex<Toasts> {
 
 /// Drain queued toasts from the core manager and render them.
 pub fn show_notifications(ctx: &egui::Context) {
-    if let Some(core) = crate::NOTIFICATION_MANAGER.get()
-        && let Ok(mut nm) = core.lock()
+    let (pending, dismiss) = match crate::NOTIFICATION_MANAGER
+        .get()
+        .and_then(|manager| manager.lock().ok())
     {
-        let pending: Vec<String> = nm.pending_toasts.drain(..).collect();
-        if !pending.is_empty() {
-            let mut t = toasts().lock().unwrap_or_else(|e| e.into_inner());
-            for title in pending {
-                t.info(title)
-                    .closable(true)
-                    .duration(std::time::Duration::from_secs(5));
-            }
-        }
-    }
+        Some(mut nm) => (
+            nm.pending_toasts.drain(..).collect::<Vec<_>>(),
+            std::mem::take(&mut nm.dismiss_toasts),
+        ),
+        None => (Vec::new(), false),
+    };
 
     let mut t = toasts().lock().unwrap_or_else(|e| e.into_inner());
+    // Dismiss before adding, so a clear request cannot remove toasts raised in
+    // the same frame.
+    if dismiss {
+        t.dismiss_all_toasts();
+    }
+    for title in pending {
+        t.info(title)
+            .closable(true)
+            .duration(std::time::Duration::from_secs(5));
+    }
     t.show(ctx);
 }

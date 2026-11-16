@@ -72,8 +72,14 @@ mod repaint_tests {
     #[test]
     fn an_installed_notifier_is_invoked_by_request() {
         static HITS: AtomicUsize = AtomicUsize::new(0);
-        repaint::set_notifier(std::sync::Arc::new(|| {
-            HITS.fetch_add(1, Ordering::Relaxed);
+        // The notifier is process-wide, so other tests (indexing workers) may
+        // call `request()` concurrently. Count only this test thread's calls so
+        // the assertion cannot be inflated by background requests.
+        let this_thread = std::thread::current().id();
+        repaint::set_notifier(std::sync::Arc::new(move || {
+            if std::thread::current().id() == this_thread.clone() {
+                HITS.fetch_add(1, Ordering::Relaxed);
+            }
         }));
 
         repaint::request();

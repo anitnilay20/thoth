@@ -5,7 +5,9 @@ Conventions that are easy to violate by accident, and expensive to unpick later.
 ## Crates: logic / CLI / UI are separate
 
 The host is three crates with a one-way graph — `thoth-ui` → `thoth-cli` →
-`thoth-core`.
+`thoth-core`. The extraction is staged: `thoth-ui` is introduced by the final
+step, and until that step the desktop is the repository-root `thoth` package in
+`src/`.
 
 - **`thoth-core` must stay free of `egui`/`eframe`** (and of `rfd`, `muda`,
   `fontdb`, `egui_*`). Check with

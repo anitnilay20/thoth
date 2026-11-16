@@ -56,6 +56,9 @@ pub struct NotificationManager {
     pub tasks: HashMap<String, Notification>,
     /// Toasts waiting to be shown by the UI. Drained each frame.
     pub pending_toasts: Vec<String>,
+    /// Set when toasts already on screen should be dismissed. Consumed by the
+    /// host the next time it renders toasts.
+    pub dismiss_toasts: bool,
 }
 
 impl NotificationManager {
@@ -64,6 +67,7 @@ impl NotificationManager {
             notifications: HashMap::new(),
             tasks: HashMap::new(),
             pending_toasts: Vec::new(),
+            dismiss_toasts: false,
         }
     }
 
@@ -136,6 +140,8 @@ impl NotificationManager {
 
     pub fn clear_notifications(&mut self) {
         self.notifications.retain(|_, n| n.pinned);
+        self.pending_toasts.clear();
+        self.dismiss_toasts = true;
     }
 
     pub fn mark_all_read(&mut self) {
@@ -229,5 +235,26 @@ impl Notification {
     pub fn pinned(mut self) -> Self {
         self.pinned = true;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clear_drops_unpinned_and_queued_toasts_but_keeps_pinned() {
+        let mut manager = NotificationManager::new();
+        manager.add_notification(Notification::new("keep", "pinned").with_id("keep").pinned());
+        manager.add_notification(Notification::new("drop", "transient").with_id("drop"));
+        assert_eq!(manager.pending_toasts.len(), 2);
+
+        manager.clear_notifications();
+
+        assert!(manager.notifications.values().all(|n| n.pinned));
+        assert!(manager.notifications.contains_key("keep"));
+        assert!(!manager.notifications.contains_key("drop"));
+        assert!(manager.pending_toasts.is_empty());
+        assert!(manager.dismiss_toasts);
     }
 }
