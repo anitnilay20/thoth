@@ -41,9 +41,9 @@ pub struct ThothCore {
     pub session_restore_active_index: Option<usize>,
     pub last_active_plugin_tab: Option<usize>,
     pub chart_counter: usize,
-    /// The resolved snapshot for the chart source currently selected, keyed
-    /// by [`chart_studio::source_key`](crate::components::chart_studio::source_key)
-    /// — a tab *and* which of its relations, since a tab may hold several.
+    /// The resolved snapshot for the chart source currently selected, keyed by
+    /// its source key — a tab *and* which of its relations, since a tab may
+    /// hold several.
     pub chart_source: Option<(String, Vec<String>, Vec<Vec<String>>)>,
     events: VecDeque<CoreEvent>,
 }

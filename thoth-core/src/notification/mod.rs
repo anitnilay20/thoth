@@ -1,5 +1,9 @@
-use eframe::egui::{self};
-use egui_notify::Toasts;
+//! Display-independent notification store.
+//!
+//! The manager keeps the notifications themselves and a queue of toasts that
+//! the desktop UI drains and renders (see `thoth-ui`'s `notification` module).
+//! There is no egui dependency here.
+
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -48,17 +52,18 @@ pub struct Notification {
 }
 
 pub struct NotificationManager {
-    pub toasts: Toasts,
     pub notifications: HashMap<String, Notification>,
     pub tasks: HashMap<String, Notification>,
+    /// Toasts waiting to be shown by the UI. Drained each frame.
+    pub pending_toasts: Vec<String>,
 }
 
 impl NotificationManager {
     pub fn new() -> Self {
         Self {
-            toasts: Toasts::default().with_anchor(egui_notify::Anchor::BottomRight),
             notifications: HashMap::new(),
             tasks: HashMap::new(),
+            pending_toasts: Vec::new(),
         }
     }
 
@@ -125,20 +130,12 @@ impl NotificationManager {
         }
 
         if notification.show_toast {
-            self.toasts
-                .info(notification.title.clone())
-                .closable(true)
-                .duration(Duration::from_secs(5));
+            self.pending_toasts.push(notification.title.clone());
         }
-    }
-
-    pub fn show_notifications(&mut self, ctx: &egui::Context) {
-        self.toasts.show(ctx);
     }
 
     pub fn clear_notifications(&mut self) {
         self.notifications.retain(|_, n| n.pinned);
-        self.toasts.dismiss_all_toasts();
     }
 
     pub fn mark_all_read(&mut self) {

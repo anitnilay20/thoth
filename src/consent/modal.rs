@@ -1,3 +1,4 @@
+use crate::theme::ThemeExt;
 use std::cell::Cell;
 
 use eframe::egui::{self, Align2, CornerRadius, Frame, Layout, Margin, Stroke, StrokeKind};

@@ -1,3 +1,4 @@
+use crate::theme::ThemeExt;
 // Settings dialog components module
 //
 // This module contains the settings dialog and all its sub-components:

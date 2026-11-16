@@ -169,6 +169,10 @@ fn main() -> Result<()> {
             thoth_plugin_sdk::theme::register_phosphor(&mut fonts);
             cc.egui_ctx.set_fonts(fonts);
 
+            // Publish the egui context and install the core seams (repaint
+            // notifications and the plugin file-dialog picker).
+            thoth::install_host_seams(&cc.egui_ctx);
+
             // Register egui's image loaders so components can decode embedded
             // image bytes (e.g. a plugin's `CardIcon::Image` / list logo tiles).
             egui_extras::install_image_loaders(&cc.egui_ctx);

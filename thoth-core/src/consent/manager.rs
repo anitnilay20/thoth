@@ -11,7 +11,7 @@ static CONSENT_ID: AtomicU64 = AtomicU64::new(1);
 /// A single permission the plugin is requesting.
 #[derive(Clone)]
 pub struct PermissionEntry {
-    /// Phosphor glyph for the permission type (e.g. `egui_phosphor::regular::GLOBE`).
+    /// Phosphor glyph for the permission type (U+E288 globe).
     pub icon: &'static str,
     pub label: String,
     /// Short monospace scope hint shown next to the label.
@@ -72,7 +72,7 @@ impl ConsentManager {
                 title: "Network Request Consent".to_string(),
                 message: format!("A plugin is requesting access to '{domain}'."),
                 permissions: vec![PermissionEntry {
-                    icon: egui_phosphor::regular::GLOBE,
+                    icon: "\u{E288}",
                     label: "Make network requests".to_string(),
                     scope: format!("to {domain}"),
                     sensitive: false,
@@ -103,7 +103,7 @@ impl ConsentManager {
                     "'{consumer}' wants to receive the dataset '{dataset}' (produced by '{source}')."
                 ),
                 permissions: vec![PermissionEntry {
-                    icon: egui_phosphor::regular::DATABASE,
+                    icon: "\u{E1DE}",
                     label: "Receive another plugin's dataset".to_string(),
                     scope: format!("from {source}"),
                     sensitive: true,

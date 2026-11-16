@@ -1,11 +1,12 @@
 //! Thoth core
 //!
-//! Display-independent logic shared by the desktop UI and the command-line
-//! interface: file loading, the Papyrus data bus, the sandboxed WebAssembly
-//! plugin runtime, MCP, settings and updates.
+//! Display-independent logic shared by the desktop UI (`thoth-ui`) and the
+//! command-line interface (`thoth-cli`): file loading, the Papyrus data bus,
+//! the sandboxed WebAssembly plugin runtime, MCP, settings and updates.
 //!
-//! The CLI lives in `thoth-cli`; the `thoth` host crate re-exports this crate
-//! and adds the desktop UI.
+//! This crate must not depend on `eframe`/`egui`; anything that needs a
+//! graphics context lives in `thoth-ui` and reaches back through the seams in
+//! [`repaint`].
 
 use std::sync::{OnceLock, atomic::AtomicBool};
 
@@ -13,6 +14,7 @@ pub mod config_dir;
 pub mod consent;
 pub mod constants;
 pub mod core;
+pub mod dialogs;
 pub mod error;
 pub mod file;
 pub mod helpers;
@@ -33,11 +35,31 @@ pub static NOTIFICATION_MANAGER: OnceLock<std::sync::Mutex<notification::Notific
 pub static CONSENT_MANAGER: OnceLock<std::sync::Mutex<consent::manager::ConsentManager>> =
     OnceLock::new();
 
-/// The egui context, published once on the first frame so background workers
-/// (e.g. the WebSocket connection tasks) can request a repaint when data
-/// arrives off the UI thread.
-pub static EGUI_CTX: OnceLock<eframe::egui::Context> = OnceLock::new();
-
 /// Set to `true` by the "Update Now" notification action callback.
 /// Polled each frame by ThothApp and cleared after opening the updates settings tab.
 pub static OPEN_UPDATES_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Request a repaint from display-independent code.
+///
+/// `thoth-ui` installs the real notifier (an `egui::Context::request_repaint`)
+/// once on startup; headless callers leave it unset, so this is a no-op.
+pub mod repaint {
+    use std::sync::Arc;
+    use std::sync::OnceLock;
+
+    type Notifier = Arc<dyn Fn() + Send + Sync + 'static>;
+
+    static NOTIFIER: OnceLock<Notifier> = OnceLock::new();
+
+    /// Install the process-wide repaint notifier. Ignored if already set.
+    pub fn set_notifier(notifier: Notifier) {
+        let _ = NOTIFIER.set(notifier);
+    }
+
+    /// Ask the host to repaint, if one is attached.
+    pub fn request() {
+        if let Some(notifier) = NOTIFIER.get() {
+            notifier();
+        }
+    }
+}

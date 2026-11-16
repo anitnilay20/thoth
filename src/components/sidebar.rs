@@ -1,3 +1,4 @@
+use crate::theme::ThemeExt;
 use std::collections::HashMap;
 
 use crate::app::persistent_state::SavedQuery;
