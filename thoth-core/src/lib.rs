@@ -63,3 +63,22 @@ pub mod repaint {
         }
     }
 }
+
+#[cfg(test)]
+mod repaint_tests {
+    use super::repaint;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn an_installed_notifier_is_invoked_by_request() {
+        static HITS: AtomicUsize = AtomicUsize::new(0);
+        repaint::set_notifier(std::sync::Arc::new(|| {
+            HITS.fetch_add(1, Ordering::Relaxed);
+        }));
+
+        repaint::request();
+        repaint::request();
+
+        assert_eq!(HITS.load(Ordering::Relaxed), 2);
+    }
+}

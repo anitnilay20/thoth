@@ -48,3 +48,38 @@ pub fn pick_save(title: &str, default_name: &str, extensions: &[String]) -> Opti
 fn pick(request: FileDialogRequest) -> Option<PathBuf> {
     PICKER.get().and_then(|picker| picker(request))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn an_installed_picker_receives_open_and_save_requests() {
+        // This is the only test that installs the process-wide picker, so the
+        // `OnceLock` is set exactly once for the core test binary.
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        set_picker(std::sync::Arc::new(|request| {
+            assert_eq!(request.title, "Pick");
+            assert_eq!(request.extensions, vec!["json".to_string()]);
+            CALLS.fetch_add(1, Ordering::Relaxed);
+            Some(PathBuf::from("/tmp/chosen.json"))
+        }));
+
+        assert_eq!(
+            pick_open("Pick", &["json".to_string()]),
+            Some(PathBuf::from("/tmp/chosen.json"))
+        );
+        // Empty default name -> `default_name` is `None`.
+        assert_eq!(
+            pick_save("Pick", "", &["json".to_string()]),
+            Some(PathBuf::from("/tmp/chosen.json"))
+        );
+        // Non-empty default name -> `default_name` is `Some`.
+        assert_eq!(
+            pick_save("Pick", "out.json", &["json".to_string()]),
+            Some(PathBuf::from("/tmp/chosen.json"))
+        );
+        assert_eq!(CALLS.load(Ordering::Relaxed), 3);
+    }
+}
