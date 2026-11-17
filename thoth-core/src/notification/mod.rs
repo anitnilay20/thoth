@@ -1,5 +1,9 @@
-use eframe::egui::{self};
-use egui_notify::Toasts;
+//! Display-independent notification store.
+//!
+//! The manager keeps the notifications themselves and a queue of toasts that
+//! the desktop UI drains and renders (see `thoth-ui`'s `notification` module).
+//! There is no egui dependency here.
+
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -48,17 +52,22 @@ pub struct Notification {
 }
 
 pub struct NotificationManager {
-    pub toasts: Toasts,
     pub notifications: HashMap<String, Notification>,
     pub tasks: HashMap<String, Notification>,
+    /// Toasts waiting to be shown by the UI. Drained each frame.
+    pub pending_toasts: Vec<String>,
+    /// Set when toasts already on screen should be dismissed. Consumed by the
+    /// host the next time it renders toasts.
+    pub dismiss_toasts: bool,
 }
 
 impl NotificationManager {
     pub fn new() -> Self {
         Self {
-            toasts: Toasts::default().with_anchor(egui_notify::Anchor::BottomRight),
             notifications: HashMap::new(),
             tasks: HashMap::new(),
+            pending_toasts: Vec::new(),
+            dismiss_toasts: false,
         }
     }
 
@@ -125,20 +134,14 @@ impl NotificationManager {
         }
 
         if notification.show_toast {
-            self.toasts
-                .info(notification.title.clone())
-                .closable(true)
-                .duration(Duration::from_secs(5));
+            self.pending_toasts.push(notification.title.clone());
         }
-    }
-
-    pub fn show_notifications(&mut self, ctx: &egui::Context) {
-        self.toasts.show(ctx);
     }
 
     pub fn clear_notifications(&mut self) {
         self.notifications.retain(|_, n| n.pinned);
-        self.toasts.dismiss_all_toasts();
+        self.pending_toasts.clear();
+        self.dismiss_toasts = true;
     }
 
     pub fn mark_all_read(&mut self) {
@@ -232,5 +235,26 @@ impl Notification {
     pub fn pinned(mut self) -> Self {
         self.pinned = true;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clear_drops_unpinned_and_queued_toasts_but_keeps_pinned() {
+        let mut manager = NotificationManager::new();
+        manager.add_notification(Notification::new("keep", "pinned").with_id("keep").pinned());
+        manager.add_notification(Notification::new("drop", "transient").with_id("drop"));
+        assert_eq!(manager.pending_toasts.len(), 2);
+
+        manager.clear_notifications();
+
+        assert!(manager.notifications.values().all(|n| n.pinned));
+        assert!(manager.notifications.contains_key("keep"));
+        assert!(!manager.notifications.contains_key("drop"));
+        assert!(manager.pending_toasts.is_empty());
+        assert!(manager.dismiss_toasts);
     }
 }

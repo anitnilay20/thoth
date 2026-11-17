@@ -1,3 +1,4 @@
+use crate::theme::ThemeExt;
 // ThemePicker — design `screens.html` §2 “ThemePicker”: the `.tp-active` summary
 // card, the `.tp-filter` bar, then `.tp-fam` labelled `.tp-grid`s of `.pc` mini
 // chrome previews.

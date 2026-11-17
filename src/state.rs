@@ -1,5 +1,5 @@
-//! Window-level UI state. The display-independent `NavigationHistory` and
-//! `ApplicationUpdateState` live in `thoth-core` and are re-exported here.
+//! egui-only window state. `NavigationHistory` and `ApplicationUpdateState` are
+//! display-independent and live in `thoth-core`; re-exported here.
 
 pub use thoth_core::state::*;
 

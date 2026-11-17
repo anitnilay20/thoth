@@ -17,13 +17,6 @@ pub const CARD_RADIUS: f32 = 8.0;
 pub const CONTROL_WIDTH: f32 = 220.0;
 pub const DIRTY_DOT_RADIUS: f32 = 3.0;
 
-// ── Squircle redesign — radius ladder + floating-panel chrome ────────────────
-// Owned by the SDK so host chrome and plugin/SDK widgets round identically;
-// re-exported here so `crate::theme::RADIUS_PANEL` keeps resolving.
-pub use thoth_plugin_sdk::theme::{
-    GUTTER_GAP, RADIUS_CHIP, RADIUS_CONTROL, RADIUS_PANEL, RADIUS_WINDOW,
-};
-
 impl Theme {
     pub fn mocha() -> Self {
         Self {

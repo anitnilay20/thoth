@@ -1,3 +1,4 @@
+use crate::theme::ThemeExt;
 use eframe::egui;
 
 use crate::components::common::traits::StatelessComponent;
