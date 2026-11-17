@@ -77,7 +77,7 @@ mod repaint_tests {
         // the assertion cannot be inflated by background requests.
         let this_thread = std::thread::current().id();
         repaint::set_notifier(std::sync::Arc::new(move || {
-            if std::thread::current().id() == this_thread.clone() {
+            if std::thread::current().id() == this_thread {
                 HITS.fetch_add(1, Ordering::Relaxed);
             }
         }));
