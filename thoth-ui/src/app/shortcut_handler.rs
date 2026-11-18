@@ -42,6 +42,7 @@ pub enum ShortcutAction {
     MoveDown,
 
     // UI
+    ToggleSidebar,
     Settings,
     ToggleTheme,
 
@@ -95,39 +96,21 @@ impl ShortcutHandler {
             }
         }
 
-        // Navigation: ⌘[ / ⌘]
-        if ctx.input_mut(|i| {
-            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::OpenBracket)
-        }) {
+        // Navigation back/forward, driven by the configured bindings.
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.nav_back.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::NavBack);
         }
 
-        if ctx.input_mut(|i| {
-            i.modifiers.command && i.consume_key(egui::Modifiers::COMMAND, egui::Key::CloseBracket)
-        }) {
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.nav_forward.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::NavForward);
         }
 
-        // Tab cycling: ⌘⌥→ / ⌘⌥← — arrow keys have no char-composition issues.
-        if ctx.input_mut(|i| {
-            i.modifiers.command
-                && i.modifiers.alt
-                && i.consume_key(
-                    egui::Modifiers::COMMAND | egui::Modifiers::ALT,
-                    egui::Key::ArrowRight,
-                )
-        }) {
+        // Tab cycling (⌘⌥→ / ⌘⌥← by default), also from the configured bindings.
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.next_tab.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::NextTab);
         }
 
-        if ctx.input_mut(|i| {
-            i.modifiers.command
-                && i.modifiers.alt
-                && i.consume_key(
-                    egui::Modifiers::COMMAND | egui::Modifiers::ALT,
-                    egui::Key::ArrowLeft,
-                )
-        }) {
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.prev_tab.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::PrevTab);
         }
 
@@ -178,22 +161,24 @@ impl ShortcutHandler {
                 actions.push(ShortcutAction::CollapseAll);
             }
 
-            // Clipboard
-            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_key.to_keyboard_shortcut())) {
-                actions.push(ShortcutAction::CopyKey);
+            // Clipboard. `matches_logically` ignores extra shift/alt, so the
+            // variants must be tested before the plain ⌘C binding or they are
+            // silently swallowed by it.
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_object.to_keyboard_shortcut()))
+            {
+                actions.push(ShortcutAction::CopyObject);
             }
 
             if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_value.to_keyboard_shortcut())) {
                 actions.push(ShortcutAction::CopyValue);
             }
 
-            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_object.to_keyboard_shortcut()))
-            {
-                actions.push(ShortcutAction::CopyObject);
-            }
-
             if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_path.to_keyboard_shortcut())) {
                 actions.push(ShortcutAction::CopyPath);
+            }
+
+            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_key.to_keyboard_shortcut())) {
+                actions.push(ShortcutAction::CopyKey);
             }
 
             // Movement
@@ -207,6 +192,10 @@ impl ShortcutHandler {
         }
 
         // UI
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.toggle_sidebar.to_keyboard_shortcut())) {
+            actions.push(ShortcutAction::ToggleSidebar);
+        }
+
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.settings.to_keyboard_shortcut())) {
             actions.push(ShortcutAction::Settings);
         }
@@ -241,13 +230,183 @@ impl ShortcutHandler {
             egui::Key::Num8,
             egui::Key::Num9,
         ];
+        // Only the modifiers are configurable here; the digits are fixed.
+        let tab_modifiers = shortcuts.switch_to_tab.to_keyboard_shortcut().modifiers;
         for (idx, key) in TAB_KEYS.iter().enumerate() {
-            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, *key)) {
+            if ctx.input_mut(|i| i.consume_key(tab_modifiers, *key)) {
                 actions.push(ShortcutAction::SwitchToTab(idx));
                 break;
             }
         }
 
         actions
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shortcuts::Shortcut;
+
+    /// Run one egui frame with a single key press and return the actions the
+    /// shortcut handler reports. Because the handler consumes keys, a frame
+    /// with one press can only produce the actions for that one binding.
+    fn actions_for(
+        sc: &KeyboardShortcuts,
+        key: egui::Key,
+        modifiers: egui::Modifiers,
+    ) -> Vec<ShortcutAction> {
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput {
+            modifiers,
+            events: vec![egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            }],
+            ..Default::default()
+        };
+
+        let mut actions = Vec::new();
+        let _ = ctx.run_ui(raw, |ui| {
+            actions = ShortcutHandler::handle_shortcuts(ui.ctx(), sc);
+        });
+        actions
+    }
+
+    fn actions_for_shortcut(sc: &KeyboardShortcuts, shortcut: &Shortcut) -> Vec<ShortcutAction> {
+        let kc = shortcut.to_keyboard_shortcut();
+        actions_for(sc, kc.logical_key, kc.modifiers)
+    }
+
+    /// Every binding in `KeyboardShortcuts` must fire exactly its action.
+    /// `matches_logically` ignores extra shift/alt modifiers, so a plain
+    /// shortcut checked before a shifted one on the same key silently shadows
+    /// it; asserting the whole action list catches that.
+    #[test]
+    fn every_default_shortcut_fires_its_own_action() {
+        let sc = KeyboardShortcuts::default();
+        let cases: [(&str, &Shortcut, ShortcutAction); 32] = [
+            ("open_file", &sc.open_file, ShortcutAction::OpenFile),
+            ("new_window", &sc.new_window, ShortcutAction::NewWindow),
+            ("close_tab", &sc.close_tab, ShortcutAction::CloseTab),
+            ("new_tab", &sc.new_tab, ShortcutAction::NewTab),
+            ("next_tab", &sc.next_tab, ShortcutAction::NextTab),
+            ("prev_tab", &sc.prev_tab, ShortcutAction::PrevTab),
+            (
+                "switch_to_tab",
+                &sc.switch_to_tab,
+                ShortcutAction::SwitchToTab(0),
+            ),
+            (
+                "toggle_query",
+                &sc.toggle_query,
+                ShortcutAction::ToggleQueryBuilder,
+            ),
+            ("run_query", &sc.run_query, ShortcutAction::RunQuery),
+            ("add_filter", &sc.add_filter, ShortcutAction::AddFilter),
+            ("group_by", &sc.group_by, ShortcutAction::GroupBy),
+            (
+                "add_aggregate",
+                &sc.add_aggregate,
+                ShortcutAction::AddAggregate,
+            ),
+            ("add_sort", &sc.add_sort, ShortcutAction::AddSort),
+            ("nav_back", &sc.nav_back, ShortcutAction::NavBack),
+            ("nav_forward", &sc.nav_forward, ShortcutAction::NavForward),
+            ("escape", &sc.escape, ShortcutAction::Escape),
+            ("save_query", &sc.save_query, ShortcutAction::SaveQuery),
+            (
+                "open_saved_queries",
+                &sc.open_saved_queries,
+                ShortcutAction::OpenSavedQueries,
+            ),
+            ("expand_node", &sc.expand_node, ShortcutAction::ExpandNode),
+            (
+                "collapse_node",
+                &sc.collapse_node,
+                ShortcutAction::CollapseNode,
+            ),
+            ("expand_all", &sc.expand_all, ShortcutAction::ExpandAll),
+            (
+                "collapse_all",
+                &sc.collapse_all,
+                ShortcutAction::CollapseAll,
+            ),
+            ("copy_key", &sc.copy_key, ShortcutAction::CopyKey),
+            ("copy_value", &sc.copy_value, ShortcutAction::CopyValue),
+            ("copy_object", &sc.copy_object, ShortcutAction::CopyObject),
+            ("copy_path", &sc.copy_path, ShortcutAction::CopyPath),
+            ("move_up", &sc.move_up, ShortcutAction::MoveUp),
+            ("move_down", &sc.move_down, ShortcutAction::MoveDown),
+            (
+                "toggle_sidebar",
+                &sc.toggle_sidebar,
+                ShortcutAction::ToggleSidebar,
+            ),
+            ("settings", &sc.settings, ShortcutAction::Settings),
+            (
+                "toggle_theme",
+                &sc.toggle_theme,
+                ShortcutAction::ToggleTheme,
+            ),
+            (
+                "toggle_profiler",
+                &sc.toggle_profiler,
+                ShortcutAction::ToggleProfiler,
+            ),
+        ];
+
+        let mut failures = Vec::new();
+        for (name, shortcut, expected) in cases {
+            let actions = actions_for_shortcut(&sc, shortcut);
+            if actions != vec![expected] {
+                failures.push(format!(
+                    "{name} ({}): expected [{expected:?}], got {actions:?}",
+                    shortcut.format()
+                ));
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "these shortcuts did not fire their own action:\n  {}",
+            failures.join("\n  ")
+        );
+    }
+
+    #[test]
+    fn command_digit_switches_to_tab() {
+        let sc = KeyboardShortcuts::default();
+        let actions = actions_for(&sc, egui::Key::Num3, egui::Modifiers::COMMAND);
+        assert_eq!(actions, vec![ShortcutAction::SwitchToTab(2)]);
+    }
+
+    #[test]
+    fn handler_honours_rebound_bindings() {
+        let sc = KeyboardShortcuts {
+            nav_back: Shortcut::new("H").command(),
+            next_tab: Shortcut::new("K").command().alt(),
+            switch_to_tab: Shortcut::new("1").command().alt(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            actions_for_shortcut(&sc, &sc.nav_back),
+            vec![ShortcutAction::NavBack]
+        );
+        assert_eq!(
+            actions_for_shortcut(&sc, &sc.next_tab),
+            vec![ShortcutAction::NextTab]
+        );
+
+        // The digits stay fixed; only the modifiers come from the setting.
+        let tab_modifiers = sc.switch_to_tab.to_keyboard_shortcut().modifiers;
+        assert_eq!(
+            actions_for(&sc, egui::Key::Num5, tab_modifiers),
+            vec![ShortcutAction::SwitchToTab(4)]
+        );
     }
 }

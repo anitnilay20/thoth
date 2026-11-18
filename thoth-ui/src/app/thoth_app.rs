@@ -579,6 +579,15 @@ impl ThothApp {
                 ShortcutAction::Settings => {
                     self.open_settings_window(ctx);
                 }
+                ShortcutAction::ToggleSidebar => {
+                    self.window_state.sidebar_expanded = !self.window_state.sidebar_expanded;
+                    if self.core.settings.ui.remember_sidebar_state {
+                        self.core
+                            .persistent_state
+                            .set_sidebar_expanded(self.window_state.sidebar_expanded);
+                        let _ = self.core.persistent_state.save();
+                    }
+                }
                 ShortcutAction::ToggleTheme => {
                     self.core.settings.dark_mode = !self.core.settings.dark_mode;
                     self.core.settings_changed = true;

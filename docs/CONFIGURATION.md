@@ -157,11 +157,10 @@ selection_stroke = "#89b4fa"
 
 ### 10. Keyboard Shortcuts
 
-All keyboard shortcuts are fully customizable:
+All keyboard shortcuts are customizable in `settings.toml`. Each entry is a
+`[shortcuts.<name>]` table with `key`, `command`, `ctrl`, `alt` and `shift`:
 
 ```toml
-[shortcuts]
-
 [shortcuts.open_file]
 key = "O"
 command = true    # Cmd on macOS, Ctrl elsewhere
@@ -169,35 +168,35 @@ ctrl = false
 alt = false
 shift = false
 
-[shortcuts.close_file]
-key = "W"
+[shortcuts.toggle_sidebar]
+key = "B"
 command = true
 
-[shortcuts.focus_search]
-key = "F"
+[shortcuts.switch_to_tab]
+key = "1"          # key is ignored; the modifiers apply to 1–9
 command = true
-
-[shortcuts.toggle_theme]
-key = "T"
-command = true
-shift = true
 ```
 
 **Available shortcuts:**
-- `open_file` - Open file dialog
-- `close_file` - Close current file
-- `new_window` - Open new window
-- `focus_search` - Focus search input
-- `expand_node` - Expand selected node
-- `collapse_node` - Collapse selected node
-- `copy_key` - Copy selected key
-- `copy_value` - Copy selected value
-- `toggle_theme` - Switch between dark/light mode
-- `toggle_sidebar` - Show/hide sidebar
-- `next_match` - Jump to next search result
-- `prev_match` - Jump to previous search result
-- `escape` - Clear selection/search
-- `refresh` - Reload current file
+
+| Setting | Action |
+|---|---|
+| `open_file` | Open a file |
+| `new_window` | Open a new window |
+| `tab_new`, `tab_close` | New / close tab |
+| `tab_cycle_next`, `tab_cycle_prev` | Cycle tabs |
+| `switch_to_tab` | Jump to tab 1–9 (modifiers only; key ignored) |
+| `toggle_query`, `run_query` | Show/hide and run the query |
+| `add_filter`, `group_by`, `add_aggregate`, `add_sort` | Query-builder lanes |
+| `nav_back`, `nav_forward` | Navigate history |
+| `escape` | Dismiss / clear |
+| `save_query`, `open_saved_queries` | Saved queries |
+| `expand_node`, `collapse_node`, `expand_all`, `collapse_all` | Tree operations |
+| `copy_key`, `copy_value`, `copy_object`, `copy_path` | Clipboard |
+| `move_up`, `move_down` | Move the selection |
+| `toggle_sidebar` | Show/hide the sidebar |
+| `settings`, `toggle_theme` | UI |
+| `toggle_profiler` | Developer |
 
 **Key names:**
 - Letters: `"A"`, `"B"`, `"C"`, etc.
@@ -205,6 +204,9 @@ shift = true
 - Special: `"ArrowUp"`, `"ArrowDown"`, `"ArrowLeft"`, `"ArrowRight"`
 - Special: `"Enter"`, `"Escape"`, `"Tab"`, `"Backspace"`
 - Function: `"F1"`, `"F2"`, etc.
+
+Shortcuts are read when the app starts, so edit `settings.toml` and restart to
+apply changes.
 
 ## Configuration Validation
 

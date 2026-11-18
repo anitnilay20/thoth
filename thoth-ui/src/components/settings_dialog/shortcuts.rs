@@ -17,12 +17,12 @@ const BADGE_PAD_H: f32 = 10.0;
 /// measures the same string `static_shortcut_row` paints, and built from the
 /// shared Phosphor marks rather than a Unicode literal — see
 /// [`crate::shortcuts::marks`].
-fn tab_switch_badge() -> String {
-    if cfg!(target_os = "macos") {
-        let cmd = crate::shortcuts::marks::command();
-        format!("{cmd}1 – {cmd}9")
+fn tab_switch_badge(shortcut: &Shortcut) -> String {
+    let modifiers = shortcut.format_modifiers();
+    if modifiers.is_empty() {
+        "1 – 9".to_string()
     } else {
-        "Ctrl+1 – Ctrl+9".to_string()
+        format!("{modifiers}1 – {modifiers}9")
     }
 }
 
@@ -79,6 +79,7 @@ impl StatelessComponent for ShortcutsTab {
                 &sc.open_saved_queries,
                 &sc.move_up,
                 &sc.move_down,
+                &sc.toggle_sidebar,
                 &sc.settings,
                 &sc.toggle_theme,
                 &sc.toggle_profiler,
@@ -88,7 +89,7 @@ impl StatelessComponent for ShortcutsTab {
                 .map(|s| s.format())
                 // The static rows paint literal text, which has to be measured
                 // too or a wide literal overflows its badge.
-                .chain(std::iter::once(tab_switch_badge()))
+                .chain(std::iter::once(tab_switch_badge(&sc.switch_to_tab)))
                 .map(|txt| {
                     if txt.is_empty() {
                         return 0.0_f32;
@@ -129,7 +130,7 @@ impl StatelessComponent for ShortcutsTab {
                     static_shortcut_row(
                         ui,
                         "Switch to tab 1–9",
-                        &tab_switch_badge(),
+                        &tab_switch_badge(&sc.switch_to_tab),
                         badge_width,
                         colors,
                     );
@@ -200,6 +201,13 @@ impl StatelessComponent for ShortcutsTab {
 
                 // ── UI ───────────────────────────────────────────────────────
                 group_rows(ui, "UI", |ui| {
+                    shortcut_row(
+                        ui,
+                        "Toggle sidebar",
+                        &sc.toggle_sidebar,
+                        badge_width,
+                        colors,
+                    );
                     shortcut_row(ui, "Open settings", &sc.settings, badge_width, colors);
                     shortcut_row(ui, "Toggle theme", &sc.toggle_theme, badge_width, colors);
                 });
