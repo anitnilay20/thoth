@@ -291,6 +291,122 @@ fn arrow_type_hint(data_type: &DataType) -> String {
     hint.to_string()
 }
 
+/// An in-memory [`FileLoader`] over Arrow record batches.
+///
+/// The plugin `dataset-bus.publish-arrow` path lands here: the host parses the
+/// IPC stream once and then serves windows without another copy.
+pub struct BatchLoader {
+    batches: Vec<RecordBatch>,
+}
+
+impl BatchLoader {
+    /// Wrap a batch sequence as a loader.
+    pub fn new(batches: Vec<RecordBatch>) -> Self {
+        Self { batches }
+    }
+}
+
+impl FileLoader for BatchLoader {
+    fn query(&self, query: &str) -> Result<Vec<RecordBatch>> {
+        Err(crate::error::ThothError::DatabaseQueryError {
+            query: query.to_string(),
+            reason: "in-memory Arrow datasets are not queryable".to_string(),
+        })
+    }
+
+    fn fetch(
+        &self,
+        _filters: Vec<String>,
+        offset: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Vec<RecordBatch>> {
+        let start = offset.unwrap_or(0);
+        let end = limit.map_or(usize::MAX, |limit| start.saturating_add(limit));
+        let mut out = Vec::new();
+        let mut seen = 0usize;
+        for batch in &self.batches {
+            let rows = batch.num_rows();
+            let batch_start = seen;
+            let batch_end = seen + rows;
+            seen = batch_end;
+            if batch_end <= start {
+                continue;
+            }
+            if batch_start >= end {
+                break;
+            }
+            let from = start.saturating_sub(batch_start);
+            let to = (end - batch_start).min(rows);
+            if from < to {
+                out.push(batch.slice(from, to - from));
+            }
+        }
+        Ok(out)
+    }
+
+    fn size(&self) -> Result<u128> {
+        Ok(0)
+    }
+
+    fn len(&self) -> Result<usize> {
+        Ok(self.batches.iter().map(RecordBatch::num_rows).sum())
+    }
+
+    fn get(&self, index: usize) -> Result<RecordBatch> {
+        self.fetch(Vec::new(), Some(index), Some(1))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| crate::error::ThothError::DatabaseQueryError {
+                query: format!("row {index}"),
+                reason: "No record at index".to_string(),
+            })
+    }
+
+    fn open(&self, _path: &str, _alias: &str) -> Result<()> {
+        Err(crate::error::ThothError::DatabaseError {
+            reason: "in-memory Arrow datasets cannot open files".to_string(),
+        })
+    }
+}
+
+/// Parse an Arrow IPC stream into record batches.
+pub fn parse_ipc(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
+    use duckdb::arrow::ipc::reader::StreamReader;
+
+    let invalid = |e: &dyn std::fmt::Display| crate::error::ThothError::Unknown {
+        message: format!("invalid Arrow IPC: {e}"),
+    };
+    let reader =
+        StreamReader::try_new(std::io::Cursor::new(bytes), None).map_err(|e| invalid(&e))?;
+    reader
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| invalid(&e))
+}
+
+/// Encode record batches as an Arrow IPC stream.
+pub fn encode_ipc(batches: &[RecordBatch]) -> Result<Vec<u8>> {
+    use duckdb::arrow::ipc::writer::StreamWriter;
+
+    let Some(first) = batches.first() else {
+        return Ok(Vec::new());
+    };
+    let schema = first.schema();
+    let invalid = |e: &dyn std::fmt::Display| crate::error::ThothError::Unknown {
+        message: format!("failed to encode Arrow IPC: {e}"),
+    };
+
+    let mut bytes = Vec::new();
+    {
+        let mut writer =
+            StreamWriter::try_new(&mut bytes, schema.as_ref()).map_err(|e| invalid(&e))?;
+        for batch in batches {
+            writer.write(batch).map_err(|e| invalid(&e))?;
+        }
+        writer.finish().map_err(|e| invalid(&e))?;
+    }
+    Ok(bytes)
+}
+
 /// A lightweight, `Copy` tag describing what kind of file a tab holds.
 ///
 /// Stored in window state, toolbar events and the status bar; unlike

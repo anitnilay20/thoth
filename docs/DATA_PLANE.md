@@ -64,6 +64,11 @@ index/window and contribute ~nothing. LRU evicts down to at most 32 datasets.
   columns, rows)`; it gets a handle to embed in a `data-view` node.
 - **Plugin pull.** A plugin exports `data-producer.provide-dataset`; the host
   calls it on demand and publishes the result, so consumers see a handle.
+- **Typed push.** A plugin may send an Arrow IPC stream with
+  `dataset-bus.publish-arrow`; the host parses it once into record batches and
+  serves windows like an engine-backed sheet. `dataset-read.read-arrow` returns
+  a window as Arrow IPC, preserving types, nulls and nesting; string-only
+  sheets return an error there and are read with `read`.
 - **Relations.** `FileViewer::handle_for_relation` returns the tab's current
   handle or publishes the requested relation as its own sheet.
 
@@ -75,10 +80,11 @@ index/window and contribute ~nothing. LRU evicts down to at most 32 datasets.
 - **Chart Studio** binds `{handle, revision}` and re-reads when the revision
   moves. It reads up to the chart row cap; large engine-backed sources should
   aggregate/sample rather than materialize.
-- **Renderers and exporters** import `dataset-read` (WIT v0.2.0):
-  `info(handle)`, `read(handle, offset, limit)` with a NULL mask, `pin`/`unpin`.
-  The host hands them a handle; the plugin pages the rows. The CSV exporter
-  streams pages straight to its output.
+- **Renderers and exporters** import `dataset-read` (WIT v0.3.0):
+  `info(handle)`, `read(handle, offset, limit)` with a NULL mask,
+  `read-arrow(handle, offset, limit)`, `pin`/`unpin`. The host hands them a
+  handle; the plugin pages the rows. The CSV exporter streams pages straight to
+  its output.
 - **Consent.** Reading another producer's handle is gated by `dataset_grants`:
   the host asks before handing the data to a renderer/exporter that is not the
   producer.
@@ -108,13 +114,11 @@ index/window and contribute ~nothing. LRU evicts down to at most 32 datasets.
 
 ## Follow-ups
 
-- **Arrow IPC transport.** `publish-arrow(name, ipc-bytes)` and typed Arrow
-  pages on `dataset-read`, replacing string pages for large plugin datasets
-  (#152).
 - **Chart aggregation/sampling.** Push large engine-backed charts to DuckDB
   instead of materializing the first N rows.
 - **DataView pinning.** Pin the handle a file tab is displaying, or re-publish
   it if evicted.
+- **Arrow IPC compression.** `lz4`/`zstd` for large typed pushes.
 
 ## Map
 

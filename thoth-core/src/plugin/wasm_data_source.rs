@@ -839,6 +839,18 @@ impl thoth::plugin::dataset_bus::Host for DataSourcePluginState {
         )
     }
 
+    fn publish_arrow(&mut self, name: String, ipc_bytes: Vec<u8>) -> String {
+        match crate::file::loaders::parse_ipc(&ipc_bytes) {
+            Ok(batches) => {
+                crate::papyrus::publish_batches(&self.plugin_id, &self.instance_id, name, batches)
+            }
+            Err(error) => {
+                eprintln!("plugin '{}' publish-arrow failed: {error}", self.plugin_id);
+                String::new()
+            }
+        }
+    }
+
     fn update(
         &mut self,
         handle: String,
