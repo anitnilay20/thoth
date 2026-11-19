@@ -49,6 +49,8 @@ pub mod marks {
 pub trait ShortcutExt {
     /// Convert to egui's KeyboardShortcut.
     fn to_keyboard_shortcut(&self) -> egui::KeyboardShortcut;
+    /// Format just the modifier marks, without the key.
+    fn format_modifiers(&self) -> String;
     /// Format the shortcut for display using egui-phosphor icons.
     fn format(&self) -> String;
 }
@@ -75,7 +77,7 @@ impl ShortcutExt for Shortcut {
         egui::KeyboardShortcut::new(modifiers, key)
     }
 
-    fn format(&self) -> String {
+    fn format_modifiers(&self) -> String {
         let mut parts = Vec::new();
 
         // Add modifier icons (using egui-phosphor)
@@ -92,9 +94,19 @@ impl ShortcutExt for Shortcut {
             parts.push(marks::command());
         }
 
+        parts.join(" ")
+    }
+
+    fn format(&self) -> String {
+        let mut parts = Vec::new();
+        let modifiers = self.format_modifiers();
+        if !modifiers.is_empty() {
+            parts.push(modifiers);
+        }
+
         // Format the key name
         let key_display = format_key_name(&self.key);
-        parts.push(&key_display);
+        parts.push(key_display);
 
         parts.join(" ")
     }

@@ -579,6 +579,25 @@ impl ThothApp {
                 ShortcutAction::Settings => {
                     self.open_settings_window(ctx);
                 }
+                ShortcutAction::ToggleSidebar => {
+                    self.window_state.sidebar_expanded = !self.window_state.sidebar_expanded;
+                    if self.window_state.sidebar_expanded
+                        && self.window_state.sidebar_selected_section.is_none()
+                    {
+                        self.window_state.sidebar_selected_section =
+                            Some(components::sidebar::SidebarSection::RecentFiles);
+                    }
+                    if self.core.settings.ui.remember_sidebar_state {
+                        self.core
+                            .persistent_state
+                            .set_sidebar_expanded(self.window_state.sidebar_expanded);
+                        if let Err(error) = PersistentState::save_sidebar_expanded(
+                            self.window_state.sidebar_expanded,
+                        ) {
+                            eprintln!("Failed to persist sidebar visibility: {error}");
+                        }
+                    }
+                }
                 ShortcutAction::ToggleTheme => {
                     self.core.settings.dark_mode = !self.core.settings.dark_mode;
                     self.core.settings_changed = true;

@@ -31,11 +31,12 @@ Thoth supports keyboard shortcuts for efficient navigation and operation. All sh
 
 ### UI Controls ✅
 
-| Action       | macOS | Windows/Linux  | Description                     | Status     |
-| ------------ | ----- | -------------- | ------------------------------- | ---------- |
-| Settings     | `⌘,`  | `Ctrl+,`       | Open/close settings panel       | ✅ Working |
-| Toggle Theme | `⌘⇧T` | `Ctrl+Shift+T` | Switch between dark/light theme | ✅ Working |
-| Escape       | `Esc` | `Esc`          | Close settings panel            | ✅ Working |
+| Action         | macOS | Windows/Linux  | Description                     | Status     |
+| -------------- | ----- | -------------- | ------------------------------- | ---------- |
+| Toggle Sidebar | `⌘B`  | `Ctrl+B`       | Show/hide the sidebar           | ✅ Working |
+| Settings       | `⌘,`  | `Ctrl+,`       | Open/close settings panel       | ✅ Working |
+| Toggle Theme   | `⌘⇧T` | `Ctrl+Shift+T` | Switch between dark/light theme | ✅ Working |
+| Escape         | `Esc` | `Esc`          | Close settings panel            | ✅ Working |
 
 ### Navigation ✅
 

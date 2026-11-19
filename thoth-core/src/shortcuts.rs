@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Keyboard shortcut configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Shortcut {
     /// The key to press (e.g., "O", "F", "ArrowRight")
     pub key: String,
@@ -58,7 +58,7 @@ impl Shortcut {
 }
 
 /// All keyboard shortcuts for the application
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct KeyboardShortcuts {
     // File operations
@@ -75,6 +75,9 @@ pub struct KeyboardShortcuts {
     pub next_tab: Shortcut,
     #[serde(rename = "tab_cycle_prev")]
     pub prev_tab: Shortcut,
+    /// Switch to tab 1–9. The key is ignored; only the modifiers are used, so
+    /// this is the binding's modifier set rather than a single key.
+    pub switch_to_tab: Shortcut,
 
     // Query builder (file tabs only)
     pub toggle_query: Shortcut,
@@ -110,6 +113,7 @@ pub struct KeyboardShortcuts {
     pub move_down: Shortcut,
 
     // UI
+    pub toggle_sidebar: Shortcut,
     pub settings: Shortcut,
     pub toggle_theme: Shortcut,
 
@@ -130,6 +134,7 @@ impl Default for KeyboardShortcuts {
             // ⌘⌥→ / ⌘⌥← — Firefox-style, arrow keys have no char-composition issues.
             next_tab: Shortcut::new("ArrowRight").command().alt(),
             prev_tab: Shortcut::new("ArrowLeft").command().alt(),
+            switch_to_tab: Shortcut::new("1").command(),
 
             // Query builder lanes. ⌘F and ⌘G are the design handoff's; ⌘⇧A
             // and ⌘⇧S continue the pattern. None of the four is claimed by
@@ -170,6 +175,7 @@ impl Default for KeyboardShortcuts {
             move_down: Shortcut::new("ArrowDown"),
 
             // UI
+            toggle_sidebar: Shortcut::new("B").command(),
             settings: Shortcut::new("Comma").command(),
             toggle_theme: Shortcut::new("T").command().shift(),
 
@@ -193,6 +199,58 @@ mod tests {
         let complex = Shortcut::new("G").command().shift();
         assert!(complex.command);
         assert!(complex.shift);
+    }
+
+    /// Every bindable action must appear in `settings.toml`, so a user can
+    /// inspect and change it without touching code. This also catches a new
+    /// field being added without serialisation or with a renamed key.
+    #[test]
+    fn all_shortcuts_are_serialised_to_settings() {
+        let shortcuts = KeyboardShortcuts::default();
+        let toml = toml::to_string(&shortcuts).expect("serialize shortcuts");
+        let names = [
+            "open_file",
+            "new_window",
+            "tab_close",
+            "tab_new",
+            "tab_cycle_next",
+            "tab_cycle_prev",
+            "switch_to_tab",
+            "toggle_query",
+            "run_query",
+            "add_filter",
+            "group_by",
+            "add_aggregate",
+            "add_sort",
+            "nav_back",
+            "nav_forward",
+            "escape",
+            "save_query",
+            "open_saved_queries",
+            "expand_node",
+            "collapse_node",
+            "expand_all",
+            "collapse_all",
+            "copy_key",
+            "copy_value",
+            "copy_object",
+            "copy_path",
+            "move_up",
+            "move_down",
+            "toggle_sidebar",
+            "settings",
+            "toggle_theme",
+            "toggle_profiler",
+        ];
+        for name in names {
+            assert!(
+                toml.contains(&format!("[{name}]")),
+                "`{name}` is missing from the serialised settings"
+            );
+        }
+
+        let round_trip: KeyboardShortcuts = toml::from_str(&toml).expect("deserialize shortcuts");
+        assert_eq!(round_trip, shortcuts);
     }
 
     #[test]

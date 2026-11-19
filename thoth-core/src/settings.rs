@@ -460,6 +460,27 @@ mod tests {
         );
     }
 
+    /// Shortcuts are user-editable from `settings.toml`, so every binding must
+    /// be written as a `[shortcuts.<name>]` table.
+    #[test]
+    fn shortcut_tables_are_written_to_the_settings_file() {
+        let settings = Settings::default();
+        let toml_str = toml::to_string(&settings).unwrap();
+
+        for name in [
+            "open_file",
+            "toggle_sidebar",
+            "switch_to_tab",
+            "copy_object",
+            "toggle_profiler",
+        ] {
+            assert!(
+                toml_str.contains(&format!("[shortcuts.{name}]")),
+                "`{name}` is missing from the serialised settings"
+            );
+        }
+    }
+
     #[test]
     fn test_validation_valid_settings() {
         let settings = Settings::default();
