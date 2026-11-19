@@ -581,11 +581,23 @@ impl ThothApp {
                 }
                 ShortcutAction::ToggleSidebar => {
                     self.window_state.sidebar_expanded = !self.window_state.sidebar_expanded;
+                    if self.window_state.sidebar_expanded
+                        && self.window_state.sidebar_selected_section.is_none()
+                    {
+                        self.window_state.sidebar_selected_section =
+                            Some(components::sidebar::SidebarSection::RecentFiles);
+                    }
                     if self.core.settings.ui.remember_sidebar_state {
                         self.core
                             .persistent_state
                             .set_sidebar_expanded(self.window_state.sidebar_expanded);
-                        let _ = self.core.persistent_state.save();
+                        if let Err(error) = self
+                            .core
+                            .persistent_state
+                            .save_sidebar_expanded(self.window_state.sidebar_expanded)
+                        {
+                            eprintln!("Failed to persist sidebar visibility: {error}");
+                        }
                     }
                 }
                 ShortcutAction::ToggleTheme => {

@@ -268,6 +268,18 @@ impl PersistentState {
         self.sidebar_expanded
     }
 
+    /// Persist only the sidebar visibility.
+    ///
+    /// Windows run as separate processes, each with its own in-memory state.
+    /// Writing this process's whole snapshot would overwrite queries (or recent
+    /// files) another window saved since this one loaded. Reload the latest
+    /// on-disk state, change only the visibility, and write that back.
+    pub fn save_sidebar_expanded(&self, expanded: bool) -> Result<()> {
+        let mut latest = Self::load().unwrap_or_else(|_| self.clone());
+        latest.sidebar_expanded = expanded;
+        latest.save()
+    }
+
     // Saved queries
 
     /// Save the current query against `file_path`, returning its id.

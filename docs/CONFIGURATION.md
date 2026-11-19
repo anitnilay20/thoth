@@ -157,8 +157,8 @@ selection_stroke = "#89b4fa"
 
 ### 10. Keyboard Shortcuts
 
-All keyboard shortcuts are customizable in `settings.toml`. Each entry is a
-`[shortcuts.<name>]` table with `key`, `command`, `ctrl`, `alt` and `shift`:
+Each shortcut is a `[shortcuts.<name>]` table with `key`, `command`, `ctrl`,
+`alt` and `shift`:
 
 ```toml
 [shortcuts.open_file]
@@ -176,6 +176,16 @@ command = true
 key = "1"          # key is ignored; the modifiers apply to 1–9
 command = true
 ```
+
+Thoth writes every one of these tables when it saves settings, so **edit the
+existing values** in your `settings.toml`. Add a `[shortcuts.<name>]` table only
+if your file is missing that shortcut.
+
+> **Native menu note:** on macOS and Windows the native menu keeps fixed
+> accelerators for **Open**, **New Window**, **Close Tab** and **Settings**
+> (`⌘O`/`Ctrl+O`, `⌘N`/`Ctrl+N`, `⌘W`/`Ctrl+W`, `⌘,`/`Ctrl+,`). Those settings
+> entries still add a working binding, but the menu accelerator itself cannot
+> be rebound. Every other shortcut is fully customizable.
 
 **Available shortcuts:**
 
@@ -205,8 +215,9 @@ command = true
 - Special: `"Enter"`, `"Escape"`, `"Tab"`, `"Backspace"`
 - Function: `"F1"`, `"F2"`, etc.
 
-Shortcuts are read when the app starts, so edit `settings.toml` and restart to
-apply changes.
+**Applying changes:** close all Thoth windows before editing `settings.toml`,
+then relaunch Thoth. Editing while Thoth is running can be overwritten when it
+next saves its in-memory settings.
 
 ## Configuration Validation
 

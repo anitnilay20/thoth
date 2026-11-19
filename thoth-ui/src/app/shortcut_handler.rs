@@ -1,7 +1,7 @@
 use crate::shortcuts::ShortcutExt;
 use eframe::egui;
 
-use crate::shortcuts::KeyboardShortcuts;
+use crate::shortcuts::{KeyboardShortcuts, Shortcut};
 
 /// Actions that can be triggered by keyboard shortcuts
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +61,138 @@ pub enum ShortcutAction {
 /// Handle keyboard shortcuts and return triggered actions
 pub struct ShortcutHandler;
 
+/// True when a key event with exactly these modifiers is present.
+fn has_exact_key_event(ctx: &egui::Context, kc: egui::KeyboardShortcut) -> bool {
+    ctx.input(|i| {
+        i.events.iter().any(|event| {
+            matches!(
+                event,
+                egui::Event::Key { key, pressed: true, modifiers, .. }
+                    if *key == kc.logical_key && modifiers.matches_exact(kc.modifiers)
+            )
+        })
+    })
+}
+
+/// Consume only an exact modifier match. egui's logical matching ignores extra
+/// Shift/Alt, which lets a plain chord shadow a shifted chord on the same key.
+fn consume_exact(ctx: &egui::Context, shortcut: &Shortcut) -> bool {
+    let kc = shortcut.to_keyboard_shortcut();
+    if !has_exact_key_event(ctx, kc) {
+        return false;
+    }
+    ctx.input_mut(|i| {
+        let before = i.events.len();
+        i.events.retain(|event| {
+            !matches!(
+                event,
+                egui::Event::Key { key, pressed: true, modifiers, .. }
+                    if *key == kc.logical_key && modifiers.matches_exact(kc.modifiers)
+            )
+        });
+        i.events.len() != before
+    })
+}
+
+/// Consume matching presses (including key repeats) and report whether at
+/// least one was a fresh press, so holding a key does not retrigger.
+fn consume_non_repeat(ctx: &egui::Context, shortcut: &Shortcut) -> bool {
+    let kc = shortcut.to_keyboard_shortcut();
+    let mut fired = false;
+    ctx.input_mut(|i| {
+        i.events.retain(|event| match event {
+            egui::Event::Key {
+                key,
+                pressed: true,
+                repeat,
+                modifiers,
+                ..
+            } if *key == kc.logical_key && modifiers.matches_logically(kc.modifiers) => {
+                if !*repeat {
+                    fired = true;
+                }
+                false
+            }
+            _ => true,
+        });
+    });
+    fired
+}
+
+/// Native integrations turn the platform copy chord (`⌘`/`Ctrl+C`) into
+/// `Event::Copy` and never emit the key event. Recover the configured chord
+/// from the current modifiers; text editors keep their `Event::Copy`.
+fn consume_native_copy(
+    ctx: &egui::Context,
+    shortcuts: &KeyboardShortcuts,
+) -> Option<ShortcutAction> {
+    let has_copy = ctx.input(|i| {
+        i.events
+            .iter()
+            .any(|event| matches!(event, egui::Event::Copy))
+    });
+    if !has_copy {
+        return None;
+    }
+    let modifiers = ctx.input(|i| i.modifiers);
+    let ordered = [
+        (&shortcuts.copy_object, ShortcutAction::CopyObject),
+        (&shortcuts.copy_value, ShortcutAction::CopyValue),
+        (&shortcuts.copy_path, ShortcutAction::CopyPath),
+        (&shortcuts.copy_key, ShortcutAction::CopyKey),
+    ];
+    for (shortcut, action) in ordered {
+        let kc = shortcut.to_keyboard_shortcut();
+        let is_copy_key = kc.logical_key == egui::Key::C || kc.logical_key == egui::Key::Copy;
+        if is_copy_key && modifiers.matches_exact(kc.modifiers) {
+            ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Copy)));
+            return Some(action);
+        }
+    }
+    None
+}
+
+/// Clipboard chords: exact matches first, then the previous logical fallback.
+fn consume_clipboard(ctx: &egui::Context, shortcuts: &KeyboardShortcuts) -> Option<ShortcutAction> {
+    let ordered = [
+        (&shortcuts.copy_object, ShortcutAction::CopyObject),
+        (&shortcuts.copy_value, ShortcutAction::CopyValue),
+        (&shortcuts.copy_path, ShortcutAction::CopyPath),
+        (&shortcuts.copy_key, ShortcutAction::CopyKey),
+    ];
+    for (shortcut, action) in ordered {
+        if consume_exact(ctx, shortcut) {
+            return Some(action);
+        }
+    }
+    for (shortcut, action) in ordered {
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcut.to_keyboard_shortcut())) {
+            return Some(action);
+        }
+    }
+    None
+}
+
+/// History chords: exact matches first so a shifted forward chord is not
+/// swallowed by a plain back chord that accepts extra modifiers.
+fn consume_nav(ctx: &egui::Context, shortcuts: &KeyboardShortcuts) -> Option<ShortcutAction> {
+    let ordered = [
+        (&shortcuts.nav_back, ShortcutAction::NavBack),
+        (&shortcuts.nav_forward, ShortcutAction::NavForward),
+    ];
+    for (shortcut, action) in ordered {
+        if consume_exact(ctx, shortcut) {
+            return Some(action);
+        }
+    }
+    for (shortcut, action) in ordered {
+        if ctx.input_mut(|i| i.consume_shortcut(&shortcut.to_keyboard_shortcut())) {
+            return Some(action);
+        }
+    }
+    None
+}
+
 impl ShortcutHandler {
     /// Check for keyboard shortcuts and return any triggered actions
     pub fn handle_shortcuts(
@@ -97,12 +229,8 @@ impl ShortcutHandler {
         }
 
         // Navigation back/forward, driven by the configured bindings.
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.nav_back.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::NavBack);
-        }
-
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.nav_forward.to_keyboard_shortcut())) {
-            actions.push(ShortcutAction::NavForward);
+        if let Some(action) = consume_nav(ctx, shortcuts) {
+            actions.push(action);
         }
 
         // Tab cycling (⌘⌥→ / ⌘⌥← by default), also from the configured bindings.
@@ -161,26 +289,6 @@ impl ShortcutHandler {
                 actions.push(ShortcutAction::CollapseAll);
             }
 
-            // Clipboard. `matches_logically` ignores extra shift/alt, so the
-            // variants must be tested before the plain ⌘C binding or they are
-            // silently swallowed by it.
-            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_object.to_keyboard_shortcut()))
-            {
-                actions.push(ShortcutAction::CopyObject);
-            }
-
-            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_value.to_keyboard_shortcut())) {
-                actions.push(ShortcutAction::CopyValue);
-            }
-
-            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_path.to_keyboard_shortcut())) {
-                actions.push(ShortcutAction::CopyPath);
-            }
-
-            if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.copy_key.to_keyboard_shortcut())) {
-                actions.push(ShortcutAction::CopyKey);
-            }
-
             // Movement
             if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.move_up.to_keyboard_shortcut())) {
                 actions.push(ShortcutAction::MoveUp);
@@ -191,8 +299,20 @@ impl ShortcutHandler {
             }
         }
 
+        // Clipboard works on the selected tree node. Only a focused text
+        // editor needs `Event::Copy` for its own selection, so this is gated
+        // on that rather than on any focus.
+        if !ctx.text_edit_focused()
+            && let Some(action) =
+                consume_native_copy(ctx, shortcuts).or_else(|| consume_clipboard(ctx, shortcuts))
+        {
+            actions.push(action);
+        }
+
         // UI
-        if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.toggle_sidebar.to_keyboard_shortcut())) {
+        // Holding the key should consume the repeats without flickering the
+        // sidebar; only a fresh press toggles it.
+        if consume_non_repeat(ctx, &shortcuts.toggle_sidebar) {
             actions.push(ShortcutAction::ToggleSidebar);
         }
 
@@ -231,11 +351,15 @@ impl ShortcutHandler {
             egui::Key::Num9,
         ];
         // Only the modifiers are configurable here; the digits are fixed.
+        // A bare-digit rebind must not steal digits from a focused text editor;
+        // a modifier chord stays available because it cannot be typing input.
         let tab_modifiers = shortcuts.switch_to_tab.to_keyboard_shortcut().modifiers;
-        for (idx, key) in TAB_KEYS.iter().enumerate() {
-            if ctx.input_mut(|i| i.consume_key(tab_modifiers, *key)) {
-                actions.push(ShortcutAction::SwitchToTab(idx));
-                break;
+        if !(ctx.text_edit_focused() && tab_modifiers.is_none()) {
+            for (idx, key) in TAB_KEYS.iter().enumerate() {
+                if ctx.input_mut(|i| i.consume_key(tab_modifiers, *key)) {
+                    actions.push(ShortcutAction::SwitchToTab(idx));
+                    break;
+                }
             }
         }
 
@@ -248,24 +372,27 @@ mod tests {
     use super::*;
     use crate::shortcuts::Shortcut;
 
-    /// Run one egui frame with a single key press and return the actions the
-    /// shortcut handler reports. Because the handler consumes keys, a frame
-    /// with one press can only produce the actions for that one binding.
-    fn actions_for(
+    fn key_event(key: egui::Key, modifiers: egui::Modifiers, repeat: bool) -> egui::Event {
+        egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat,
+            modifiers,
+        }
+    }
+
+    /// Run one egui frame with the given events and return the actions the
+    /// shortcut handler reports.
+    fn actions_for_events(
         sc: &KeyboardShortcuts,
-        key: egui::Key,
         modifiers: egui::Modifiers,
+        events: Vec<egui::Event>,
     ) -> Vec<ShortcutAction> {
         let ctx = egui::Context::default();
         let raw = egui::RawInput {
             modifiers,
-            events: vec![egui::Event::Key {
-                key,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers,
-            }],
+            events,
             ..Default::default()
         };
 
@@ -274,6 +401,14 @@ mod tests {
             actions = ShortcutHandler::handle_shortcuts(ui.ctx(), sc);
         });
         actions
+    }
+
+    fn actions_for(
+        sc: &KeyboardShortcuts,
+        key: egui::Key,
+        modifiers: egui::Modifiers,
+    ) -> Vec<ShortcutAction> {
+        actions_for_events(sc, modifiers, vec![key_event(key, modifiers, false)])
     }
 
     fn actions_for_shortcut(sc: &KeyboardShortcuts, shortcut: &Shortcut) -> Vec<ShortcutAction> {
@@ -388,14 +523,20 @@ mod tests {
     fn handler_honours_rebound_bindings() {
         let sc = KeyboardShortcuts {
             nav_back: Shortcut::new("H").command(),
+            nav_forward: Shortcut::new("H").command().shift(),
             next_tab: Shortcut::new("K").command().alt(),
             switch_to_tab: Shortcut::new("1").command().alt(),
             ..Default::default()
         };
 
+        // Exact matching: Shift+H must not be swallowed by plain H.
         assert_eq!(
             actions_for_shortcut(&sc, &sc.nav_back),
             vec![ShortcutAction::NavBack]
+        );
+        assert_eq!(
+            actions_for_shortcut(&sc, &sc.nav_forward),
+            vec![ShortcutAction::NavForward]
         );
         assert_eq!(
             actions_for_shortcut(&sc, &sc.next_tab),
@@ -407,6 +548,120 @@ mod tests {
         assert_eq!(
             actions_for(&sc, egui::Key::Num5, tab_modifiers),
             vec![ShortcutAction::SwitchToTab(4)]
+        );
+        // The old modifier must no longer switch, proving Alt is not ignored.
+        assert!(actions_for(&sc, egui::Key::Num5, egui::Modifiers::COMMAND).is_empty());
+    }
+
+    /// Focus a `TextEdit` in one frame, then run the handler on the next
+    /// frame so `text_edit_focused` sees it.
+    fn actions_with_text_focus(
+        sc: &KeyboardShortcuts,
+        event: egui::Event,
+        modifiers: egui::Modifiers,
+    ) -> Vec<ShortcutAction> {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("shortcut-test-text-edit");
+
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let mut text = String::new();
+            ui.add(egui::TextEdit::singleline(&mut text).id(id));
+            ui.memory_mut(|m| m.request_focus(id));
+        });
+
+        let raw = egui::RawInput {
+            modifiers,
+            events: vec![event],
+            ..Default::default()
+        };
+        let mut actions = Vec::new();
+        let _ = ctx.run_ui(raw, |ui| {
+            actions = ShortcutHandler::handle_shortcuts(ui.ctx(), sc);
+        });
+        actions
+    }
+
+    #[test]
+    fn text_editor_keeps_native_copy_and_bare_digits() {
+        let sc = KeyboardShortcuts::default();
+        let copy_modifiers = sc.copy_value.to_keyboard_shortcut().modifiers;
+        assert!(
+            actions_with_text_focus(&sc, egui::Event::Copy, copy_modifiers).is_empty(),
+            "a text editor must keep Event::Copy for its own selection"
+        );
+
+        // A bare-digit tab switch would steal digits from the editor.
+        let sc = KeyboardShortcuts {
+            switch_to_tab: Shortcut::new("1"),
+            ..Default::default()
+        };
+        assert!(
+            actions_with_text_focus(
+                &sc,
+                key_event(egui::Key::Num3, egui::Modifiers::NONE, false),
+                egui::Modifiers::NONE,
+            )
+            .is_empty(),
+            "bare digits must type while a text editor is focused"
+        );
+    }
+
+    #[test]
+    fn native_copy_event_dispatches_the_configured_chord() {
+        let sc = KeyboardShortcuts::default();
+        for (shortcut, expected) in [
+            (&sc.copy_key, ShortcutAction::CopyKey),
+            (&sc.copy_value, ShortcutAction::CopyValue),
+            (&sc.copy_object, ShortcutAction::CopyObject),
+        ] {
+            let modifiers = shortcut.to_keyboard_shortcut().modifiers;
+            assert_eq!(
+                actions_for_events(&sc, modifiers, vec![egui::Event::Copy]),
+                vec![expected],
+                "native Event::Copy for {}",
+                shortcut.format()
+            );
+        }
+    }
+
+    #[test]
+    fn held_sidebar_toggle_fires_once_and_consumes_repeats() {
+        let sc = KeyboardShortcuts::default();
+        let kc = sc.toggle_sidebar.to_keyboard_shortcut();
+        let actions = actions_for_events(
+            &sc,
+            kc.modifiers,
+            vec![
+                key_event(kc.logical_key, kc.modifiers, false),
+                key_event(kc.logical_key, kc.modifiers, true),
+            ],
+        );
+        assert_eq!(actions, vec![ShortcutAction::ToggleSidebar]);
+    }
+
+    #[test]
+    fn exact_copy_value_beats_logical_copy_object() {
+        // Native copy event carries Shift for Copy Value; a Copy Object bound
+        // to the plain chord must not capture it.
+        let sc = KeyboardShortcuts {
+            copy_object: Shortcut::new("C").command(),
+            ..Default::default()
+        };
+        let copy_value_modifiers = sc.copy_value.to_keyboard_shortcut().modifiers;
+        assert_eq!(
+            actions_for_events(&sc, copy_value_modifiers, vec![egui::Event::Copy]),
+            vec![ShortcutAction::CopyValue]
+        );
+
+        // Same precedence on the key-event path for non-copy-key rebinds.
+        let sc = KeyboardShortcuts {
+            copy_object: Shortcut::new("Y").command(),
+            copy_value: Shortcut::new("Y").command().shift(),
+            ..Default::default()
+        };
+        assert_eq!(
+            actions_for_shortcut(&sc, &sc.copy_value),
+            vec![ShortcutAction::CopyValue]
         );
     }
 }
