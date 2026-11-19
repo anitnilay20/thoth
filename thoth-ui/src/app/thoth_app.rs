@@ -388,6 +388,7 @@ impl App for ThothApp {
         let shortcut_actions =
             ShortcutHandler::handle_shortcuts(ui.ctx(), &self.core.settings.shortcuts);
         self.handle_shortcut_actions(ui.ctx(), shortcut_actions);
+        self.refresh_chart_sources();
 
         use crate::components::settings_dialog::{SettingsDialogEvent, SettingsDialogProps};
         use crate::components::traits::ContextComponent;
@@ -2436,7 +2437,7 @@ impl ThothApp {
         &mut self,
         tab_id: crate::app::tab_manager::TabId,
         relation: Option<&str>,
-    ) -> Option<ResolvedDataset> {
+    ) -> Option<ResolvedSource> {
         let handle = self.producer_handle(tab_id, relation)?;
         let meta = crate::papyrus::meta(&handle)?;
         // Text sheets are lines, not records; a chart on a plugin-rendered
@@ -2468,41 +2469,43 @@ impl ThothApp {
             .into_iter()
             .map(|c| (c.name, c.type_hint))
             .collect();
-        Some((meta.name, columns, rows))
+        Some(ResolvedSource {
+            columns,
+            rows,
+            handle: Some(handle),
+            revision: Some(meta.revision),
+        })
     }
 
-    /// Resolve a producer tab's data directly (no registry): file tabs read
-    /// their live loader, plugin panes call `provide-dataset`. Returns
-    /// `(display name, columns [(name, type-hint)], string rows)`.
-    fn resolve_dataset(
+    /// Resolve a producer tab's data, preferring the bus and falling back to
+    /// the live loader for text/plugin-rendered documents.
+    fn resolve_source(
         &mut self,
         tab_id: crate::app::tab_manager::TabId,
         relation: Option<&str>,
-    ) -> Option<ResolvedDataset> {
+    ) -> Option<ResolvedSource> {
         if let Some(resolved) = self.resolve_via_papyrus(tab_id, relation) {
             return Some(resolved);
         }
 
         let tab = self.window_state.tab_manager.tabs.get_mut(&tab_id)?;
         if tab.active_plugin_pane.is_none() {
-            let path = tab.file_path.clone()?;
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("file")
-                .to_string();
-            // Named, so a chart reads the relation it was built against
-            // rather than whichever one the grid has since moved to.
-            let name = match relation {
-                Some(r) => format!("{name} · {r}"),
-                None => name,
-            };
             let (cols, rows) = tab.central_panel.to_dataset_for(relation)?;
-            return Some((name, cols, rows));
+            return Some(ResolvedSource {
+                columns: cols,
+                rows,
+                handle: None,
+                revision: None,
+            });
         }
         let pane = tab.active_plugin_pane.as_ref()?;
         match pane.loader.provide_dataset() {
-            Ok(ds) => Some((ds.name, ds.columns, ds.rows)),
+            Ok(ds) => Some(ResolvedSource {
+                columns: ds.columns,
+                rows: ds.rows,
+                handle: None,
+                revision: None,
+            }),
             Err(_) => None,
         }
     }
@@ -2545,14 +2548,20 @@ impl ThothApp {
         tab_id: crate::app::tab_manager::TabId,
         relation: Option<&str>,
     ) {
-        let Some((_name, cols, rows)) = self.resolve_dataset(tab_id, relation) else {
+        let Some(resolved) = self.resolve_source(tab_id, relation) else {
             Self::notify_dataset_unavailable();
             return;
         };
-        let columns = columns_info(&cols, &rows);
-        let colnames = cols.into_iter().map(|(n, _)| n).collect();
+        let columns = columns_info(&resolved.columns, &resolved.rows);
+        let colnames = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
         let key = crate::components::chart_studio::source_key(tab_id, relation);
-        self.core.chart_source = Some((key, colnames, rows));
+        self.core.chart_source = Some((key, colnames, resolved.rows));
+        self.core.chart_source_ref = resolved.handle.map(|handle| crate::core::ChartSourceRef {
+            handle,
+            revision: resolved.revision.unwrap_or(0),
+            tab_id,
+            relation: relation.map(str::to_string),
+        });
         self.window_state.sidebar.set_chart_columns(columns);
     }
 
@@ -2563,23 +2572,29 @@ impl ThothApp {
             spec.source_tab,
             spec.source_relation.as_deref(),
         );
-        let resolved = match &self.core.chart_source {
-            Some((cached, cols, rows)) if *cached == key => Some((cols.clone(), rows.clone())),
-            _ => self
-                .resolve_dataset(spec.source_tab, spec.source_relation.as_deref())
-                .map(|(_n, cols, rows)| (cols.into_iter().map(|(n, _)| n).collect(), rows)),
-        };
-        let Some((colnames, rows)) = resolved else {
+        let Some(resolved) = self.resolve_source(spec.source_tab, spec.source_relation.as_deref())
+        else {
             Self::notify_dataset_unavailable();
             return;
         };
+        let colnames: Vec<String> = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
+        let handle = resolved.handle.clone();
+        let revision = resolved.revision;
+        self.core.chart_source = Some((key, colnames.clone(), resolved.rows.clone()));
+        self.core.chart_source_ref = handle.clone().map(|handle| crate::core::ChartSourceRef {
+            handle,
+            revision: revision.unwrap_or(0),
+            tab_id: spec.source_tab,
+            relation: spec.source_relation.clone(),
+        });
         self.core.chart_counter += 1;
-        let chart = crate::components::chart_studio::ChartTab::from_spec(
+        let mut chart = crate::components::chart_studio::ChartTab::from_spec(
             &spec,
             colnames,
-            rows,
+            resolved.rows,
             self.core.chart_counter,
         );
+        chart.set_source_ref(handle, revision);
         // Creating/updating a chart changes the persisted session.
         self.core.session_dirty = true;
         // Editing: replace the target tab's chart in place.
@@ -2618,11 +2633,18 @@ impl ThothApp {
             spec.source_tab,
             spec.source_relation.as_deref(),
         );
-        let columns = match self.resolve_dataset(spec.source_tab, spec.source_relation.as_deref()) {
-            Some((_n, cols, rows)) => {
-                let ci = columns_info(&cols, &rows);
-                let colnames = cols.into_iter().map(|(n, _)| n).collect();
-                self.core.chart_source = Some((key, colnames, rows));
+        let columns = match self.resolve_source(spec.source_tab, spec.source_relation.as_deref()) {
+            Some(resolved) => {
+                let ci = columns_info(&resolved.columns, &resolved.rows);
+                let colnames = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
+                self.core.chart_source = Some((key, colnames, resolved.rows));
+                self.core.chart_source_ref =
+                    resolved.handle.map(|handle| crate::core::ChartSourceRef {
+                        handle,
+                        revision: resolved.revision.unwrap_or(0),
+                        tab_id: spec.source_tab,
+                        relation: spec.source_relation.clone(),
+                    });
                 ci
             }
             None => Vec::new(),
@@ -2648,16 +2670,68 @@ impl ThothApp {
         else {
             return;
         };
-        let Some((_name, cols, rows)) = self.resolve_dataset(source, relation.as_deref()) else {
+        let Some(resolved) = self.resolve_source(source, relation.as_deref()) else {
             Self::notify_dataset_unavailable();
             return;
         };
-        let colnames: Vec<String> = cols.into_iter().map(|(n, _)| n).collect();
+        let colnames: Vec<String> = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
+        let handle = resolved.handle;
+        let revision = resolved.revision;
         if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&tab_id)
             && let Some(chart) = tab.chart.as_mut()
         {
-            chart.update_data(colnames, rows);
+            chart.update_data(colnames, resolved.rows);
+            chart.set_source_ref(handle, revision);
             self.core.session_dirty = true;
+        }
+    }
+
+    /// Re-read any chart source whose producer revision moved (a `dataset-bus`
+    /// `update`/`append`, or a re-published relation) so the studio and open
+    /// charts follow the data instead of a stale snapshot.
+    fn refresh_chart_sources(&mut self) {
+        // The studio's selected source.
+        if let Some(src) = self.core.chart_source_ref.clone() {
+            let stale = crate::papyrus::meta(&src.handle)
+                .map(|meta| meta.revision != src.revision)
+                .unwrap_or(true);
+            if stale
+                && let Some(resolved) = self.resolve_source(src.tab_id, src.relation.as_deref())
+            {
+                let key = crate::components::chart_studio::source_key(
+                    src.tab_id,
+                    src.relation.as_deref(),
+                );
+                let colnames = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
+                let info = columns_info(&resolved.columns, &resolved.rows);
+                self.core.chart_source = Some((key, colnames, resolved.rows));
+                self.core.chart_source_ref =
+                    resolved.handle.map(|handle| crate::core::ChartSourceRef {
+                        handle,
+                        revision: resolved.revision.unwrap_or(0),
+                        tab_id: src.tab_id,
+                        relation: src.relation,
+                    });
+                self.window_state.sidebar.set_chart_columns(info);
+            }
+        }
+
+        // Open chart tabs whose source handle moved (or was released).
+        let stale: Vec<crate::app::tab_manager::TabId> = self
+            .window_state
+            .tab_manager
+            .tabs
+            .iter()
+            .filter_map(|(id, tab)| {
+                let (handle, revision) = tab.chart.as_ref()?.source_ref()?;
+                match crate::papyrus::meta(handle) {
+                    Some(meta) if meta.revision == revision => None,
+                    _ => Some(*id),
+                }
+            })
+            .collect();
+        for id in stale {
+            self.chart_refresh(id);
         }
     }
 
@@ -2960,7 +3034,14 @@ impl ThothApp {
 }
 
 /// A resolved data source: `(display name, columns [(name, type-hint)], rows)`.
-type ResolvedDataset = (String, Vec<(String, String)>, Vec<Vec<String>>);
+/// A resolved producer source, with the bus handle/revision when it came from
+/// Papyrus (so consumers can refresh or pin it).
+struct ResolvedSource {
+    columns: Vec<(String, String)>,
+    rows: Vec<Vec<String>>,
+    handle: Option<String>,
+    revision: Option<u64>,
+}
 
 /// Resolver installed into the SDK so `DataView` render nodes read dataset rows
 /// from the host's single-owned registry by handle. The rows are served from

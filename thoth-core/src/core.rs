@@ -12,6 +12,15 @@ use crate::{
     settings::Settings, state::ApplicationUpdateState,
 };
 
+/// The bus handle behind the chart source currently selected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChartSourceRef {
+    pub handle: String,
+    pub revision: u64,
+    pub tab_id: usize,
+    pub relation: Option<String>,
+}
+
 /// An input delivered to the application core.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreEvent {
@@ -45,6 +54,9 @@ pub struct ThothCore {
     /// its source key — a tab *and* which of its relations, since a tab may
     /// hold several.
     pub chart_source: Option<(String, Vec<String>, Vec<Vec<String>>)>,
+    /// The handle and revision behind [`chart_source`](Self::chart_source), so
+    /// the studio can re-read when the producer updates it.
+    pub chart_source_ref: Option<ChartSourceRef>,
     events: VecDeque<CoreEvent>,
 }
 
@@ -68,6 +80,7 @@ impl ThothCore {
             last_active_plugin_tab: None,
             chart_counter: 0,
             chart_source: None,
+            chart_source_ref: None,
             events: VecDeque::new(),
         }
     }
