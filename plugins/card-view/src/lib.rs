@@ -1,9 +1,9 @@
 //! Cards — a **data-renderer** plugin (#135). It presents a host-owned dataset
 //! as a grid of cards (one per row: the first column is the title, the rest are
-//! shown as key/value lines). The host reads its own copy of the rows, passes
-//! them here, and draws the `RenderNode` tree this returns as an extra view
-//! format in the DataView. The plugin only *describes* UI — it never renders
-//! directly or touches the data bus.
+//! shown as key/value lines). The host hands the plugin a dataset handle; the
+//! plugin pages the rows through `dataset-read` and the host draws the
+//! `RenderNode` tree it returns as an extra view format in the DataView. The
+//! plugin only *describes* UI — it never renders directly.
 
 #[rustfmt::skip]
 mod bindings;

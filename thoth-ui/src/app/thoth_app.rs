@@ -3222,8 +3222,6 @@ pub fn list_renderers_for_view() -> Vec<thoth_plugin_sdk::dataset::RendererInfo>
         .collect()
 }
 
-/// Serialize a dataset (paged reads) into the `{columns, rows}` records-json the
-/// exporter/renderer plugins consume.
 /// A whole dataset as `(column names, rows of cells)`, or `None` when the
 /// handle no longer resolves.
 ///
