@@ -125,6 +125,7 @@ fn consume_non_repeat(ctx: &egui::Context, shortcut: &Shortcut) -> bool {
 fn consume_native_copy(
     ctx: &egui::Context,
     shortcuts: &KeyboardShortcuts,
+    modifiers: egui::Modifiers,
 ) -> Option<ShortcutAction> {
     let has_copy = ctx.input(|i| {
         i.events
@@ -134,7 +135,6 @@ fn consume_native_copy(
     if !has_copy {
         return None;
     }
-    let modifiers = ctx.input(|i| i.modifiers);
     let ordered = [
         (&shortcuts.copy_object, ShortcutAction::CopyObject),
         (&shortcuts.copy_value, ShortcutAction::CopyValue),
@@ -203,6 +203,9 @@ impl ShortcutHandler {
 
         // Check if any text input has focus - if so, skip navigation shortcuts
         let text_input_has_focus = ctx.memory(|mem| mem.focused().is_some());
+        // `Event::Copy` carries no modifier payload, so capture the frame's
+        // modifiers once, before any matching can consume events this frame.
+        let frame_modifiers = ctx.input(|i| i.modifiers);
 
         // File operations
         if ctx.input_mut(|i| i.consume_shortcut(&shortcuts.open_file.to_keyboard_shortcut())) {
@@ -303,8 +306,8 @@ impl ShortcutHandler {
         // editor needs `Event::Copy` for its own selection, so this is gated
         // on that rather than on any focus.
         if !ctx.text_edit_focused()
-            && let Some(action) =
-                consume_native_copy(ctx, shortcuts).or_else(|| consume_clipboard(ctx, shortcuts))
+            && let Some(action) = consume_native_copy(ctx, shortcuts, frame_modifiers)
+                .or_else(|| consume_clipboard(ctx, shortcuts))
         {
             actions.push(action);
         }
@@ -351,10 +354,11 @@ impl ShortcutHandler {
             egui::Key::Num9,
         ];
         // Only the modifiers are configurable here; the digits are fixed.
-        // A bare-digit rebind must not steal digits from a focused text editor;
-        // a modifier chord stays available because it cannot be typing input.
+        // While a text editor is focused, Shift/Alt-only and bare-digit
+        // bindings are typing input; only a command-based chord is safe.
         let tab_modifiers = shortcuts.switch_to_tab.to_keyboard_shortcut().modifiers;
-        if !(ctx.text_edit_focused() && tab_modifiers.is_none()) {
+        let allow_tab_switch = !ctx.text_edit_focused() || tab_modifiers.command;
+        if allow_tab_switch {
             for (idx, key) in TAB_KEYS.iter().enumerate() {
                 if ctx.input_mut(|i| i.consume_key(tab_modifiers, *key)) {
                     actions.push(ShortcutAction::SwitchToTab(idx));
@@ -603,6 +607,34 @@ mod tests {
             )
             .is_empty(),
             "bare digits must type while a text editor is focused"
+        );
+
+        // Shift-only also produces text (e.g. Shift+3 is "#"), so suppress it.
+        let sc = KeyboardShortcuts {
+            switch_to_tab: Shortcut::new("1").shift(),
+            ..Default::default()
+        };
+        assert!(
+            actions_with_text_focus(
+                &sc,
+                key_event(egui::Key::Num3, egui::Modifiers::SHIFT, false),
+                egui::Modifiers::SHIFT,
+            )
+            .is_empty(),
+            "Shift-only tab bindings must not fire while typing"
+        );
+
+        // A command-based chord is safe and stays available while editing.
+        let sc = KeyboardShortcuts::default();
+        let tab_modifiers = sc.switch_to_tab.to_keyboard_shortcut().modifiers;
+        assert_eq!(
+            actions_with_text_focus(
+                &sc,
+                key_event(egui::Key::Num3, tab_modifiers, false),
+                tab_modifiers,
+            ),
+            vec![ShortcutAction::SwitchToTab(2)],
+            "command-based tab switching must keep working while editing"
         );
     }
 

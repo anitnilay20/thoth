@@ -591,11 +591,9 @@ impl ThothApp {
                         self.core
                             .persistent_state
                             .set_sidebar_expanded(self.window_state.sidebar_expanded);
-                        if let Err(error) = self
-                            .core
-                            .persistent_state
-                            .save_sidebar_expanded(self.window_state.sidebar_expanded)
-                        {
+                        if let Err(error) = PersistentState::save_sidebar_expanded(
+                            self.window_state.sidebar_expanded,
+                        ) {
                             eprintln!("Failed to persist sidebar visibility: {error}");
                         }
                     }

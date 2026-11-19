@@ -274,8 +274,10 @@ impl PersistentState {
     /// Writing this process's whole snapshot would overwrite queries (or recent
     /// files) another window saved since this one loaded. Reload the latest
     /// on-disk state, change only the visibility, and write that back.
-    pub fn save_sidebar_expanded(&self, expanded: bool) -> Result<()> {
-        let mut latest = Self::load().unwrap_or_else(|_| self.clone());
+    pub fn save_sidebar_expanded(expanded: bool) -> Result<()> {
+        // If the on-disk state cannot be read, do not overwrite it: writing a
+        // stale snapshot would destroy data that is still recoverable.
+        let mut latest = Self::load()?;
         latest.sidebar_expanded = expanded;
         latest.save()
     }
