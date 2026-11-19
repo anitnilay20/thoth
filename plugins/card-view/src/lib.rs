@@ -8,8 +8,6 @@
 #[rustfmt::skip]
 mod bindings;
 
-use serde::Deserialize;
-
 use thoth_plugin_sdk::components::{
     Card, Column, Row, Spacer, Split, Typography, TypographyVariant,
 };
@@ -21,6 +19,7 @@ use bindings::exports::thoth::plugin::{
     plugin_lifecycle::Guest as LifecycleGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
 };
+use bindings::thoth::plugin::dataset_read;
 
 /// Cards per grid row.
 const COLUMNS: usize = 2;
@@ -48,16 +47,6 @@ const KEY_GAP: f32 = 4.0;
     author = "Thoth contributors",
 )]
 struct CardViewPlugin;
-
-/// The host-owned dataset shape passed to `render` (see the `data-renderer` WIT
-/// doc): column order preserved, every cell a string.
-#[derive(Deserialize)]
-struct Records {
-    #[serde(default)]
-    columns: Vec<String>,
-    #[serde(default)]
-    rows: Vec<Vec<String>>,
-}
 
 fn muted(text: impl Into<String>) -> RenderNode {
     RenderNode::Text(
@@ -109,86 +98,111 @@ fn card_node(columns: &[String], row: &[String]) -> RenderNode {
     RenderNode::Card(Box::new(Card::builder().title(title).body(body).build()))
 }
 
+/// Page size for `dataset-read`; the host caps one read at 1000 as well.
+const READ_PAGE: u32 = 1000;
+
+/// Page the host-owned dataset through the `dataset-read` import.
+fn load_pages(handle: &str) -> Result<(Vec<String>, Vec<Vec<String>>), PluginError> {
+    let info = dataset_read::info(handle)?;
+    let mut columns: Vec<String> = info.columns.iter().map(|c| c.name.clone()).collect();
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let mut offset = 0u64;
+    while offset < info.row_count {
+        let limit = (info.row_count - offset).min(u64::from(READ_PAGE)) as u32;
+        let page = dataset_read::read(handle, offset, limit)?;
+        if columns.is_empty() {
+            columns = page.columns.iter().map(|c| c.name.clone()).collect();
+        }
+        let got = page.rows.len() as u64;
+        rows.extend(page.rows);
+        if got == 0 {
+            break;
+        }
+        offset += got;
+    }
+    Ok((columns, rows))
+}
+
+fn render_records(columns: Vec<String>, rows: Vec<Vec<String>>) -> Result<String, PluginError> {
+    if rows.is_empty() {
+        // Padded like the grid, so the hint isn't flush against the edge.
+        let empty = RenderNode::Row(
+            Row::builder()
+                .padding(GRID_PAD)
+                .children(vec![muted("No records to show.")])
+                .build(),
+        );
+        return serde_json::to_string(&empty).map_err(|e| PluginError {
+            code: 2,
+            message: e.to_string(),
+        });
+    }
+
+    // Cap the number of cards drawn; note any overflow.
+    let total = rows.len();
+    let shown = total.min(MAX_CARDS);
+    let cards: Vec<RenderNode> = rows[..shown]
+        .iter()
+        .map(|row| card_node(&columns, row))
+        .collect();
+
+    // Lay the cards out COLUMNS-per-row via equal-width splits. The splits are
+    // grid cells, not resizable regions, so they stay unframed (flush) — the
+    // cards themselves carry the panel fill, edge and corners. A short last
+    // chunk is padded with empty cells so its card keeps the grid's column
+    // width instead of stretching across the row.
+    let mut grid: Vec<RenderNode> = cards
+        .chunks(COLUMNS)
+        .map(|chunk| {
+            let mut cells = chunk.to_vec();
+            while cells.len() < COLUMNS {
+                cells.push(RenderNode::Spacer(Spacer::builder().size(0.0).build()));
+            }
+            RenderNode::Split(
+                Split::builder()
+                    .gap(GRID_GAP)
+                    .widths(vec![1.0; cells.len()])
+                    .children(cells)
+                    .build(),
+            )
+        })
+        .collect();
+
+    if total > shown {
+        // Design: the overflow note is an italic caption under the grid.
+        grid.push(RenderNode::Text(
+            Typography::builder()
+                .text(format!("… {} more row(s) not shown.", total - shown))
+                .variant(TypographyVariant::Caption)
+                .italic(true)
+                .build(),
+        ));
+    }
+
+    // The grid supplies its own inset from the DataView body, which is flush.
+    let root = RenderNode::Row(
+        Row::builder()
+            .padding(GRID_PAD)
+            .max_width(true)
+            .children(vec![RenderNode::Column(
+                Column::builder().gap(GRID_GAP).children(grid).build(),
+            )])
+            .build(),
+    );
+    serde_json::to_string(&root).map_err(|e| PluginError {
+        code: 2,
+        message: e.to_string(),
+    })
+}
+
 impl RendererGuest for CardViewPlugin {
     fn name() -> String {
         "Cards".to_string()
     }
 
-    fn render(records_json: String) -> Result<String, PluginError> {
-        let recs: Records = serde_json::from_str(&records_json).map_err(|e| PluginError {
-            code: 1,
-            message: format!("invalid records-json: {e}"),
-        })?;
-
-        if recs.rows.is_empty() {
-            // Padded like the grid, so the hint isn't flush against the edge.
-            let empty = RenderNode::Row(
-                Row::builder()
-                    .padding(GRID_PAD)
-                    .children(vec![muted("No records to show.")])
-                    .build(),
-            );
-            return serde_json::to_string(&empty).map_err(|e| PluginError {
-                code: 2,
-                message: e.to_string(),
-            });
-        }
-
-        // Cap the number of cards drawn; note any overflow.
-        let total = recs.rows.len();
-        let shown = total.min(MAX_CARDS);
-        let cards: Vec<RenderNode> = recs.rows[..shown]
-            .iter()
-            .map(|row| card_node(&recs.columns, row))
-            .collect();
-
-        // Lay the cards out COLUMNS-per-row via equal-width splits. The splits are
-        // grid cells, not resizable regions, so they stay unframed (flush) — the
-        // cards themselves carry the panel fill, edge and corners. A short last
-        // chunk is padded with empty cells so its card keeps the grid's column
-        // width instead of stretching across the row.
-        let mut grid: Vec<RenderNode> = cards
-            .chunks(COLUMNS)
-            .map(|chunk| {
-                let mut cells = chunk.to_vec();
-                while cells.len() < COLUMNS {
-                    cells.push(RenderNode::Spacer(Spacer::builder().size(0.0).build()));
-                }
-                RenderNode::Split(
-                    Split::builder()
-                        .gap(GRID_GAP)
-                        .widths(vec![1.0; cells.len()])
-                        .children(cells)
-                        .build(),
-                )
-            })
-            .collect();
-
-        if total > shown {
-            // Design: the overflow note is an italic caption under the grid.
-            grid.push(RenderNode::Text(
-                Typography::builder()
-                    .text(format!("… {} more row(s) not shown.", total - shown))
-                    .variant(TypographyVariant::Caption)
-                    .italic(true)
-                    .build(),
-            ));
-        }
-
-        // The grid supplies its own inset from the DataView body, which is flush.
-        let root = RenderNode::Row(
-            Row::builder()
-                .padding(GRID_PAD)
-                .max_width(true)
-                .children(vec![RenderNode::Column(
-                    Column::builder().gap(GRID_GAP).children(grid).build(),
-                )])
-                .build(),
-        );
-        serde_json::to_string(&root).map_err(|e| PluginError {
-            code: 2,
-            message: e.to_string(),
-        })
+    fn render(handle: String) -> Result<String, PluginError> {
+        let (columns, rows) = load_pages(&handle)?;
+        render_records(columns, rows)
     }
 }
 
@@ -211,16 +225,18 @@ bindings::export!(CardViewPlugin with_types_in bindings);
 
 #[cfg(test)]
 mod tests {
-    use super::{CardViewPlugin, RendererGuest};
+    use super::render_records;
 
     #[test]
     fn renders_a_card_per_row() {
-        let recs = serde_json::json!({
-            "columns": ["name", "dept"],
-            "rows": [["Alice", "Eng"], ["Bob", "Sales"]],
-        })
-        .to_string();
-        let out = CardViewPlugin::render(recs).unwrap();
+        let out = render_records(
+            vec!["name".into(), "dept".into()],
+            vec![
+                vec!["Alice".into(), "Eng".into()],
+                vec!["Bob".into(), "Sales".into()],
+            ],
+        )
+        .unwrap();
         assert!(out.contains("Alice"));
         // Key and value are separate mono runs (two-tone `key: value` line).
         assert!(out.contains("dept:"));
@@ -233,15 +249,13 @@ mod tests {
         let rows: Vec<Vec<String>> = (0..(super::MAX_CARDS + 5))
             .map(|i| vec![i.to_string()])
             .collect();
-        let recs = serde_json::json!({ "columns": ["id"], "rows": rows }).to_string();
-        let out = CardViewPlugin::render(recs).unwrap();
+        let out = render_records(vec!["id".into()], rows).unwrap();
         assert!(out.contains("more row(s) not shown"));
     }
 
     #[test]
     fn empty_dataset_is_handled() {
-        let recs = serde_json::json!({ "columns": ["id"], "rows": [] }).to_string();
-        let out = CardViewPlugin::render(recs).unwrap();
+        let out = render_records(vec!["id".into()], Vec::new()).unwrap();
         assert!(out.contains("No records"));
     }
 }

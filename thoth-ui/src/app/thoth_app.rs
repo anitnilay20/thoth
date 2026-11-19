@@ -2968,8 +2968,6 @@ impl ThothApp {
     fn perform_export(&self, handle: &str, exporter_id: &str, name: &str) {
         use crate::notification::{Notification, NotificationManager};
 
-        let records = dataset_records_json(handle);
-
         // Resolve the exporter plugin + engine, then run it.
         let Some(pm) = self.core.plugins.manager() else {
             NotificationManager::notify_error(Notification::new(
@@ -3001,7 +2999,7 @@ impl ThothApp {
         let bytes = match crate::plugin::wasm_exporter::run_export(
             pm.engine(),
             std::path::Path::new(location),
-            &records,
+            handle,
             &[],
         ) {
             Ok(b) => b,
@@ -3327,24 +3325,6 @@ fn json_records(columns: &[String], rows: &[Vec<Cell>]) -> Vec<u8> {
     serde_json::to_vec_pretty(&records).unwrap_or_default()
 }
 
-fn dataset_records_json(handle: &str) -> String {
-    let mut columns: Vec<String> = Vec::new();
-    let mut rows: Vec<Vec<String>> = Vec::new();
-    let mut offset: u64 = 0;
-    while let Some(page) = crate::papyrus::read(handle, offset, crate::papyrus::MAX_READ_LIMIT) {
-        if columns.is_empty() {
-            columns = page.columns.iter().map(|c| c.name.clone()).collect();
-        }
-        let got = page.rows.len() as u64;
-        rows.extend(page.rows);
-        offset += got;
-        if got == 0 || offset >= page.total {
-            break;
-        }
-    }
-    serde_json::json!({ "columns": columns, "rows": rows }).to_string()
-}
-
 /// A cached render outcome for a (plugin, handle) at a given dataset revision.
 enum RenderCacheEntry {
     Ok(Box<thoth_plugin_sdk::render_node::RenderNode>),
@@ -3422,7 +3402,6 @@ pub fn render_dataset_with_plugin(
 
     // Miss / stale: run the plugin. Structural failures (no manager / plugin /
     // path) aren't cached, so they retry once those resolve.
-    let records = dataset_records_json(handle);
     let Some(pm) = crate::plugin::runtime::active_manager() else {
         return PluginRenderResult::Unavailable;
     };
@@ -3438,7 +3417,7 @@ pub fn render_dataset_with_plugin(
     let outcome = match crate::plugin::wasm_renderer::run_render(
         pm.engine(),
         std::path::Path::new(location),
-        &records,
+        handle,
     ) {
         Ok(node_json) => {
             match serde_json::from_str::<thoth_plugin_sdk::render_node::RenderNode>(&node_json) {
