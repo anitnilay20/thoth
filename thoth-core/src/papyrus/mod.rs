@@ -127,6 +127,9 @@ struct Stored {
     /// enforce [`MAX_BYTES`] without re-summing every entry. An Arrow sheet
     /// holds only a window, so it contributes ~nothing.
     size: usize,
+    /// Consumers currently holding this handle. Pinned datasets are never
+    /// evicted for budget; an explicit `release` still drops them.
+    pins: usize,
 }
 
 #[derive(Default)]
@@ -166,8 +169,14 @@ impl Registry {
             let Some(victim) = self
                 .order
                 .iter()
-                .min_by_key(|id| self.map.get(*id).map(|s| s.last_access))
-                .cloned()
+                .filter_map(|id| {
+                    self.map
+                        .get(id)
+                        .filter(|s| s.pins == 0)
+                        .map(|s| (id.clone(), s.last_access))
+                })
+                .min_by_key(|(_, last_access)| *last_access)
+                .map(|(id, _)| id)
             else {
                 break;
             };
@@ -298,6 +307,7 @@ pub fn publish(
             source: Source::Rows(rows),
             last_access: Instant::now(),
             size,
+            pins: 0,
         },
     );
     reg.order.push(id.clone());
@@ -407,6 +417,7 @@ fn insert_sheet(
             source: sheet,
             last_access: Instant::now(),
             size: 0,
+            pins: 0,
         },
     );
     reg.order.push(id.clone());
@@ -532,6 +543,7 @@ fn insert_relation(
             })),
             last_access: Instant::now(),
             size: 0,
+            pins: 0,
         },
     );
     reg.order.push(id.clone());
@@ -909,6 +921,37 @@ pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
     }
 }
 
+/// Pin a handle so budget eviction cannot drop it while a consumer reads it.
+///
+/// Returns `false` for an unknown handle. Pins are reference-counted; every
+/// successful `pin` needs a matching [`unpin`].
+pub fn pin(id: &str) -> bool {
+    let registry = registry();
+    let Ok(mut reg) = registry.lock() else {
+        return false;
+    };
+    let Some(stored) = reg.map.get_mut(id) else {
+        return false;
+    };
+    stored.pins += 1;
+    stored.last_access = Instant::now();
+    true
+}
+
+/// Release one pin. Returns `false` for an unknown handle.
+pub fn unpin(id: &str) -> bool {
+    let registry = registry();
+    let Ok(mut reg) = registry.lock() else {
+        return false;
+    };
+    let Some(stored) = reg.map.get_mut(id) else {
+        return false;
+    };
+    stored.pins = stored.pins.saturating_sub(1);
+    stored.last_access = Instant::now();
+    true
+}
+
 /// Remove a dataset (idempotent). No-op unless the handle is owned by
 /// `instance`, so a producer can only release its own datasets.
 pub fn release(instance: &str, id: &str) {
@@ -1123,6 +1166,39 @@ pub(crate) mod tests {
         assert!(instance_revision("p#inst").unwrap() > first.unwrap());
 
         release("p#inst", &handle);
+    }
+
+    #[test]
+    fn pinned_datasets_survive_budget_pressure() {
+        let _g = reset();
+        let pinned = publish(
+            "p",
+            "p#pin",
+            "pinned".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["a".into()]],
+        );
+        assert!(pin(&pinned));
+
+        for i in 0..(MAX_DATASETS + 5) {
+            publish(
+                "p",
+                &format!("p#{i}"),
+                format!("d{i}"),
+                "k".into(),
+                vec![],
+                vec![col("x")],
+                vec![vec!["a".into()]],
+            );
+        }
+
+        assert!(
+            meta(&pinned).is_some(),
+            "a pinned handle must not be evicted for budget"
+        );
+        assert!(unpin(&pinned));
     }
 
     #[test]
