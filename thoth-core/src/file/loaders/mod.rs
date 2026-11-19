@@ -16,6 +16,8 @@ pub mod arrow_tree;
 pub mod duck_db;
 pub mod text_index;
 
+use std::sync::Arc;
+
 use crate::error::Result;
 use crate::file::FileType;
 use duckdb::arrow::array::RecordBatch;
@@ -59,6 +61,122 @@ pub trait FileLoader {
     /// Register `path` under `alias`. The first alias opened becomes the
     /// primary one that `fetch` / `len` / `get` operate on.
     fn open(&self, path: &str, alias: &str) -> Result<()>;
+
+    /// `SELECT * FROM <relation>` for a named relation. Overridable because a
+    /// DuckDB connection maps display names to quoted aliases and attached
+    /// database tables.
+    fn relation_select_sql(&self, relation: &str) -> Result<String> {
+        Ok(format!("SELECT * FROM {relation}"))
+    }
+
+    /// Rows `[offset, offset + limit)` of a named relation.
+    ///
+    /// The primary-alias methods cannot address a document's other collections
+    /// or a database's other tables; the data bus needs one handle per
+    /// relation, so this is the loader-level seam it publishes.
+    fn relation_fetch(
+        &self,
+        relation: &str,
+        filters: Vec<String>,
+        offset: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Vec<RecordBatch>> {
+        let mut sql = self.relation_select_sql(relation)?;
+        if !filters.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(
+                &filters
+                    .iter()
+                    .map(|f| format!("({f})"))
+                    .collect::<Vec<_>>()
+                    .join(" AND "),
+            );
+        }
+        if let Some(limit) = limit {
+            sql.push_str(&format!(" LIMIT {limit}"));
+        }
+        if let Some(offset) = offset {
+            // DuckDB requires a LIMIT before OFFSET.
+            if limit.is_none() {
+                sql.push_str(" LIMIT ALL");
+            }
+            sql.push_str(&format!(" OFFSET {offset}"));
+        }
+        self.query(&sql)
+    }
+
+    /// Row count of a named relation.
+    fn relation_len(&self, relation: &str) -> Result<usize> {
+        use duckdb::arrow::array::{Array, Int64Array};
+        let sql = self.relation_select_sql(relation)?;
+        let batches = self.query(&format!("SELECT count(*) AS n FROM ({sql}) t"))?;
+        let Some(batch) = batches.first() else {
+            return Ok(0);
+        };
+        let Some(count) = batch.column(0).as_any().downcast_ref::<Int64Array>() else {
+            return Ok(0);
+        };
+        Ok(count.value(0).max(0) as usize)
+    }
+}
+
+/// A [`FileLoader`] scoped to one named relation of another loader.
+///
+/// A document can hold several collections and a database several tables. The
+/// registry gives each its own handle, so this redirects the primary-alias
+/// methods (`fetch`/`len`/`get`) at the wrapped relation.
+pub struct RelationLoader {
+    inner: Arc<dyn FileLoader + Send + Sync>,
+    relation: String,
+}
+
+impl RelationLoader {
+    /// Wrap `inner` so its primary-alias methods address `relation`.
+    pub fn new(inner: Arc<dyn FileLoader + Send + Sync>, relation: String) -> Self {
+        Self { inner, relation }
+    }
+}
+
+impl FileLoader for RelationLoader {
+    fn query(&self, query: &str) -> Result<Vec<RecordBatch>> {
+        self.inner.query(query)
+    }
+
+    fn fetch(
+        &self,
+        filters: Vec<String>,
+        offset: Option<usize>,
+        limit: Option<usize>,
+    ) -> Result<Vec<RecordBatch>> {
+        self.inner
+            .relation_fetch(&self.relation, filters, offset, limit)
+    }
+
+    fn size(&self) -> Result<u128> {
+        self.inner.size()
+    }
+
+    fn len(&self) -> Result<usize> {
+        self.inner.relation_len(&self.relation)
+    }
+
+    fn get(&self, index: usize) -> Result<RecordBatch> {
+        self.fetch(Vec::new(), Some(index), Some(1))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| crate::error::ThothError::DatabaseQueryError {
+                query: format!("relation {} row {index}", self.relation),
+                reason: "No record at index".to_string(),
+            })
+    }
+
+    fn open(&self, path: &str, alias: &str) -> Result<()> {
+        self.inner.open(path, alias)
+    }
+
+    fn relation_select_sql(&self, relation: &str) -> Result<String> {
+        self.inner.relation_select_sql(relation)
+    }
 }
 
 /// Record-oriented access, derived from Arrow.

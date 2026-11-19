@@ -2362,6 +2362,83 @@ impl ThothApp {
             .collect()
     }
 
+    /// A Papyrus handle for a producer tab's chosen relation.
+    ///
+    /// File tabs already publish themselves; a plugin producer is called on
+    /// demand and its result published, so every consumer reads the same bus.
+    fn producer_handle(
+        &mut self,
+        tab_id: crate::app::tab_manager::TabId,
+        relation: Option<&str>,
+    ) -> Option<String> {
+        let tab = self.window_state.tab_manager.tabs.get_mut(&tab_id)?;
+        if tab.active_plugin_pane.is_none() {
+            return tab.central_panel.handle_for_relation(relation);
+        }
+
+        let pane = tab.active_plugin_pane.as_ref()?;
+        let dataset = pane.loader.provide_dataset().ok()?;
+        let kind = if dataset.kind.is_empty() {
+            "dataset".to_string()
+        } else {
+            dataset.kind
+        };
+        let handle = crate::papyrus::publish(
+            &pane.plugin_id,
+            pane.loader.instance_id(),
+            dataset.name,
+            kind,
+            Vec::new(),
+            dataset
+                .columns
+                .into_iter()
+                .map(|(name, type_hint)| crate::papyrus::DatasetColumn { name, type_hint })
+                .collect(),
+            dataset.rows,
+        );
+        (!handle.is_empty()).then_some(handle)
+    }
+
+    /// Resolve a producer through Papyrus. Returns `None` when the tab has no
+    /// bus-backed dataset (text/plugin-rendered files), so the direct loader
+    /// path can take over.
+    fn resolve_via_papyrus(
+        &mut self,
+        tab_id: crate::app::tab_manager::TabId,
+        relation: Option<&str>,
+    ) -> Option<ResolvedDataset> {
+        let handle = self.producer_handle(tab_id, relation)?;
+        let meta = crate::papyrus::meta(&handle)?;
+        // Text sheets are lines, not records; a chart on a plugin-rendered
+        // document still goes through the loader.
+        if meta.kind == "text" {
+            return None;
+        }
+
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut offset = 0u64;
+        while rows.len() < crate::file::to_dataset::CAP {
+            let want = (crate::file::to_dataset::CAP - rows.len())
+                .min(crate::papyrus::MAX_READ_LIMIT as usize) as u32;
+            let Some(page) = crate::papyrus::read(&handle, offset, want) else {
+                break;
+            };
+            let got = page.rows.len() as u64;
+            rows.extend(page.rows);
+            offset += got;
+            if got == 0 || offset >= page.total {
+                break;
+            }
+        }
+
+        let columns = meta
+            .columns
+            .into_iter()
+            .map(|c| (c.name, c.type_hint))
+            .collect();
+        Some((meta.name, columns, rows))
+    }
+
     /// Resolve a producer tab's data directly (no registry): file tabs read
     /// their live loader, plugin panes call `provide-dataset`. Returns
     /// `(display name, columns [(name, type-hint)], string rows)`.
@@ -2370,6 +2447,10 @@ impl ThothApp {
         tab_id: crate::app::tab_manager::TabId,
         relation: Option<&str>,
     ) -> Option<ResolvedDataset> {
+        if let Some(resolved) = self.resolve_via_papyrus(tab_id, relation) {
+            return Some(resolved);
+        }
+
         let tab = self.window_state.tab_manager.tabs.get_mut(&tab_id)?;
         if tab.active_plugin_pane.is_none() {
             let path = tab.file_path.clone()?;

@@ -417,6 +417,14 @@ impl CentralPanel {
         self.file_viewer.relations()
     }
 
+    /// A Papyrus handle for one of this tab's relations. See
+    /// [`FileViewer::handle_for_relation`].
+    ///
+    /// [`FileViewer::handle_for_relation`]: crate::components::file_viewer::FileViewer::handle_for_relation
+    pub fn handle_for_relation(&mut self, relation: Option<&str>) -> Option<String> {
+        self.file_viewer.handle_for_relation(relation)
+    }
+
     /// Which relation the grid is showing, when the tab holds more than one.
     pub fn showing_relation(&self) -> Option<String> {
         self.file_viewer.showing_relation()

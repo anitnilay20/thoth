@@ -57,6 +57,9 @@ pub struct DatasetMeta {
     pub source_instance: String,
     pub kind: String,
     pub tags: Vec<String>,
+    /// Which relation of the producer this sheet holds, when it is one of
+    /// several (a document's collection, a database's table).
+    pub relation: Option<String>,
     pub row_count: u64,
     pub columns: Vec<DatasetColumn>,
     /// Monotonic revision, bumped on every mutation (publish/update/append) so
@@ -281,6 +284,7 @@ pub fn publish(
         source_instance: source_instance.to_string(),
         kind,
         tags,
+        relation: None,
         row_count: rows.len() as u64,
         columns,
         revision,
@@ -395,6 +399,7 @@ fn insert_sheet(
                 source_instance: instance.to_string(),
                 kind,
                 tags: Vec::new(),
+                relation: None,
                 row_count: total,
                 columns,
                 revision,
@@ -439,6 +444,98 @@ pub fn publish_text(
         total,
         Source::Text(Box::new(index)),
     ))
+}
+
+/// Publish one named relation of an engine as its own sheet, returning its
+/// handle.
+///
+/// A file tab can hold several relations (a document's collections, a
+/// database's tables). The primary handle always points at whichever one the
+/// grid shows; a chart or renderer that asks for a different relation gets a
+/// stable sheet of its own here, still scanned lazily by the engine.
+pub fn publish_arrow_relation(
+    source: &str,
+    instance: &str,
+    name: String,
+    relation: String,
+    loader: Arc<dyn FileLoader + Send + Sync>,
+) -> Option<String> {
+    use crate::file::loaders::{RecordSource, RelationLoader};
+
+    let scoped: Arc<dyn FileLoader + Send + Sync> =
+        Arc::new(RelationLoader::new(loader, relation.clone()));
+    let total = scoped.len().ok()? as u64;
+    let columns: Vec<DatasetColumn> = scoped
+        .columns()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(name, type_hint)| DatasetColumn { name, type_hint })
+        .collect();
+
+    Some(insert_relation(
+        source, instance, name, relation, columns, total, scoped,
+    ))
+}
+
+/// Register one relation of an instance, replacing only a previous sheet for
+/// the *same* relation. Other relations of that instance stay live.
+fn insert_relation(
+    source: &str,
+    instance: &str,
+    name: String,
+    relation: String,
+    columns: Vec<DatasetColumn>,
+    total: u64,
+    loader: Arc<dyn FileLoader + Send + Sync>,
+) -> String {
+    let registry = registry();
+    let Ok(mut reg) = registry.lock() else {
+        return String::new();
+    };
+
+    let stale: Vec<String> = reg
+        .map
+        .values()
+        .filter(|s| {
+            s.meta.source_instance == instance
+                && s.meta.relation.as_deref() == Some(relation.as_str())
+        })
+        .map(|s| s.meta.id.clone())
+        .collect();
+    for id in stale {
+        reg.drop_dataset(&id);
+    }
+
+    reg.seq += 1;
+    let revision = reg.next_rev();
+    let id = format!("ds-{}", reg.seq);
+    reg.map.insert(
+        id.clone(),
+        Stored {
+            meta: DatasetMeta {
+                id: id.clone(),
+                name,
+                source_plugin: source.to_string(),
+                source_instance: instance.to_string(),
+                kind: "file".to_string(),
+                tags: Vec::new(),
+                relation: Some(relation),
+                row_count: total,
+                columns: columns.clone(),
+                revision,
+            },
+            source: Source::Arrow(Box::new(ArrowSheet {
+                loader,
+                window: RecordWindow::default(),
+                total,
+                columns,
+            })),
+            last_access: Instant::now(),
+            size: 0,
+        },
+    );
+    reg.order.push(id.clone());
+    id
 }
 
 // ── Lazy node access ─────────────────────────────────────────────────────────
@@ -847,6 +944,52 @@ pub(crate) mod tests {
             name: name.to_string(),
             type_hint: "text".to_string(),
         }
+    }
+
+    fn ndjson_temp(contents: &str) -> tempfile::NamedTempFile {
+        use std::io::Write as _;
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(contents.as_bytes()).unwrap();
+        file.flush().unwrap();
+        file
+    }
+
+    #[test]
+    fn relations_of_one_instance_get_independent_handles() {
+        use crate::file::loaders::DuckdbConnection;
+
+        let _g = reset();
+        let a = ndjson_temp("{\"id\":1}\n{\"id\":2}\n");
+        let b = ndjson_temp("{\"id\":10}\n{\"id\":20}\n{\"id\":30}\n");
+        let db = Arc::new(DuckdbConnection::new().unwrap());
+        db.open(&a.path().to_string_lossy(), "a").unwrap();
+        db.open(&b.path().to_string_lossy(), "b").unwrap();
+
+        let engine: Arc<dyn FileLoader + Send + Sync> = db;
+        let h1 = publish_arrow_relation("core", "core#rel", "a".into(), "a".into(), engine.clone())
+            .unwrap();
+        let h2 = publish_arrow_relation("core", "core#rel", "b".into(), "b".into(), engine.clone())
+            .unwrap();
+
+        assert_ne!(h1, h2, "each relation gets its own handle");
+        assert_eq!(total(&h1), 2);
+        assert_eq!(total(&h2), 3);
+        assert_eq!(read(&h2, 0, 10).unwrap().rows.len(), 3);
+        assert_eq!(
+            meta(&h1).unwrap().columns[0].type_hint,
+            "integer",
+            "Arrow types reach the handle"
+        );
+
+        // Re-publishing one relation replaces only that relation.
+        let h1b =
+            publish_arrow_relation("core", "core#rel", "a".into(), "a".into(), engine).unwrap();
+        assert_ne!(h1b, h1);
+        assert!(meta(&h1).is_none(), "the replaced relation is dropped");
+        assert!(meta(&h2).is_some(), "the other relation stays live");
+
+        release("core#rel", &h1b);
+        release("core#rel", &h2);
     }
 
     #[test]

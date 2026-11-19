@@ -986,6 +986,22 @@ impl FileLoader for DuckdbConnection {
         }
     }
 
+    fn relation_select_sql(&self, relation: &str) -> Result<String> {
+        if let Some((_, db_alias)) = self.database()
+            && self.database_tables().iter().any(|t| t == relation)
+        {
+            return Ok(format!(
+                "SELECT * FROM {}.{}",
+                quote_ident(&db_alias),
+                quote_ident(relation)
+            ));
+        }
+        Ok(format!(
+            "SELECT * FROM {}",
+            quote_ident(&alias_for_name(relation))
+        ))
+    }
+
     fn fetch(
         &self,
         filters: Vec<String>,

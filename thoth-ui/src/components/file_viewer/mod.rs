@@ -1397,6 +1397,32 @@ impl FileViewer {
     }
 
     /// Which relation the grid is showing, when the tab holds more than one.
+    /// A Papyrus handle for one of this tab's relations.
+    ///
+    /// The tab's own handle follows whichever relation the grid shows. A chart
+    /// or renderer may ask for a different one; that gets its own lazily
+    /// scanned sheet so it keeps reading the relation it was built against.
+    pub fn handle_for_relation(&mut self, relation: Option<&str>) -> Option<String> {
+        let showing = self.showing_relation();
+        let is_showing = match relation {
+            None => true,
+            Some(name) => showing.as_deref() == Some(name),
+        };
+        if is_showing && let Some(handle) = self.handle.as_ref() {
+            return Some(handle.clone());
+        }
+
+        let relation = relation?;
+        let engine = self.engine.as_ref()?;
+        crate::papyrus::publish_arrow_relation(
+            "core",
+            &format!("core#{}", self.tab_id),
+            relation.to_string(),
+            relation.to_string(),
+            engine.clone(),
+        )
+    }
+
     pub fn showing_relation(&self) -> Option<String> {
         if !self.db_tables.is_empty() {
             return self.selected_db_table.clone();
