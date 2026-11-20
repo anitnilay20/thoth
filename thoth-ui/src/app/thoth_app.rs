@@ -35,6 +35,12 @@ pub struct ThothApp {
     /// the producer's own displayed dataset and every chart keep one stable
     /// handle.
     pull_handles: std::collections::HashMap<(crate::app::tab_manager::TabId, String), String>,
+    /// Last seen revision of each producer tab's own displayed dataset, used to
+    /// re-pull pull-only consumers when the producer's data changes.
+    producer_signals: std::collections::HashMap<crate::app::tab_manager::TabId, u64>,
+    /// Charts already told their source is unavailable, so the notification
+    /// fires once per missing-source episode instead of every frame.
+    unavailable_charts: std::collections::HashSet<crate::app::tab_manager::TabId>,
     /// Pending chart PNG export: `(chart rect in points, screenshot requested?)`
     /// — drives the two-frame screenshot → crop → save flow.
     chart_export: Option<(egui::Rect, bool)>,
@@ -210,6 +216,8 @@ impl ThothApp {
             _native_menu: None,
             sidebar_plugin: None,
             pull_handles: std::collections::HashMap::new(),
+            producer_signals: std::collections::HashMap::new(),
+            unavailable_charts: std::collections::HashSet::new(),
             chart_export: None,
         }
     }
@@ -2671,9 +2679,13 @@ impl ThothApp {
             return;
         };
         let Some(resolved) = self.resolve_source(source, relation.as_deref()) else {
-            Self::notify_dataset_unavailable();
+            // Tell the user once per missing-source episode, not every frame.
+            if self.unavailable_charts.insert(tab_id) {
+                Self::notify_dataset_unavailable();
+            }
             return;
         };
+        self.unavailable_charts.remove(&tab_id);
         let colnames: Vec<String> = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
         let handle = resolved.handle;
         let revision = resolved.revision;
@@ -2689,7 +2701,75 @@ impl ThothApp {
     /// Re-read any chart source whose producer revision moved (a `dataset-bus`
     /// `update`/`append`, or a re-published relation) so the studio and open
     /// charts follow the data instead of a stale snapshot.
+    /// The revision of a producer tab's own displayed dataset, when it has one.
+    fn producer_revision(&self, tab_id: crate::app::tab_manager::TabId) -> Option<u64> {
+        let tab = self.window_state.tab_manager.tabs.get(&tab_id)?;
+        let pane = tab.active_plugin_pane.as_ref()?;
+        crate::papyrus::instance_revision(pane.loader.instance_id())
+    }
+
     fn refresh_chart_sources(&mut self) {
+        // A pull handle's own revision only moves when we re-pull it. Watch the
+        // producer's own displayed dataset instead, and re-pull every consumer
+        // bound to it when that revision moves.
+        let mut producer_tabs: Vec<crate::app::tab_manager::TabId> = Vec::new();
+        if let Some(src) = &self.core.chart_source_ref {
+            producer_tabs.push(src.tab_id);
+        }
+        producer_tabs.extend(
+            self.window_state
+                .tab_manager
+                .tabs
+                .values()
+                .filter_map(|tab| tab.chart.as_ref().map(|chart| chart.source_tab())),
+        );
+        producer_tabs.sort_unstable();
+        producer_tabs.dedup();
+
+        for tab_id in producer_tabs {
+            let Some(revision) = self.producer_revision(tab_id) else {
+                continue;
+            };
+            if self.producer_signals.insert(tab_id, revision) == Some(revision) {
+                continue;
+            }
+
+            if let Some(src) = self.core.chart_source_ref.clone()
+                && src.tab_id == tab_id
+                && let Some(resolved) = self.resolve_source(tab_id, src.relation.as_deref())
+            {
+                let key =
+                    crate::components::chart_studio::source_key(tab_id, src.relation.as_deref());
+                let colnames = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
+                let info = columns_info(&resolved.columns, &resolved.rows);
+                self.core.chart_source = Some((key, colnames, resolved.rows));
+                self.core.chart_source_ref =
+                    resolved.handle.map(|handle| crate::core::ChartSourceRef {
+                        handle,
+                        revision: resolved.revision.unwrap_or(0),
+                        tab_id,
+                        relation: src.relation,
+                    });
+                self.window_state.sidebar.set_chart_columns(info);
+            }
+
+            let charts: Vec<crate::app::tab_manager::TabId> = self
+                .window_state
+                .tab_manager
+                .tabs
+                .iter()
+                .filter(|(_, tab)| {
+                    tab.chart
+                        .as_ref()
+                        .is_some_and(|chart| chart.source_tab() == tab_id)
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            for id in charts {
+                self.chart_refresh(id);
+            }
+        }
+
         // The studio's selected source.
         if let Some(src) = self.core.chart_source_ref.clone() {
             let stale = crate::papyrus::meta(&src.handle)
@@ -3434,6 +3514,9 @@ fn columns_info(
 /// True when a majority of sampled rows parse as numbers in column `c` — used
 /// to decide which columns the Chart Studio offers as Y series.
 fn column_is_numeric(rows: &[Vec<String>], c: usize) -> bool {
+    if rows.is_empty() {
+        return false;
+    }
     let sample = rows.len().clamp(1, 32);
     let ok = (0..sample)
         .filter(|&r| {
@@ -3449,6 +3532,11 @@ fn column_is_numeric(rows: &[Vec<String>], c: usize) -> bool {
 #[cfg(test)]
 mod export_tests {
     use super::*;
+
+    #[test]
+    fn empty_rows_do_not_report_numeric() {
+        assert!(!column_is_numeric(&[], 0));
+    }
 
     fn cell(value: &str) -> Cell {
         Some(value.to_string())

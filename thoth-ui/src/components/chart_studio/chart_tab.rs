@@ -100,12 +100,18 @@ impl ChartTab {
         rows: Vec<Vec<String>>,
         index: usize,
     ) -> Self {
+        // A source's schema can change between sessions; clamp the spec's
+        // column indices before shaping so an out-of-range index cannot panic.
+        let max_col = columns.len().saturating_sub(1);
+        let x_col = spec.x_col.min(max_col);
+        let y_cols: Vec<usize> = spec.y_cols.iter().map(|&c| c.min(max_col)).collect();
+
         // Aggregate over ALL source rows, then cap only the rendered snapshot.
         let mut shaped = transform::shape(
             &columns,
             &rows,
-            spec.x_col,
-            &spec.y_cols,
+            x_col,
+            &y_cols,
             spec.aggregation,
             spec.top_n,
             spec.sort,
@@ -125,8 +131,8 @@ impl ChartTab {
             source_handle: None,
             source_revision: None,
             source_label: spec.source_label.clone(),
-            src_x_col: spec.x_col,
-            src_y_cols: spec.y_cols.clone(),
+            src_x_col: x_col,
+            src_y_cols: y_cols,
             aggregation: spec.aggregation,
             top_n: spec.top_n,
             sort: spec.sort,

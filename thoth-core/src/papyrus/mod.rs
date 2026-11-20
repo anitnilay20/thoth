@@ -41,7 +41,7 @@ pub const MAX_READ_LIMIT: u32 = 1000;
 /// are dropped (ring buffer) so an unbounded stream can't grow without limit.
 const MAX_STREAM_ROWS: usize = 50_000;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DatasetColumn {
     pub name: String,
     pub type_hint: String,
@@ -719,6 +719,20 @@ pub fn list() -> Vec<DatasetMeta> {
         .collect()
 }
 
+/// Highest revision among a producer's primary sheets (its displayed dataset).
+///
+/// Chart Studio uses this as a signal that a plugin's own dataset changed, so
+/// it can re-pull the pull-only handle it charts from.
+pub fn instance_revision(instance: &str) -> Option<u64> {
+    let registry = registry();
+    let reg = registry.lock().ok()?;
+    reg.map
+        .values()
+        .filter(|s| s.meta.source_instance == instance && s.meta.relation.is_none())
+        .map(|s| s.meta.revision)
+        .max()
+}
+
 /// Read rows `[offset, offset + limit)` of dataset `id`; `limit` is capped by
 /// [`MAX_READ_LIMIT`]. Returns `None` if the id is unknown.
 pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
@@ -796,15 +810,34 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
 /// known and owned by `instance` — a producer can only mutate its own datasets.
 pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<Vec<String>>) {
     let registry = registry();
-    if let Ok(mut reg) = registry.lock() {
+    let Ok(mut reg) = registry.lock() else {
+        return;
+    };
+
+    // Re-pulling a producer with unchanged data must not bump the revision, or
+    // every Chart Studio refresh would look like new data.
+    let identical = {
         let Some(stored) = reg.map.get(id) else {
             return;
         };
         if stored.meta.source_instance != instance {
             return;
         }
-        let revision = reg.next_rev();
-        let Some(stored) = reg.map.get(id) else {
+        let Some(existing) = stored.source.rows() else {
+            return;
+        };
+        stored.meta.columns == columns && *existing == rows
+    };
+    if identical {
+        if let Some(stored) = reg.map.get_mut(id) {
+            stored.last_access = Instant::now();
+        }
+        return;
+    }
+
+    let revision = reg.next_rev();
+    let (old_size, size) = {
+        let Some(stored) = reg.map.get_mut(id) else {
             return;
         };
         let meta = DatasetMeta {
@@ -815,18 +848,15 @@ pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<V
         };
         let size = dataset_bytes(&meta, &rows);
         let old_size = stored.size;
-        if let Some(stored) = reg.map.get_mut(id)
-            && stored.source.rows().is_some()
-        {
-            stored.meta = meta;
-            stored.source = Source::Rows(rows);
-            stored.size = size;
-            stored.last_access = Instant::now();
-        }
-        reg.bytes = reg.bytes.saturating_add(size).saturating_sub(old_size);
-        // A larger dataset may push us over budget — evict to fit.
-        reg.enforce_budget();
-    }
+        stored.meta = meta;
+        stored.source = Source::Rows(rows);
+        stored.size = size;
+        stored.last_access = Instant::now();
+        (old_size, size)
+    };
+    reg.bytes = reg.bytes.saturating_add(size).saturating_sub(old_size);
+    // A larger dataset may push us over budget — evict to fit.
+    reg.enforce_budget();
 }
 
 /// Append rows to an existing handle, keeping its columns — for streaming
@@ -1042,6 +1072,57 @@ pub(crate) mod tests {
 
         retain_instances(&std::collections::HashSet::new());
         assert!(meta(&handle).is_none());
+    }
+
+    #[test]
+    fn identical_update_keeps_revision_and_changes_bump_it() {
+        let _g = reset();
+        let handle = publish(
+            "p",
+            "p#upd",
+            "d".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["1".into()]],
+        );
+        let revision = meta(&handle).unwrap().revision;
+
+        update("p#upd", &handle, vec![col("x")], vec![vec!["1".into()]]);
+        assert_eq!(
+            meta(&handle).unwrap().revision,
+            revision,
+            "an identical update must keep the revision"
+        );
+
+        update("p#upd", &handle, vec![col("x")], vec![vec!["2".into()]]);
+        assert!(
+            meta(&handle).unwrap().revision > revision,
+            "changed content must bump the revision"
+        );
+
+        release("p#upd", &handle);
+    }
+
+    #[test]
+    fn instance_revision_tracks_the_displayed_primary() {
+        let _g = reset();
+        let handle = publish(
+            "p",
+            "p#inst",
+            "d".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["1".into()]],
+        );
+        let first = instance_revision("p#inst");
+        assert_eq!(first, Some(meta(&handle).unwrap().revision));
+
+        update("p#inst", &handle, vec![col("x")], vec![vec!["2".into()]]);
+        assert!(instance_revision("p#inst").unwrap() > first.unwrap());
+
+        release("p#inst", &handle);
     }
 
     #[test]
