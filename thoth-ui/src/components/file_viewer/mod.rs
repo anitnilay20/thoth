@@ -1397,6 +1397,30 @@ impl FileViewer {
     }
 
     /// Which relation the grid is showing, when the tab holds more than one.
+    /// A Papyrus handle for one of this tab's relations.
+    ///
+    /// `None` means “whatever the grid is showing”, which is the filtered query
+    /// result when the user has run one. An explicit relation name always
+    /// returns a relation-scoped sheet of the *full* relation — the grid's
+    /// handle can be a filtered result and must not be reused for it.
+    pub fn handle_for_relation(&mut self, relation: Option<&str>) -> Option<String> {
+        if relation.is_none()
+            && let Some(handle) = self.handle.as_ref()
+        {
+            return Some(handle.clone());
+        }
+
+        let relation = relation?;
+        let engine = self.engine.as_ref()?;
+        crate::papyrus::publish_arrow_relation(
+            "core",
+            &format!("core#{}", self.tab_id),
+            relation.to_string(),
+            relation.to_string(),
+            engine.clone(),
+        )
+    }
+
     pub fn showing_relation(&self) -> Option<String> {
         if !self.db_tables.is_empty() {
             return self.selected_db_table.clone();
