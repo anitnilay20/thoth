@@ -535,6 +535,9 @@ fn insert_relation(
         },
     );
     reg.order.push(id.clone());
+    // A relation sheet is Arrow-backed (size 0), but it still counts toward the
+    // dataset-count budget, so evict after registering it.
+    reg.enforce_budget();
     id
 }
 
