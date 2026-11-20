@@ -1,8 +1,8 @@
 //! CSV Export — an **exporter** plugin (#135). The host owns the dataset; when
-//! the user picks "Export → CSV" in a DataView, the host serialises its single
-//! owned copy to a records blob and calls [`run`](CsvExportPlugin::run) here to
-//! format it as CSV bytes, which the host then writes to disk. This plugin is
-//! stateless and never touches the data bus or the filesystem itself.
+//! the user picks "Export → CSV" in a DataView, the host hands the plugin a
+//! dataset handle and calls `exporter.run`; the plugin pages the rows through
+//! `dataset-read`, streams them to CSV bytes, and the host writes the file.
+//! This plugin is stateless and never touches the filesystem itself.
 
 #[rustfmt::skip]
 mod bindings;
