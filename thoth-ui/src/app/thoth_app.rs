@@ -2454,11 +2454,18 @@ impl ThothApp {
             return None;
         }
 
+        // The 5k row cap was the file/engine contract. A plugin's
+        // `provide-dataset` used to return every row, so keep that here and
+        // only bound each individual read.
+        let cap = if meta.kind == "file" {
+            crate::file::to_dataset::CAP
+        } else {
+            usize::MAX
+        };
         let mut rows: Vec<Vec<String>> = Vec::new();
         let mut offset = 0u64;
-        while rows.len() < crate::file::to_dataset::CAP {
-            let want = (crate::file::to_dataset::CAP - rows.len())
-                .min(crate::papyrus::MAX_READ_LIMIT as usize) as u32;
+        while rows.len() < cap {
+            let want = (cap - rows.len()).min(crate::papyrus::MAX_READ_LIMIT as usize) as u32;
             let Some(page) = crate::papyrus::read(&handle, offset, want) else {
                 // The handle disappeared mid-read; let the caller fall back to
                 // the direct loader rather than charting a partial dataset.
