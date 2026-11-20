@@ -29,6 +29,12 @@ pub struct ThothApp {
     _native_menu: Option<crate::platform::native_menu::NativeMenu>,
     /// The plugin whose sidebar is currently mounted (independent of any tab).
     sidebar_plugin: Option<SidebarPluginRuntime>,
+    /// Handles for `provide-dataset` pulls, keyed by `(tab, instance id)`.
+    ///
+    /// A pull is published under `<instance>#pull` and updated in place, so both
+    /// the producer's own displayed dataset and every chart keep one stable
+    /// handle.
+    pull_handles: std::collections::HashMap<(crate::app::tab_manager::TabId, String), String>,
     /// Pending chart PNG export: `(chart rect in points, screenshot requested?)`
     /// — drives the two-frame screenshot → crop → save flow.
     chart_export: Option<(egui::Rect, bool)>,
@@ -203,6 +209,7 @@ impl ThothApp {
             show_update_consent: false,
             _native_menu: None,
             sidebar_plugin: None,
+            pull_handles: std::collections::HashMap::new(),
             chart_export: None,
         }
     }
@@ -2371,32 +2378,55 @@ impl ThothApp {
         tab_id: crate::app::tab_manager::TabId,
         relation: Option<&str>,
     ) -> Option<String> {
-        let tab = self.window_state.tab_manager.tabs.get_mut(&tab_id)?;
-        if tab.active_plugin_pane.is_none() {
-            return tab.central_panel.handle_for_relation(relation);
+        {
+            let tab = self.window_state.tab_manager.tabs.get_mut(&tab_id)?;
+            if tab.active_plugin_pane.is_none() {
+                return tab.central_panel.handle_for_relation(relation);
+            }
         }
 
-        let pane = tab.active_plugin_pane.as_ref()?;
-        let dataset = pane.loader.provide_dataset().ok()?;
-        let kind = if dataset.kind.is_empty() {
-            "dataset".to_string()
-        } else {
-            dataset.kind
+        let (plugin_id, instance, key, name, kind, columns, rows) = {
+            let tab = self.window_state.tab_manager.tabs.get(&tab_id)?;
+            let pane = tab.active_plugin_pane.as_ref()?;
+            let dataset = pane.loader.provide_dataset().ok()?;
+            let kind = if dataset.kind.is_empty() {
+                "dataset".to_string()
+            } else {
+                dataset.kind
+            };
+            let instance_id = pane.loader.instance_id().to_string();
+            (
+                pane.plugin_id.clone(),
+                format!("{instance_id}#pull"),
+                (tab_id, instance_id),
+                dataset.name,
+                kind,
+                dataset
+                    .columns
+                    .into_iter()
+                    .map(|(name, type_hint)| crate::papyrus::DatasetColumn { name, type_hint })
+                    .collect::<Vec<_>>(),
+                dataset.rows,
+            )
         };
-        let handle = crate::papyrus::publish(
-            &pane.plugin_id,
-            pane.loader.instance_id(),
-            dataset.name,
-            kind,
-            Vec::new(),
-            dataset
-                .columns
-                .into_iter()
-                .map(|(name, type_hint)| crate::papyrus::DatasetColumn { name, type_hint })
-                .collect(),
-            dataset.rows,
-        );
-        (!handle.is_empty()).then_some(handle)
+
+        // The plugin's own displayed dataset lives under its instance id. Pull
+        // it under `<instance>#pull` so that handle stays readable, and update
+        // the pull in place so both consumers share one stable handle.
+        if let Some(handle) = self.pull_handles.get(&key).cloned()
+            && crate::papyrus::meta(&handle).is_some()
+        {
+            crate::papyrus::update(&instance, &handle, columns, rows);
+            return Some(handle);
+        }
+
+        let handle =
+            crate::papyrus::publish(&plugin_id, &instance, name, kind, Vec::new(), columns, rows);
+        if handle.is_empty() {
+            return None;
+        }
+        self.pull_handles.insert(key, handle.clone());
+        Some(handle)
     }
 
     /// Resolve a producer through Papyrus. Returns `None` when the tab has no
@@ -2421,7 +2451,9 @@ impl ThothApp {
             let want = (crate::file::to_dataset::CAP - rows.len())
                 .min(crate::papyrus::MAX_READ_LIMIT as usize) as u32;
             let Some(page) = crate::papyrus::read(&handle, offset, want) else {
-                break;
+                // The handle disappeared mid-read; let the caller fall back to
+                // the direct loader rather than charting a partial dataset.
+                return None;
             };
             let got = page.rows.len() as u64;
             rows.extend(page.rows);

@@ -268,7 +268,7 @@ pub fn publish(
     let stale: Vec<String> = reg
         .map
         .values()
-        .filter(|s| s.meta.source_instance == source_instance)
+        .filter(|s| s.meta.source_instance == source_instance && s.meta.relation.is_none())
         .map(|s| s.meta.id.clone())
         .collect();
     for id in stale {
@@ -379,7 +379,7 @@ fn insert_sheet(
     let stale: Vec<String> = reg
         .map
         .values()
-        .filter(|s| s.meta.source_instance == instance)
+        .filter(|s| s.meta.source_instance == instance && s.meta.relation.is_none())
         .map(|s| s.meta.id.clone())
         .collect();
     for id in stale {
@@ -893,6 +893,18 @@ pub fn release(instance: &str, id: &str) {
     }
 }
 
+/// Whether a sheet's source instance is still open.
+///
+/// Chart Studio pulls a plugin producer into a separate `#pull` sheet so it
+/// does not replace the plugin's own displayed dataset; that sheet follows the
+/// same tab lifecycle as its producer.
+fn instance_is_open(instance: &str, open: &std::collections::HashSet<String>) -> bool {
+    open.contains(instance)
+        || instance
+            .strip_suffix("#pull")
+            .is_some_and(|base| open.contains(base))
+}
+
 /// Drop datasets whose producing instance is no longer open. Called each frame
 /// with the set of live plugin-instance ids (same set signals uses).
 pub fn retain_instances(open: &std::collections::HashSet<String>) {
@@ -901,7 +913,7 @@ pub fn retain_instances(open: &std::collections::HashSet<String>) {
         let dropped: Vec<String> = reg
             .map
             .values()
-            .filter(|s| !open.contains(&s.meta.source_instance))
+            .filter(|s| !instance_is_open(&s.meta.source_instance, open))
             .map(|s| s.meta.id.clone())
             .collect();
         for id in dropped {
@@ -988,8 +1000,48 @@ pub(crate) mod tests {
         assert!(meta(&h1).is_none(), "the replaced relation is dropped");
         assert!(meta(&h2).is_some(), "the other relation stays live");
 
+        // A primary-sheet republish removes only the primary, so named
+        // relations stay readable.
+        let primary = publish(
+            "core",
+            "core#rel",
+            "primary".into(),
+            "file".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["x".into()]],
+        );
+        assert!(
+            meta(&h2).is_some(),
+            "a primary republish must not drop named relations"
+        );
+
+        release("core#rel", &primary);
         release("core#rel", &h1b);
         release("core#rel", &h2);
+    }
+
+    #[test]
+    fn pull_sheets_follow_their_producer() {
+        let _g = reset();
+        let handle = publish(
+            "p",
+            "p#1#pull",
+            "pull".into(),
+            "dataset".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["x".into()]],
+        );
+
+        retain_instances(&std::collections::HashSet::from(["p#1".to_string()]));
+        assert!(
+            meta(&handle).is_some(),
+            "a #pull sheet follows its producer instance"
+        );
+
+        retain_instances(&std::collections::HashSet::new());
+        assert!(meta(&handle).is_none());
     }
 
     #[test]

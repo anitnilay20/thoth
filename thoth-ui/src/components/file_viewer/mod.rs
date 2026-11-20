@@ -1399,16 +1399,14 @@ impl FileViewer {
     /// Which relation the grid is showing, when the tab holds more than one.
     /// A Papyrus handle for one of this tab's relations.
     ///
-    /// The tab's own handle follows whichever relation the grid shows. A chart
-    /// or renderer may ask for a different one; that gets its own lazily
-    /// scanned sheet so it keeps reading the relation it was built against.
+    /// `None` means “whatever the grid is showing”, which is the filtered query
+    /// result when the user has run one. An explicit relation name always
+    /// returns a relation-scoped sheet of the *full* relation — the grid's
+    /// handle can be a filtered result and must not be reused for it.
     pub fn handle_for_relation(&mut self, relation: Option<&str>) -> Option<String> {
-        let showing = self.showing_relation();
-        let is_showing = match relation {
-            None => true,
-            Some(name) => showing.as_deref() == Some(name),
-        };
-        if is_showing && let Some(handle) = self.handle.as_ref() {
+        if relation.is_none()
+            && let Some(handle) = self.handle.as_ref()
+        {
             return Some(handle.clone());
         }
 
