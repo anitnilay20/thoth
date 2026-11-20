@@ -7,8 +7,6 @@
 #[rustfmt::skip]
 mod bindings;
 
-use serde::Deserialize;
-
 use thoth_plugin_sdk::PluginMeta;
 
 use bindings::exports::thoth::plugin::{
@@ -16,6 +14,7 @@ use bindings::exports::thoth::plugin::{
     plugin_lifecycle::Guest as LifecycleGuest,
     plugin_settings::{Guest as SettingsGuest, SettingsOutput},
 };
+use bindings::thoth::plugin::dataset_read;
 
 #[derive(PluginMeta)]
 #[plugin(
@@ -27,16 +26,6 @@ use bindings::exports::thoth::plugin::{
     author = "Thoth contributors",
 )]
 struct CsvExportPlugin;
-
-/// The host-owned dataset shape passed to `run` (see the `exporter.run` WIT doc):
-/// column order preserved, every cell a string.
-#[derive(Deserialize)]
-struct Records {
-    #[serde(default)]
-    columns: Vec<String>,
-    #[serde(default)]
-    rows: Vec<Vec<String>>,
-}
 
 /// RFC 4180-ish field escaping: quote if the value has a comma, quote, or newline.
 fn esc(s: &str) -> String {
@@ -72,13 +61,37 @@ impl ExporterGuest for CsvExportPlugin {
         Vec::new()
     }
 
-    fn run(records_json: String, _options: Vec<(String, String)>) -> Result<Vec<u8>, PluginError> {
-        let recs: Records = serde_json::from_str(&records_json).map_err(|e| PluginError {
-            code: 1,
-            message: format!("invalid records-json: {e}"),
-        })?;
+    fn run(handle: String, _options: Vec<(String, String)>) -> Result<Vec<u8>, PluginError> {
+        // Stream pages straight into the output: a large dataset never needs to
+        // be held in the plugin's memory at once.
+        const PAGE: u32 = 1000;
+        let info = dataset_read::info(&handle)?;
+        let mut out = String::new();
+        out.push_str(
+            &info
+                .columns
+                .iter()
+                .map(|c| esc(&c.name))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        out.push('\n');
 
-        Ok(build_csv(&recs.columns, &recs.rows).into_bytes())
+        let mut offset = 0u64;
+        while offset < info.row_count {
+            let limit = (info.row_count - offset).min(u64::from(PAGE)) as u32;
+            let page = dataset_read::read(&handle, offset, limit)?;
+            for row in &page.rows {
+                out.push_str(&row.iter().map(|c| esc(c)).collect::<Vec<_>>().join(","));
+                out.push('\n');
+            }
+            let got = page.rows.len() as u64;
+            if got == 0 {
+                break;
+            }
+            offset += got;
+        }
+        Ok(out.into_bytes())
     }
 }
 
