@@ -333,13 +333,10 @@ pub fn publish_arrow_with_total(
     let columns: Vec<DatasetColumn> = {
         use crate::file::loaders::RecordSource;
         loader
-            .column_names()
+            .columns()
             .unwrap_or_default()
             .into_iter()
-            .map(|name| DatasetColumn {
-                name,
-                type_hint: String::new(),
-            })
+            .map(|(name, type_hint)| DatasetColumn { name, type_hint })
             .collect()
     };
 

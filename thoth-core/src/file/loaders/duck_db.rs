@@ -1531,6 +1531,21 @@ mod tests {
     }
 
     #[test]
+    fn columns_carry_arrow_type_hints() {
+        let file = csv_file("name,age\nada,36\nlinus,54\n");
+        let db = DuckdbConnection::open_path(file.path()).unwrap();
+
+        let columns = db.columns().unwrap();
+        assert_eq!(
+            columns,
+            vec![
+                ("name".to_string(), "text".to_string()),
+                ("age".to_string(), "integer".to_string()),
+            ]
+        );
+    }
+
+    #[test]
     fn get_out_of_range_is_an_error() {
         let file = ndjson_file("{\"a\":1}\n");
         let db = DuckdbConnection::open_path(file.path()).unwrap();

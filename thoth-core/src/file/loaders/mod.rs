@@ -19,6 +19,7 @@ pub mod text_index;
 use crate::error::Result;
 use crate::file::FileType;
 use duckdb::arrow::array::RecordBatch;
+use duckdb::arrow::datatypes::DataType;
 use serde_json::Value;
 
 pub use arrow_rows::{RecordWindow, batch_columns, batch_rows, batches_to_values};
@@ -106,9 +107,71 @@ pub trait RecordSource: FileLoader {
         // Some readers only publish a schema alongside real rows.
         Ok(batch_columns(&self.fetch(Vec::new(), None, Some(1))?))
     }
+
+    /// Column names and SQL-ish type hints of the primary alias, in schema
+    /// order. Reads the Arrow schema only — the type hints are what the data
+    /// bus, grid and chart axis pickers use to tell numbers from text.
+    fn columns(&self) -> Result<Vec<(String, String)>> {
+        let mut batches = self.fetch(Vec::new(), None, Some(0))?;
+        if batches.iter().all(|batch| batch.num_columns() == 0) {
+            // Some readers only publish a schema alongside real rows.
+            batches = self.fetch(Vec::new(), None, Some(1))?;
+        }
+        let Some(batch) = batches.first() else {
+            return Ok(Vec::new());
+        };
+        Ok(batch
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| (field.name().clone(), arrow_type_hint(field.data_type())))
+            .collect())
+    }
 }
 
 impl<T: FileLoader + ?Sized> RecordSource for T {}
+
+/// Map an Arrow type to the SQL-ish hint the SDK's `ColumnType::from_sql`
+/// understands (alignment, colour, chart axis treatment).
+fn arrow_type_hint(data_type: &DataType) -> String {
+    let hint = match data_type {
+        DataType::Boolean => "boolean",
+        DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64 => "integer",
+        DataType::Float16 | DataType::Float32 | DataType::Float64 => "float",
+        DataType::Decimal32(..)
+        | DataType::Decimal64(..)
+        | DataType::Decimal128(..)
+        | DataType::Decimal256(..) => "decimal",
+        DataType::Date32 | DataType::Date64 => "date",
+        DataType::Time32(..) | DataType::Time64(..) => "time",
+        DataType::Timestamp(..) => "timestamp",
+        DataType::Duration(..) | DataType::Interval(..) => "interval",
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => "text",
+        DataType::Binary
+        | DataType::LargeBinary
+        | DataType::BinaryView
+        | DataType::FixedSizeBinary(..) => "binary",
+        DataType::List(..)
+        | DataType::LargeList(..)
+        | DataType::ListView(..)
+        | DataType::LargeListView(..)
+        | DataType::FixedSizeList(..)
+        | DataType::Struct(..)
+        | DataType::Map(..)
+        | DataType::Union(..)
+        | DataType::Dictionary(..)
+        | DataType::RunEndEncoded(..) => "json",
+        DataType::Null => "null",
+    };
+    hint.to_string()
+}
 
 /// A lightweight, `Copy` tag describing what kind of file a tab holds.
 ///
@@ -142,5 +205,40 @@ impl From<FileType> for FileKind {
             FileType::Plugin => FileKind::Plugin,
             FileType::Unknown => FileKind::Json,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::arrow_type_hint;
+    use duckdb::arrow::datatypes::{DataType, Field, TimeUnit};
+    use std::sync::Arc;
+
+    #[test]
+    fn arrow_types_map_to_sql_hints() {
+        let cases = [
+            (DataType::Boolean, "boolean"),
+            (DataType::Int64, "integer"),
+            (DataType::UInt32, "integer"),
+            (DataType::Float64, "float"),
+            (DataType::Decimal128(10, 2), "decimal"),
+            (DataType::Utf8, "text"),
+            (DataType::LargeUtf8, "text"),
+            (DataType::Date32, "date"),
+            (
+                DataType::Timestamp(TimeUnit::Millisecond, None),
+                "timestamp",
+            ),
+            (DataType::Time64(TimeUnit::Microsecond), "time"),
+            (DataType::Duration(TimeUnit::Second), "interval"),
+            (DataType::Binary, "binary"),
+            (DataType::Null, "null"),
+        ];
+        for (data_type, expected) in cases {
+            assert_eq!(arrow_type_hint(&data_type), expected, "{data_type:?}");
+        }
+
+        let list = DataType::List(Arc::new(Field::new("item", DataType::Int64, true)));
+        assert_eq!(arrow_type_hint(&list), "json");
     }
 }
