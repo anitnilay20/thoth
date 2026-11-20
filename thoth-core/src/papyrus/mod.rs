@@ -23,10 +23,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
 use std::time::Instant;
 
+use duckdb::arrow::array::RecordBatch;
 use serde_json::Value;
 use thoth_plugin_sdk::dataset::{NodeKind, TreeNode};
 
-use crate::file::loaders::{FileLoader, RecordWindow, TextIndex, arrow_tree};
+use crate::file::loaders::{BatchLoader, FileLoader, RecordWindow, TextIndex, arrow_tree};
 
 /// Most datasets kept before LRU eviction of the least-recently-accessed.
 const MAX_DATASETS: usize = 32;
@@ -488,6 +489,21 @@ pub fn publish_arrow_relation(
     ))
 }
 
+/// Publish an in-memory Arrow dataset (a plugin's `publish-arrow`).
+///
+/// The IPC stream was parsed once by the host; the batches are served as a
+/// window like any engine-backed sheet, so types, nulls and nesting survive.
+pub fn publish_batches(
+    source: &str,
+    instance: &str,
+    name: String,
+    batches: Vec<RecordBatch>,
+) -> String {
+    let loader: Arc<dyn FileLoader + Send + Sync> = Arc::new(BatchLoader::new(batches));
+    let total = loader.len().unwrap_or(0) as u64;
+    publish_arrow_with_total(source, instance, name, loader, total).unwrap_or_default()
+}
+
 /// Register one relation of an instance, replacing only a previous sheet for
 /// the *same* relation. Other relations of that instance stay live.
 fn insert_relation(
@@ -817,6 +833,47 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
     }
 }
 
+/// A window of a handle as Arrow record batches.
+///
+/// Only Arrow-fidelity sheets (engine-backed, or a plugin's `publish-arrow`)
+/// answer this; string-only pushes and text lines return `None`, and callers
+/// fall back to [`read`].
+pub fn read_arrow(id: &str, offset: u64, limit: u32) -> Option<Vec<RecordBatch>> {
+    let registry = registry();
+    let mut reg = registry.lock().ok()?;
+    let stored = reg.map.get_mut(id)?;
+    stored.last_access = Instant::now();
+
+    let count = limit.min(MAX_READ_LIMIT) as usize;
+    let start = offset as usize;
+    let Source::Arrow(sheet) = &mut stored.source else {
+        return None;
+    };
+    let ArrowSheet { loader, window, .. } = &mut **sheet;
+
+    window.ensure(loader.as_ref(), start, count).ok()?;
+    let (batches, local) = window.locate(loader.as_ref(), start).ok()?;
+
+    let mut out = Vec::new();
+    let mut need = count;
+    let mut skip = local;
+    for batch in batches {
+        if need == 0 {
+            break;
+        }
+        let rows = batch.num_rows();
+        if skip >= rows {
+            skip -= rows;
+            continue;
+        }
+        let take = (rows - skip).min(need);
+        out.push(batch.slice(skip, take));
+        need -= take;
+        skip = 0;
+    }
+    Some(out)
+}
+
 /// Replace the columns + rows behind an existing handle in place (keeping its
 /// id, source, and byte-budget accounting current). No-op unless the handle is
 /// known and owned by `instance` — a producer can only mutate its own datasets.
@@ -1037,6 +1094,52 @@ pub(crate) mod tests {
         file.write_all(contents.as_bytes()).unwrap();
         file.flush().unwrap();
         file
+    }
+
+    #[test]
+    fn arrow_ipc_publish_round_trips_types_and_pages() {
+        use crate::file::loaders::{encode_ipc, parse_ipc};
+        use duckdb::arrow::array::{Int64Array, StringArray};
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+        use duckdb::arrow::record_batch::RecordBatch;
+
+        let _g = reset();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("name", DataType::Utf8, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2, 3])),
+                Arc::new(StringArray::from(vec!["a", "b", "c"])),
+            ],
+        )
+        .unwrap();
+
+        let bytes = encode_ipc(std::slice::from_ref(&batch)).unwrap();
+        let parsed = parse_ipc(&bytes).unwrap();
+        let handle = publish_batches("p", "p#ipc", "ipc".into(), parsed);
+
+        assert_eq!(total(&handle), 3);
+        assert_eq!(meta(&handle).unwrap().columns[0].type_hint, "integer");
+        assert_eq!(
+            read(&handle, 1, 10).unwrap().rows,
+            vec![
+                vec!["2".to_string(), "b".to_string()],
+                vec!["3".to_string(), "c".to_string()],
+            ]
+        );
+
+        let window = read_arrow(&handle, 1, 2).unwrap();
+        let decoded = parse_ipc(&encode_ipc(&window).unwrap()).unwrap();
+        assert_eq!(
+            decoded.iter().map(RecordBatch::num_rows).sum::<usize>(),
+            2,
+            "the typed window carries exactly the requested rows"
+        );
+
+        release("p#ipc", &handle);
     }
 
     #[test]

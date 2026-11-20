@@ -146,6 +146,19 @@ impl thoth::plugin::dataset_read::Host for ExporterState {
         })
     }
 
+    fn read_arrow(
+        &mut self,
+        handle: String,
+        offset: u64,
+        limit: u32,
+    ) -> std::result::Result<Vec<u8>, thoth::plugin::dataset_read::PluginError> {
+        let batches = crate::papyrus::read_arrow(&handle, offset, limit).ok_or_else(|| {
+            dataset_read_error(format!("dataset '{handle}' is not Arrow-native; use read"))
+        })?;
+        crate::file::loaders::encode_ipc(&batches)
+            .map_err(|error| dataset_read_error(error.to_string()))
+    }
+
     fn pin(&mut self, handle: String) -> bool {
         crate::papyrus::pin(&handle)
     }
