@@ -72,6 +72,10 @@ pub struct ChartTab {
     /// primary — which is what a chart restored from a session has, since its
     /// source is gone by then anyway.
     source_relation: Option<String>,
+    /// Papyrus handle + revision this chart was built from, so a producer
+    /// update can refresh it without re-resolving on every frame.
+    source_handle: Option<String>,
+    source_revision: Option<u64>,
     source_label: String,
     /// X / Y column indices into the *source* dataset (pre-shaping).
     src_x_col: usize,
@@ -96,12 +100,18 @@ impl ChartTab {
         rows: Vec<Vec<String>>,
         index: usize,
     ) -> Self {
+        // A source's schema can change between sessions; clamp the spec's
+        // column indices before shaping so an out-of-range index cannot panic.
+        let max_col = columns.len().saturating_sub(1);
+        let x_col = spec.x_col.min(max_col);
+        let y_cols: Vec<usize> = spec.y_cols.iter().map(|&c| c.min(max_col)).collect();
+
         // Aggregate over ALL source rows, then cap only the rendered snapshot.
         let mut shaped = transform::shape(
             &columns,
             &rows,
-            spec.x_col,
-            &spec.y_cols,
+            x_col,
+            &y_cols,
             spec.aggregation,
             spec.top_n,
             spec.sort,
@@ -118,9 +128,11 @@ impl ChartTab {
             options: spec.options,
             source_tab: spec.source_tab,
             source_relation: spec.source_relation.clone(),
+            source_handle: None,
+            source_revision: None,
             source_label: spec.source_label.clone(),
-            src_x_col: spec.x_col,
-            src_y_cols: spec.y_cols.clone(),
+            src_x_col: x_col,
+            src_y_cols: y_cols,
             aggregation: spec.aggregation,
             top_n: spec.top_n,
             sort: spec.sort,
@@ -142,6 +154,17 @@ impl ChartTab {
     /// Which of the source tab's relations this chart reads.
     pub fn source_relation(&self) -> Option<&str> {
         self.source_relation.as_deref()
+    }
+
+    /// The Papyrus handle and revision this chart's data came from.
+    pub fn source_ref(&self) -> Option<(&str, u64)> {
+        Some((self.source_handle.as_deref()?, self.source_revision?))
+    }
+
+    /// Record the handle/revision behind a fresh data snapshot.
+    pub fn set_source_ref(&mut self, handle: Option<String>, revision: Option<u64>) {
+        self.source_handle = handle;
+        self.source_revision = revision;
     }
 
     /// Serialize the chart (data snapshot + spec) for session persistence.
@@ -180,6 +203,8 @@ impl ChartTab {
             options: p.options,
             source_tab: TabId::MAX,
             source_relation: None,
+            source_handle: None,
+            source_revision: None,
             source_label: p.source_label,
             src_x_col: p.src_x_col,
             src_y_cols: p.src_y_cols,
