@@ -26,6 +26,33 @@ const RENDER_FUEL: u64 = 50_000_000_000;
 struct RendererState {
     wasi: WasiCtx,
     table: ResourceTable,
+    /// The one dataset this invocation may read.
+    approved: String,
+    /// Pins acquired by this invocation and not yet released by the guest.
+    pins: Vec<String>,
+}
+
+impl RendererState {
+    fn check_handle(
+        &self,
+        handle: &str,
+    ) -> std::result::Result<(), thoth::plugin::dataset_read::PluginError> {
+        if handle == self.approved {
+            Ok(())
+        } else {
+            Err(dataset_read_error(format!(
+                "dataset '{handle}' is not the one being rendered"
+            )))
+        }
+    }
+
+    /// Release pins the guest still holds. Called on every exit path so a
+    /// guest that forgets to unpin (or traps) cannot keep a dataset resident.
+    fn release_pins(&mut self) {
+        for handle in std::mem::take(&mut self.pins) {
+            crate::papyrus::unpin(&handle);
+        }
+    }
 }
 
 impl wasmtime_wasi::WasiView for RendererState {
@@ -51,6 +78,8 @@ pub fn run_render(engine: &Engine, wasm_path: &Path, handle: &str) -> Result<Str
         RendererState {
             wasi,
             table: ResourceTable::new(),
+            approved: handle.to_string(),
+            pins: Vec::new(),
         },
     );
     store
@@ -67,13 +96,16 @@ pub fn run_render(engine: &Engine, wasm_path: &Path, handle: &str) -> Result<Str
     let bindings = DataRendererPlugin::instantiate(&mut store, &component, &linker)
         .map_err(|e| load_err(e.to_string()))?;
 
-    bindings
+    let call = bindings
         .thoth_plugin_data_renderer()
-        .call_render(&mut store, handle)
-        .map_err(|e| ThothError::Unknown {
-            message: e.to_string(),
-        })?
-        .map_err(|e| ThothError::Unknown { message: e.message })
+        .call_render(&mut store, handle);
+    // Release any pins the guest still holds, whether it returned normally,
+    // errored, or trapped.
+    store.data_mut().release_pins();
+    call.map_err(|e| ThothError::Unknown {
+        message: e.to_string(),
+    })?
+    .map_err(|e| ThothError::Unknown { message: e.message })
 }
 
 fn dataset_read_error(message: impl Into<String>) -> thoth::plugin::dataset_read::PluginError {
@@ -91,6 +123,7 @@ impl thoth::plugin::dataset_read::Host for RendererState {
         thoth::plugin::dataset_read::DatasetInfo,
         thoth::plugin::dataset_read::PluginError,
     > {
+        self.check_handle(&handle)?;
         let meta = crate::papyrus::meta(&handle)
             .ok_or_else(|| dataset_read_error(format!("unknown dataset '{handle}'")))?;
         Ok(thoth::plugin::dataset_read::DatasetInfo {
@@ -118,6 +151,7 @@ impl thoth::plugin::dataset_read::Host for RendererState {
         thoth::plugin::dataset_read::DatasetPage,
         thoth::plugin::dataset_read::PluginError,
     > {
+        self.check_handle(&handle)?;
         let page = crate::papyrus::read(&handle, offset, limit)
             .ok_or_else(|| dataset_read_error(format!("unknown dataset '{handle}'")))?;
         Ok(thoth::plugin::dataset_read::DatasetPage {
@@ -137,10 +171,41 @@ impl thoth::plugin::dataset_read::Host for RendererState {
     }
 
     fn pin(&mut self, handle: String) -> bool {
-        crate::papyrus::pin(&handle)
+        if handle != self.approved {
+            return false;
+        }
+        if crate::papyrus::pin(&handle) {
+            self.pins.push(handle);
+            true
+        } else {
+            false
+        }
     }
 
     fn unpin(&mut self, handle: String) -> bool {
+        // Only release a pin this invocation actually acquired; a guest must
+        // not be able to drop a chart's or another store's pin.
+        let Some(pos) = self.pins.iter().position(|h| h == &handle) else {
+            return false;
+        };
+        self.pins.remove(pos);
         crate::papyrus::unpin(&handle)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_approved_handle_is_readable() {
+        let state = RendererState {
+            wasi: WasiCtxBuilder::new().build(),
+            table: ResourceTable::new(),
+            approved: "ds-1".to_string(),
+            pins: Vec::new(),
+        };
+        assert!(state.check_handle("ds-1").is_ok());
+        assert!(state.check_handle("ds-2").is_err());
     }
 }

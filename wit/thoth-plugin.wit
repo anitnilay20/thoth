@@ -595,7 +595,10 @@ interface dataset-read {
     record dataset-page {
         columns: list<dataset-column>,
         rows: list<list<string>>,
-        /// Parallel to `rows`: which cells were NULL.
+        /// Per-row NULL mask. An empty list means NULL information is
+        /// unavailable for this page (pushed rows and text lines are strings and
+        /// cannot distinguish NULL from empty); when present, each mask is
+        /// parallel to `rows` and `true` marks a NULL cell.
         nulls: list<list<bool>>,
         offset: u64,
         total: u64,

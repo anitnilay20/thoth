@@ -101,29 +101,38 @@ fn card_node(columns: &[String], row: &[String]) -> RenderNode {
 /// Page size for `dataset-read`; the host caps one read at 1000 as well.
 const READ_PAGE: u32 = 1000;
 
-/// Page the host-owned dataset through the `dataset-read` import.
-fn load_pages(handle: &str) -> Result<(Vec<String>, Vec<Vec<String>>), PluginError> {
+/// Page the host-owned dataset through the `dataset-read` import, stopping at
+/// [`MAX_CARDS`] rows. The reported total is returned separately so the
+/// overflow caption still counts rows that were never transferred.
+fn load_pages(handle: &str) -> Result<(Vec<String>, Vec<Vec<String>>, u64), PluginError> {
     let info = dataset_read::info(handle)?;
+    let total = info.row_count;
     let mut columns: Vec<String> = info.columns.iter().map(|c| c.name.clone()).collect();
     let mut rows: Vec<Vec<String>> = Vec::new();
     let mut offset = 0u64;
-    while offset < info.row_count {
-        let limit = (info.row_count - offset).min(u64::from(READ_PAGE)) as u32;
+    while offset < total && rows.len() < MAX_CARDS {
+        let room = (MAX_CARDS - rows.len()) as u64;
+        let limit = (total - offset).min(room).min(u64::from(READ_PAGE)) as u32;
         let page = dataset_read::read(handle, offset, limit)?;
         if columns.is_empty() {
             columns = page.columns.iter().map(|c| c.name.clone()).collect();
         }
         let got = page.rows.len() as u64;
         rows.extend(page.rows);
+        rows.truncate(MAX_CARDS);
         if got == 0 {
             break;
         }
         offset += got;
     }
-    Ok((columns, rows))
+    Ok((columns, rows, total))
 }
 
-fn render_records(columns: Vec<String>, rows: Vec<Vec<String>>) -> Result<String, PluginError> {
+fn render_records(
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+    total: u64,
+) -> Result<String, PluginError> {
     if rows.is_empty() {
         // Padded like the grid, so the hint isn't flush against the edge.
         let empty = RenderNode::Row(
@@ -138,9 +147,10 @@ fn render_records(columns: Vec<String>, rows: Vec<Vec<String>>) -> Result<String
         });
     }
 
-    // Cap the number of cards drawn; note any overflow.
-    let total = rows.len();
-    let shown = total.min(MAX_CARDS);
+    // `rows` is already capped by `load_pages`; `total` still counts every row
+    // the dataset reported, so the overflow note stays accurate.
+    let total = total.max(rows.len() as u64);
+    let shown = rows.len().min(MAX_CARDS);
     let cards: Vec<RenderNode> = rows[..shown]
         .iter()
         .map(|row| card_node(&columns, row))
@@ -168,11 +178,11 @@ fn render_records(columns: Vec<String>, rows: Vec<Vec<String>>) -> Result<String
         })
         .collect();
 
-    if total > shown {
+    if total > shown as u64 {
         // Design: the overflow note is an italic caption under the grid.
         grid.push(RenderNode::Text(
             Typography::builder()
-                .text(format!("… {} more row(s) not shown.", total - shown))
+                .text(format!("… {} more row(s) not shown.", total - shown as u64))
                 .variant(TypographyVariant::Caption)
                 .italic(true)
                 .build(),
@@ -201,8 +211,8 @@ impl RendererGuest for CardViewPlugin {
     }
 
     fn render(handle: String) -> Result<String, PluginError> {
-        let (columns, rows) = load_pages(&handle)?;
-        render_records(columns, rows)
+        let (columns, rows, total) = load_pages(&handle)?;
+        render_records(columns, rows, total)
     }
 }
 
@@ -235,6 +245,7 @@ mod tests {
                 vec!["Alice".into(), "Eng".into()],
                 vec!["Bob".into(), "Sales".into()],
             ],
+            2,
         )
         .unwrap();
         assert!(out.contains("Alice"));
@@ -246,16 +257,14 @@ mod tests {
 
     #[test]
     fn caps_cards_and_notes_overflow() {
-        let rows: Vec<Vec<String>> = (0..(super::MAX_CARDS + 5))
-            .map(|i| vec![i.to_string()])
-            .collect();
-        let out = render_records(vec!["id".into()], rows).unwrap();
+        let rows: Vec<Vec<String>> = (0..super::MAX_CARDS).map(|i| vec![i.to_string()]).collect();
+        let out = render_records(vec!["id".into()], rows, (super::MAX_CARDS + 5) as u64).unwrap();
         assert!(out.contains("more row(s) not shown"));
     }
 
     #[test]
     fn empty_dataset_is_handled() {
-        let out = render_records(vec!["id".into()], Vec::new()).unwrap();
+        let out = render_records(vec!["id".into()], Vec::new(), 0).unwrap();
         assert!(out.contains("No records"));
     }
 }

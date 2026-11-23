@@ -442,7 +442,10 @@ pub mod thoth {
             pub struct DatasetPage {
                 pub columns: _rt::Vec<DatasetColumn>,
                 pub rows: _rt::Vec<_rt::Vec<_rt::String>>,
-                /// Parallel to `rows`: which cells were NULL.
+                /// Per-row NULL mask. An empty list means NULL information is
+                /// unavailable for this page (pushed rows and text lines are strings and
+                /// cannot distinguish NULL from empty); when present, each mask is
+                /// parallel to `rows` and `true` marks a NULL cell.
                 pub nulls: _rt::Vec<_rt::Vec<bool>>,
                 pub offset: u64,
                 pub total: u64,
