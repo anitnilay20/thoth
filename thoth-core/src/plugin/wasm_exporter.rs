@@ -103,8 +103,11 @@ pub fn run_export(
     thoth::plugin::dataset_read::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
         .map_err(|e| load_err(e.to_string()))?;
 
-    let bindings = ExporterPlugin::instantiate(&mut store, &component, &linker)
-        .map_err(|e| load_err(e.to_string()))?;
+    let bindings = ExporterPlugin::instantiate(&mut store, &component, &linker).map_err(|e| {
+        load_err(format!(
+            "{e}\nIf this plugin was built for an older Thoth plugin API, rebuild it (`cargo component build --release`) or update it."
+        ))
+    })?;
 
     let call = bindings
         .thoth_plugin_exporter()
