@@ -2551,6 +2551,28 @@ impl ThothApp {
 
     /// The user picked a chart data source: resolve it, cache the snapshot, and
     /// feed the column schema (name + numeric flag) to the config panel.
+    /// Replace the studio's source handle, moving the pin from the old handle
+    /// to the new one.
+    fn set_chart_source_ref(&mut self, next: Option<crate::core::ChartSourceRef>) {
+        let same = self
+            .core
+            .chart_source_ref
+            .as_ref()
+            .map(|r| r.handle.as_str())
+            == next.as_ref().map(|r| r.handle.as_str());
+        if !same {
+            // Acquire the incoming pin before releasing the outgoing one, so a
+            // handoff never leaves the new handle unprotected for eviction.
+            if let Some(handle) = next.as_ref() {
+                crate::papyrus::pin(&handle.handle);
+            }
+            if let Some(old) = self.core.chart_source_ref.take() {
+                crate::papyrus::unpin(&old.handle);
+            }
+        }
+        self.core.chart_source_ref = next;
+    }
+
     fn chart_select_source(
         &mut self,
         tab_id: crate::app::tab_manager::TabId,
@@ -2564,12 +2586,12 @@ impl ThothApp {
         let colnames = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
         let key = crate::components::chart_studio::source_key(tab_id, relation);
         self.core.chart_source = Some((key, colnames, resolved.rows));
-        self.core.chart_source_ref = resolved.handle.map(|handle| crate::core::ChartSourceRef {
+        self.set_chart_source_ref(resolved.handle.map(|handle| crate::core::ChartSourceRef {
             handle,
             revision: resolved.revision.unwrap_or(0),
             tab_id,
             relation: relation.map(str::to_string),
-        });
+        }));
         self.window_state.sidebar.set_chart_columns(columns);
     }
 
@@ -2589,12 +2611,12 @@ impl ThothApp {
         let handle = resolved.handle.clone();
         let revision = resolved.revision;
         self.core.chart_source = Some((key, colnames.clone(), resolved.rows.clone()));
-        self.core.chart_source_ref = handle.clone().map(|handle| crate::core::ChartSourceRef {
+        self.set_chart_source_ref(handle.clone().map(|handle| crate::core::ChartSourceRef {
             handle,
             revision: revision.unwrap_or(0),
             tab_id: spec.source_tab,
             relation: spec.source_relation.clone(),
-        });
+        }));
         self.core.chart_counter += 1;
         let mut chart = crate::components::chart_studio::ChartTab::from_spec(
             &spec,
@@ -2646,13 +2668,14 @@ impl ThothApp {
                 let ci = columns_info(&resolved.columns, &resolved.rows);
                 let colnames = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
                 self.core.chart_source = Some((key, colnames, resolved.rows));
-                self.core.chart_source_ref =
-                    resolved.handle.map(|handle| crate::core::ChartSourceRef {
+                self.set_chart_source_ref(resolved.handle.map(|handle| {
+                    crate::core::ChartSourceRef {
                         handle,
                         revision: resolved.revision.unwrap_or(0),
                         tab_id: spec.source_tab,
                         relation: spec.source_relation.clone(),
-                    });
+                    }
+                }));
                 ci
             }
             None => Vec::new(),
@@ -2743,13 +2766,14 @@ impl ThothApp {
                 let colnames = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
                 let info = columns_info(&resolved.columns, &resolved.rows);
                 self.core.chart_source = Some((key, colnames, resolved.rows));
-                self.core.chart_source_ref =
-                    resolved.handle.map(|handle| crate::core::ChartSourceRef {
+                self.set_chart_source_ref(resolved.handle.map(|handle| {
+                    crate::core::ChartSourceRef {
                         handle,
                         revision: resolved.revision.unwrap_or(0),
                         tab_id,
                         relation: src.relation,
-                    });
+                    }
+                }));
                 self.window_state.sidebar.set_chart_columns(info);
             }
 
@@ -2785,13 +2809,14 @@ impl ThothApp {
                 let colnames = resolved.columns.iter().map(|(n, _)| n.clone()).collect();
                 let info = columns_info(&resolved.columns, &resolved.rows);
                 self.core.chart_source = Some((key, colnames, resolved.rows));
-                self.core.chart_source_ref =
-                    resolved.handle.map(|handle| crate::core::ChartSourceRef {
+                self.set_chart_source_ref(resolved.handle.map(|handle| {
+                    crate::core::ChartSourceRef {
                         handle,
                         revision: resolved.revision.unwrap_or(0),
                         tab_id: src.tab_id,
                         relation: src.relation,
-                    });
+                    }
+                }));
                 self.window_state.sidebar.set_chart_columns(info);
             }
         }

@@ -127,6 +127,9 @@ struct Stored {
     /// enforce [`MAX_BYTES`] without re-summing every entry. An Arrow sheet
     /// holds only a window, so it contributes ~nothing.
     size: usize,
+    /// Consumers currently holding this handle. Pinned datasets are never
+    /// evicted for budget; an explicit `release` still drops them.
+    pins: usize,
 }
 
 #[derive(Default)]
@@ -159,15 +162,25 @@ impl Registry {
     }
 
     /// Evict the least-recently-accessed datasets while over either the count or
-    /// the byte budget. Keeps at least one dataset (guard on `len > 1`) so a
-    /// single oversized dataset can't loop forever.
-    fn enforce_budget(&mut self) {
+    /// the byte budget. `keep` is the dataset being published or mutated: it is
+    /// never evicted, so a publish survives even when every other dataset is
+    /// pinned, sitting over budget until a pin is released. Keeps at least one
+    /// dataset (guard on `len > 1`) so a single oversized dataset can't loop
+    /// forever.
+    fn enforce_budget(&mut self, keep: Option<&str>) {
         while self.order.len() > 1 && (self.order.len() > MAX_DATASETS || self.bytes > MAX_BYTES) {
             let Some(victim) = self
                 .order
                 .iter()
-                .min_by_key(|id| self.map.get(*id).map(|s| s.last_access))
-                .cloned()
+                .filter(|id| keep != Some(id.as_str()))
+                .filter_map(|id| {
+                    self.map
+                        .get(id)
+                        .filter(|s| s.pins == 0)
+                        .map(|s| (id.clone(), s.last_access))
+                })
+                .min_by_key(|(_, last_access)| *last_access)
+                .map(|(id, _)| id)
             else {
                 break;
             };
@@ -298,13 +311,15 @@ pub fn publish(
             source: Source::Rows(rows),
             last_access: Instant::now(),
             size,
+            pins: 0,
         },
     );
     reg.order.push(id.clone());
 
-    // Evict down to the count/byte budget (never the just-published dataset —
-    // it's the most recently accessed).
-    reg.enforce_budget();
+    // Evict down to the count/byte budget. The dataset just published is kept:
+    // it can sit over budget only while other datasets are pinned, and `unpin`
+    // reclaims once they are released.
+    reg.enforce_budget(Some(&id));
     id
 }
 
@@ -407,6 +422,7 @@ fn insert_sheet(
             source: sheet,
             last_access: Instant::now(),
             size: 0,
+            pins: 0,
         },
     );
     reg.order.push(id.clone());
@@ -532,6 +548,7 @@ fn insert_relation(
             })),
             last_access: Instant::now(),
             size: 0,
+            pins: 0,
         },
     );
     reg.order.push(id.clone());
@@ -855,8 +872,9 @@ pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<V
         (old_size, size)
     };
     reg.bytes = reg.bytes.saturating_add(size).saturating_sub(old_size);
-    // A larger dataset may push us over budget — evict to fit.
-    reg.enforce_budget();
+    // A larger dataset may push us over budget — evict to fit, but never the
+    // dataset just updated.
+    reg.enforce_budget(Some(id));
 }
 
 /// Append rows to an existing handle, keeping its columns — for streaming
@@ -905,8 +923,45 @@ pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
         let new_size = stored.size;
         stored.last_access = Instant::now();
         reg.bytes = reg.bytes.saturating_add(new_size).saturating_sub(old_size);
-        reg.enforce_budget();
+        // Never evict the dataset just appended to.
+        reg.enforce_budget(Some(id));
     }
+}
+
+/// Pin a handle so budget eviction cannot drop it while a consumer reads it.
+///
+/// Returns `false` for an unknown handle. Pins are reference-counted; every
+/// successful `pin` needs a matching [`unpin`].
+pub fn pin(id: &str) -> bool {
+    let registry = registry();
+    let Ok(mut reg) = registry.lock() else {
+        return false;
+    };
+    let Some(stored) = reg.map.get_mut(id) else {
+        return false;
+    };
+    stored.pins += 1;
+    stored.last_access = Instant::now();
+    true
+}
+
+/// Release one pin. Returns `false` for an unknown handle.
+pub fn unpin(id: &str) -> bool {
+    let registry = registry();
+    let Ok(mut reg) = registry.lock() else {
+        return false;
+    };
+    {
+        let Some(stored) = reg.map.get_mut(id) else {
+            return false;
+        };
+        stored.pins = stored.pins.saturating_sub(1);
+        stored.last_access = Instant::now();
+    }
+    // Releasing a pin may put the registry over budget; reclaim now rather than
+    // waiting for the next publish.
+    reg.enforce_budget(None);
+    true
 }
 
 /// Remove a dataset (idempotent). No-op unless the handle is owned by
@@ -1123,6 +1178,116 @@ pub(crate) mod tests {
         assert!(instance_revision("p#inst").unwrap() > first.unwrap());
 
         release("p#inst", &handle);
+    }
+
+    #[test]
+    fn pinned_datasets_survive_budget_pressure() {
+        let _g = reset();
+        let pinned = publish(
+            "p",
+            "p#pin",
+            "pinned".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["a".into()]],
+        );
+        assert!(pin(&pinned));
+
+        for i in 0..(MAX_DATASETS + 5) {
+            publish(
+                "p",
+                &format!("p#{i}"),
+                format!("d{i}"),
+                "k".into(),
+                vec![],
+                vec![col("x")],
+                vec![vec!["a".into()]],
+            );
+        }
+
+        assert!(
+            meta(&pinned).is_some(),
+            "a pinned handle must not be evicted for budget"
+        );
+        assert!(unpin(&pinned));
+    }
+
+    #[test]
+    fn a_publish_is_kept_when_every_other_dataset_is_pinned() {
+        let _g = reset();
+        for i in 0..MAX_DATASETS {
+            let id = publish(
+                "p",
+                &format!("p#{i}"),
+                format!("d{i}"),
+                "k".into(),
+                vec![],
+                vec![col("x")],
+                vec![vec!["a".into()]],
+            );
+            assert!(pin(&id));
+        }
+
+        // One over the count budget, with every existing dataset pinned: the
+        // new dataset must be retained (temporarily over budget), not evicted.
+        let fresh = publish(
+            "p",
+            "p#fresh",
+            "fresh".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["a".into()]],
+        );
+        assert!(
+            meta(&fresh).is_some(),
+            "the dataset being published must not be its own eviction victim"
+        );
+        assert_eq!(list().len(), MAX_DATASETS + 1);
+    }
+
+    #[test]
+    fn unpinning_reclaims_budget_immediately() {
+        let _g = reset();
+        let mut ids = Vec::new();
+        for i in 0..MAX_DATASETS {
+            let id = publish(
+                "p",
+                &format!("p#{i}"),
+                format!("d{i}"),
+                "k".into(),
+                vec![],
+                vec![col("x")],
+                vec![vec!["a".into()]],
+            );
+            assert!(pin(&id));
+            ids.push(id);
+        }
+        // Retained over budget because everything else is pinned, then pinned
+        // itself so releasing any one of the others is the only way down.
+        let fresh = publish(
+            "p",
+            "p#fresh",
+            "fresh".into(),
+            "k".into(),
+            vec![],
+            vec![col("x")],
+            vec![vec!["a".into()]],
+        );
+        assert!(pin(&fresh));
+        assert_eq!(list().len(), MAX_DATASETS + 1);
+
+        assert!(unpin(&ids[0]));
+        assert_eq!(
+            list().len(),
+            MAX_DATASETS,
+            "releasing a pin must enforce the budget immediately"
+        );
+        assert!(
+            meta(&ids[0]).is_none(),
+            "the released dataset is the eviction victim"
+        );
     }
 
     #[test]

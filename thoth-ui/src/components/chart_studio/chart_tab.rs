@@ -161,8 +161,20 @@ impl ChartTab {
         Some((self.source_handle.as_deref()?, self.source_revision?))
     }
 
-    /// Record the handle/revision behind a fresh data snapshot.
+    /// Record the handle/revision behind a fresh data snapshot, pinning the
+    /// handle for as long as this chart holds it.
     pub fn set_source_ref(&mut self, handle: Option<String>, revision: Option<u64>) {
+        let same = self.source_handle.as_deref() == handle.as_deref();
+        if !same {
+            // Acquire the incoming pin before releasing the outgoing one, so a
+            // handoff never leaves the new handle unprotected for eviction.
+            if let Some(new) = handle.as_deref() {
+                crate::papyrus::pin(new);
+            }
+            if let Some(old) = self.source_handle.take() {
+                crate::papyrus::unpin(&old);
+            }
+        }
         self.source_handle = handle;
         self.source_revision = revision;
     }
@@ -1474,5 +1486,13 @@ fn trunc(s: &str, n: usize) -> String {
         s.chars().take(n).collect()
     } else {
         s.to_string()
+    }
+}
+
+impl Drop for ChartTab {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.source_handle {
+            crate::papyrus::unpin(handle);
+        }
     }
 }
