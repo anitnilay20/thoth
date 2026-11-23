@@ -166,11 +166,13 @@ impl ChartTab {
     pub fn set_source_ref(&mut self, handle: Option<String>, revision: Option<u64>) {
         let same = self.source_handle.as_deref() == handle.as_deref();
         if !same {
-            if let Some(old) = self.source_handle.take() {
-                crate::papyrus::unpin(&old);
-            }
+            // Acquire the incoming pin before releasing the outgoing one, so a
+            // handoff never leaves the new handle unprotected for eviction.
             if let Some(new) = handle.as_deref() {
                 crate::papyrus::pin(new);
+            }
+            if let Some(old) = self.source_handle.take() {
+                crate::papyrus::unpin(&old);
             }
         }
         self.source_handle = handle;

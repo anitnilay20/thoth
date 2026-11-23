@@ -2561,11 +2561,13 @@ impl ThothApp {
             .map(|r| r.handle.as_str())
             == next.as_ref().map(|r| r.handle.as_str());
         if !same {
-            if let Some(old) = self.core.chart_source_ref.take() {
-                crate::papyrus::unpin(&old.handle);
-            }
+            // Acquire the incoming pin before releasing the outgoing one, so a
+            // handoff never leaves the new handle unprotected for eviction.
             if let Some(handle) = next.as_ref() {
                 crate::papyrus::pin(&handle.handle);
+            }
+            if let Some(old) = self.core.chart_source_ref.take() {
+                crate::papyrus::unpin(&old.handle);
             }
         }
         self.core.chart_source_ref = next;
