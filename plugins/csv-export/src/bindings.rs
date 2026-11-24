@@ -154,6 +154,729 @@ pub mod thoth {
             }
             impl std::error::Error for PluginError {}
         }
+        /// data-producer — a capability a plugin EXPORTS to offer its current data to
+        /// the pull bus (#113). When a consumer requests data and the user picks this
+        /// plugin's tab, the host calls `provide-dataset` and owns the single returned
+        /// copy. v1 carries cells as strings — a simple JSON-ish seam designed to move
+        /// to Apache Arrow IPC later without reshaping the contract.
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod data_producer {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            pub type PluginError = super::super::super::thoth::plugin::types::PluginError;
+            /// A column: display name + a SQL-ish type hint the host maps to a
+            /// ColumnType (alignment / colour). Keeps the wire format stringly-typed.
+            #[derive(Clone)]
+            pub struct DatasetColumn {
+                pub name: _rt::String,
+                pub type_hint: _rt::String,
+            }
+            impl ::core::fmt::Debug for DatasetColumn {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    f.debug_struct("DatasetColumn")
+                        .field("name", &self.name)
+                        .field("type-hint", &self.type_hint)
+                        .finish()
+                }
+            }
+            /// A full tabular dataset. Row-major; each cell is already rendered to a
+            /// string for v1.
+            #[derive(Clone)]
+            pub struct Dataset {
+                pub name: _rt::String,
+                pub kind: _rt::String,
+                /// free-form, e.g. "sql-result"
+                pub columns: _rt::Vec<DatasetColumn>,
+                pub rows: _rt::Vec<_rt::Vec<_rt::String>>,
+            }
+            impl ::core::fmt::Debug for Dataset {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    f.debug_struct("Dataset")
+                        .field("name", &self.name)
+                        .field("kind", &self.kind)
+                        .field("columns", &self.columns)
+                        .field("rows", &self.rows)
+                        .finish()
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            /// Return the producer tab's current dataset. Called by the host on demand
+            /// (never proactively); the host owns the returned copy.
+            pub fn provide_dataset() -> Result<Dataset, PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 9 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 9
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let ptr0 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/data-producer@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "provide-dataset"]
+                        fn wit_import1(_: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import1(_: *mut u8) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import1(ptr0) };
+                    let l2 = i32::from(*ptr0.add(0).cast::<u8>());
+                    let result31 = match l2 {
+                        0 => {
+                            let e = {
+                                let l3 = *ptr0
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l4 = *ptr0
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len5 = l4;
+                                let bytes5 = _rt::Vec::from_raw_parts(
+                                    l3.cast(),
+                                    len5,
+                                    len5,
+                                );
+                                let l6 = *ptr0
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l7 = *ptr0
+                                    .add(4 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len8 = l7;
+                                let bytes8 = _rt::Vec::from_raw_parts(
+                                    l6.cast(),
+                                    len8,
+                                    len8,
+                                );
+                                let l9 = *ptr0
+                                    .add(5 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l10 = *ptr0
+                                    .add(6 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let base17 = l9;
+                                let len17 = l10;
+                                let mut result17 = _rt::Vec::with_capacity(len17);
+                                for i in 0..len17 {
+                                    let base = base17
+                                        .add(i * (4 * ::core::mem::size_of::<*const u8>()));
+                                    let e17 = {
+                                        let l11 = *base.add(0).cast::<*mut u8>();
+                                        let l12 = *base
+                                            .add(::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let len13 = l12;
+                                        let bytes13 = _rt::Vec::from_raw_parts(
+                                            l11.cast(),
+                                            len13,
+                                            len13,
+                                        );
+                                        let l14 = *base
+                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                            .cast::<*mut u8>();
+                                        let l15 = *base
+                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let len16 = l15;
+                                        let bytes16 = _rt::Vec::from_raw_parts(
+                                            l14.cast(),
+                                            len16,
+                                            len16,
+                                        );
+                                        DatasetColumn {
+                                            name: _rt::string_lift(bytes13),
+                                            type_hint: _rt::string_lift(bytes16),
+                                        }
+                                    };
+                                    result17.push(e17);
+                                }
+                                _rt::cabi_dealloc(
+                                    base17,
+                                    len17 * (4 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                );
+                                let l18 = *ptr0
+                                    .add(7 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l19 = *ptr0
+                                    .add(8 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let base26 = l18;
+                                let len26 = l19;
+                                let mut result26 = _rt::Vec::with_capacity(len26);
+                                for i in 0..len26 {
+                                    let base = base26
+                                        .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                    let e26 = {
+                                        let l20 = *base.add(0).cast::<*mut u8>();
+                                        let l21 = *base
+                                            .add(::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let base25 = l20;
+                                        let len25 = l21;
+                                        let mut result25 = _rt::Vec::with_capacity(len25);
+                                        for i in 0..len25 {
+                                            let base = base25
+                                                .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                            let e25 = {
+                                                let l22 = *base.add(0).cast::<*mut u8>();
+                                                let l23 = *base
+                                                    .add(::core::mem::size_of::<*const u8>())
+                                                    .cast::<usize>();
+                                                let len24 = l23;
+                                                let bytes24 = _rt::Vec::from_raw_parts(
+                                                    l22.cast(),
+                                                    len24,
+                                                    len24,
+                                                );
+                                                _rt::string_lift(bytes24)
+                                            };
+                                            result25.push(e25);
+                                        }
+                                        _rt::cabi_dealloc(
+                                            base25,
+                                            len25 * (2 * ::core::mem::size_of::<*const u8>()),
+                                            ::core::mem::size_of::<*const u8>(),
+                                        );
+                                        result25
+                                    };
+                                    result26.push(e26);
+                                }
+                                _rt::cabi_dealloc(
+                                    base26,
+                                    len26 * (2 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                );
+                                Dataset {
+                                    name: _rt::string_lift(bytes5),
+                                    kind: _rt::string_lift(bytes8),
+                                    columns: result17,
+                                    rows: result26,
+                                }
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l27 = *ptr0
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l28 = *ptr0
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l29 = *ptr0
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len30 = l29;
+                                let bytes30 = _rt::Vec::from_raw_parts(
+                                    l28.cast(),
+                                    len30,
+                                    len30,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l27 as u32,
+                                    message: _rt::string_lift(bytes30),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result31
+                }
+            }
+        }
+        /// ---------------------------------------------------------------------------
+        /// dataset-read — host-owned dataset reads (import)
+        ///
+        /// Consumers (exporters, renderers) receive only a handle. They page the rows
+        /// through here, so a large dataset never crosses into the plugin in one copy.
+        /// Reads are consent-gated by the host; an unknown/released handle is an error.
+        /// ---------------------------------------------------------------------------
+        #[allow(dead_code, async_fn_in_trait, unused_imports, clippy::all)]
+        pub mod dataset_read {
+            #[used]
+            #[doc(hidden)]
+            static __FORCE_SECTION_REF: fn() = super::super::super::__link_custom_section_describing_imports;
+            use super::super::super::_rt;
+            pub type PluginError = super::super::super::thoth::plugin::types::PluginError;
+            pub type DatasetColumn = super::super::super::thoth::plugin::data_producer::DatasetColumn;
+            #[derive(Clone)]
+            pub struct DatasetInfo {
+                pub name: _rt::String,
+                pub kind: _rt::String,
+                pub columns: _rt::Vec<DatasetColumn>,
+                pub row_count: u64,
+                pub revision: u64,
+            }
+            impl ::core::fmt::Debug for DatasetInfo {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    f.debug_struct("DatasetInfo")
+                        .field("name", &self.name)
+                        .field("kind", &self.kind)
+                        .field("columns", &self.columns)
+                        .field("row-count", &self.row_count)
+                        .field("revision", &self.revision)
+                        .finish()
+                }
+            }
+            #[derive(Clone)]
+            pub struct DatasetPage {
+                pub columns: _rt::Vec<DatasetColumn>,
+                pub rows: _rt::Vec<_rt::Vec<_rt::String>>,
+                /// Per-row NULL mask. An empty list means NULL information is
+                /// unavailable for this page (pushed rows and text lines are strings and
+                /// cannot distinguish NULL from empty); when present, each mask is
+                /// parallel to `rows` and `true` marks a NULL cell.
+                pub nulls: _rt::Vec<_rt::Vec<bool>>,
+                pub offset: u64,
+                pub total: u64,
+            }
+            impl ::core::fmt::Debug for DatasetPage {
+                fn fmt(
+                    &self,
+                    f: &mut ::core::fmt::Formatter<'_>,
+                ) -> ::core::fmt::Result {
+                    f.debug_struct("DatasetPage")
+                        .field("columns", &self.columns)
+                        .field("rows", &self.rows)
+                        .field("nulls", &self.nulls)
+                        .field("offset", &self.offset)
+                        .field("total", &self.total)
+                        .finish()
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            pub fn info(handle: &str) -> Result<DatasetInfo, PluginError> {
+                unsafe {
+                    #[repr(align(8))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 24 + 6 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 24
+                            + 6 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = handle;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/dataset-read@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "info"]
+                        fn wit_import2(_: *mut u8, _: usize, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(_: *mut u8, _: usize, _: *mut u8) {
+                        unreachable!()
+                    }
+                    unsafe { wit_import2(ptr0.cast_mut(), len0, ptr1) };
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result25 = match l3 {
+                        0 => {
+                            let e = {
+                                let l4 = *ptr1.add(8).cast::<*mut u8>();
+                                let l5 = *ptr1
+                                    .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len6 = l5;
+                                let bytes6 = _rt::Vec::from_raw_parts(
+                                    l4.cast(),
+                                    len6,
+                                    len6,
+                                );
+                                let l7 = *ptr1
+                                    .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l8 = *ptr1
+                                    .add(8 + 3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len9 = l8;
+                                let bytes9 = _rt::Vec::from_raw_parts(
+                                    l7.cast(),
+                                    len9,
+                                    len9,
+                                );
+                                let l10 = *ptr1
+                                    .add(8 + 4 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l11 = *ptr1
+                                    .add(8 + 5 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let base18 = l10;
+                                let len18 = l11;
+                                let mut result18 = _rt::Vec::with_capacity(len18);
+                                for i in 0..len18 {
+                                    let base = base18
+                                        .add(i * (4 * ::core::mem::size_of::<*const u8>()));
+                                    let e18 = {
+                                        let l12 = *base.add(0).cast::<*mut u8>();
+                                        let l13 = *base
+                                            .add(::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let len14 = l13;
+                                        let bytes14 = _rt::Vec::from_raw_parts(
+                                            l12.cast(),
+                                            len14,
+                                            len14,
+                                        );
+                                        let l15 = *base
+                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                            .cast::<*mut u8>();
+                                        let l16 = *base
+                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let len17 = l16;
+                                        let bytes17 = _rt::Vec::from_raw_parts(
+                                            l15.cast(),
+                                            len17,
+                                            len17,
+                                        );
+                                        super::super::super::thoth::plugin::data_producer::DatasetColumn {
+                                            name: _rt::string_lift(bytes14),
+                                            type_hint: _rt::string_lift(bytes17),
+                                        }
+                                    };
+                                    result18.push(e18);
+                                }
+                                _rt::cabi_dealloc(
+                                    base18,
+                                    len18 * (4 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                );
+                                let l19 = *ptr1
+                                    .add(8 + 6 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<i64>();
+                                let l20 = *ptr1
+                                    .add(16 + 6 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<i64>();
+                                DatasetInfo {
+                                    name: _rt::string_lift(bytes6),
+                                    kind: _rt::string_lift(bytes9),
+                                    columns: result18,
+                                    row_count: l19 as u64,
+                                    revision: l20 as u64,
+                                }
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l21 = *ptr1.add(8).cast::<i32>();
+                                let l22 = *ptr1
+                                    .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l23 = *ptr1
+                                    .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len24 = l23;
+                                let bytes24 = _rt::Vec::from_raw_parts(
+                                    l22.cast(),
+                                    len24,
+                                    len24,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l21 as u32,
+                                    message: _rt::string_lift(bytes24),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result25
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            pub fn read(
+                handle: &str,
+                offset: u64,
+                limit: u32,
+            ) -> Result<DatasetPage, PluginError> {
+                unsafe {
+                    #[repr(align(8))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 24 + 6 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 24
+                            + 6 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = handle;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/dataset-read@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "read"]
+                        fn wit_import2(_: *mut u8, _: usize, _: i64, _: i32, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(
+                        _: *mut u8,
+                        _: usize,
+                        _: i64,
+                        _: i32,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import2(
+                            ptr0.cast_mut(),
+                            len0,
+                            _rt::as_i64(&offset),
+                            _rt::as_i32(&limit),
+                            ptr1,
+                        )
+                    };
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result35 = match l3 {
+                        0 => {
+                            let e = {
+                                let l4 = *ptr1.add(8).cast::<*mut u8>();
+                                let l5 = *ptr1
+                                    .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let base12 = l4;
+                                let len12 = l5;
+                                let mut result12 = _rt::Vec::with_capacity(len12);
+                                for i in 0..len12 {
+                                    let base = base12
+                                        .add(i * (4 * ::core::mem::size_of::<*const u8>()));
+                                    let e12 = {
+                                        let l6 = *base.add(0).cast::<*mut u8>();
+                                        let l7 = *base
+                                            .add(::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let len8 = l7;
+                                        let bytes8 = _rt::Vec::from_raw_parts(
+                                            l6.cast(),
+                                            len8,
+                                            len8,
+                                        );
+                                        let l9 = *base
+                                            .add(2 * ::core::mem::size_of::<*const u8>())
+                                            .cast::<*mut u8>();
+                                        let l10 = *base
+                                            .add(3 * ::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let len11 = l10;
+                                        let bytes11 = _rt::Vec::from_raw_parts(
+                                            l9.cast(),
+                                            len11,
+                                            len11,
+                                        );
+                                        super::super::super::thoth::plugin::data_producer::DatasetColumn {
+                                            name: _rt::string_lift(bytes8),
+                                            type_hint: _rt::string_lift(bytes11),
+                                        }
+                                    };
+                                    result12.push(e12);
+                                }
+                                _rt::cabi_dealloc(
+                                    base12,
+                                    len12 * (4 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                );
+                                let l13 = *ptr1
+                                    .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l14 = *ptr1
+                                    .add(8 + 3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let base21 = l13;
+                                let len21 = l14;
+                                let mut result21 = _rt::Vec::with_capacity(len21);
+                                for i in 0..len21 {
+                                    let base = base21
+                                        .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                    let e21 = {
+                                        let l15 = *base.add(0).cast::<*mut u8>();
+                                        let l16 = *base
+                                            .add(::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let base20 = l15;
+                                        let len20 = l16;
+                                        let mut result20 = _rt::Vec::with_capacity(len20);
+                                        for i in 0..len20 {
+                                            let base = base20
+                                                .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                            let e20 = {
+                                                let l17 = *base.add(0).cast::<*mut u8>();
+                                                let l18 = *base
+                                                    .add(::core::mem::size_of::<*const u8>())
+                                                    .cast::<usize>();
+                                                let len19 = l18;
+                                                let bytes19 = _rt::Vec::from_raw_parts(
+                                                    l17.cast(),
+                                                    len19,
+                                                    len19,
+                                                );
+                                                _rt::string_lift(bytes19)
+                                            };
+                                            result20.push(e20);
+                                        }
+                                        _rt::cabi_dealloc(
+                                            base20,
+                                            len20 * (2 * ::core::mem::size_of::<*const u8>()),
+                                            ::core::mem::size_of::<*const u8>(),
+                                        );
+                                        result20
+                                    };
+                                    result21.push(e21);
+                                }
+                                _rt::cabi_dealloc(
+                                    base21,
+                                    len21 * (2 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                );
+                                let l22 = *ptr1
+                                    .add(8 + 4 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l23 = *ptr1
+                                    .add(8 + 5 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let base28 = l22;
+                                let len28 = l23;
+                                let mut result28 = _rt::Vec::with_capacity(len28);
+                                for i in 0..len28 {
+                                    let base = base28
+                                        .add(i * (2 * ::core::mem::size_of::<*const u8>()));
+                                    let e28 = {
+                                        let l24 = *base.add(0).cast::<*mut u8>();
+                                        let l25 = *base
+                                            .add(::core::mem::size_of::<*const u8>())
+                                            .cast::<usize>();
+                                        let base27 = l24;
+                                        let len27 = l25;
+                                        let mut result27 = _rt::Vec::with_capacity(len27);
+                                        for i in 0..len27 {
+                                            let base = base27.add(i * 1);
+                                            let e27 = {
+                                                let l26 = i32::from(*base.add(0).cast::<u8>());
+                                                _rt::bool_lift(l26 as u8)
+                                            };
+                                            result27.push(e27);
+                                        }
+                                        _rt::cabi_dealloc(base27, len27 * 1, 1);
+                                        result27
+                                    };
+                                    result28.push(e28);
+                                }
+                                _rt::cabi_dealloc(
+                                    base28,
+                                    len28 * (2 * ::core::mem::size_of::<*const u8>()),
+                                    ::core::mem::size_of::<*const u8>(),
+                                );
+                                let l29 = *ptr1
+                                    .add(8 + 6 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<i64>();
+                                let l30 = *ptr1
+                                    .add(16 + 6 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<i64>();
+                                DatasetPage {
+                                    columns: result12,
+                                    rows: result21,
+                                    nulls: result28,
+                                    offset: l29 as u64,
+                                    total: l30 as u64,
+                                }
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l31 = *ptr1.add(8).cast::<i32>();
+                                let l32 = *ptr1
+                                    .add(8 + 1 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l33 = *ptr1
+                                    .add(8 + 2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len34 = l33;
+                                let bytes34 = _rt::Vec::from_raw_parts(
+                                    l32.cast(),
+                                    len34,
+                                    len34,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l31 as u32,
+                                    message: _rt::string_lift(bytes34),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result35
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            pub fn pin(handle: &str) -> bool {
+                unsafe {
+                    let vec0 = handle;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/dataset-read@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "pin"]
+                        fn wit_import1(_: *mut u8, _: usize) -> i32;
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import1(_: *mut u8, _: usize) -> i32 {
+                        unreachable!()
+                    }
+                    let ret = unsafe { wit_import1(ptr0.cast_mut(), len0) };
+                    _rt::bool_lift(ret as u8)
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
+            pub fn unpin(handle: &str) -> bool {
+                unsafe {
+                    let vec0 = handle;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/dataset-read@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "unpin"]
+                        fn wit_import1(_: *mut u8, _: usize) -> i32;
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import1(_: *mut u8, _: usize) -> i32 {
+                        unreachable!()
+                    }
+                    let ret = unsafe { wit_import1(ptr0.cast_mut(), len0) };
+                    _rt::bool_lift(ret as u8)
+                }
+            }
+        }
     }
 }
 #[rustfmt::skip]
@@ -543,14 +1266,12 @@ pub mod exports {
                     /// Options the host should display in the export dialog.
                     fn available_options() -> _rt::Vec<ExportOption>;
                     /// Perform the export.
-                    /// `records-json` is the host-owned dataset as a JSON object
-                    /// `{ "columns": ["c1", ...], "rows": [["v1", ...], ...] }` — column order is
-                    /// preserved and every cell is a string (v1 dataset shape). The host reads
-                    /// its single owned copy and passes it here; the plugin never touches the bus.
+                    /// `handle` is the host-owned dataset. Read it in pages with the
+                    /// `dataset-read` import — the plugin never receives a copy of the rows.
                     /// `options` is a flat key/value list of the user's chosen option values.
                     /// Returns raw file bytes the host writes to disk.
                     fn run(
-                        records_json: _rt::String,
+                        handle: _rt::String,
                         options: _rt::Vec<(_rt::String, _rt::String)>,
                     ) -> Result<_rt::Vec<u8>, PluginError>;
                 }
@@ -1101,9 +1822,12 @@ mod _rt {
     #![allow(dead_code, clippy::all)]
     pub use alloc_crate::string::String;
     pub use alloc_crate::vec::Vec;
-    #[cfg(target_arch = "wasm32")]
-    pub fn run_ctors_once() {
-        wit_bindgen_rt::run_ctors_once();
+    pub unsafe fn string_lift(bytes: Vec<u8>) -> String {
+        if cfg!(debug_assertions) {
+            String::from_utf8(bytes).unwrap()
+        } else {
+            String::from_utf8_unchecked(bytes)
+        }
     }
     pub unsafe fn cabi_dealloc(ptr: *mut u8, size: usize, align: usize) {
         if size == 0 {
@@ -1112,12 +1836,34 @@ mod _rt {
         let layout = alloc::Layout::from_size_align_unchecked(size, align);
         alloc::dealloc(ptr, layout);
     }
-    pub use alloc_crate::alloc;
-    pub unsafe fn string_lift(bytes: Vec<u8>) -> String {
+    pub unsafe fn invalid_enum_discriminant<T>() -> T {
         if cfg!(debug_assertions) {
-            String::from_utf8(bytes).unwrap()
+            panic!("invalid enum discriminant")
         } else {
-            String::from_utf8_unchecked(bytes)
+            unsafe { core::hint::unreachable_unchecked() }
+        }
+    }
+    pub fn as_i64<T: AsI64>(t: T) -> i64 {
+        t.as_i64()
+    }
+    pub trait AsI64 {
+        fn as_i64(self) -> i64;
+    }
+    impl<'a, T: Copy + AsI64> AsI64 for &'a T {
+        fn as_i64(self) -> i64 {
+            (*self).as_i64()
+        }
+    }
+    impl AsI64 for i64 {
+        #[inline]
+        fn as_i64(self) -> i64 {
+            self as i64
+        }
+    }
+    impl AsI64 for u64 {
+        #[inline]
+        fn as_i64(self) -> i64 {
+            self as i64
         }
     }
     pub fn as_i32<T: AsI32>(t: T) -> i32 {
@@ -1179,6 +1925,22 @@ mod _rt {
             self as i32
         }
     }
+    pub unsafe fn bool_lift(val: u8) -> bool {
+        if cfg!(debug_assertions) {
+            match val {
+                0 => false,
+                1 => true,
+                _ => panic!("invalid bool discriminant"),
+            }
+        } else {
+            val != 0
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    pub fn run_ctors_once() {
+        wit_bindgen_rt::run_ctors_once();
+    }
+    pub use alloc_crate::alloc;
     extern crate alloc as alloc_crate;
 }
 /// Generates `#[unsafe(no_mangle)]` functions to export the specified type as
@@ -1227,30 +1989,43 @@ pub(crate) use __export_exporter_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1113] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xd3\x07\x01A\x02\x01\
-A\x0c\x01B\x0a\x01m\x09\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1637] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdf\x0b\x01A\x02\x01\
+A\x11\x01B\x0a\x01m\x09\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x0fsearch-provider\x10new-ui-component\x0ddata-producer\x08renderer\x03cli\x04\0\
 \x0acapability\x03\0\0\x01p\x01\x01ks\x01r\x08\x02ids\x04names\x07versions\x0bde\
 scriptions\x0ccapabilities\x02\x06author\x03\x08homepage\x03\x04icon\x03\x04\0\x0b\
 plugin-info\x03\0\x04\x01r\x02\x04codey\x07messages\x04\0\x0cplugin-error\x03\0\x06\
 \x01r\x02\x03keys\x05values\x04\0\x0csetting-data\x03\0\x08\x03\0\x18thoth:plugi\
-n/types@0.1.0\x05\0\x02\x03\0\0\x0cplugin-error\x01B\x11\x02\x03\x02\x01\x01\x04\
-\0\x0cplugin-error\x03\0\0\x01ps\x01r\x05\x03keys\x05labels\x0ddefault-values\x0a\
-input-types\x07choices\x02\x04\0\x0dexport-option\x03\0\x03\x01@\0\0s\x04\0\x04n\
-ame\x01\x05\x04\0\x10output-extension\x01\x05\x01p\x04\x01@\0\0\x06\x04\0\x11ava\
-ilable-options\x01\x07\x01o\x02ss\x01p\x08\x01p}\x01j\x01\x0a\x01\x01\x01@\x02\x0c\
-records-jsons\x07options\x09\0\x0b\x04\0\x03run\x01\x0c\x04\0\x1bthoth:plugin/ex\
-porter@0.1.0\x05\x02\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01\
-r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\
-\x01\x01\x01@\0\0\x04\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugi\
-n-settings@0.1.0\x05\x03\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x04\
-\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1eth\
-oth:plugin/plugin-meta@0.1.0\x05\x05\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07\
-on-load\x01\0\x01@\0\x01\0\x04\0\x08on-close\x01\x01\x04\0\x11on-setting-change\x01\
-\0\x04\0#thoth:plugin/plugin-lifecycle@0.1.0\x05\x06\x04\0\"thoth:plugin/exporte\
-r-plugin@0.1.0\x04\0\x0b\x15\x01\0\x0fexporter-plugin\x03\0\0\0G\x09producers\x01\
-\x0cprocessed-by\x02\x0dwit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
+n/types@0.1.0\x05\0\x02\x03\0\0\x0cplugin-error\x01B\x0c\x02\x03\x02\x01\x01\x04\
+\0\x0cplugin-error\x03\0\0\x01r\x02\x04names\x09type-hints\x04\0\x0edataset-colu\
+mn\x03\0\x02\x01p\x03\x01ps\x01p\x05\x01r\x04\x04names\x04kinds\x07columns\x04\x04\
+rows\x06\x04\0\x07dataset\x03\0\x07\x01j\x01\x08\x01\x01\x01@\0\0\x09\x04\0\x0fp\
+rovide-dataset\x01\x0a\x03\0\x20thoth:plugin/data-producer@0.1.0\x05\x02\x02\x03\
+\0\x01\x0edataset-column\x01B\x16\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\
+\0\x02\x03\x02\x01\x03\x04\0\x0edataset-column\x03\0\x02\x01p\x03\x01r\x05\x04na\
+mes\x04kinds\x07columns\x04\x09row-countw\x08revisionw\x04\0\x0cdataset-info\x03\
+\0\x05\x01ps\x01p\x07\x01p\x7f\x01p\x09\x01r\x05\x07columns\x04\x04rows\x08\x05n\
+ulls\x0a\x06offsetw\x05totalw\x04\0\x0cdataset-page\x03\0\x0b\x01j\x01\x06\x01\x01\
+\x01@\x01\x06handles\0\x0d\x04\0\x04info\x01\x0e\x01j\x01\x0c\x01\x01\x01@\x03\x06\
+handles\x06offsetw\x05limity\0\x0f\x04\0\x04read\x01\x10\x01@\x01\x06handles\0\x7f\
+\x04\0\x03pin\x01\x11\x04\0\x05unpin\x01\x11\x03\0\x1fthoth:plugin/dataset-read@\
+0.1.0\x05\x04\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01ps\x01\
+r\x05\x03keys\x05labels\x0ddefault-values\x0ainput-types\x07choices\x02\x04\0\x0d\
+export-option\x03\0\x03\x01@\0\0s\x04\0\x04name\x01\x05\x04\0\x10output-extensio\
+n\x01\x05\x01p\x04\x01@\0\0\x06\x04\0\x11available-options\x01\x07\x01o\x02ss\x01\
+p\x08\x01p}\x01j\x01\x0a\x01\x01\x01@\x02\x06handles\x07options\x09\0\x0b\x04\0\x03\
+run\x01\x0c\x04\0\x1bthoth:plugin/exporter@0.1.0\x05\x05\x01B\x07\x02\x03\x02\x01\
+\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0f\
+settings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\0\x0frender-sett\
+ings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x06\x02\x03\0\0\x0bpl\
+ugin-info\x01B\x04\x02\x03\x02\x01\x07\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\
+\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x08\x01B\x05\
+\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08on-clos\
+e\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0\
+.1.0\x05\x09\x04\0\"thoth:plugin/exporter-plugin@0.1.0\x04\0\x0b\x15\x01\0\x0fex\
+porter-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x07\
+0.227.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {

@@ -1,4 +1,8 @@
-// Thoth Plugin Interface — v0.1.0
+// Thoth Plugin Interface — v0.2.0
+//
+// v0.2.0: `exporter.run` and `data-renderer.render` take a dataset handle and
+// read it in pages through the new `dataset-read` import, instead of the host
+// copying the whole dataset into a records-json string.
 //
 // This file is the official plugin SDK. Plugin authors in any language
 // (Rust, Go, TypeScript, Python, C, ...) generate their bindings from this
@@ -558,16 +562,52 @@ interface exporter {
     available-options: func() -> list<export-option>;
 
     /// Perform the export.
-    /// `records-json` is the host-owned dataset as a JSON object
-    /// `{ "columns": ["c1", ...], "rows": [["v1", ...], ...] }` — column order is
-    /// preserved and every cell is a string (v1 dataset shape). The host reads
-    /// its single owned copy and passes it here; the plugin never touches the bus.
+    /// `handle` is the host-owned dataset. Read it in pages with the
+    /// `dataset-read` import — the plugin never receives a copy of the rows.
     /// `options` is a flat key/value list of the user's chosen option values.
     /// Returns raw file bytes the host writes to disk.
     run: func(
-        records-json: string,
+        handle: string,
         options: list<tuple<string, string>>,
     ) -> result<list<u8>, plugin-error>;
+}
+
+// ---------------------------------------------------------------------------
+// dataset-read — host-owned dataset reads (import)
+//
+// Consumers (exporters, renderers) receive only a handle. They page the rows
+// through here, so a large dataset never crosses into the plugin in one copy.
+// Reads are consent-gated by the host; an unknown/released handle is an error.
+// ---------------------------------------------------------------------------
+
+interface dataset-read {
+    use types.{plugin-error};
+    use data-producer.{dataset-column};
+
+    record dataset-info {
+        name: string,
+        kind: string,
+        columns: list<dataset-column>,
+        row-count: u64,
+        revision: u64,
+    }
+
+    record dataset-page {
+        columns: list<dataset-column>,
+        rows: list<list<string>>,
+        /// Per-row NULL mask. An empty list means NULL information is
+        /// unavailable for this page (pushed rows and text lines are strings and
+        /// cannot distinguish NULL from empty); when present, each mask is
+        /// parallel to `rows` and `true` marks a NULL cell.
+        nulls: list<list<bool>>,
+        offset: u64,
+        total: u64,
+    }
+
+    info: func(handle: string) -> result<dataset-info, plugin-error>;
+    read: func(handle: string, offset: u64, limit: u32) -> result<dataset-page, plugin-error>;
+    pin: func(handle: string) -> bool;
+    unpin: func(handle: string) -> bool;
 }
 
 // ---------------------------------------------------------------------------
@@ -583,11 +623,10 @@ interface data-renderer {
     /// Short label for the view (shown in the DataView's view dropdown), e.g. "Cards".
     name: func() -> string;
 
-    /// Render the dataset. `records-json` is the same shape the exporter gets —
-    /// `{ "columns": [...], "rows": [[...], ...] }` (order preserved, string
-    /// cells). Returns a serialized `RenderNode` tree (node-json) the host draws
-    /// inside the DataView.
-    render: func(records-json: string) -> result<string, plugin-error>;
+    /// Render the dataset. `handle` is the host-owned dataset; read it in pages
+    /// with the `dataset-read` import. Returns a serialized `RenderNode` tree
+    /// (node-json) the host draws inside the DataView.
+    render: func(handle: string) -> result<string, plugin-error>;
 }
 
 // ---------------------------------------------------------------------------
@@ -997,6 +1036,7 @@ world data-source-cli-plugin {
 /// A plugin that adds a new export format or destination.
 world exporter-plugin {
     include base-plugin;
+    import dataset-read;
     export exporter;
 }
 
@@ -1005,5 +1045,6 @@ world exporter-plugin {
 /// RenderNode tree; the plugin never renders directly.
 world data-renderer-plugin {
     include base-plugin;
+    import dataset-read;
     export data-renderer;
 }
