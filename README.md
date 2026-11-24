@@ -209,6 +209,7 @@ The host is split into three crates with a one-way dependency graph
 ## Documentation
 
 - **[Component Architecture](docs/COMPONENT_ARCHITECTURE.md)**: Detailed guide on Thoth's component system and one-way data binding pattern
+- **[Data Plane](docs/DATA_PLANE.md)**: How Papyrus owns datasets and how the grid, charts, plugins and exports read them by handle.
 - **[Plugin System](docs/PLUGIN_SYSTEM.md)**: Authoring WebAssembly plugins with the `thoth-plugin-sdk` (UI builders, state/settings helpers, lifecycle)
 - **[Database Plugins](docs/DATABASE_PLUGINS.md)**: Building data-source plugins that talk to databases
 - **[File Associations](docs/FILE_ASSOCIATIONS.md)**: How to open JSON files directly from your file manager and set Thoth as default viewer
