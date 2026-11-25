@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::helpers::default_rate_limit;
 use serde::{Deserialize, Serialize};
 
+pub mod capability_grants;
 pub mod dataset_grants;
 pub mod manager;
 pub mod network_policy;
@@ -223,6 +224,73 @@ supported-extensions = ["arrow", "arrows", "ipc"]
     }
 }
 
+/// Host capabilities a plugin can declare in `plugin.toml` (`permissions = [...]`).
+/// Prompted on first load and enforced at the WASM host boundary (#119).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case")]
+pub enum HostPermission {
+    /// Outbound HTTP/HTTPS or WebSocket requests (`http-client`, `websocket`).
+    Network,
+    /// Raw TCP sockets (`tcp-client`).
+    Tcp,
+    /// Native file open/save dialogs (`file-dialog`).
+    Filesystem,
+    /// OS keychain / credential storage (`secure-storage`).
+    SecureStorage,
+    /// Opening or managing host UI tabs (`ui-tabs`).
+    Tabs,
+    /// Reading datasets produced by other plugins (`dataset-read`).
+    DatasetRead,
+}
+
+impl HostPermission {
+    /// Human-readable label shown in the capability-permissions consent modal.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Network => "Make network & WebSocket requests",
+            Self::Tcp => "Open raw TCP connections",
+            Self::Filesystem => "Open native file dialogs",
+            Self::SecureStorage => "Store & read credentials in OS keychain",
+            Self::Tabs => "Open & manage workspace tabs",
+            Self::DatasetRead => "Read datasets from the data bus",
+        }
+    }
+
+    /// Phosphor regular glyph for the consent modal permission row.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Network => "\u{E288}",       // GLOBE
+            Self::Tcp => "\u{E3D8}",           // PLUGS_CONNECTED
+            Self::Filesystem => "\u{E24A}",    // FOLDER_OPEN
+            Self::SecureStorage => "\u{E2DE}", // KEY
+            Self::Tabs => "\u{E0B4}",          // BROWSERS
+            Self::DatasetRead => "\u{E1DE}",   // DATABASE
+        }
+    }
+
+    /// Whether this permission grants access to sensitive host resources.
+    pub fn is_sensitive(self) -> bool {
+        matches!(
+            self,
+            Self::Tcp | Self::Filesystem | Self::SecureStorage | Self::DatasetRead
+        )
+    }
+}
+
+impl Display for HostPermission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::Network => "network",
+            Self::Tcp => "tcp",
+            Self::Filesystem => "filesystem",
+            Self::SecureStorage => "secure-storage",
+            Self::Tabs => "tabs",
+            Self::DatasetRead => "dataset-read",
+        };
+        f.write_str(s)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plugin {
     pub id: String,
@@ -243,6 +311,10 @@ pub struct Plugin {
 
     #[serde(default)]
     pub network: Option<NetworkDeclarations>,
+
+    /// Host capabilities requested by this plugin in `plugin.toml`.
+    #[serde(default)]
+    pub permissions: Vec<HostPermission>,
 
     #[serde(rename = "theme")]
     pub theme: Option<ThemeMeta>,

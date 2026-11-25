@@ -251,6 +251,10 @@ impl ContextComponent for StatusBar {
         let id_cancel = id_accept.clone();
         let remember_domain = consent_request.as_ref().and_then(|r| r.domain.clone());
         let remember_plugin_id = consent_request.as_ref().and_then(|r| r.plugin_id.clone());
+        let grant_capabilities = consent_request
+            .as_ref()
+            .map(|r| r.grant_capabilities.clone())
+            .unwrap_or_default();
 
         let ctx = ui.ctx().clone();
         let on_accept = |remember: bool| {
@@ -261,6 +265,15 @@ impl ContextComponent for StatusBar {
             }
             if let Some(ref id) = id_accept {
                 ConsentManager::resolve(id);
+            }
+            if !grant_capabilities.is_empty()
+                && let Some(plugin_id) = remember_plugin_id.as_deref()
+            {
+                let plugin_id = plugin_id.to_string();
+                let perms = grant_capabilities.clone();
+                Settings::update(&ctx, |s| {
+                    s.plugins.capability_grants.insert(plugin_id, perms);
+                });
             }
             if remember {
                 // Also persist to Settings so the domain survives a restart.

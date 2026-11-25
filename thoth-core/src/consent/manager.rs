@@ -30,8 +30,10 @@ pub struct ConsentRequest {
     pub permissions: Vec<PermissionEntry>,
     /// The domain being requested (set for HTTP consent requests).
     pub domain: Option<String>,
-    /// The plugin that raised this request (set for HTTP consent requests).
+    /// The plugin that raised this request (set for HTTP & capability consent requests).
     pub plugin_id: Option<String>,
+    /// Host capabilities to persist into `Settings::plugins.capability_grants` on Allow (#119).
+    pub grant_capabilities: Vec<crate::plugin::HostPermission>,
 }
 
 /// A pending consent request: display data + allow/deny callbacks.
@@ -79,6 +81,7 @@ impl ConsentManager {
                 }],
                 domain: Some(domain.to_string()),
                 plugin_id: Some(plugin_id.to_string()),
+                grant_capabilities: Vec::new(),
             },
             on_allow,
             on_deny,
@@ -110,6 +113,42 @@ impl ConsentManager {
                 }],
                 domain: None,
                 plugin_id: Some(consumer.to_string()),
+                grant_capabilities: Vec::new(),
+            },
+            on_allow,
+            on_deny,
+        });
+    }
+
+    /// Enqueue a first-load capability-permissions prompt for a plugin (#119).
+    pub fn push_capability_consent(
+        plugin_id: &str,
+        plugin_name: &str,
+        permissions: &[crate::plugin::HostPermission],
+        on_allow: ConsentCallback,
+        on_deny: ConsentCallback,
+    ) {
+        let id = format!("consent-{}", CONSENT_ID.fetch_add(1, Ordering::Relaxed));
+        let entries = permissions
+            .iter()
+            .map(|&perm| PermissionEntry {
+                icon: perm.icon(),
+                label: perm.label().to_string(),
+                scope: perm.to_string(),
+                sensitive: perm.is_sensitive(),
+            })
+            .collect();
+        Self::push(PendingConsent {
+            request: ConsentRequest {
+                id,
+                title: "Plugin Capability Permissions".to_string(),
+                message: format!(
+                    "'{plugin_name}' ({plugin_id}) requests the following host capabilities:"
+                ),
+                permissions: entries,
+                domain: None,
+                plugin_id: Some(plugin_id.to_string()),
+                grant_capabilities: permissions.to_vec(),
             },
             on_allow,
             on_deny,

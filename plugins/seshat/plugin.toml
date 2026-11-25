@@ -4,6 +4,7 @@ version      = "0.1.0"
 description  = "Database client — connect, browse schemas, run SQL (Postgres, MySQL) or Query DSL (Elasticsearch)"
 author       = "Thoth contributors"
 capabilities = ["data-source", "new-ui-component", "data-producer", "cli"]
+permissions  = ["network", "tcp", "filesystem", "secure-storage", "tabs"]
 icon         = ""    # egui_phosphor::regular::DATABASE
 
 [data-source]
