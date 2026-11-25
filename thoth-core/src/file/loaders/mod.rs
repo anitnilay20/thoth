@@ -21,7 +21,7 @@ use std::sync::Arc;
 use crate::error::Result;
 use crate::file::FileType;
 use duckdb::arrow::array::RecordBatch;
-use duckdb::arrow::datatypes::DataType;
+use duckdb::arrow::datatypes::{DataType, Schema, SchemaRef};
 use serde_json::Value;
 
 pub use arrow_rows::{RecordWindow, batch_columns, batch_rows, batches_to_values};
@@ -49,6 +49,28 @@ pub trait FileLoader {
 
     /// Number of rows in the primary alias.
     fn len(&self) -> Result<usize>;
+
+    /// Arrow schema of the primary alias, if the loader can provide one.
+    ///
+    /// Used for empty windows, where no batch carries the schema. The default
+    /// asks for one row; in-memory loaders answer without a query.
+    fn schema(&self) -> Option<SchemaRef> {
+        self.fetch(Vec::new(), None, Some(1))
+            .ok()
+            .and_then(|batches| batches.first().map(|batch| batch.schema()))
+    }
+
+    /// Whether this loader owns its rows in memory (a batch-backed published
+    /// dataset) rather than scanning a live engine on demand.
+    fn is_owned(&self) -> bool {
+        false
+    }
+
+    /// Bytes of rows this loader owns in memory. Zero for a live engine, which
+    /// only holds the window currently being read.
+    fn owned_bytes(&self) -> usize {
+        0
+    }
 
     /// Whether the primary alias has no rows.
     fn is_empty(&self) -> Result<bool> {
@@ -352,6 +374,21 @@ impl FileLoader for BatchLoader {
         Ok(self.batches.iter().map(RecordBatch::num_rows).sum())
     }
 
+    fn schema(&self) -> Option<SchemaRef> {
+        self.batches.first().map(|batch| batch.schema())
+    }
+
+    fn is_owned(&self) -> bool {
+        true
+    }
+
+    fn owned_bytes(&self) -> usize {
+        self.batches
+            .iter()
+            .map(RecordBatch::get_array_memory_size)
+            .sum()
+    }
+
     fn get(&self, index: usize) -> Result<RecordBatch> {
         self.fetch(Vec::new(), Some(index), Some(1))?
             .into_iter()
@@ -383,22 +420,29 @@ pub fn parse_ipc(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
         .map_err(|e| invalid(&e))
 }
 
-/// Encode record batches as an Arrow IPC stream.
+/// Encode record batches as an Arrow IPC stream, taking the schema from the
+/// first batch.
 pub fn encode_ipc(batches: &[RecordBatch]) -> Result<Vec<u8>> {
-    use duckdb::arrow::ipc::writer::StreamWriter;
-
     let Some(first) = batches.first() else {
         return Ok(Vec::new());
     };
-    let schema = first.schema();
+    encode_ipc_with_schema(first.schema().as_ref(), batches)
+}
+
+/// Encode an Arrow IPC stream from an explicit schema and batches.
+///
+/// An empty batch list is valid: the stream then carries the schema and no
+/// record batches, which is what an empty read window must return.
+pub fn encode_ipc_with_schema(schema: &Schema, batches: &[RecordBatch]) -> Result<Vec<u8>> {
+    use duckdb::arrow::ipc::writer::StreamWriter;
+
     let invalid = |e: &dyn std::fmt::Display| crate::error::ThothError::Unknown {
         message: format!("failed to encode Arrow IPC: {e}"),
     };
 
     let mut bytes = Vec::new();
     {
-        let mut writer =
-            StreamWriter::try_new(&mut bytes, schema.as_ref()).map_err(|e| invalid(&e))?;
+        let mut writer = StreamWriter::try_new(&mut bytes, schema).map_err(|e| invalid(&e))?;
         for batch in batches {
             writer.write(batch).map_err(|e| invalid(&e))?;
         }

@@ -31,6 +31,37 @@ pub fn loader_to_dataset(loader: &dyn FileLoader) -> Option<DatasetTable> {
     batches_to_dataset(&batches)
 }
 
+/// Map Arrow batches to string rows without [`CAP`].
+///
+/// Used when a typed, batch-backed sheet is mutated through the string
+/// `dataset-bus.update`/`append` ABI: its owned rows are materialized before
+/// the string rows are applied. Display callers should prefer
+/// [`batches_to_dataset`], which is bounded.
+pub fn batches_to_rows(batches: &[RecordBatch]) -> Vec<Vec<String>> {
+    let opts = FormatOptions::default().with_null("");
+    let mut rows = Vec::new();
+    for batch in batches.iter().filter(|b| b.num_rows() > 0) {
+        let formatters: Vec<ArrayFormatter> = match batch
+            .columns()
+            .iter()
+            .map(|col| ArrayFormatter::try_new(col.as_ref(), &opts))
+            .collect::<Result<_, _>>()
+        {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        for row in 0..batch.num_rows() {
+            rows.push(
+                formatters
+                    .iter()
+                    .map(|f| f.value(row).to_string())
+                    .collect(),
+            );
+        }
+    }
+    rows
+}
+
 /// Map Arrow batches to a [`DatasetTable`]. `None` if there are no rows.
 pub fn batches_to_dataset(batches: &[RecordBatch]) -> Option<DatasetTable> {
     let first = batches.iter().find(|b| b.num_rows() > 0)?;
