@@ -43,10 +43,14 @@ struct UrlSourcePlugin;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct State {
-    // ── Saved requests ────────────────────────────────────────────────────
+    // ── Saved requests & environment ──────────────────────────────────────
     request_name: String, // name input in the sidebar
     #[serde(default)]
+    request_folder: String, // optional collection folder (#89)
+    #[serde(default)]
     saved_requests: Vec<SavedRequest>,
+    #[serde(default)]
+    env_vars: Vec<KvPair>, // shared {{var}} environment variables (#128)
 
     // ── Request ───────────────────────────────────────────────────────────
     url: String,
@@ -89,6 +93,13 @@ struct State {
     // ── Response cache (transient — never persisted) ──────────────────────
     #[serde(skip)]
     response: Option<ResponseState>,
+    /// Per-session response history for the current tab (#129).
+    #[serde(skip)]
+    response_history: Vec<HistoryEntry>,
+    #[serde(skip)]
+    diff_left: usize,
+    #[serde(skip)]
+    diff_right: usize,
 
     // ── WebSocket state (transient — never persisted) ─────────────────────
     /// Active connection id from `websocket::connect`, while connecting/open.
@@ -128,7 +139,9 @@ impl State {
     fn fresh() -> Self {
         Self {
             request_name: String::new(),
+            request_folder: String::new(),
             saved_requests: Vec::new(),
+            env_vars: Vec::new(),
             url: String::new(),
             method: "GET".to_string(),
             params: Vec::new(),
@@ -149,6 +162,9 @@ impl State {
             consent_pending: false,
             pending_request_id: None,
             response: None,
+            response_history: Vec::new(),
+            diff_left: 0,
+            diff_right: 0,
             ws_conn_id: None,
             ws_connected: false,
             ws_log: Vec::new(),
@@ -178,6 +194,9 @@ struct ResponseState {
     duration_ms: Option<u64>,
     /// Response body size in bytes.
     size_bytes: usize,
+    /// True when serving a cached offline response (#127).
+    is_cached: bool,
+    cached_at: String,
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
@@ -204,10 +223,30 @@ impl Default for KvPair {
     }
 }
 
+/// Cached last successful response for offline fallback (#127).
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
+struct CachedResponse {
+    status: u16,
+    headers: Vec<KvPair>,
+    body: String,
+    timestamp: String,
+}
+
+/// Per-session response history entry (#129).
+#[derive(Clone, Default, Debug)]
+struct HistoryEntry {
+    label: String,
+    status: u16,
+    duration_ms: Option<u64>,
+    body: String,
+}
+
 /// A single saved request entry.
 #[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
 struct SavedRequest {
     name: String,
+    #[serde(default)]
+    folder: String,
     method: String,
     url: String,
     params: Vec<KvPair>,
@@ -220,12 +259,16 @@ struct SavedRequest {
     auth_key_name: String,
     auth_key_value: String,
     auth_key_in: String,
+    #[serde(default)]
+    cached_response: Option<CachedResponse>,
 }
 
-/// On-disk format — wraps the list of saved requests.
+/// On-disk format — wraps the list of saved requests and shared env vars.
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct StoredData {
     requests: Vec<SavedRequest>,
+    #[serde(default)]
+    env_vars: Vec<KvPair>,
 }
 
 static STATE: PluginState<State> = PluginState::new();
@@ -243,6 +286,7 @@ impl LifecycleGuest for UrlSourcePlugin {
         if let Ok(data) = serde_json::from_str::<StoredData>(&raw) {
             STATE.with_mut(|s| {
                 s.saved_requests = data.requests;
+                s.env_vars = data.env_vars;
             });
         }
     }
@@ -250,9 +294,9 @@ impl LifecycleGuest for UrlSourcePlugin {
         STATE.reset();
     }
     fn on_setting_change(_setting: String) {
-        // Persist current saved requests so host-driven reloads see fresh state.
+        // Persist current saved requests & env vars so host-driven reloads see fresh state.
         STATE.with(|s| {
-            persist_requests(&s.saved_requests);
+            persist_data(&s.saved_requests, &s.env_vars);
         });
     }
 }
@@ -415,14 +459,19 @@ fn build_pane_node(_st: &State) -> thoth_plugin_sdk::render_node::RenderNode {
     )
 }
 
-/// Persist the current list of saved requests to plugin storage.
-fn persist_requests(saved_requests: &[SavedRequest]) {
+/// Persist the current list of saved requests and environment variables to plugin storage.
+fn persist_data(saved_requests: &[SavedRequest], env_vars: &[KvPair]) {
     let data = StoredData {
         requests: saved_requests.to_vec(),
+        env_vars: env_vars.to_vec(),
     };
     if let Ok(json) = serde_json::to_string(&data) {
         let _ = bindings::thoth::plugin::plugin_storage::write(&json);
     }
+}
+
+fn persist_requests(saved_requests: &[SavedRequest]) {
+    persist_data(saved_requests, &[]);
 }
 
 /// Save the current request under `st.request_name` (falls back to URL).
@@ -438,8 +487,14 @@ fn save_current_request(st: &mut State) {
             trimmed
         }
     };
+    let existing_cache = st
+        .saved_requests
+        .iter()
+        .find(|r| r.name == name)
+        .and_then(|r| r.cached_response.clone());
     let req = SavedRequest {
         name: name.clone(),
+        folder: st.request_folder.trim().to_string(),
         method: st.method.clone(),
         url: st.url.clone(),
         params: st.params.clone(),
@@ -452,18 +507,20 @@ fn save_current_request(st: &mut State) {
         auth_key_name: st.auth_key_name.clone(),
         auth_key_value: st.auth_key_value.clone(),
         auth_key_in: st.auth_key_in.clone(),
+        cached_response: existing_cache,
     };
     if let Some(existing) = st.saved_requests.iter_mut().find(|r| r.name == name) {
         *existing = req;
     } else {
         st.saved_requests.push(req);
     }
-    persist_requests(&st.saved_requests);
+    persist_data(&st.saved_requests, &st.env_vars);
 }
 
 /// Load a saved request into the active form.
 fn load_saved_request(st: &mut State, req: SavedRequest) {
     st.request_name = req.name;
+    st.request_folder = req.folder;
     st.method = req.method;
     st.url = req.url;
     st.params = req.params;
@@ -476,7 +533,21 @@ fn load_saved_request(st: &mut State, req: SavedRequest) {
     st.auth_key_name = req.auth_key_name;
     st.auth_key_value = req.auth_key_value;
     st.auth_key_in = req.auth_key_in;
-    st.response = None;
+    st.response = req.cached_response.map(|c| {
+        let parsed_body = serde_json::from_str::<serde_json::Value>(&c.body).ok();
+        let size_bytes = c.body.len();
+        ResponseState {
+            status: c.status,
+            headers: c.headers,
+            body: c.body,
+            parsed_body,
+            error: None,
+            duration_ms: None,
+            size_bytes,
+            is_cached: true,
+            cached_at: c.timestamp,
+        }
+    });
     st.loading = false;
     st.consent_pending = false;
     st.pending_request_id = None;
@@ -753,40 +824,63 @@ impl UiComponentGuest for UrlSourcePlugin {
         STATE.with_mut(|st| {
             if event.widget_id == "clear" {
                 let saved = st.saved_requests.clone();
+                let env_vars = st.env_vars.clone();
                 *st = State::fresh();
                 st.saved_requests = saved;
+                st.env_vars = env_vars;
             } else if event.widget_id == "save" {
                 save_current_request(st);
-            } else if event.widget_id == "saved-requests" {
+            } else if event.widget_id == "saved-requests"
+                || event.widget_id.starts_with("saved-folder-")
+            {
+                let folder_filter: Option<String> = if event.widget_id == "saved-requests" {
+                    Some(String::new())
+                } else {
+                    Some(
+                        event
+                            .widget_id
+                            .trim_start_matches("saved-folder-")
+                            .to_string(),
+                    )
+                };
+                let matching_indices: Vec<usize> = st
+                    .saved_requests
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| folder_filter.as_deref() == Some(r.folder.trim()))
+                    .map(|(i, _)| i)
+                    .collect();
+
                 match event.kind.as_str() {
                     "click" => {
-                        // Open the saved request in a NEW TAB (seeded with that
-                        // request), rather than loading it into the sidebar form.
-                        if let Ok(idx) = event.value.parse::<usize>() {
-                            if let Some(req) = st.saved_requests.get(idx).cloned() {
-                                let mut seed = st.clone();
-                                load_saved_request(&mut seed, req);
-                                let title = tab_title_for(&seed);
-                                let initial_state = serde_json::to_string(&seed).ok();
-                                bindings::thoth::plugin::ui_tabs::open_tab(
-                                    &title,
-                                    Some("\u{E28C}"),
-                                    initial_state.as_deref(),
-                                );
+                        if let Ok(local_idx) = event.value.parse::<usize>() {
+                            if let Some(&idx) = matching_indices.get(local_idx) {
+                                if let Some(req) = st.saved_requests.get(idx).cloned() {
+                                    let mut seed = st.clone();
+                                    load_saved_request(&mut seed, req);
+                                    let title = tab_title_for(&seed);
+                                    let initial_state = serde_json::to_string(&seed).ok();
+                                    bindings::thoth::plugin::ui_tabs::open_tab(
+                                        &title,
+                                        Some("\u{E28C}"),
+                                        initial_state.as_deref(),
+                                    );
+                                }
                             }
                         }
                     }
                     "action" => {
-                        // value = {"item": i, "action": 0}  (action 0 = delete)
                         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&event.value) {
-                            let item_idx =
+                            let local_idx =
                                 v.get("item").and_then(|x| x.as_u64()).map(|x| x as usize);
                             let action_idx =
                                 v.get("action").and_then(|x| x.as_u64()).map(|x| x as usize);
-                            if let (Some(item_idx), Some(0)) = (item_idx, action_idx) {
-                                if item_idx < st.saved_requests.len() {
-                                    st.saved_requests.remove(item_idx);
-                                    persist_requests(&st.saved_requests);
+                            if let (Some(local_idx), Some(0)) = (local_idx, action_idx) {
+                                if let Some(&item_idx) = matching_indices.get(local_idx) {
+                                    if item_idx < st.saved_requests.len() {
+                                        st.saved_requests.remove(item_idx);
+                                        persist_data(&st.saved_requests, &st.env_vars);
+                                    }
                                 }
                             }
                         }

@@ -49,6 +49,70 @@ pub fn request_is_non_empty(st: &State) -> bool {
         || st.req_headers.iter().any(|h| !h.key.is_empty())
 }
 
+/// Replace `{{var}}` placeholders in `input` using enabled `vars` (#128).
+pub fn substitute_env(input: &str, vars: &[KvPair]) -> String {
+    let mut out = input.to_string();
+    for v in vars {
+        if v.enabled && !v.key.trim().is_empty() {
+            let needle = format!("{{{{{}}}}}", v.key.trim());
+            out = out.replace(&needle, &v.value);
+        }
+    }
+    out
+}
+
+/// Compute a simple line-by-line diff between two response bodies (#129).
+pub fn compute_line_diff(left: &str, right: &str) -> String {
+    let a: Vec<&str> = left.lines().collect();
+    let b: Vec<&str> = right.lines().collect();
+    let mut out = Vec::new();
+    let max_len = a.len().max(b.len());
+    for i in 0..max_len {
+        match (a.get(i), b.get(i)) {
+            (Some(la), Some(rb)) if la == rb => out.push(format!("  {la}")),
+            (Some(la), Some(rb)) => {
+                out.push(format!("- {la}"));
+                out.push(format!("+ {rb}"));
+            }
+            (Some(la), None) => out.push(format!("- {la}")),
+            (None, Some(rb)) => out.push(format!("+ {rb}")),
+            (None, None) => {}
+        }
+    }
+    out.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn substitutes_enabled_env_vars_only() {
+        let vars = vec![
+            KvPair {
+                key: "base_url".into(),
+                value: "https://api.example.com".into(),
+                enabled: true,
+            },
+            KvPair {
+                key: "token".into(),
+                value: "secret".into(),
+                enabled: false,
+            },
+        ];
+        assert_eq!(
+            substitute_env("{{base_url}}/v1?t={{token}}", &vars),
+            "https://api.example.com/v1?t={{token}}"
+        );
+    }
+
+    #[test]
+    fn computes_line_diff_markers() {
+        let diff = compute_line_diff("a\nb\nc", "a\nx\nc\nd");
+        assert_eq!(diff, "  a\n- b\n+ x\n  c\n+ d");
+    }
+}
+
 pub fn pct_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {

@@ -7,16 +7,20 @@ use crate::{
             websocket,
         },
     },
-    helper::{is_body_method, parse_kv_list, parse_str, parse_url_into_state, status_text},
+    helper::{
+        compute_line_diff, is_body_method, parse_kv_list, parse_str, parse_url_into_state,
+        status_text,
+    },
     http::build_request,
-    KvPair, ResponseState, State, WsDir, WsLogEntry,
+    persist_data, CachedResponse, HistoryEntry, KvPair, ResponseState, State, WsDir, WsLogEntry,
 };
 use serde_json::Value;
 use thoth_plugin_sdk::components::{
-    Align, Badge, BgColor, Button, ButtonColor, ButtonSize, ButtonType, Code, CodeEditor, Column,
-    DataRow, DataRowIcon, IconButton, Input, JsonTree, KeyValueList, KvEntry, List, ListItem,
-    ListItemAction, ListItemBadge, Modal, Radio, Row, Scroll, Select, SelectOption, Separator,
-    Size, Spacer, Spinner, Split, TabAction, TableView, Tabs, Typography, TypographyVariant,
+    Align, Badge, BgColor, Button, ButtonColor, ButtonSize, ButtonType, Code, CodeEditor,
+    Collapsible, Column, DataRow, DataRowIcon, IconButton, Input, JsonTree, KeyValueList,
+    KvEntry, List, ListItem, ListItemAction, ListItemBadge, Modal, Radio, Row, Scroll, Select,
+    SelectOption, Separator, Size, Spacer, Spinner, Split, TabAction, TableView, Tabs, Typography,
+    TypographyVariant,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -141,23 +145,79 @@ pub fn build_ui(st: &State) -> RenderNode {
 
 /// Rendered by the host in its sidebar panel.
 pub fn build_sidebar(st: &State) -> RenderNode {
-    let items: Vec<ListItem> = st
+    fn to_list_item(req: &crate::SavedRequest) -> ListItem {
+        ListItem::builder()
+            .title(req.name.clone())
+            .description(req.url.clone())
+            .badge(
+                ListItemBadge::builder()
+                    .text(req.method.clone())
+                    .color(method_badge_token(&req.method))
+                    .build(),
+            )
+            .actions(vec![ListItemAction::builder()
+                .icon("x")
+                .tooltip("Delete")
+                .build()])
+            .build()
+    }
+
+    let mut folders: Vec<String> = Vec::new();
+    for req in &st.saved_requests {
+        let f = req.folder.trim().to_string();
+        if !f.is_empty() && !folders.contains(&f) {
+            folders.push(f);
+        }
+    }
+    folders.sort();
+
+    let mut collection_nodes: Vec<RenderNode> = Vec::new();
+    for folder in &folders {
+        let folder_items: Vec<ListItem> = st
+            .saved_requests
+            .iter()
+            .filter(|r| r.folder.trim() == folder)
+            .map(to_list_item)
+            .collect();
+        collection_nodes.push(RenderNode::Collapsible(
+            Collapsible::builder()
+                .label(format!("{folder} ({})", folder_items.len()))
+                .children(vec![RenderNode::List(
+                    List::builder()
+                        .id(format!("saved-folder-{folder}"))
+                        .items(folder_items)
+                        .build(),
+                )])
+                .build(),
+        ));
+    }
+
+    let ungrouped_items: Vec<ListItem> = st
         .saved_requests
         .iter()
-        .map(|req| {
-            ListItem::builder()
-                .title(req.name.clone())
-                .description(req.url.clone())
-                .badge(
-                    ListItemBadge::builder()
-                        .text(req.method.clone())
-                        .color(method_badge_token(&req.method))
-                        .build(),
-                )
-                .actions(vec![ListItemAction::builder()
-                    .icon("x")
-                    .tooltip("Delete")
-                    .build()])
+        .filter(|r| r.folder.trim().is_empty())
+        .map(to_list_item)
+        .collect();
+    collection_nodes.push(RenderNode::List(
+        List::builder()
+            .id("saved-requests")
+            .items(ungrouped_items)
+            .empty_label(if folders.is_empty() {
+                "No saved requests"
+            } else {
+                ""
+            })
+            .build(),
+    ));
+
+    let env_entries: Vec<KvEntry> = st
+        .env_vars
+        .iter()
+        .map(|v| {
+            KvEntry::builder()
+                .key(v.key.clone())
+                .value(v.value.clone())
+                .enabled(v.enabled)
                 .build()
         })
         .collect();
@@ -220,16 +280,30 @@ pub fn build_sidebar(st: &State) -> RenderNode {
                                     .grow(true)
                                     .build(),
                             ),
+                            RenderNode::Input(
+                                Input::builder()
+                                    .id("request-folder")
+                                    .value(st.request_folder.clone())
+                                    .placeholder("Folder")
+                                    .build(),
+                            ),
                             btn("save", "Save", !st.url.is_empty(), ButtonColor::Default),
                         ])
                         .build(),
                 ),
                 RenderNode::Separator(Separator::plain()),
-                RenderNode::List(
-                    List::builder()
-                        .id("saved-requests")
-                        .items(items)
-                        .empty_label("No saved requests")
+                RenderNode::Column(Column::builder().gap(2.0).children(collection_nodes).build()),
+                RenderNode::Separator(Separator::plain()),
+                RenderNode::Collapsible(
+                    Collapsible::builder()
+                        .label(format!("Environment ({})", st.env_vars.len()))
+                        .children(vec![RenderNode::KeyValueList(
+                            KeyValueList::builder()
+                                .id("env-vars")
+                                .entries(env_entries)
+                                .add_label("Add variable")
+                                .build(),
+                        )])
                         .build(),
                 ),
                 curl_import_modal(st),
@@ -345,7 +419,7 @@ fn build_response_column(st: &State) -> RenderNode {
         RenderNode::Scroll(
             Scroll::builder()
                 .id("response-scroll")
-                .child(build_response_panel(resp))
+                .child(build_response_panel(st, resp))
                 .build(),
         )
     } else {
@@ -703,7 +777,7 @@ fn response_is_chartable(resp: &ResponseState) -> bool {
     }
 }
 
-fn build_response_panel(resp: &ResponseState) -> RenderNode {
+fn build_response_panel(st: &State, resp: &ResponseState) -> RenderNode {
     let (color, status_label) = if resp.error.is_some() {
         ("error".to_string(), "Error".to_string())
     } else {
@@ -724,6 +798,21 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
             .size(Size::Medium)
             .build(),
     )];
+    if resp.is_cached {
+        let label = if resp.cached_at.is_empty() {
+            "CACHED (OFFLINE)".to_string()
+        } else {
+            format!("CACHED · {}", resp.cached_at)
+        };
+        status_children.push(RenderNode::Badge(
+            Badge::builder()
+                .label(label)
+                .color("warning")
+                .soft(true)
+                .size(Size::Medium)
+                .build(),
+        ));
+    }
     if let Some(ms) = resp.duration_ms {
         let t = if ms < 1000 {
             format!("{ms} ms")
@@ -814,6 +903,67 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
         .map(|h| vec![text(&h.key), muted(&h.value)])
         .collect();
 
+    let history_options: Vec<SelectOption> = st
+        .response_history
+        .iter()
+        .enumerate()
+        .map(|(i, h)| {
+            SelectOption::builder()
+                .value(i.to_string())
+                .label(format!("#{} · {} ({})", i + 1, h.status, h.label))
+                .build()
+        })
+        .collect();
+    let history_pane = if st.response_history.is_empty() {
+        muted("Send requests in this session to compare response history.")
+    } else {
+        let left_idx = st.diff_left.min(st.response_history.len() - 1);
+        let right_idx = st.diff_right.min(st.response_history.len() - 1);
+        let diff_text = compute_line_diff(
+            &st.response_history[left_idx].body,
+            &st.response_history[right_idx].body,
+        );
+        RenderNode::Column(
+            Column::builder()
+                .gap(8.0)
+                .children(vec![
+                    RenderNode::Row(
+                        Row::builder()
+                            .gap(8.0)
+                            .padding(8.0)
+                            .children(vec![
+                                muted("Left:"),
+                                RenderNode::Select(
+                                    Select::builder()
+                                        .id("diff-left")
+                                        .value(left_idx.to_string())
+                                        .options(history_options.clone())
+                                        .width(180.0)
+                                        .build(),
+                                ),
+                                muted("Right:"),
+                                RenderNode::Select(
+                                    Select::builder()
+                                        .id("diff-right")
+                                        .value(right_idx.to_string())
+                                        .options(history_options)
+                                        .width(180.0)
+                                        .build(),
+                                ),
+                            ])
+                            .build(),
+                    ),
+                    RenderNode::Code(
+                        Code::builder()
+                            .value(diff_text)
+                            .language("diff")
+                            .build(),
+                    ),
+                ])
+                .build(),
+        )
+    };
+
     let resp_tabs = RenderNode::Tabs(
         Tabs::builder()
             .id("resp-tabs")
@@ -821,6 +971,7 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
                 "Pretty".to_string(),
                 "Raw".to_string(),
                 "Headers".to_string(),
+                format!("History ({})", st.response_history.len()),
             ])
             .children(vec![
                 pretty,
@@ -837,6 +988,7 @@ fn build_response_panel(resp: &ResponseState) -> RenderNode {
                         .framed(false)
                         .build(),
                 ),
+                history_pane,
             ])
             .build(),
     );
@@ -924,6 +1076,38 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
         // Keep `body` as the exact raw payload so the Raw tab matches the
         // server response. The Pretty/JSON viewer uses `parsed_body`.
         let parsed_body = serde_json::from_str::<Value>(&body_raw).ok();
+        let ms_label = duration_ms
+            .map(|ms| format!("{ms}ms"))
+            .unwrap_or_else(|| "ok".to_string());
+        st.response_history.push(HistoryEntry {
+            label: ms_label.clone(),
+            status,
+            duration_ms,
+            body: body_raw.clone(),
+        });
+        if st.response_history.len() > 20 {
+            st.response_history.remove(0);
+        }
+        let n = st.response_history.len();
+        st.diff_left = n.saturating_sub(2);
+        st.diff_right = n.saturating_sub(1);
+
+        if status < 400 {
+            if let Some(saved) = st
+                .saved_requests
+                .iter_mut()
+                .find(|r| r.name == st.request_name || r.url == st.url)
+            {
+                saved.cached_response = Some(CachedResponse {
+                    status,
+                    headers: headers.clone(),
+                    body: body_raw.clone(),
+                    timestamp: format!("session #{n}"),
+                });
+                persist_data(&st.saved_requests, &st.env_vars);
+            }
+        }
+
         st.response = Some(ResponseState {
             status,
             headers,
@@ -932,6 +1116,8 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             error: None,
             duration_ms,
             size_bytes,
+            is_cached: false,
+            cached_at: String::new(),
         });
         // Status-bar signal: request method + HTTP status + latency; >=400 is error.
         let sig_status = if status >= 400 {
@@ -954,10 +1140,31 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             .and_then(|v| v.as_str())
             .unwrap_or("unknown error")
             .to_string();
-        st.response = Some(ResponseState {
-            error: Some(message),
-            ..Default::default()
-        });
+        if let Some(c) = st
+            .saved_requests
+            .iter()
+            .find(|r| r.name == st.request_name || r.url == st.url)
+            .and_then(|r| r.cached_response.clone())
+        {
+            let parsed_body = serde_json::from_str::<Value>(&c.body).ok();
+            let size_bytes = c.body.len();
+            st.response = Some(ResponseState {
+                status: c.status,
+                headers: c.headers,
+                body: c.body,
+                parsed_body,
+                error: None,
+                duration_ms: None,
+                size_bytes,
+                is_cached: true,
+                cached_at: format!("{} · offline fallback ({message})", c.timestamp),
+            });
+        } else {
+            st.response = Some(ResponseState {
+                error: Some(message),
+                ..Default::default()
+            });
+        }
         signals::emit_signal("http", &st.method, SignalStatus::Error, 0);
     } else {
         // Payload had neither `ok` nor `err`: still clear the sticky Loading.
@@ -1160,6 +1367,21 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
         }
         "ws-send" => ws_send(st),
         "request-name" => st.request_name = parse_str(&event.value),
+        "request-folder" => st.request_folder = parse_str(&event.value),
+        "env-vars" => {
+            st.env_vars = parse_kv_list(&event.value);
+            persist_data(&st.saved_requests, &st.env_vars);
+        }
+        "diff-left" => {
+            if let Ok(i) = parse_str(&event.value).parse::<usize>() {
+                st.diff_left = i;
+            }
+        }
+        "diff-right" => {
+            if let Ok(i) = parse_str(&event.value).parse::<usize>() {
+                st.diff_right = i;
+            }
+        }
 
         "method" => st.method = parse_str(&event.value),
         "url" => {
