@@ -223,6 +223,18 @@ supported-extensions = ["arrow", "arrows", "ipc"]
     }
 }
 
+/// A custom keyboard shortcut declared by a plugin in `plugin.toml` (`[[shortcuts]]`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PluginShortcut {
+    /// Unique action id delivered to `handle-event` (`widget_id = id`, `kind = "shortcut"`).
+    pub id: String,
+    /// Shortcut chord, e.g. `"cmd+enter"` or `"ctrl+shift+k"`.
+    pub keys: String,
+    /// Optional human-readable description.
+    #[serde(default)]
+    pub description: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Plugin {
     pub id: String,
@@ -243,6 +255,10 @@ pub struct Plugin {
 
     #[serde(default)]
     pub network: Option<NetworkDeclarations>,
+
+    /// Custom keyboard shortcuts declared by this plugin in `plugin.toml` (`[[shortcuts]]`).
+    #[serde(default)]
+    pub shortcuts: Vec<PluginShortcut>,
 
     #[serde(rename = "theme")]
     pub theme: Option<ThemeMeta>,

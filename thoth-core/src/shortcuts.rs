@@ -55,6 +55,35 @@ impl Shortcut {
         self.shift = true;
         self
     }
+
+    /// Parse a human-readable chord like `"cmd+enter"`, `"ctrl+shift+k"`, or `"alt+f5"`.
+    pub fn parse_chord(chord: &str) -> Option<Self> {
+        let mut shortcut = Self::new("");
+        for part in chord.split('+').map(str::trim).filter(|s| !s.is_empty()) {
+            match part.to_ascii_lowercase().as_str() {
+                "cmd" | "command" | "meta" => shortcut.command = true,
+                "ctrl" | "control" => shortcut.ctrl = true,
+                "alt" | "option" | "opt" => shortcut.alt = true,
+                "shift" => shortcut.shift = true,
+                "enter" | "return" => shortcut.key = "Enter".to_string(),
+                "esc" | "escape" => shortcut.key = "Escape".to_string(),
+                "space" => shortcut.key = "Space".to_string(),
+                "tab" => shortcut.key = "Tab".to_string(),
+                "comma" | "," => shortcut.key = "Comma".to_string(),
+                "slash" | "/" => shortcut.key = "Slash".to_string(),
+                other => {
+                    let mut chars = other.chars();
+                    let first = chars.next()?;
+                    if chars.next().is_none() && first.is_ascii_alphabetic() {
+                        shortcut.key = first.to_ascii_uppercase().to_string();
+                    } else {
+                        shortcut.key = part.to_string();
+                    }
+                }
+            }
+        }
+        (!shortcut.key.is_empty()).then_some(shortcut)
+    }
 }
 
 /// All keyboard shortcuts for the application
@@ -78,6 +107,8 @@ pub struct KeyboardShortcuts {
     /// Switch to tab 1–9. The key is ignored; only the modifiers are used, so
     /// this is the binding's modifier set rather than a single key.
     pub switch_to_tab: Shortcut,
+    /// Open or focus plugin 1–9 (key ignored; uses modifiers + 1–9, default `Cmd/Ctrl+Shift`).
+    pub switch_to_plugin: Shortcut,
 
     // Query builder (file tabs only)
     pub toggle_query: Shortcut,
@@ -135,6 +166,7 @@ impl Default for KeyboardShortcuts {
             next_tab: Shortcut::new("ArrowRight").command().alt(),
             prev_tab: Shortcut::new("ArrowLeft").command().alt(),
             switch_to_tab: Shortcut::new("1").command(),
+            switch_to_plugin: Shortcut::new("1").command().shift(),
 
             // Query builder lanes. ⌘F and ⌘G are the design handoff's; ⌘⇧A
             // and ⌘⇧S continue the pattern. None of the four is claimed by
@@ -241,6 +273,7 @@ mod tests {
             "settings",
             "toggle_theme",
             "toggle_profiler",
+            "switch_to_plugin",
         ];
         for name in names {
             assert!(
@@ -263,5 +296,18 @@ mod tests {
         assert_eq!(shortcuts.next_tab.key, "ArrowRight");
         assert!(shortcuts.next_tab.command && shortcuts.next_tab.alt);
         assert_eq!(shortcuts.prev_tab.key, "ArrowLeft");
+    }
+
+    #[test]
+    fn parse_chord_handles_modifiers_and_keys() {
+        assert_eq!(
+            Shortcut::parse_chord("cmd+enter"),
+            Some(Shortcut::new("Enter").command())
+        );
+        assert_eq!(
+            Shortcut::parse_chord("ctrl+shift+k"),
+            Some(Shortcut::new("K").ctrl().shift())
+        );
+        assert_eq!(Shortcut::parse_chord(""), None);
     }
 }
