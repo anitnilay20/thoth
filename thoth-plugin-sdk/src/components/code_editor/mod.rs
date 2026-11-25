@@ -1,3 +1,31 @@
+#[cfg(feature = "egui")]
+pub mod sql_completion;
+
+#[cfg(not(feature = "egui"))]
+#[allow(missing_docs)]
+pub mod sql_completion {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct CompletionTable {
+        pub name: String,
+        #[serde(default)]
+        pub columns: Vec<String>,
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct CompletionSchema {
+        #[serde(default)]
+        pub tables: Vec<CompletionTable>,
+        #[serde(default)]
+        pub functions: Vec<String>,
+        #[serde(default)]
+        pub keywords: Vec<String>,
+    }
+}
+
+pub use sql_completion::{CompletionSchema, CompletionTable};
+
 use bon::Builder;
 use serde::{Deserialize, Serialize};
 
@@ -101,6 +129,10 @@ pub struct CodeEditor {
     /// [`CodeEditor::syntax`] language name.
     #[serde(default)]
     pub custom_syntax: Option<CustomSyntax>,
+
+    /// Optional structured SQL schema for context-ranked autocomplete (#121).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_schema: Option<CompletionSchema>,
 
     /// Character offsets at which to draw a clickable ▶ run-marker in the left
     /// gutter (e.g. the start of each SQL statement). A click reports the
@@ -398,8 +430,119 @@ impl CodeEditor {
                     } else {
                         &mut self.value
                     };
-                    let output = editor.show_with_completer(ui, text, &mut completer);
-                    let changed = !self.read_only && output.response.changed();
+                    let mut output = if self.completion_schema.is_some() {
+                        editor.show(ui, text)
+                    } else {
+                        editor.show_with_completer(ui, text, &mut completer)
+                    };
+                    let mut changed = !self.read_only && output.response.changed();
+
+                    // Context-ranked SQL completion popup (#121).
+                    if let Some(schema) = &self.completion_schema
+                        && !self.read_only
+                        && output.response.has_focus()
+                        && let Some(cr) = &output.cursor_range
+                    {
+                        let caret_chars = cr.primary.index;
+                        let cursor_byte = text
+                            .char_indices()
+                            .nth(caret_chars)
+                            .map(|(b, _)| b)
+                            .unwrap_or(text.len());
+                        let (ctx_kind, prefix) =
+                            sql_completion::classify_context(text, cursor_byte);
+                        let show_popup = !matches!(
+                            ctx_kind,
+                            sql_completion::CompletionContext::Suppress
+                        ) && (!prefix.is_empty()
+                            || matches!(
+                                ctx_kind,
+                                sql_completion::CompletionContext::ColumnOf(_)
+                            ));
+                        if show_popup {
+                            let items =
+                                sql_completion::rank_candidates(schema, text, cursor_byte);
+                            if !items.is_empty() {
+                                let sel_id = ui.make_persistent_id((
+                                    "sql_completer_sel",
+                                    self.id.as_str(),
+                                ));
+                                let mut sel = ui
+                                    .ctx()
+                                    .memory(|m| m.data.get_temp::<usize>(sel_id).unwrap_or(0))
+                                    .min(items.len() - 1);
+                                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
+                                    sel = (sel + 1) % items.len();
+                                } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)) {
+                                    sel = if sel == 0 { items.len() - 1 } else { sel - 1 };
+                                }
+                                ui.ctx().memory_mut(|m| m.data.insert_temp(sel_id, sel));
+
+                                let accept = ui.input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)
+                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                                });
+                                if accept {
+                                    let chosen = &items[sel].label;
+                                    let replace_start = cursor_byte - prefix.len();
+                                    text.replace_range(replace_start..cursor_byte, chosen);
+                                    changed = true;
+                                } else {
+                                    let popup_pos = output.response.rect.left_bottom()
+                                        + egui::vec2(12.0, 2.0);
+                                    egui::Area::new(ui.make_persistent_id((
+                                        "sql_completer_popup",
+                                        self.id.as_str(),
+                                    )))
+                                    .order(egui::Order::Foreground)
+                                    .fixed_pos(popup_pos)
+                                    .show(ui.ctx(), |ui| {
+                                        egui::Frame::popup(ui.style())
+                                            .fill(colors.surface)
+                                            .stroke(egui::Stroke::new(1.0, colors.surface_raised))
+                                            .show(ui, |ui| {
+                                                ui.set_min_width(220.0);
+                                                for (idx, item) in items.iter().enumerate() {
+                                                    let is_sel = idx == sel;
+                                                    let bg = if is_sel {
+                                                        colors.surface_active
+                                                    } else {
+                                                        egui::Color32::TRANSPARENT
+                                                    };
+                                                    egui::Frame::NONE
+                                                        .fill(bg)
+                                                        .inner_margin(egui::Margin::symmetric(6, 3))
+                                                        .show(ui, |ui| {
+                                                            ui.horizontal(|ui| {
+                                                                ui.label(
+                                                                    egui::RichText::new(item.kind.badge())
+                                                                        .monospace()
+                                                                        .size(10.0)
+                                                                        .color(colors.accent),
+                                                                );
+                                                                ui.label(
+                                                                    egui::RichText::new(&item.label)
+                                                                        .monospace()
+                                                                        .size(12.0)
+                                                                        .color(colors.fg),
+                                                                );
+                                                                if let Some(detail) = &item.detail {
+                                                                    ui.label(
+                                                                        egui::RichText::new(detail)
+                                                                            .size(10.0)
+                                                                            .color(colors.fg_muted),
+                                                                    );
+                                                                }
+                                                            });
+                                                        });
+                                                }
+                                            });
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    let _ = &mut output;
 
                     // Caret + selection as character offsets, for run-at-cursor /
                     // run-selection.
