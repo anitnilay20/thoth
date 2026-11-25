@@ -56,6 +56,8 @@ pub enum ShortcutAction {
     PrevTab,
     /// Switch to the tab at 0-based visual index in the focused leaf.
     SwitchToTab(usize),
+    /// Open or focus the Nth (0-based) UI/data-source plugin.
+    SwitchToPlugin(usize),
 }
 
 /// Handle keyboard shortcuts and return triggered actions
@@ -341,8 +343,9 @@ impl ShortcutHandler {
             actions.push(ShortcutAction::NewTab);
         }
 
-        // ⌘1–⌘9 / Ctrl+1–9: switch to tab by position.
-        const TAB_KEYS: [egui::Key; 9] = [
+        // ⌘⇧1–⌘⇧9 / Ctrl+Shift+1–9: open or focus the Nth plugin (checked
+        // before SwitchToTab so `Cmd+Shift+1` isn't matched as `Cmd+1`).
+        const DIGIT_KEYS: [egui::Key; 9] = [
             egui::Key::Num1,
             egui::Key::Num2,
             egui::Key::Num3,
@@ -353,13 +356,26 @@ impl ShortcutHandler {
             egui::Key::Num8,
             egui::Key::Num9,
         ];
+        let plugin_modifiers = shortcuts.switch_to_plugin.to_keyboard_shortcut().modifiers;
+        let allow_plugin_switch = !ctx.text_edit_focused() || plugin_modifiers.command;
+        if allow_plugin_switch {
+            for (idx, key) in DIGIT_KEYS.iter().enumerate() {
+                let kc = egui::KeyboardShortcut::new(plugin_modifiers, *key);
+                if has_exact_key_event(ctx, kc) && ctx.input_mut(|i| i.consume_key(plugin_modifiers, *key)) {
+                    actions.push(ShortcutAction::SwitchToPlugin(idx));
+                    break;
+                }
+            }
+        }
+
+        // ⌘1–⌘9 / Ctrl+1–9: switch to tab by position.
         // Only the modifiers are configurable here; the digits are fixed.
         // While a text editor is focused, Shift/Alt-only and bare-digit
         // bindings are typing input; only a command-based chord is safe.
         let tab_modifiers = shortcuts.switch_to_tab.to_keyboard_shortcut().modifiers;
         let allow_tab_switch = !ctx.text_edit_focused() || tab_modifiers.command;
         if allow_tab_switch {
-            for (idx, key) in TAB_KEYS.iter().enumerate() {
+            for (idx, key) in DIGIT_KEYS.iter().enumerate() {
                 if ctx.input_mut(|i| i.consume_key(tab_modifiers, *key)) {
                     actions.push(ShortcutAction::SwitchToTab(idx));
                     break;
@@ -368,6 +384,45 @@ impl ShortcutHandler {
         }
 
         actions
+    }
+
+    /// Match and consume any plugin-declared custom shortcut (`[[shortcuts]]`)
+    /// that does not conflict with a global built-in shortcut.
+    pub fn match_plugin_shortcuts(
+        ctx: &egui::Context,
+        plugin_shortcuts: &[thoth_core::plugin::PluginShortcut],
+        global: &KeyboardShortcuts,
+    ) -> Option<String> {
+        let reserved = [
+            &global.open_file,
+            &global.new_window,
+            &global.close_tab,
+            &global.new_tab,
+            &global.next_tab,
+            &global.prev_tab,
+            &global.toggle_sidebar,
+            &global.settings,
+            &global.toggle_theme,
+            &global.toggle_profiler,
+        ];
+        for ps in plugin_shortcuts {
+            let Some(parsed) = Shortcut::parse_chord(&ps.keys) else {
+                continue;
+            };
+            let kc = parsed.to_keyboard_shortcut();
+            let conflicts = reserved
+                .iter()
+                .any(|r| r.to_keyboard_shortcut() == kc);
+            if conflicts {
+                continue;
+            }
+            if (!ctx.text_edit_focused() || kc.modifiers.command || kc.modifiers.ctrl)
+                && consume_exact(ctx, &parsed)
+            {
+                return Some(ps.id.clone());
+            }
+        }
+        None
     }
 }
 
@@ -694,6 +749,67 @@ mod tests {
         assert_eq!(
             actions_for_shortcut(&sc, &sc.copy_value),
             vec![ShortcutAction::CopyValue]
+        );
+    }
+
+    #[test]
+    fn switch_to_plugin_beats_switch_to_tab() {
+        let sc = KeyboardShortcuts::default();
+        let mods = sc.switch_to_plugin.to_keyboard_shortcut().modifiers;
+        let actions = actions_for_events(
+            &sc,
+            mods,
+            vec![key_event(egui::Key::Num2, mods, false)],
+        );
+        assert_eq!(actions, vec![ShortcutAction::SwitchToPlugin(1)]);
+    }
+
+    #[test]
+    fn plugin_shortcut_dispatches_unless_conflicting_with_global() {
+        use thoth_core::plugin::PluginShortcut;
+        let sc = KeyboardShortcuts::default();
+        let plugin_shortcuts = vec![
+            PluginShortcut {
+                id: "hijack_close".to_string(),
+                keys: "cmd+w".to_string(),
+                description: String::new(),
+            },
+            PluginShortcut {
+                id: "execute".to_string(),
+                keys: "cmd+enter".to_string(),
+                description: "Run".to_string(),
+            },
+        ];
+
+        // Global Cmd+W must be ignored for plugins.
+        let ctx_w = egui::Context::default();
+        let mods_cmd = egui::Modifiers::COMMAND;
+        let _ = ctx_w.run_ui(
+            egui::RawInput {
+                modifiers: mods_cmd,
+                events: vec![key_event(egui::Key::W, mods_cmd, false)],
+                ..Default::default()
+            },
+            |_| {},
+        );
+        assert_eq!(
+            ShortcutHandler::match_plugin_shortcuts(&ctx_w, &plugin_shortcuts, &sc),
+            None
+        );
+
+        // Plugin Cmd+Enter should match.
+        let ctx_enter = egui::Context::default();
+        let _ = ctx_enter.run_ui(
+            egui::RawInput {
+                modifiers: mods_cmd,
+                events: vec![key_event(egui::Key::Enter, mods_cmd, false)],
+                ..Default::default()
+            },
+            |_| {},
+        );
+        assert_eq!(
+            ShortcutHandler::match_plugin_shortcuts(&ctx_enter, &plugin_shortcuts, &sc),
+            Some("execute".to_string())
         );
     }
 }

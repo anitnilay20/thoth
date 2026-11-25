@@ -396,6 +396,7 @@ impl App for ThothApp {
         let shortcut_actions =
             ShortcutHandler::handle_shortcuts(ui.ctx(), &self.core.settings.shortcuts);
         self.handle_shortcut_actions(ui.ctx(), shortcut_actions);
+        self.dispatch_active_plugin_shortcut(ui.ctx());
         self.refresh_chart_sources();
 
         use crate::components::settings_dialog::{SettingsDialogEvent, SettingsDialogProps};
@@ -773,7 +774,77 @@ impl ThothApp {
                 ShortcutAction::SwitchToTab(idx) => {
                     self.window_state.tab_manager.switch_to_tab_by_index(idx);
                 }
+                ShortcutAction::SwitchToPlugin(idx) => {
+                    self.open_plugin_by_index(idx);
+                }
             }
+        }
+    }
+
+    /// Open or focus the `idx`-th interactive plugin (`data-source` or `new-ui-component`).
+    fn open_plugin_by_index(&mut self, idx: usize) {
+        let Some(manager) = self.core.plugins.manager() else {
+            return;
+        };
+        let mut plugins: Vec<crate::plugin::Plugin> = manager
+            .registry
+            .get_all_plugins()
+            .into_iter()
+            .filter(|p| {
+                p.capabilities.contains(&crate::plugin::Capability::DataSource)
+                    || p.capabilities
+                        .contains(&crate::plugin::Capability::NewUIComponent)
+            })
+            .cloned()
+            .collect();
+        plugins.sort_by(|a, b| a.name.cmp(&b.name));
+        let Some(plugin) = plugins.get(idx) else {
+            return;
+        };
+        Self::open_plugin_tab(
+            &mut self.window_state.tab_manager,
+            &manager,
+            &plugin.id,
+            None,
+            &self.core.settings,
+        );
+        self.core.session_dirty = true;
+    }
+
+    /// If the active tab is hosting a plugin pane that declared `[[shortcuts]]`,
+    /// match and dispatch any triggered custom shortcut as a `"shortcut"` event.
+    fn dispatch_active_plugin_shortcut(&mut self, ctx: &egui::Context) {
+        let Some(manager) = self.core.plugins.manager() else {
+            return;
+        };
+        let Some(tab_id) = self.window_state.tab_manager.active_tab_id() else {
+            return;
+        };
+        let Some(tab) = self.window_state.tab_manager.tabs.get(&tab_id) else {
+            return;
+        };
+        let Some(pane) = tab.active_plugin_pane.as_ref() else {
+            return;
+        };
+        let Some(plugin_meta) = manager.registry.get_by_id(&pane.plugin_id) else {
+            return;
+        };
+        if plugin_meta.shortcuts.is_empty() {
+            return;
+        }
+        if let Some(shortcut_id) = ShortcutHandler::match_plugin_shortcuts(
+            ctx,
+            &plugin_meta.shortcuts,
+            &self.core.settings.shortcuts,
+        ) {
+            self.dispatch_plugin_event_for(
+                tab_id,
+                crate::plugin::render_node::UiEvent {
+                    widget_id: shortcut_id,
+                    kind: "shortcut".to_string(),
+                    value: String::new(),
+                },
+            );
         }
     }
 
