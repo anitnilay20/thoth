@@ -219,4 +219,35 @@ impl WasmFileViewerLoader {
             .map_err(|e| ThothError::Unknown { message: e.message })?;
         Ok(output.node_json)
     }
+
+    /// Forward an interactive widget event from a Custom-mode row to the plugin (#97).
+    /// Returns `Ok(Some(node_json))` when the plugin requests a row re-render.
+    pub fn handle_record_event(
+        &mut self,
+        record_index: u64,
+        widget_id: &str,
+        kind: &str,
+        value: &str,
+    ) -> Result<Option<String>> {
+        let WasmViewerInner { store, bindings } = self.inner.get_mut().unwrap();
+        store
+            .set_fuel(u64::MAX / 2)
+            .map_err(|e| ThothError::Unknown {
+                message: e.to_string(),
+            })?;
+        let event = exports::thoth::plugin::file_viewer::RecordEvent {
+            record_index,
+            widget_id: widget_id.to_string(),
+            kind: kind.to_string(),
+            value: value.to_string(),
+        };
+        let output = bindings
+            .thoth_plugin_file_viewer()
+            .call_handle_record_event(store, &event)
+            .map_err(|e| ThothError::Unknown {
+                message: e.to_string(),
+            })?
+            .map_err(|e| ThothError::Unknown { message: e.message })?;
+        Ok(output.map(|o| o.node_json))
+    }
 }

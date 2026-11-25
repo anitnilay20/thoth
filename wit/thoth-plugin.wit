@@ -281,6 +281,19 @@ interface file-viewer {
     /// Optional custom column headers for the table view.
     /// Return `none` to use the keys from the first record as headers.
     column-headers: func() -> option<list<string>>;
+
+    /// Interactive widget event raised from a Custom-mode row (#97).
+    record record-event {
+        record-index: u64,
+        widget-id:    string,
+        kind:         string,
+        value:        string,
+    }
+
+    /// Handle an interactive widget event from a Custom-mode row (#97).
+    /// Return `some(render-output)` to replace that row's cached RenderNode,
+    /// or `none` if no re-render is needed.
+    handle-record-event: func(event: record-event) -> result<option<render-output>, plugin-error>;
 }
 
 

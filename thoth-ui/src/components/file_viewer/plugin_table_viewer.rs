@@ -102,16 +102,17 @@ impl FileFormatViewer for PluginTableViewer {
         let num_rows = indices.len();
         let render_cache = &mut self.render_cache;
         let cache = &mut self.records;
+        let mut cell_events = Vec::new();
 
         // Standalone grid — it owns its container fill, edge and corners.
-        TableView::show_rows(
+        TableView::show_rows_indexed(
             ui,
             &headers,
             num_rows,
             None,
             true,
-            &mut Vec::new(),
-            move |i| {
+            &mut cell_events,
+            |i| {
                 let idx = indices[i];
 
                 match display_mode {
@@ -168,6 +169,15 @@ impl FileFormatViewer for PluginTableViewer {
                 }
             },
         );
+
+        for (vis_idx, ev) in cell_events {
+            if let Some(&record_idx) = self.visible_indices.get(vis_idx)
+                && let Ok(Some(updated_node_json)) =
+                    loader.handle_record_event(record_idx as u64, &ev.id, &ev.kind, &ev.value)
+            {
+                self.render_cache.insert(record_idx, updated_node_json);
+            }
+        }
 
         false
     }
