@@ -59,6 +59,13 @@ duckdb = { version = "~1.10505.0", features = ["bundled", "json", "parquet", "vt
 arrow = { version = "58.4", features = ["json"] }
 getrandom = "0.3"
 unicode-width = "0.2"
+opendal = { version = "0.59", features = [
+  "services-fs",
+  "services-http",
+  "services-s3",
+  "services-gcs",
+  "services-azblob",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"

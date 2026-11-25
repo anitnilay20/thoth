@@ -31,6 +31,7 @@ pub struct ToolbarProps<'a> {
 /// Events emitted by the toolbar (bottom-to-top communication)
 pub enum ToolbarEvent {
     FileOpen { path: PathBuf, file_type: FileKind },
+    OpenRemote,
     CloseTab,
     NewWindow,
     ToggleTheme,
@@ -198,6 +199,10 @@ impl Toolbar {
                                 pending = Some(ToolbarEvent::FileOpen { path, file_type });
                             }
                         }
+                        if ui.button("Open Remote…").clicked() {
+                            pending = Some(ToolbarEvent::OpenRemote);
+                            ui.close();
+                        }
                         if ui
                             .button(format!("New Window  {new_win_shortcut}"))
                             .clicked()
@@ -223,7 +228,7 @@ pub fn infer_file_type_pub(path: &Path) -> Option<FileKind> {
     infer_file_type(path)
 }
 
-fn infer_file_type(path: &Path) -> Option<FileKind> {
+pub fn infer_file_type(path: &Path) -> Option<FileKind> {
     let ext = path.extension()?.to_str()?.to_lowercase();
     match ext.as_str() {
         "ndjson" => Some(FileKind::Ndjson),

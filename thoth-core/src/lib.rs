@@ -27,6 +27,7 @@ pub mod plugin;
 pub mod settings;
 pub mod shortcuts;
 pub mod state;
+pub mod storage;
 pub mod theme;
 pub mod update;
 

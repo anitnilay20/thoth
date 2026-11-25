@@ -13,6 +13,7 @@ pub mod error_modal;
 pub mod file_viewer;
 pub mod marketplace;
 pub mod recent_files;
+pub mod remote_open_modal;
 pub mod saved_queries;
 pub mod settings_dialog;
 pub mod sidebar;
