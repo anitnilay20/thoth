@@ -56,8 +56,8 @@ fn collect_rows(batches: &[RecordBatch], cap: usize) -> Option<Vec<Vec<String>>>
             let cells = match &formatters {
                 Some(formatters) => formatters
                     .iter()
-                    .map(|formatter| formatter.value(row).to_string())
-                    .collect(),
+                    .map(|formatter| formatter.value(row).try_to_string().ok())
+                    .collect::<Option<Vec<_>>>()?,
                 // A formatter can reject an unusual Arrow type. Fall back to
                 // the generic path for every cell; if that fails too, fail the
                 // whole conversion rather than dropping the batch.
@@ -388,5 +388,27 @@ mod tests {
         assert_eq!(cols.len(), 1);
         assert_eq!(cols[0].0, "value");
         assert_eq!(rows, vec![vec!["1"], vec!["2"], vec!["3"]]);
+    }
+
+    #[test]
+    fn a_named_timezone_never_becomes_display_error_text() {
+        use duckdb::arrow::array::TimestampMicrosecondArray;
+        use duckdb::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+        use std::sync::Arc;
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "at",
+            DataType::Timestamp(TimeUnit::Microsecond, Some("America/New_York".into())),
+            false,
+        )]));
+        let array =
+            TimestampMicrosecondArray::from(vec![1_000_000]).with_timezone("America/New_York");
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(array)]).unwrap();
+
+        let rows = batches_to_rows(&[batch]);
+        assert!(
+            rows.is_none(),
+            "an unformattable value must fail the conversion, not emit error text"
+        );
     }
 }

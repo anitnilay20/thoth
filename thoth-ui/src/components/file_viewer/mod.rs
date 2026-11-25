@@ -317,12 +317,38 @@ pub struct FileViewer {
     sort_queued: bool,
 }
 
+impl Drop for FileViewer {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            crate::papyrus::unpin(&handle);
+        }
+    }
+}
+
 impl FileViewer {
     /// Create a new FileViewer.
     ///
     /// The viewer holds no records of its own — it renders straight from Arrow,
     /// and any record cache belongs to the viewer that needs one (see
     /// `PluginTableViewer`).
+    /// Replace the tab's handle, moving its pin from the old one to the new.
+    ///
+    /// A file tab keeps its sheet alive while it is open, even if publishing
+    /// another dataset would otherwise put the registry over budget.
+    fn set_handle(&mut self, next: Option<String>) {
+        if self.handle.as_deref() == next.as_deref() {
+            return;
+        }
+        // Acquire the incoming pin before releasing the outgoing one.
+        if let Some(handle) = next.as_deref() {
+            crate::papyrus::pin(handle);
+        }
+        if let Some(old) = self.handle.take() {
+            crate::papyrus::unpin(&old);
+        }
+        self.handle = next;
+    }
+
     pub fn new() -> Self {
         Self {
             handle: None,
@@ -413,7 +439,7 @@ impl FileViewer {
         self.sort_queued = false;
         self.tree_action = None;
         self.pending_events.clear();
-        self.handle = None;
+        self.set_handle(None);
         self.engine = None;
         self.loader = None;
         self.collections.clear();
@@ -446,7 +472,7 @@ impl FileViewer {
                 // at a spinner for as long as the scan takes, which on a large
                 // document is most of a minute.
                 if let Ok(preview) = crate::file::loaders::TextIndex::preview(path, PREVIEW_BYTES) {
-                    self.handle = crate::papyrus::publish_text(
+                    let handle = crate::papyrus::publish_text(
                         "core",
                         &format!("core#{tab_id}"),
                         path.file_name()
@@ -454,6 +480,7 @@ impl FileViewer {
                             .unwrap_or_else(|| "file".to_string()),
                         preview,
                     );
+                    self.set_handle(handle);
                     self.showing_preview = true;
                 }
                 self.index_job = Some(crate::file::indexing::IndexJob::spawn(path));
@@ -643,7 +670,7 @@ impl FileViewer {
             .unwrap_or_else(|| "file".to_string());
         let instance = format!("core#{tab_id}");
 
-        self.handle = match indexed {
+        let next = match indexed {
             // Read natively, or an envelope whose collections are now tables —
             // either way the tab is queryable.
             crate::file::indexing::Indexed::Engine {
@@ -698,6 +725,7 @@ impl FileViewer {
                 crate::papyrus::publish_text("core", &instance, name.clone(), *index)
             }
         };
+        self.set_handle(next);
         let total = self
             .handle
             .as_deref()
@@ -778,13 +806,13 @@ impl FileViewer {
         };
         self.collection_rows.insert(table.to_string(), rows);
         self.selected_db_table = Some(table.to_string());
-        self.handle = crate::papyrus::publish_arrow_with_total(
+        self.set_handle(crate::papyrus::publish_arrow_with_total(
             "core",
             &format!("core#{}", self.tab_id),
             table.to_string(),
             engine,
             rows as u64,
-        );
+        ));
         if let Some(alias) = self
             .engine
             .as_ref()
@@ -848,13 +876,13 @@ impl FileViewer {
         self.selected_collection = index;
         // Republished rather than mutated: the sheet's row count and window
         // both describe the relation it points at.
-        self.handle = crate::papyrus::publish_arrow_with_total(
+        self.set_handle(crate::papyrus::publish_arrow_with_total(
             "core",
             &format!("core#{}", self.tab_id),
             collection.name,
             engine,
             rows as u64,
-        );
+        ));
         self.aim_query_at(&alias);
     }
 
@@ -1037,13 +1065,13 @@ impl FileViewer {
                     grouped(result.rows),
                     result.elapsed.as_millis()
                 )));
-                self.handle = crate::papyrus::publish_arrow_with_total(
+                self.set_handle(crate::papyrus::publish_arrow_with_total(
                     "core",
                     &format!("core#{}", self.tab_id),
                     self.query.relation.clone(),
                     engine,
                     result.rows as u64,
-                );
+                ));
             }
             Err(message) => self.query.status = Some(QueryStatus::Failure(message)),
         }
@@ -1862,6 +1890,43 @@ mod tests {
             hundred_frames < cold,
             "100 cached reads took {hundred_frames:?}, one cold read took {cold:?}"
         );
+    }
+
+    #[test]
+    fn an_open_tab_pins_its_handle_against_budget_pressure() {
+        use std::io::Write;
+
+        let _cache = crate::test_support::cache_lock();
+        crate::test_support::isolate_cache();
+        let _papyrus = crate::test_support::registry_lock();
+
+        let mut tmp = tempfile::Builder::new().suffix(".txt").tempfile().unwrap();
+        writeln!(tmp, "hello").unwrap();
+        tmp.flush().unwrap();
+        let index = crate::file::loaders::TextIndex::preview(tmp.path(), 4096).unwrap();
+        let handle =
+            crate::papyrus::publish_text("core", "core#pin", "t".into(), index).expect("published");
+        let mut viewer = FileViewer::new();
+        viewer.set_handle(Some(handle.clone()));
+
+        // Fill well past the 32-dataset cap: an open tab's sheet must survive.
+        for i in 0..40 {
+            crate::papyrus::publish(
+                "p",
+                &format!("p#{i}"),
+                "d".into(),
+                "k".into(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+        assert!(
+            crate::papyrus::meta(&handle).is_some(),
+            "an open tab keeps its handle even when other datasets evict"
+        );
+
+        drop(viewer);
     }
 
     #[test]
