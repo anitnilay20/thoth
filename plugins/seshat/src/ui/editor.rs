@@ -1,8 +1,8 @@
 //! The SQL editor tab: header, code editor, Run, and the typed results grid.
 
 use thoth_plugin_sdk::components::{
-    Button, ButtonColor, ButtonType, CodeEditor, Column, CustomSyntax, IconButton, Row, Scroll,
-    Select, SelectOption, Spacer, VSplit,
+    Button, ButtonColor, ButtonType, CodeEditor, Column, CompletionSchema, CompletionTable,
+    CustomSyntax, IconButton, Row, Scroll, Select, SelectOption, Spacer, VSplit,
 };
 use thoth_plugin_sdk::render_node::RenderNode;
 
@@ -17,10 +17,9 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
     // database dropdown below.
     let active_db = st.active_profile.as_ref().map(|p| p.database.as_str());
 
-    // Table names from the active database's loaded schemas — fed to the
-    // editor's autocomplete. Scoped to the active database so suggestions match
-    // the database queries run against.
-    let tables: Vec<String> = st
+    // Table names and loaded columns from the active database's schemas — fed
+    // to the editor's context-ranked SQL autocomplete (#121).
+    let schema_tables: Vec<CompletionTable> = st
         .databases
         .iter()
         .filter(|d| Some(d.name.as_str()) == active_db)
@@ -28,8 +27,21 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
         .flatten()
         .filter_map(|s| s.tables.as_ref())
         .flatten()
-        .map(|t| t.name.clone())
+        .map(|t| CompletionTable {
+            name: t.name.clone(),
+            columns: t
+                .columns
+                .as_ref()
+                .map(|cols| cols.iter().map(|c| c.name.clone()).collect())
+                .unwrap_or_default(),
+        })
         .collect();
+    let tables: Vec<String> = schema_tables.iter().map(|t| t.name.clone()).collect();
+    let completion_schema = CompletionSchema {
+        tables: schema_tables,
+        functions: SPECIAL.iter().map(|s| s.to_string()).collect(),
+        keywords: KEYWORDS.iter().map(|s| s.to_string()).collect(),
+    };
 
     // A ▶ run-marker at the start of each top-level statement.
     let run_markers: Vec<usize> = crate::sql::statements(&st.sql)
@@ -171,6 +183,7 @@ pub(crate) fn editor_view(st: &State) -> RenderNode {
                                         )
                                         .build(),
                                 )
+                                .completion_schema(completion_schema)
                                 .run_markers(run_markers)
                                 .bordered(false)
                                 .build(),
