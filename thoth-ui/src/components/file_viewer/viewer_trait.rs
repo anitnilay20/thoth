@@ -90,6 +90,17 @@ pub trait FileViewerLoader {
             message: "render_record not supported".to_string(),
         })
     }
+
+    /// Forward an interactive widget event from a Custom-mode row to a plugin viewer (#97).
+    fn handle_record_event(
+        &mut self,
+        _record_index: u64,
+        _widget_id: &str,
+        _kind: &str,
+        _value: &str,
+    ) -> crate::error::Result<Option<String>> {
+        Ok(None)
+    }
 }
 
 /// Forwarding impl so a boxed loader can be passed wherever `&mut dyn
@@ -137,6 +148,16 @@ impl FileViewerLoader for Box<dyn FileViewerLoader> {
 
     fn render_record(&mut self, record_json: &str) -> crate::error::Result<String> {
         (**self).render_record(record_json)
+    }
+
+    fn handle_record_event(
+        &mut self,
+        record_index: u64,
+        widget_id: &str,
+        kind: &str,
+        value: &str,
+    ) -> crate::error::Result<Option<String>> {
+        (**self).handle_record_event(record_index, widget_id, kind, value)
     }
 }
 

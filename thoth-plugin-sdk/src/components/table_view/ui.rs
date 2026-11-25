@@ -276,7 +276,50 @@ impl TableView {
         min_col_width: Option<f32>,
         framed: bool,
         events: &mut Vec<UiEvent>,
+        build_row: impl FnMut(usize) -> Vec<crate::render_node::RenderNode>,
+    ) -> Option<usize> {
+        Self::show_rows_inner(
+            ui,
+            headers,
+            row_count,
+            min_col_width,
+            framed,
+            build_row,
+            |_, ev| events.push(ev),
+        )
+    }
+
+    /// Like [`show_rows`](Self::show_rows), but tags each emitted [`UiEvent`]
+    /// with the visible row index that produced it.
+    pub fn show_rows_indexed(
+        ui: &mut egui::Ui,
+        headers: &[String],
+        row_count: usize,
+        min_col_width: Option<f32>,
+        framed: bool,
+        events: &mut Vec<(usize, UiEvent)>,
+        build_row: impl FnMut(usize) -> Vec<crate::render_node::RenderNode>,
+    ) -> Option<usize> {
+        Self::show_rows_inner(
+            ui,
+            headers,
+            row_count,
+            min_col_width,
+            framed,
+            build_row,
+            |row_idx, ev| events.push((row_idx, ev)),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn show_rows_inner(
+        ui: &mut egui::Ui,
+        headers: &[String],
+        row_count: usize,
+        min_col_width: Option<f32>,
+        framed: bool,
         mut build_row: impl FnMut(usize) -> Vec<crate::render_node::RenderNode>,
+        mut on_event: impl FnMut(usize, UiEvent),
     ) -> Option<usize> {
         let colors = ThemeColors::from_ctx(ui.ctx());
         let num_cols = headers.len().max(1);
@@ -352,19 +395,23 @@ impl TableView {
                                             row_clicked = true;
                                         }
 
+                                        let mut row_events = Vec::new();
                                         for cell in &mut cells {
                                             let (_, response) = row.col(|ui| {
                                                 if is_selected {
                                                     paint_selected_cell(ui, &colors);
                                                 }
                                                 cell_frame(ui, false, |ui| {
-                                                    cell.show(ui, events);
+                                                    cell.show(ui, &mut row_events);
                                                 });
                                                 paint_cell_borders(ui, grid, grid);
                                             });
                                             if response.clicked() {
                                                 row_clicked = true;
                                             }
+                                        }
+                                        for ev in row_events {
+                                            on_event(idx, ev);
                                         }
                                         if row_clicked {
                                             clicked_row = Some(idx);

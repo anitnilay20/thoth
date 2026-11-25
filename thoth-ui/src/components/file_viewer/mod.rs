@@ -52,6 +52,17 @@ impl FileViewerLoader for PluginFileViewerLoader {
     fn render_record(&mut self, record_json: &str) -> crate::error::Result<String> {
         self.inner.render_record(record_json)
     }
+
+    fn handle_record_event(
+        &mut self,
+        record_index: u64,
+        widget_id: &str,
+        kind: &str,
+        value: &str,
+    ) -> crate::error::Result<Option<String>> {
+        self.inner
+            .handle_record_event(record_index, widget_id, kind, value)
+    }
 }
 
 /// Rows crossed into a dataset from a plugin-rendered file (#113). Bounded so
