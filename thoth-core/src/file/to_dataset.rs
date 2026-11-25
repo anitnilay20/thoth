@@ -391,6 +391,26 @@ mod tests {
     }
 
     #[test]
+    fn an_out_of_range_date_fails_the_conversion() {
+        use duckdb::arrow::array::Date32Array;
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+        use std::sync::Arc;
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "day",
+            DataType::Date32,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(Date32Array::from(vec![i32::MAX]))])
+            .unwrap();
+
+        assert!(
+            batches_to_rows(&[batch]).is_none(),
+            "a per-value formatting error must fail the conversion, not emit text"
+        );
+    }
+
+    #[test]
     fn a_named_timezone_never_becomes_display_error_text() {
         use duckdb::arrow::array::TimestampMicrosecondArray;
         use duckdb::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
