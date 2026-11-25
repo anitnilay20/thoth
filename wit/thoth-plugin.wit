@@ -1,4 +1,7 @@
-// Thoth Plugin Interface — v0.2.0
+// Thoth Plugin Interface — v0.3.0
+//
+// v0.3.0: typed Arrow IPC on the dataset bus: `dataset-bus.publish-arrow` and
+// `dataset-read.read-arrow`. String pages remain for producers without Arrow.
 //
 // v0.2.0: `exporter.run` and `data-renderer.render` take a dataset handle and
 // read it in pages through the new `dataset-read` import, instead of the host
@@ -606,6 +609,9 @@ interface dataset-read {
 
     info: func(handle: string) -> result<dataset-info, plugin-error>;
     read: func(handle: string, offset: u64, limit: u32) -> result<dataset-page, plugin-error>;
+    /// The window as an Arrow IPC stream. Errors for string-only sheets
+    /// (pushed rows / text), which callers read with `read`.
+    read-arrow: func(handle: string, offset: u64, limit: u32) -> result<list<u8>, plugin-error>;
     pin: func(handle: string) -> bool;
     unpin: func(handle: string) -> bool;
 }
@@ -933,6 +939,11 @@ interface dataset-bus {
     /// be acquired); callers must treat that sentinel as "not published" rather
     /// than embedding it as a `data-view` handle.
     publish: func(name: string, columns: list<dataset-column>, rows: list<list<string>>) -> string;
+
+    /// Publish a typed Arrow IPC stream (one or more record batches). The host
+    /// parses it once, so types, nulls and nesting survive. Returns a handle,
+    /// like `publish`.
+    publish-arrow: func(name: string, ipc-bytes: list<u8>) -> string;
 
     /// Replace the columns + rows behind an existing handle (on new data), so
     /// the handle a `data-view` node references stays stable across updates.

@@ -12,10 +12,10 @@
 
 use duckdb::arrow::array::{Array, RecordBatch};
 use duckdb::arrow::datatypes::DataType;
-use duckdb::arrow::util::display::{ArrayFormatter, FormatOptions};
+use duckdb::arrow::util::display::{ArrayFormatter, FormatOptions, array_value_to_string};
 use serde_json::Value;
 
-use crate::file::loaders::{FileLoader, batch_rows};
+use crate::file::loaders::FileLoader;
 
 /// Rows read from the file (bounds the crossing for large files).
 pub const CAP: usize = 5000;
@@ -31,10 +31,57 @@ pub fn loader_to_dataset(loader: &dyn FileLoader) -> Option<DatasetTable> {
     batches_to_dataset(&batches)
 }
 
-/// Map Arrow batches to a [`DatasetTable`]. `None` if there are no rows.
+/// Map Arrow batches to string rows without [`CAP`].
+///
+/// Used when a typed, batch-backed sheet is mutated through the string
+/// `dataset-bus.update`/`append` ABI. If a column cannot be formatted, the
+/// whole conversion fails (`None`) rather than returning partial rows, so the
+/// caller can keep the original Arrow source. Display callers should prefer
+/// [`batches_to_dataset`], which is bounded.
+pub fn batches_to_rows(batches: &[RecordBatch]) -> Option<Vec<Vec<String>>> {
+    collect_rows(batches, usize::MAX)
+}
+
+fn collect_rows(batches: &[RecordBatch], cap: usize) -> Option<Vec<Vec<String>>> {
+    let opts = FormatOptions::default().with_null("");
+    let mut rows = Vec::new();
+    for batch in batches.iter().filter(|b| b.num_rows() > 0) {
+        let formatters: Option<Vec<ArrayFormatter>> = batch
+            .columns()
+            .iter()
+            .map(|col| ArrayFormatter::try_new(col.as_ref(), &opts))
+            .collect::<Result<_, _>>()
+            .ok();
+        for row in 0..batch.num_rows() {
+            let cells = match &formatters {
+                Some(formatters) => formatters
+                    .iter()
+                    .map(|formatter| formatter.value(row).try_to_string().ok())
+                    .collect::<Option<Vec<_>>>()?,
+                // A formatter can reject an unusual Arrow type. Fall back to
+                // the generic path for every cell; if that fails too, fail the
+                // whole conversion rather than dropping the batch.
+                None => {
+                    let mut cells = Vec::with_capacity(batch.num_columns());
+                    for column in batch.columns() {
+                        cells.push(array_value_to_string(column.as_ref(), row).ok()?);
+                    }
+                    cells
+                }
+            };
+            rows.push(cells);
+            if rows.len() >= cap {
+                return Some(rows);
+            }
+        }
+    }
+    Some(rows)
+}
+
+/// Map Arrow batches to a [`DatasetTable`]. `None` if there are no rows or a
+/// column cannot be formatted (never a partial table).
 pub fn batches_to_dataset(batches: &[RecordBatch]) -> Option<DatasetTable> {
     let first = batches.iter().find(|b| b.num_rows() > 0)?;
-
     let cols: Vec<(String, String)> = first
         .schema()
         .fields()
@@ -44,34 +91,7 @@ pub fn batches_to_dataset(batches: &[RecordBatch]) -> Option<DatasetTable> {
     if cols.is_empty() {
         return None;
     }
-
-    let opts = FormatOptions::default().with_null("");
-    let mut rows: Vec<Vec<String>> = Vec::with_capacity(batch_rows(batches).min(CAP));
-
-    for batch in batches.iter().filter(|b| b.num_rows() > 0) {
-        // One formatter per column, reused across every row in the batch.
-        let formatters: Vec<ArrayFormatter> = match batch
-            .columns()
-            .iter()
-            .map(|col| ArrayFormatter::try_new(col.as_ref(), &opts))
-            .collect::<Result<_, _>>()
-        {
-            Ok(f) => f,
-            Err(_) => continue,
-        };
-        for row in 0..batch.num_rows() {
-            rows.push(
-                formatters
-                    .iter()
-                    .map(|f| f.value(row).to_string())
-                    .collect(),
-            );
-            if rows.len() >= CAP {
-                return Some((cols, rows));
-            }
-        }
-    }
-
+    let rows = collect_rows(batches, CAP)?;
     if rows.is_empty() {
         None
     } else {
@@ -368,5 +388,47 @@ mod tests {
         assert_eq!(cols.len(), 1);
         assert_eq!(cols[0].0, "value");
         assert_eq!(rows, vec![vec!["1"], vec!["2"], vec!["3"]]);
+    }
+
+    #[test]
+    fn an_out_of_range_date_fails_the_conversion() {
+        use duckdb::arrow::array::Date32Array;
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+        use std::sync::Arc;
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "day",
+            DataType::Date32,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(Date32Array::from(vec![i32::MAX]))])
+            .unwrap();
+
+        assert!(
+            batches_to_rows(&[batch]).is_none(),
+            "a per-value formatting error must fail the conversion, not emit text"
+        );
+    }
+
+    #[test]
+    fn a_named_timezone_never_becomes_display_error_text() {
+        use duckdb::arrow::array::TimestampMicrosecondArray;
+        use duckdb::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+        use std::sync::Arc;
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "at",
+            DataType::Timestamp(TimeUnit::Microsecond, Some("America/New_York".into())),
+            false,
+        )]));
+        let array =
+            TimestampMicrosecondArray::from(vec![1_000_000]).with_timezone("America/New_York");
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(array)]).unwrap();
+
+        let rows = batches_to_rows(&[batch]);
+        assert!(
+            rows.is_none(),
+            "an unformattable value must fail the conversion, not emit error text"
+        );
     }
 }

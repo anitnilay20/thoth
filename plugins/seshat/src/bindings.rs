@@ -2368,6 +2368,65 @@ pub mod thoth {
                 }
             }
             #[allow(unused_unsafe, clippy::all)]
+            /// Publish a typed Arrow IPC stream (one or more record batches). The host
+            /// parses it once, so types, nulls and nesting survive. Returns a handle,
+            /// like `publish`.
+            pub fn publish_arrow(name: &str, ipc_bytes: &[u8]) -> _rt::String {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 2 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 2
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = name;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let vec1 = ipc_bytes;
+                    let ptr1 = vec1.as_ptr().cast::<u8>();
+                    let len1 = vec1.len();
+                    let ptr2 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/dataset-bus@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "publish-arrow"]
+                        fn wit_import3(
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                            _: usize,
+                            _: *mut u8,
+                        );
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import3(
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                        _: usize,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import3(ptr0.cast_mut(), len0, ptr1.cast_mut(), len1, ptr2)
+                    };
+                    let l4 = *ptr2.add(0).cast::<*mut u8>();
+                    let l5 = *ptr2
+                        .add(::core::mem::size_of::<*const u8>())
+                        .cast::<usize>();
+                    let len6 = l5;
+                    let bytes6 = _rt::Vec::from_raw_parts(l4.cast(), len6, len6);
+                    let result7 = _rt::string_lift(bytes6);
+                    result7
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
             /// Replace the columns + rows behind an existing handle (on new data), so
             /// the handle a `data-view` node references stays stable across updates.
             pub fn update(
@@ -5754,8 +5813,8 @@ pub(crate) use __export_data_source_cli_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 3804] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xcf\x1c\x01A\x02\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 3847] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xfa\x1c\x01A\x02\x01\
 A+\x01B\x0a\x01m\x09\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\x0f\
 search-provider\x10new-ui-component\x0ddata-producer\x08renderer\x03cli\x04\0\x0a\
 capability\x03\0\0\x01p\x01\x01ks\x01r\x08\x02ids\x04names\x07versions\x0bdescri\
@@ -5794,47 +5853,48 @@ ids\x04texts\0\x06\x04\0\x09send-text\x01\x07\x01p}\x01@\x02\x02ids\x05bytes\x08
 \x03\0\x02\x01p\x03\x01ps\x01p\x05\x01r\x04\x04names\x04kinds\x07columns\x04\x04\
 rows\x06\x04\0\x07dataset\x03\0\x07\x01j\x01\x08\x01\x01\x01@\0\0\x09\x04\0\x0fp\
 rovide-dataset\x01\x0a\x03\0\x20thoth:plugin/data-producer@0.1.0\x05\x0a\x02\x03\
-\0\x09\x0edataset-column\x01B\x0d\x02\x03\x02\x01\x0b\x04\0\x0edataset-column\x03\
+\0\x09\x0edataset-column\x01B\x10\x02\x03\x02\x01\x0b\x04\0\x0edataset-column\x03\
 \0\0\x01p\x01\x01ps\x01p\x03\x01@\x03\x04names\x07columns\x02\x04rows\x04\0s\x04\
-\0\x07publish\x01\x05\x01@\x03\x06handles\x07columns\x02\x04rows\x04\x01\0\x04\0\
-\x06update\x01\x06\x01@\x02\x06handles\x04rows\x04\x01\0\x04\0\x06append\x01\x07\
-\x01@\x01\x06handles\x01\0\x04\0\x07release\x01\x08\x03\0\x1ethoth:plugin/datase\
-t-bus@0.1.0\x05\x0c\x01B\x0d\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01\
-r\x02\x04paths\x08contentss\x04\0\x0bopened-file\x03\0\x02\x01ps\x01k\x03\x01j\x01\
-\x05\x01\x01\x01@\x02\x05titles\x0aextensions\x04\0\x06\x04\0\x09open-file\x01\x07\
-\x01ks\x01j\x01\x08\x01\x01\x01@\x04\x05titles\x0cdefault-names\x0aextensions\x04\
-\x08contentss\0\x09\x04\0\x09save-file\x01\x0a\x03\0\x1ethoth:plugin/file-dialog\
-@0.1.0\x05\x0d\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\x01\
-s\x01\x01\x01@\0\0\x02\x04\0\x06schema\x01\x03\x01@\x01\x0finvocation-jsons\0\x02\
-\x04\0\x03run\x01\x04\x04\0\x1dthoth:plugin/plugin-cli@0.1.0\x05\x0e\x01B\x1c\x02\
-\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0bdescriptions\
-\x08required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04names\x09\
-type-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\x02\x04\
-names\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-jsons\x0bh\
-eight-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0frequir\
-ed-config\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07connec\
-t\x01\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06schem\
-a\x01\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06han\
-dles\x01\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\
-\x04\0\x0brender-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x0f\x01\
-B\x0f\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04\
-kinds\x05values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hin\
-ty\x04\0\x09ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09rende\
-r-ui\x01\x07\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01\
-j\x01\x09\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:pl\
-ugin/ui-component@0.1.0\x05\x10\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-err\
-or\x03\0\0\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-\
-icon\x01\x04\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\
-\x01\x01@\x01\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\
-\x0eon-tab-focused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-close\
-d\x01\x09\x04\0\x1bthoth:plugin/tab-host@0.1.0\x05\x11\x01B\x0c\x02\x03\x02\x01\x01\
-\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x04names\x09type-hints\x04\0\x0edataset-\
-column\x03\0\x02\x01p\x03\x01ps\x01p\x05\x01r\x04\x04names\x04kinds\x07columns\x04\
-\x04rows\x06\x04\0\x07dataset\x03\0\x07\x01j\x01\x08\x01\x01\x01@\0\0\x09\x04\0\x0f\
-provide-dataset\x01\x0a\x04\0\x20thoth:plugin/data-producer@0.1.0\x05\x12\x01B\x07\
-\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jsons\x0bhei\
-ght-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\
-\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x13\x02\
+\0\x07publish\x01\x05\x01p}\x01@\x02\x04names\x09ipc-bytes\x06\0s\x04\0\x0dpubli\
+sh-arrow\x01\x07\x01@\x03\x06handles\x07columns\x02\x04rows\x04\x01\0\x04\0\x06u\
+pdate\x01\x08\x01@\x02\x06handles\x04rows\x04\x01\0\x04\0\x06append\x01\x09\x01@\
+\x01\x06handles\x01\0\x04\0\x07release\x01\x0a\x03\0\x1ethoth:plugin/dataset-bus\
+@0.1.0\x05\x0c\x01B\x0d\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\
+\x04paths\x08contentss\x04\0\x0bopened-file\x03\0\x02\x01ps\x01k\x03\x01j\x01\x05\
+\x01\x01\x01@\x02\x05titles\x0aextensions\x04\0\x06\x04\0\x09open-file\x01\x07\x01\
+ks\x01j\x01\x08\x01\x01\x01@\x04\x05titles\x0cdefault-names\x0aextensions\x04\x08\
+contentss\0\x09\x04\0\x09save-file\x01\x0a\x03\0\x1ethoth:plugin/file-dialog@0.1\
+.0\x05\x0d\x01B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01j\x01s\x01\
+\x01\x01@\0\0\x02\x04\0\x06schema\x01\x03\x01@\x01\x0finvocation-jsons\0\x02\x04\
+\0\x03run\x01\x04\x04\0\x1dthoth:plugin/plugin-cli@0.1.0\x05\x0e\x01B\x1c\x02\x03\
+\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x04\x04names\x0bdescriptions\x08\
+required\x7f\x05values\x04\0\x0cconfig-entry\x03\0\x02\x01r\x03\x04names\x09type\
+-hints\x08nullable\x7f\x04\0\x0cfield-schema\x03\0\x04\x01p\x05\x01r\x02\x04name\
+s\x06fields\x06\x04\0\x0dsource-schema\x03\0\x07\x01r\x02\x09node-jsons\x0bheigh\
+t-hinty\x04\0\x0bpane-output\x03\0\x09\x01p\x03\x01@\0\0\x0b\x04\0\x0frequired-c\
+onfig\x01\x0c\x01j\x01s\x01\x01\x01@\x01\x06config\x0b\0\x0d\x04\0\x07connect\x01\
+\x0e\x01p\x08\x01j\x01\x0f\x01\x01\x01@\x01\x06handles\0\x10\x04\0\x06schema\x01\
+\x11\x01@\x02\x06handles\x01qs\0\x0d\x04\0\x05query\x01\x12\x01@\x01\x06handles\x01\
+\0\x04\0\x05close\x01\x13\x01j\x01\x0a\x01\x01\x01@\x01\x06handles\0\x14\x04\0\x0b\
+render-pane\x01\x15\x04\0\x1ethoth:plugin/data-source@0.1.0\x05\x0f\x01B\x0f\x02\
+\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x03\x09widget-ids\x04kinds\x05\
+values\x04\0\x08ui-event\x03\0\x02\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x09\
+ui-output\x03\0\x04\x01j\x01\x05\x01\x01\x01@\0\0\x06\x04\0\x09render-ui\x01\x07\
+\x01@\x01\x05event\x03\0\x06\x04\0\x0chandle-event\x01\x08\x01k\x05\x01j\x01\x09\
+\x01\x01\x01@\0\0\x0a\x04\0\x0erender-sidebar\x01\x0b\x04\0\x1fthoth:plugin/ui-c\
+omponent@0.1.0\x05\x10\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\
+\x01@\0\0s\x04\0\x09tab-title\x01\x02\x01ks\x01@\0\0\x03\x04\0\x08tab-icon\x01\x04\
+\x01j\x01s\x01\x01\x01@\0\0\x05\x04\0\x09get-state\x01\x06\x01j\0\x01\x01\x01@\x01\
+\x05states\0\x07\x04\0\x0finit-with-state\x01\x08\x01@\0\x01\0\x04\0\x0eon-tab-f\
+ocused\x01\x09\x04\0\x0eon-tab-blurred\x01\x09\x04\0\x0don-tab-closed\x01\x09\x04\
+\0\x1bthoth:plugin/tab-host@0.1.0\x05\x11\x01B\x0c\x02\x03\x02\x01\x01\x04\0\x0c\
+plugin-error\x03\0\0\x01r\x02\x04names\x09type-hints\x04\0\x0edataset-column\x03\
+\0\x02\x01p\x03\x01ps\x01p\x05\x01r\x04\x04names\x04kinds\x07columns\x04\x04rows\
+\x06\x04\0\x07dataset\x03\0\x07\x01j\x01\x08\x01\x01\x01@\0\0\x09\x04\0\x0fprovi\
+de-dataset\x01\x0a\x04\0\x20thoth:plugin/data-producer@0.1.0\x05\x12\x01B\x07\x02\
+\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jsons\x0bheight-\
+hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\0\
+\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x13\x02\
 \x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x14\x04\0\x0bplugin-info\x03\0\0\
 \x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\
 \x15\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\

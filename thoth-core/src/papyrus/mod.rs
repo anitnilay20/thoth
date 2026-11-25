@@ -11,9 +11,11 @@
 //!   (a plugin publishing results). Owned, bounded, stringly-typed. The
 //!   registry LRU-evicts these, replaces an instance's sheet on re-`publish`,
 //!   and drops a producer's sheets when its instance closes.
-//! - [`Source::Arrow`] — a live query engine, scanned on demand. Nothing is
-//!   materialized: a read fetches exactly the window asked for, so an open file
-//!   of any size costs a window. This is the path DuckDB writes into.
+//! - [`Source::Arrow`] — Arrow batches, either scanned on demand from a live
+//!   query engine or owned after a plugin's `publish-arrow`. A live engine
+//!   materializes nothing: a read fetches exactly the window asked for, so an
+//!   open file of any size costs a window. A published batch sheet owns its
+//!   rows, and that memory counts against the registry budget.
 //!
 //! The two differ in fidelity as well as size. Arrow carries real types, nulls
 //! and nesting; pushed rows are strings with a per-column type hint, so nested
@@ -23,10 +25,14 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, RwLock, Weak};
 use std::time::Instant;
 
+use duckdb::arrow::array::RecordBatch;
+use duckdb::arrow::datatypes::SchemaRef;
 use serde_json::Value;
 use thoth_plugin_sdk::dataset::{NodeKind, TreeNode};
 
-use crate::file::loaders::{FileLoader, RecordWindow, TextIndex, arrow_tree};
+use crate::file::loaders::{
+    BatchLoader, FileLoader, ParsedIpc, RecordWindow, TextIndex, arrow_tree,
+};
 
 /// Most datasets kept before LRU eviction of the least-recently-accessed.
 const MAX_DATASETS: usize = 32;
@@ -96,7 +102,8 @@ struct ArrowSheet {
 enum Source {
     /// Rows pushed by a producer — owned by the registry.
     Rows(Vec<Vec<String>>),
-    /// A live engine, scanned on demand.
+    /// Arrow batches: a live engine scanned on demand, or a plugin's owned
+    /// `publish-arrow` sheet.
     Arrow(Box<ArrowSheet>),
     /// A file shown as lines of text — the floor under every format. Holds a
     /// line index, not the text, so a file of any size costs its index.
@@ -104,17 +111,44 @@ enum Source {
 }
 
 impl Source {
-    fn rows(&self) -> Option<&Vec<Vec<String>>> {
+    fn rows_mut(&mut self) -> Option<&mut Vec<Vec<String>>> {
         match self {
             Source::Rows(rows) => Some(rows),
             _ => None,
         }
     }
 
-    fn rows_mut(&mut self) -> Option<&mut Vec<Vec<String>>> {
+    /// Whether this is a batch-backed Arrow sheet whose rows the registry owns.
+    /// Live engine sheets scan their source on demand and stay read-only here.
+    fn is_owned_arrow(&self) -> bool {
+        matches!(self, Source::Arrow(sheet) if sheet.loader.is_owned())
+    }
+
+    /// Materialize an owned batch-backed sheet as string rows, keeping at most
+    /// the most recent [`MAX_STREAM_ROWS`]. Live engine sheets return `None`.
+    fn take_owned_rows(&mut self) -> Option<Vec<Vec<String>>> {
         match self {
-            Source::Rows(rows) => Some(rows),
+            Source::Rows(rows) => Some(std::mem::take(rows)),
+            Source::Arrow(sheet) if sheet.loader.is_owned() => {
+                let total = sheet.total as usize;
+                let keep = total.min(MAX_STREAM_ROWS);
+                let start = total.saturating_sub(keep);
+                let batches = sheet
+                    .loader
+                    .fetch(Vec::new(), Some(start), Some(keep))
+                    .ok()?;
+                crate::file::to_dataset::batches_to_rows(&batches)
+            }
             _ => None,
+        }
+    }
+
+    /// Bytes this source owns in the registry's budget. Only a batch-backed
+    /// Arrow sheet owns rows; an engine sheet holds a window and costs nothing.
+    fn owned_bytes(&self) -> usize {
+        match self {
+            Source::Arrow(sheet) => sheet.loader.owned_bytes(),
+            _ => 0,
         }
     }
 }
@@ -124,8 +158,9 @@ struct Stored {
     source: Source,
     last_access: Instant,
     /// Estimated heap footprint of this dataset, tracked so the registry can
-    /// enforce [`MAX_BYTES`] without re-summing every entry. An Arrow sheet
-    /// holds only a window, so it contributes ~nothing.
+    /// enforce [`MAX_BYTES`] without re-summing every entry. A live engine
+    /// sheet holds only a window and contributes nothing; a batch-backed Arrow
+    /// sheet counts the `RecordBatch` memory it owns.
     size: usize,
     /// Consumers currently holding this handle. Pinned datasets are never
     /// evicted for budget; an explicit `release` still drops them.
@@ -376,8 +411,8 @@ pub fn publish_arrow_with_total(
 }
 
 /// Register a sheet the host owns, replacing any previous one from the same
-/// instance. Host-owned sheets hold an index or a connection rather than rows,
-/// so they carry no weight against the registry's byte budget.
+/// instance. An index- or engine-backed sheet carries no byte weight; a
+/// batch-backed Arrow sheet counts the batches it owns.
 fn insert_sheet(
     source: &str,
     instance: &str,
@@ -401,6 +436,7 @@ fn insert_sheet(
         reg.drop_dataset(&id);
     }
 
+    let size = sheet.owned_bytes();
     reg.seq += 1;
     let revision = reg.next_rev();
     let id = format!("ds-{}", reg.seq);
@@ -421,11 +457,13 @@ fn insert_sheet(
             },
             source: sheet,
             last_access: Instant::now(),
-            size: 0,
+            size,
             pins: 0,
         },
     );
     reg.order.push(id.clone());
+    reg.bytes = reg.bytes.saturating_add(size);
+    reg.enforce_budget(Some(&id));
     id
 }
 
@@ -491,6 +529,17 @@ pub fn publish_arrow_relation(
     Some(insert_relation(
         source, instance, name, relation, columns, total, scoped,
     ))
+}
+
+/// Publish an in-memory Arrow dataset (a plugin's `publish-arrow`).
+///
+/// The IPC stream was parsed once by the host; the batches are served as a
+/// window like any engine-backed sheet, so types, nulls and nesting survive.
+pub fn publish_batches(source: &str, instance: &str, name: String, parsed: ParsedIpc) -> String {
+    let loader: Arc<dyn FileLoader + Send + Sync> =
+        Arc::new(BatchLoader::new(parsed.schema, parsed.batches));
+    let total = loader.len().unwrap_or(0) as u64;
+    publish_arrow_with_total(source, instance, name, loader, total).unwrap_or_default()
 }
 
 /// Register one relation of an instance, replacing only a previous sheet for
@@ -822,6 +871,61 @@ pub fn read(id: &str, offset: u64, limit: u32) -> Option<Page> {
     }
 }
 
+/// A window of a handle as Arrow record batches, plus the sheet's schema.
+///
+/// Only Arrow-fidelity sheets (engine-backed, or a plugin's `publish-arrow`)
+/// answer this; string-only pushes and text lines return `None`, and callers
+/// fall back to [`read`].
+///
+/// The schema is returned separately because an empty window (a zero limit, or
+/// an offset past the end) has no batch to carry it. `None` means the sheet is
+/// Arrow-native but cannot supply a schema, e.g. an empty published batch set.
+pub fn read_arrow(
+    id: &str,
+    offset: u64,
+    limit: u32,
+) -> Option<(Option<SchemaRef>, Vec<RecordBatch>)> {
+    let registry = registry();
+    let mut reg = registry.lock().ok()?;
+    let stored = reg.map.get_mut(id)?;
+    stored.last_access = Instant::now();
+
+    let count = limit.min(MAX_READ_LIMIT) as usize;
+    let start = offset as usize;
+    let Source::Arrow(sheet) = &mut stored.source else {
+        return None;
+    };
+    let ArrowSheet { loader, window, .. } = &mut **sheet;
+
+    window.ensure(loader.as_ref(), start, count).ok()?;
+    let (batches, local) = window.locate(loader.as_ref(), start).ok()?;
+
+    let mut out = Vec::new();
+    let mut need = count;
+    let mut skip = local;
+    for batch in batches {
+        if need == 0 {
+            break;
+        }
+        let rows = batch.num_rows();
+        if skip >= rows {
+            skip -= rows;
+            continue;
+        }
+        let take = (rows - skip).min(need);
+        out.push(batch.slice(skip, take));
+        need -= take;
+        skip = 0;
+    }
+    // Prefer a batch's schema (no extra fetch); fall back to the loader for an
+    // empty window.
+    let schema = out
+        .first()
+        .map(|batch| batch.schema())
+        .or_else(|| loader.schema());
+    Some((schema, out))
+}
+
 /// Replace the columns + rows behind an existing handle in place (keeping its
 /// id, source, and byte-budget accounting current). No-op unless the handle is
 /// known and owned by `instance` — a producer can only mutate its own datasets.
@@ -832,20 +936,22 @@ pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<V
     };
 
     // Re-pulling a producer with unchanged data must not bump the revision, or
-    // every Chart Studio refresh would look like new data.
-    let identical = {
+    // every Chart Studio refresh would look like new data. An owned batch sheet
+    // is mutable through this string ABI; a live engine sheet is not.
+    let unchanged = {
         let Some(stored) = reg.map.get(id) else {
             return;
         };
         if stored.meta.source_instance != instance {
             return;
         }
-        let Some(existing) = stored.source.rows() else {
-            return;
-        };
-        stored.meta.columns == columns && *existing == rows
+        match &stored.source {
+            Source::Rows(existing) => stored.meta.columns == columns && *existing == rows,
+            Source::Arrow(_) if stored.source.is_owned_arrow() => false,
+            _ => return,
+        }
     };
-    if identical {
+    if unchanged {
         if let Some(stored) = reg.map.get_mut(id) {
             stored.last_access = Instant::now();
         }
@@ -866,6 +972,8 @@ pub fn update(instance: &str, id: &str, columns: Vec<DatasetColumn>, rows: Vec<V
         let size = dataset_bytes(&meta, &rows);
         let old_size = stored.size;
         stored.meta = meta;
+        // A string update replaces an owned batch sheet with string rows; the
+        // handle stays stable, which is what a `data-view` holds.
         stored.source = Source::Rows(rows);
         stored.size = size;
         stored.last_access = Instant::now();
@@ -896,12 +1004,38 @@ pub fn append(instance: &str, id: &str, rows: Vec<Vec<String>>) {
         let Some(stored) = reg.map.get_mut(id) else {
             return;
         };
+
+        // An owned batch sheet is mutable through this string ABI: materialize
+        // its recent rows and continue as a string sheet. A live engine sheet
+        // stays read-only.
+        if !matches!(&stored.source, Source::Rows(_)) {
+            let Some(mut existing) = stored.source.take_owned_rows() else {
+                return;
+            };
+            existing.extend(rows);
+            let overflow = existing.len().saturating_sub(MAX_STREAM_ROWS);
+            if overflow > 0 {
+                existing.drain(..overflow);
+            }
+            let (old_size, size) = {
+                stored.meta.row_count = existing.len() as u64;
+                stored.meta.revision = revision;
+                let size = dataset_bytes(&stored.meta, &existing);
+                let old_size = stored.size;
+                stored.source = Source::Rows(existing);
+                stored.size = size;
+                stored.last_access = Instant::now();
+                (old_size, size)
+            };
+            reg.bytes = reg.bytes.saturating_add(size).saturating_sub(old_size);
+            reg.enforce_budget(Some(id));
+            return;
+        }
+
         // Track bytes incrementally (add appended, subtract evicted) rather than
         // re-summing every retained row — an append-heavy stream would otherwise
         // be O(rows) per call.
         let added: usize = rows.iter().map(|r| row_bytes(r)).sum();
-        // Streaming only applies to pushed sheets; a live engine has nothing to
-        // append to.
         let Some(stored_rows) = stored.source.rows_mut() else {
             return;
         };
@@ -1049,6 +1183,177 @@ pub(crate) mod tests {
         file.write_all(contents.as_bytes()).unwrap();
         file.flush().unwrap();
         file
+    }
+
+    #[test]
+    fn arrow_ipc_publish_round_trips_types_and_pages() {
+        use crate::file::loaders::{encode_ipc, parse_ipc};
+        use duckdb::arrow::array::{Int64Array, StringArray};
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+        use duckdb::arrow::record_batch::RecordBatch;
+
+        let _g = reset();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int64, false),
+            Field::new("name", DataType::Utf8, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2, 3])),
+                Arc::new(StringArray::from(vec!["a", "b", "c"])),
+            ],
+        )
+        .unwrap();
+
+        let bytes = encode_ipc(std::slice::from_ref(&batch)).unwrap();
+        let parsed = parse_ipc(&bytes).unwrap();
+        let handle = publish_batches("p", "p#ipc", "ipc".into(), parsed);
+
+        assert_eq!(total(&handle), 3);
+        assert_eq!(meta(&handle).unwrap().columns[0].type_hint, "integer");
+        assert_eq!(
+            read(&handle, 1, 10).unwrap().rows,
+            vec![
+                vec!["2".to_string(), "b".to_string()],
+                vec!["3".to_string(), "c".to_string()],
+            ]
+        );
+
+        {
+            let registry = registry();
+            let reg = registry.lock().unwrap();
+            assert!(
+                reg.map.get(&handle).unwrap().size > 0,
+                "owned batches count against the byte budget"
+            );
+        }
+
+        let (schema, window) = read_arrow(&handle, 1, 2).unwrap();
+        assert!(schema.is_some(), "a nonempty window carries its schema");
+        let decoded = parse_ipc(&encode_ipc(&window).unwrap()).unwrap();
+        assert_eq!(
+            decoded
+                .batches
+                .iter()
+                .map(RecordBatch::num_rows)
+                .sum::<usize>(),
+            2,
+            "the typed window carries exactly the requested rows"
+        );
+
+        // Past the end there are no batches, but the stream must still carry a
+        // schema so Arrow readers can open it.
+        let (schema, empty) = read_arrow(&handle, 3, 1).unwrap();
+        assert!(empty.is_empty());
+        let schema = schema.expect("an empty window still has a schema");
+        let bytes = crate::file::loaders::encode_ipc_with_schema(schema.as_ref(), &empty).unwrap();
+        assert!(
+            parse_ipc(&bytes).unwrap().batches.is_empty(),
+            "a schema with no batches decodes to no rows"
+        );
+
+        release("p#ipc", &handle);
+    }
+
+    #[test]
+    fn string_mutations_apply_to_an_owned_batch_sheet() {
+        use crate::file::loaders::{encode_ipc, parse_ipc};
+        use duckdb::arrow::array::Int64Array;
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+        use duckdb::arrow::record_batch::RecordBatch;
+
+        let _g = reset();
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let batch =
+            RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1, 2]))]).unwrap();
+        let handle = publish_batches(
+            "p",
+            "p#mut",
+            "mut".into(),
+            parse_ipc(&encode_ipc(std::slice::from_ref(&batch)).unwrap()).unwrap(),
+        );
+
+        update("p#mut", &handle, vec![col("id")], vec![vec!["9".into()]]);
+        assert_eq!(
+            read(&handle, 0, 10).unwrap().rows,
+            vec![vec!["9".to_string()]]
+        );
+        assert!(
+            read_arrow(&handle, 0, 10).is_none(),
+            "a string update turns the batch sheet into a string sheet"
+        );
+
+        append("p#mut", &handle, vec![vec!["10".into()]]);
+        assert_eq!(
+            read(&handle, 0, 10).unwrap().rows,
+            vec![vec!["9".to_string()], vec!["10".to_string()]]
+        );
+
+        release("p#mut", &handle);
+    }
+
+    #[test]
+    fn string_mutations_leave_a_live_engine_sheet_alone() {
+        let _g = reset();
+        let (handle, _file) = publish_file("{\"n\":1}\n", "engine-mut");
+
+        update(
+            "engine-mut",
+            &handle,
+            vec![col("n")],
+            vec![vec!["9".into()]],
+        );
+        append("engine-mut", &handle, vec![vec!["9".into()]]);
+
+        assert_eq!(
+            read(&handle, 0, 10).unwrap().rows,
+            vec![vec!["1".to_string()]],
+            "a live engine is not mutated by the string ABI"
+        );
+        assert!(
+            read_arrow(&handle, 0, 10).is_some(),
+            "the engine sheet stays Arrow-native"
+        );
+
+        release("engine-mut", &handle);
+    }
+
+    #[test]
+    fn a_schema_only_batch_stream_keeps_its_columns() {
+        use crate::file::loaders::{encode_ipc_with_schema, parse_ipc};
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+
+        let _g = reset();
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let bytes = encode_ipc_with_schema(schema.as_ref(), &[]).unwrap();
+        let parsed = parse_ipc(&bytes).unwrap();
+        assert!(parsed.batches.is_empty(), "the stream carries no batches");
+        let handle = publish_batches("p", "p#schema", "schema".into(), parsed);
+
+        let meta = meta(&handle).unwrap();
+        assert_eq!(meta.columns.len(), 1, "the schema survives an empty stream");
+        assert_eq!(meta.columns[0].name, "id");
+        assert_eq!(meta.columns[0].type_hint, "integer");
+
+        // read-arrow can hand the schema back even with no rows.
+        let (schema, batches) = read_arrow(&handle, 0, 10).unwrap();
+        assert!(batches.is_empty());
+        let schema = schema.expect("a schema-only sheet still has a schema");
+        assert!(
+            !encode_ipc_with_schema(schema.as_ref(), &batches)
+                .unwrap()
+                .is_empty(),
+            "an empty read still encodes a schema-bearing stream"
+        );
+
+        // A later append keeps the columns and starts delivering rows.
+        append("p#schema", &handle, vec![vec!["1".into()]]);
+        let page = read(&handle, 0, 10).unwrap();
+        assert_eq!(page.columns[0].name, "id");
+        assert_eq!(page.rows, vec![vec!["1".to_string()]]);
+
+        release("p#schema", &handle);
     }
 
     #[test]

@@ -183,6 +183,28 @@ impl thoth::plugin::dataset_read::Host for ExporterState {
         })
     }
 
+    fn read_arrow(
+        &mut self,
+        handle: String,
+        offset: u64,
+        limit: u32,
+    ) -> std::result::Result<Vec<u8>, thoth::plugin::dataset_read::PluginError> {
+        self.check_handle(&handle)?;
+        let (schema, batches) =
+            crate::papyrus::read_arrow(&handle, offset, limit).ok_or_else(|| {
+                dataset_read_error(format!("dataset '{handle}' is not Arrow-native; use read"))
+            })?;
+        if batches.is_empty() {
+            let schema = schema.ok_or_else(|| {
+                dataset_read_error(format!("dataset '{handle}' has no Arrow schema"))
+            })?;
+            crate::file::loaders::encode_ipc_with_schema(schema.as_ref(), &batches)
+        } else {
+            crate::file::loaders::encode_ipc(&batches)
+        }
+        .map_err(|error| dataset_read_error(error.to_string()))
+    }
+
     fn pin(&mut self, handle: String) -> bool {
         if handle != self.approved {
             return false;

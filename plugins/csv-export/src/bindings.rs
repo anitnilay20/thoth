@@ -837,6 +837,99 @@ pub mod thoth {
                 }
             }
             #[allow(unused_unsafe, clippy::all)]
+            /// The window as an Arrow IPC stream. Errors for string-only sheets
+            /// (pushed rows / text), which callers read with `read`.
+            pub fn read_arrow(
+                handle: &str,
+                offset: u64,
+                limit: u32,
+            ) -> Result<_rt::Vec<u8>, PluginError> {
+                unsafe {
+                    #[cfg_attr(target_pointer_width = "64", repr(align(8)))]
+                    #[cfg_attr(target_pointer_width = "32", repr(align(4)))]
+                    struct RetArea(
+                        [::core::mem::MaybeUninit<
+                            u8,
+                        >; 4 * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let mut ret_area = RetArea(
+                        [::core::mem::MaybeUninit::uninit(); 4
+                            * ::core::mem::size_of::<*const u8>()],
+                    );
+                    let vec0 = handle;
+                    let ptr0 = vec0.as_ptr().cast::<u8>();
+                    let len0 = vec0.len();
+                    let ptr1 = ret_area.0.as_mut_ptr().cast::<u8>();
+                    #[cfg(target_arch = "wasm32")]
+                    #[link(wasm_import_module = "thoth:plugin/dataset-read@0.1.0")]
+                    unsafe extern "C" {
+                        #[link_name = "read-arrow"]
+                        fn wit_import2(_: *mut u8, _: usize, _: i64, _: i32, _: *mut u8);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    unsafe extern "C" fn wit_import2(
+                        _: *mut u8,
+                        _: usize,
+                        _: i64,
+                        _: i32,
+                        _: *mut u8,
+                    ) {
+                        unreachable!()
+                    }
+                    unsafe {
+                        wit_import2(
+                            ptr0.cast_mut(),
+                            len0,
+                            _rt::as_i64(&offset),
+                            _rt::as_i32(&limit),
+                            ptr1,
+                        )
+                    };
+                    let l3 = i32::from(*ptr1.add(0).cast::<u8>());
+                    let result11 = match l3 {
+                        0 => {
+                            let e = {
+                                let l4 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l5 = *ptr1
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len6 = l5;
+                                _rt::Vec::from_raw_parts(l4.cast(), len6, len6)
+                            };
+                            Ok(e)
+                        }
+                        1 => {
+                            let e = {
+                                let l7 = *ptr1
+                                    .add(::core::mem::size_of::<*const u8>())
+                                    .cast::<i32>();
+                                let l8 = *ptr1
+                                    .add(2 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<*mut u8>();
+                                let l9 = *ptr1
+                                    .add(3 * ::core::mem::size_of::<*const u8>())
+                                    .cast::<usize>();
+                                let len10 = l9;
+                                let bytes10 = _rt::Vec::from_raw_parts(
+                                    l8.cast(),
+                                    len10,
+                                    len10,
+                                );
+                                super::super::super::thoth::plugin::types::PluginError {
+                                    code: l7 as u32,
+                                    message: _rt::string_lift(bytes10),
+                                }
+                            };
+                            Err(e)
+                        }
+                        _ => _rt::invalid_enum_discriminant(),
+                    };
+                    result11
+                }
+            }
+            #[allow(unused_unsafe, clippy::all)]
             pub fn pin(handle: &str) -> bool {
                 unsafe {
                     let vec0 = handle;
@@ -1989,8 +2082,8 @@ pub(crate) use __export_exporter_plugin_impl as export;
 )]
 #[doc(hidden)]
 #[allow(clippy::octal_escapes)]
-pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1637] = *b"\
-\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\xdf\x0b\x01A\x02\x01\
+pub static __WIT_BINDGEN_COMPONENT_TYPE: [u8; 1689] = *b"\
+\0asm\x0d\0\x01\0\0\x19\x16wit-component-encoding\x04\0\x07\x93\x0c\x01A\x02\x01\
 A\x11\x01B\x0a\x01m\x09\x0bfile-loader\x0bfile-viewer\x0bdata-source\x08exporter\
 \x0fsearch-provider\x10new-ui-component\x0ddata-producer\x08renderer\x03cli\x04\0\
 \x0acapability\x03\0\0\x01p\x01\x01ks\x01r\x08\x02ids\x04names\x07versions\x0bde\
@@ -2002,30 +2095,31 @@ n/types@0.1.0\x05\0\x02\x03\0\0\x0cplugin-error\x01B\x0c\x02\x03\x02\x01\x01\x04
 mn\x03\0\x02\x01p\x03\x01ps\x01p\x05\x01r\x04\x04names\x04kinds\x07columns\x04\x04\
 rows\x06\x04\0\x07dataset\x03\0\x07\x01j\x01\x08\x01\x01\x01@\0\0\x09\x04\0\x0fp\
 rovide-dataset\x01\x0a\x03\0\x20thoth:plugin/data-producer@0.1.0\x05\x02\x02\x03\
-\0\x01\x0edataset-column\x01B\x16\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\
+\0\x01\x0edataset-column\x01B\x1a\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\
 \0\x02\x03\x02\x01\x03\x04\0\x0edataset-column\x03\0\x02\x01p\x03\x01r\x05\x04na\
 mes\x04kinds\x07columns\x04\x09row-countw\x08revisionw\x04\0\x0cdataset-info\x03\
 \0\x05\x01ps\x01p\x07\x01p\x7f\x01p\x09\x01r\x05\x07columns\x04\x04rows\x08\x05n\
 ulls\x0a\x06offsetw\x05totalw\x04\0\x0cdataset-page\x03\0\x0b\x01j\x01\x06\x01\x01\
 \x01@\x01\x06handles\0\x0d\x04\0\x04info\x01\x0e\x01j\x01\x0c\x01\x01\x01@\x03\x06\
-handles\x06offsetw\x05limity\0\x0f\x04\0\x04read\x01\x10\x01@\x01\x06handles\0\x7f\
-\x04\0\x03pin\x01\x11\x04\0\x05unpin\x01\x11\x03\0\x1fthoth:plugin/dataset-read@\
-0.1.0\x05\x04\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01ps\x01\
-r\x05\x03keys\x05labels\x0ddefault-values\x0ainput-types\x07choices\x02\x04\0\x0d\
-export-option\x03\0\x03\x01@\0\0s\x04\0\x04name\x01\x05\x04\0\x10output-extensio\
-n\x01\x05\x01p\x04\x01@\0\0\x06\x04\0\x11available-options\x01\x07\x01o\x02ss\x01\
-p\x08\x01p}\x01j\x01\x0a\x01\x01\x01@\x02\x06handles\x07options\x09\0\x0b\x04\0\x03\
-run\x01\x0c\x04\0\x1bthoth:plugin/exporter@0.1.0\x05\x05\x01B\x07\x02\x03\x02\x01\
-\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jsons\x0bheight-hinty\x04\0\x0f\
-settings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\x04\0\x0frender-sett\
-ings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x06\x02\x03\0\0\x0bpl\
-ugin-info\x01B\x04\x02\x03\x02\x01\x07\x04\0\x0bplugin-info\x03\0\0\x01@\0\0\x01\
-\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.1.0\x05\x08\x01B\x05\
-\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\0\x04\0\x08on-clos\
-e\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin/plugin-lifecycle@0\
-.1.0\x05\x09\x04\0\"thoth:plugin/exporter-plugin@0.1.0\x04\0\x0b\x15\x01\0\x0fex\
-porter-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0dwit-component\x07\
-0.227.1\x10wit-bindgen-rust\x060.41.0";
+handles\x06offsetw\x05limity\0\x0f\x04\0\x04read\x01\x10\x01p}\x01j\x01\x11\x01\x01\
+\x01@\x03\x06handles\x06offsetw\x05limity\0\x12\x04\0\x0aread-arrow\x01\x13\x01@\
+\x01\x06handles\0\x7f\x04\0\x03pin\x01\x14\x04\0\x05unpin\x01\x14\x03\0\x1fthoth\
+:plugin/dataset-read@0.1.0\x05\x04\x01B\x11\x02\x03\x02\x01\x01\x04\0\x0cplugin-\
+error\x03\0\0\x01ps\x01r\x05\x03keys\x05labels\x0ddefault-values\x0ainput-types\x07\
+choices\x02\x04\0\x0dexport-option\x03\0\x03\x01@\0\0s\x04\0\x04name\x01\x05\x04\
+\0\x10output-extension\x01\x05\x01p\x04\x01@\0\0\x06\x04\0\x11available-options\x01\
+\x07\x01o\x02ss\x01p\x08\x01p}\x01j\x01\x0a\x01\x01\x01@\x02\x06handles\x07optio\
+ns\x09\0\x0b\x04\0\x03run\x01\x0c\x04\0\x1bthoth:plugin/exporter@0.1.0\x05\x05\x01\
+B\x07\x02\x03\x02\x01\x01\x04\0\x0cplugin-error\x03\0\0\x01r\x02\x09node-jsons\x0b\
+height-hinty\x04\0\x0fsettings-output\x03\0\x02\x01j\x01\x03\x01\x01\x01@\0\0\x04\
+\x04\0\x0frender-settings\x01\x05\x04\0\"thoth:plugin/plugin-settings@0.1.0\x05\x06\
+\x02\x03\0\0\x0bplugin-info\x01B\x04\x02\x03\x02\x01\x07\x04\0\x0bplugin-info\x03\
+\0\0\x01@\0\0\x01\x04\0\x08get-info\x01\x02\x04\0\x1ethoth:plugin/plugin-meta@0.\
+1.0\x05\x08\x01B\x05\x01@\x01\x07settings\x01\0\x04\0\x07on-load\x01\0\x01@\0\x01\
+\0\x04\0\x08on-close\x01\x01\x04\0\x11on-setting-change\x01\0\x04\0#thoth:plugin\
+/plugin-lifecycle@0.1.0\x05\x09\x04\0\"thoth:plugin/exporter-plugin@0.1.0\x04\0\x0b\
+\x15\x01\0\x0fexporter-plugin\x03\0\0\0G\x09producers\x01\x0cprocessed-by\x02\x0d\
+wit-component\x070.227.1\x10wit-bindgen-rust\x060.41.0";
 #[inline(never)]
 #[doc(hidden)]
 pub fn __link_custom_section_describing_imports() {
