@@ -73,6 +73,7 @@ When you trigger the workflow, the following happens automatically:
 4. Generates changelog from git commits
 5. Creates GitHub Release with all artifacts
 6. Uploads installers and archives
+7. Updates `Casks/thoth.rb` in `anitnilay20/homebrew-tap` (when `RELEASE_TOKEN` is configured)
 ```
 
 ## Manual Release (Local Development)

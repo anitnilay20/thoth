@@ -388,3 +388,65 @@ jobs:
             --title "Release ${{ steps.get_version.outputs.version }}" \
             --notes-file CHANGELOG.md \
             release/*
+
+      - name: Update Homebrew Cask
+        env:
+          TAP_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          TAG: ${{ steps.get_version.outputs.version }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "RELEASE_TOKEN is not set; skipping Homebrew tap update."
+            exit 0
+          fi
+
+          VERSION="${TAG#v}"
+          ARM_DMG="release/Thoth_${VERSION}_aarch64.dmg"
+          X64_DMG="release/Thoth_${VERSION}_x64.dmg"
+
+          if [ ! -f "$ARM_DMG" ] || [ ! -f "$X64_DMG" ]; then
+            echo "Expected macOS DMGs not found in release/; skipping Homebrew tap update."
+            exit 0
+          fi
+
+          SHA_ARM=$(sha256sum "$ARM_DMG" | awk '{print $1}')
+          SHA_X64=$(sha256sum "$X64_DMG" | awk '{print $1}')
+
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/anitnilay20/homebrew-tap.git" homebrew-tap
+          cat <<EOF > homebrew-tap/Casks/thoth.rb
+          cask "thoth" do
+            arch arm: "aarch64", intel: "x64"
+
+            version "${VERSION}"
+            sha256 arm:   "${SHA_ARM}",
+                   intel: "${SHA_X64}"
+
+            url "https://github.com/anitnilay20/thoth/releases/download/v#{version}/Thoth_#{version}_#{arch}.dmg"
+            name "Thoth"
+            desc "Fast desktop workspace for exploring JSON, NDJSON, and structured data"
+            homepage "https://github.com/anitnilay20/thoth"
+
+            app "Thoth.app"
+
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-dr", "com.apple.quarantine", "#{appdir}/Thoth.app"]
+            end
+
+            zap trash: [
+              "~/Library/Application Support/com.thoth.app",
+              "~/Library/Application Support/thoth",
+              "~/Library/Preferences/com.thoth.app.plist",
+            ]
+          end
+          EOF
+
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet Casks/thoth.rb; then
+            echo "Homebrew Cask is already up to date."
+            exit 0
+          fi
+          git add Casks/thoth.rb
+          git commit -m "chore: update thoth cask to v${VERSION}"
+          git push origin main
