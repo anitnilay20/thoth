@@ -11,29 +11,46 @@
 //! list one entry long. One root means a test moves all of it at once and
 //! cannot miss a corner.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Directory name next to the executable that opts into portable mode.
+pub const PORTABLE_DIR_NAME: &str = "portable";
 
 /// Relocates everything Thoth stores. Set by tests so a run can never touch
 /// the user's real state, and usable operationally to move the whole lot —
 /// onto a different volume, or to keep several installs apart.
 pub const CONFIG_DIR_ENV: &str = "THOTH_CONFIG_DIR";
 
-/// Thoth's directory under the user's config dir, or whatever
+/// Thoth's directory under the user's config dir, a sibling `portable`
+/// directory next to the executable (portable mode), or whatever
 /// [`CONFIG_DIR_ENV`] names.
+///
+/// Precedence: [`CONFIG_DIR_ENV`] (when non-empty) → `<exe_dir>/portable` (when
+/// it exists as a directory) → platform config dir (`~/.config/thoth`,
+/// `%APPDATA%\thoth`, etc.).
 ///
 /// Resolves a path and nothing more: callers create what they need and report
 /// failure in their own terms. `None` only when the platform has no config
-/// directory *and* no override is set.
+/// directory, no portable directory exists, *and* no override is set.
 pub fn config_root() -> Option<PathBuf> {
-    resolve_root(std::env::var_os(CONFIG_DIR_ENV))
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf));
+    resolve_root(std::env::var_os(CONFIG_DIR_ENV), exe_dir.as_deref())
 }
 
-/// The root an override value resolves to, with the environment factored out
-/// so the rule can be tested without a test writing a process-global variable
-/// that every other test reads.
-fn resolve_root(override_dir: Option<std::ffi::OsString>) -> Option<PathBuf> {
+/// The root an override value or portable directory resolves to, with the
+/// environment and executable path factored out so the rules can be tested
+/// without writing a process-global variable that every other test reads.
+fn resolve_root(override_dir: Option<std::ffi::OsString>, exe_dir: Option<&Path>) -> Option<PathBuf> {
     if let Some(dir) = override_dir.filter(|d| !d.is_empty()) {
         return Some(PathBuf::from(dir));
+    }
+    if let Some(dir) = exe_dir {
+        let portable = dir.join(PORTABLE_DIR_NAME);
+        if portable.is_dir() {
+            return Some(portable);
+        }
     }
     Some(dirs::config_dir()?.join("thoth"))
 }
@@ -70,7 +87,7 @@ mod tests {
     #[test]
     fn the_override_replaces_the_platform_directory() {
         assert_eq!(
-            resolve_root(Some("/tmp/thoth-root-test".into())),
+            resolve_root(Some("/tmp/thoth-root-test".into()), None),
             Some(PathBuf::from("/tmp/thoth-root-test"))
         );
     }
@@ -80,12 +97,43 @@ mod tests {
         // It would otherwise point the whole app at the process's working
         // directory, which is wherever the user happened to launch it.
         assert_eq!(
-            resolve_root(Some("".into())),
+            resolve_root(Some("".into()), None),
             dirs::config_dir().map(|d| d.join("thoth")),
         );
         assert_eq!(
-            resolve_root(None),
+            resolve_root(None, None),
             dirs::config_dir().map(|d| d.join("thoth")),
+        );
+    }
+
+    #[test]
+    fn portable_directory_next_to_exe_is_used_when_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let portable = tmp.path().join(PORTABLE_DIR_NAME);
+        std::fs::create_dir(&portable).unwrap();
+
+        assert_eq!(resolve_root(None, Some(tmp.path())), Some(portable.clone()));
+        // Empty env override still selects portable mode.
+        assert_eq!(resolve_root(Some("".into()), Some(tmp.path())), Some(portable));
+    }
+
+    #[test]
+    fn portable_file_is_ignored_and_env_override_wins() {
+        let tmp = tempfile::tempdir().unwrap();
+        let portable = tmp.path().join(PORTABLE_DIR_NAME);
+        // A regular file named "portable" must not be treated as a directory.
+        std::fs::write(&portable, b"").unwrap();
+        assert_eq!(
+            resolve_root(None, Some(tmp.path())),
+            dirs::config_dir().map(|d| d.join("thoth")),
+        );
+
+        // Even when a real portable directory exists, THOTH_CONFIG_DIR wins.
+        std::fs::remove_file(&portable).unwrap();
+        std::fs::create_dir(&portable).unwrap();
+        assert_eq!(
+            resolve_root(Some("/tmp/explicit-override".into()), Some(tmp.path())),
+            Some(PathBuf::from("/tmp/explicit-override")),
         );
     }
 }
