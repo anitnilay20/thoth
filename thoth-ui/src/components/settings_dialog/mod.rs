@@ -250,6 +250,21 @@ impl Default for SettingsDialog {
     }
 }
 
+/// Mark the deferred settings viewport as closed and wake the root viewport so
+/// `SettingsDialog::render` immediately observes `viewport_closed` and stops
+/// keeping the child viewport alive (without waiting for a mouse/drag event on
+/// the parent window, especially on Windows).
+fn close_settings_viewport(ctx: &egui::Context, viewport_closed: &Mutex<bool>, send_close_cmd: bool) {
+    if let Ok(mut closed) = viewport_closed.lock() {
+        *closed = true;
+    }
+    if send_close_cmd {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+    ctx.request_repaint();
+    ctx.request_repaint_of(egui::ViewportId::ROOT);
+}
+
 impl SettingsDialog {
     /// Open the settings dialog with current settings
     pub fn open(&mut self, current_settings: &Settings) {
@@ -735,9 +750,7 @@ impl ContextComponent for SettingsDialog {
                 if class == egui::ViewportClass::Deferred
                     && ctx.input(|i| i.viewport().close_requested())
                 {
-                    if let Ok(mut closed) = viewport_closed.lock() {
-                        *closed = true;
-                    }
+                    close_settings_viewport(&ctx, &viewport_closed, true);
                     return;
                 }
 
@@ -1170,10 +1183,7 @@ impl ContextComponent for SettingsDialog {
                                             .build(),
                                     );
                                     if cancel_btn.clicked() {
-                                        if let Ok(mut closed) = viewport_closed.lock() {
-                                            *closed = true;
-                                        }
-                                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                        close_settings_viewport(&ctx, &viewport_closed, true);
                                     }
 
                                     // `.btn.text` — only offered when there is something to reset.
@@ -1232,10 +1242,7 @@ impl ContextComponent for SettingsDialog {
                     if let Ok(mut result) = viewport_result.lock() {
                         *result = Some(settings);
                     }
-                    if let Ok(mut closed) = viewport_closed.lock() {
-                        *closed = true;
-                    }
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    close_settings_viewport(&ctx, &viewport_closed, true);
                 }
             },
         );
