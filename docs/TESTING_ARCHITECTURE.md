@@ -16,8 +16,9 @@ Thoth employs a multi-layered testing approach:
 
 ```
 thoth/
-├── src/
-│   └── **/*.rs              # Unit tests (#[cfg(test)] modules)
+├── thoth-core/src/          # Core unit tests (#[cfg(test)] modules)
+├── thoth-cli/src/           # CLI & headless unit tests
+├── thoth-ui/src/            # UI & app unit tests
 ├── tests/
 │   ├── fixtures/            # Test data files
 │   │   ├── ndjson/         # NDJSON test files
@@ -45,7 +46,7 @@ Inside `#[cfg(test)]` modules within source files.
 
 ### Coverage Areas
 
-#### File Loaders (`src/file/loaders/`)
+#### File Loaders (`thoth-core/src/file/loaders/`)
 - **NdjsonFile**
   - Line boundary indexing
   - CRLF/LF handling
@@ -70,7 +71,7 @@ Inside `#[cfg(test)]` modules within source files.
   - `len()`, `get()`, `raw_bytes()` consistency
   - `open()` error handling
 
-#### Search Engine (`src/search/`)
+#### Papyrus & Search (`thoth-core/src/papyrus/`, `thoth-core/src/file/`)
 - Substring search correctness
 - Case sensitivity
 - JSONPath query parsing
@@ -78,7 +79,7 @@ Inside `#[cfg(test)]` modules within source files.
 - Result pagination
 - Parallel search correctness
 
-#### Error Handling (`src/error/`)
+#### Error Handling (`thoth-core/src/error/`)
 - Error type conversions
 - Error message formatting
 - Error propagation

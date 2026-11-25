@@ -197,7 +197,7 @@ The host is split into three crates with a one-way dependency graph
 
 - `thoth-core/`: Display-independent logic — file handling and lazy loading, the Papyrus data bus, the sandboxed WebAssembly plugin runtime, MCP, settings and updates. Carries no `egui`/`eframe` dependency; UI needs reach it through small seams (repaint notifications, the native file picker).
 - `thoth-cli/`: The display-free command runtime and `clap` front-end (`cli`, `headless`).
-- `thoth-ui/`: The `eframe`/`egui` desktop application and the `thoth` binary — all panels, the theme/dock rendering, and the plugin UI renderer. The split is staged: this crate is introduced by the final step, and until that step the desktop is the repository-root `thoth` package whose sources live in `src/`.
+- `thoth-ui/`: The `eframe`/`egui` desktop application and the `thoth` binary — all panels, Chart/Map Studio, the theme/dock rendering, and the plugin UI renderer.
 - `thoth-plugin-sdk/`: Plugin authoring SDK — the shared UI component library + `RenderNode` DSL and plugin helpers (also rendered by the host)
 - `thoth-plugin-sdk-macros/`: Derive macros for the SDK (`PluginMeta`)
 - `plugins/`: Bundled example plugins (url-source, seshat, csv-export, card-view)
@@ -209,54 +209,58 @@ The host is split into three crates with a one-way dependency graph
 ## Documentation
 
 - **[Component Architecture](docs/COMPONENT_ARCHITECTURE.md)**: Detailed guide on Thoth's component system and one-way data binding pattern
-- **[Data Plane](docs/DATA_PLANE.md)**: How Papyrus owns datasets and how the grid, charts, plugins and exports read them by handle.
+- **[File Engine](docs/FILE_ENGINE.md)**: How DuckDB and Apache Arrow stream local files and queries
+- **[Data Plane](docs/DATA_PLANE.md)**: How Papyrus owns datasets and how the grid, charts, plugins and exports read them by handle
 - **[Plugin System](docs/PLUGIN_SYSTEM.md)**: Authoring WebAssembly plugins with the `thoth-plugin-sdk` (UI builders, state/settings helpers, lifecycle)
 - **[Database Plugins](docs/DATABASE_PLUGINS.md)**: Building data-source plugins that talk to databases
 - **[File Associations](docs/FILE_ASSOCIATIONS.md)**: How to open JSON files directly from your file manager and set Thoth as default viewer
 - **[Keyboard Shortcuts](docs/KEYBOARD_SHORTCUTS.md)**: Complete reference of all keyboard shortcuts
 - **[Design System](docs/DESIGN_SYSTEM.md)**: UI design guidelines and patterns
-- **[Profiling](/docs/PROFILING.md)**: Performance profiling and optimization techniques used in Thoth
+- **[Profiling](docs/PROFILING.md)**: Performance profiling and optimization techniques used in Thoth
 - **[MCP Server](docs/MCP_SERVER.md)**: Use Thoth as an MCP server for AI assistants (Claude, Copilot, Cursor)
 
 ---
 
 ## Architecture
 
-Thoth is built with a modular architecture that emphasizes performance and flexibility:
+Thoth is built as a three-crate workspace (`thoth-ui` → `thoth-cli` → `thoth-core`) with a single handle-based data plane:
+
+![Thoth Architecture](docs/thoth_architecture.svg)
 
 ### Core Components
 
-1. **Application Core (`ThothApp`)**:
-   - The central controller that manages the application state
-   - Coordinates between UI components and data handling
-   - Manages the theme, file paths, and error states
+1. **Desktop UI (`thoth-ui` / `ThothApp`)**:
+   - **Toolbar & Sidebar**: File opening, history navigation, search, data sources, bookmarks, and marketplace
+   - **Central Panel & FileViewer**: Tree-based JSON/Arrow viewer, `DataView` / `TableView`, and plugin renderers
+   - **Chart & Map Studio**: Revision-following charts and visualizations bound to Papyrus handles
+   - **Theme & Settings**: Dark/light tokens, custom fonts, and live TOML-persisted preferences
 
-2. **UI Components**:
-   - **TopBar**: Handles file opening, type selection, and search inputs
-   - **CentralPanel**: Main content area with the JSON viewer
-   - **JsonViewer**: Tree-based visualization of JSON structures with expandable nodes
-   - **Theme**: Manages dark/light mode and styling
+2. **Papyrus Data Plane (`thoth-core/src/papyrus/`)**:
+   - Single owned view of tabular data (`Source::Arrow`, `Source::Rows`, `Source::Text`) read **by handle** in pages
+   - Supports monotonic revisions, consumer pinning, relation-scoped handles, and a 32-sheet / 128 MB LRU budget
 
-3. **File Handling System**:
-   - **Lazy Loading**: Only parses the parts of the file that are being viewed
-   - **File Type Detection**: Automatically identifies JSON, JSON arrays, and NDJSON formats
-   - **LRU Cache**: Optimizes performance by caching recently accessed nodes
+3. **File Engine (`thoth-core/src/file/`)**:
+   - **DuckDB + Apache Arrow**: Zero-copy windowed streaming for JSON, NDJSON, CSV, Parquet, Arrow IPC, Excel, Avro, and SQLite
+   - **TextIndex Fallback**: Line-offset index for huge or unstructured files
+   - **Disk Index Cache**: Bounded cache for extracted JSON envelopes and collections
 
 4. **Search Engine**:
    - Parallel processing for fast searching across large files
    - Background scanning to maintain UI responsiveness
    - Uses Rayon for parallel iteration and memchr for optimized substring searching
 
-5. **Plugin System**:
-   - Plugins are sandboxed **WebAssembly components** (file loaders, file viewers, data sources, UI components)
-   - Authored with the **`thoth-plugin-sdk`**: type-safe builders for a serializable `RenderNode` UI tree the host renders, plus state/settings/metadata helpers
+5. **Plugin System (`thoth-core/src/plugin/` + WIT v0.3.0)**:
+   - Plugins are sandboxed **WebAssembly components** (`file-loader`, `file-viewer`, `data-source`, `data-producer`, `data-renderer`, `exporter`, `ui-component`, `cli`)
+   - Authored with **`thoth-plugin-sdk`**: type-safe builders for a serializable `RenderNode` UI tree the host renders, plus `dataset-bus` / `dataset-read` (including typed Arrow IPC) and state/settings helpers
    - The host and plugins share the *same* component types, so the SDK is one source of truth for both sides
-   - See [Plugin System](docs/PLUGIN_SYSTEM.md) and [Database Plugins](docs/DATABASE_PLUGINS.md)
+   - See [Data Plane](docs/DATA_PLANE.md), [Plugin System](docs/PLUGIN_SYSTEM.md), and [Database Plugins](docs/DATABASE_PLUGINS.md)
 
 ### Data Flow
 
-```
-User Interaction → TopBar → ThothApp → File Loading/Search Operations → CentralPanel → JsonViewer
+```text
+Producer (DuckDB / TextIndex / Plugin push & pull)
+  ──▶ Papyrus Registry (handles: ds-N · revision · pins · LRU)
+        ──▶ Consumer (DataView / JSON Tree / Chart Studio / dataset-read renderers & exporters)
 ```
 
 ### Performance Optimizations

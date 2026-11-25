@@ -517,8 +517,8 @@ cargo test
 ### Project Structure
 
 ```text
-src/mcp/
-├── mod.rs       # Module entry point, CLI dispatcher
+thoth-core/src/mcp/
+├── mod.rs       # Module entry point
 ├── server.rs    # Async server startup, stdio transport wiring
 ├── state.rs     # ServerState — thread-safe file handle management
 ├── tools.rs     # 10 MCP tool definitions + schema inference
