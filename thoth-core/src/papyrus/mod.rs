@@ -30,7 +30,9 @@ use duckdb::arrow::datatypes::SchemaRef;
 use serde_json::Value;
 use thoth_plugin_sdk::dataset::{NodeKind, TreeNode};
 
-use crate::file::loaders::{BatchLoader, FileLoader, RecordWindow, TextIndex, arrow_tree};
+use crate::file::loaders::{
+    BatchLoader, FileLoader, ParsedIpc, RecordWindow, TextIndex, arrow_tree,
+};
 
 /// Most datasets kept before LRU eviction of the least-recently-accessed.
 const MAX_DATASETS: usize = 32;
@@ -135,7 +137,7 @@ impl Source {
                     .loader
                     .fetch(Vec::new(), Some(start), Some(keep))
                     .ok()?;
-                Some(crate::file::to_dataset::batches_to_rows(&batches))
+                crate::file::to_dataset::batches_to_rows(&batches)
             }
             _ => None,
         }
@@ -533,13 +535,9 @@ pub fn publish_arrow_relation(
 ///
 /// The IPC stream was parsed once by the host; the batches are served as a
 /// window like any engine-backed sheet, so types, nulls and nesting survive.
-pub fn publish_batches(
-    source: &str,
-    instance: &str,
-    name: String,
-    batches: Vec<RecordBatch>,
-) -> String {
-    let loader: Arc<dyn FileLoader + Send + Sync> = Arc::new(BatchLoader::new(batches));
+pub fn publish_batches(source: &str, instance: &str, name: String, parsed: ParsedIpc) -> String {
+    let loader: Arc<dyn FileLoader + Send + Sync> =
+        Arc::new(BatchLoader::new(parsed.schema, parsed.batches));
     let total = loader.len().unwrap_or(0) as u64;
     publish_arrow_with_total(source, instance, name, loader, total).unwrap_or_default()
 }
@@ -1235,7 +1233,11 @@ pub(crate) mod tests {
         assert!(schema.is_some(), "a nonempty window carries its schema");
         let decoded = parse_ipc(&encode_ipc(&window).unwrap()).unwrap();
         assert_eq!(
-            decoded.iter().map(RecordBatch::num_rows).sum::<usize>(),
+            decoded
+                .batches
+                .iter()
+                .map(RecordBatch::num_rows)
+                .sum::<usize>(),
             2,
             "the typed window carries exactly the requested rows"
         );
@@ -1247,7 +1249,7 @@ pub(crate) mod tests {
         let schema = schema.expect("an empty window still has a schema");
         let bytes = crate::file::loaders::encode_ipc_with_schema(schema.as_ref(), &empty).unwrap();
         assert!(
-            parse_ipc(&bytes).unwrap().is_empty(),
+            parse_ipc(&bytes).unwrap().batches.is_empty(),
             "a schema with no batches decodes to no rows"
         );
 
@@ -1315,6 +1317,43 @@ pub(crate) mod tests {
         );
 
         release("engine-mut", &handle);
+    }
+
+    #[test]
+    fn a_schema_only_batch_stream_keeps_its_columns() {
+        use crate::file::loaders::{encode_ipc_with_schema, parse_ipc};
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+
+        let _g = reset();
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let bytes = encode_ipc_with_schema(schema.as_ref(), &[]).unwrap();
+        let parsed = parse_ipc(&bytes).unwrap();
+        assert!(parsed.batches.is_empty(), "the stream carries no batches");
+        let handle = publish_batches("p", "p#schema", "schema".into(), parsed);
+
+        let meta = meta(&handle).unwrap();
+        assert_eq!(meta.columns.len(), 1, "the schema survives an empty stream");
+        assert_eq!(meta.columns[0].name, "id");
+        assert_eq!(meta.columns[0].type_hint, "integer");
+
+        // read-arrow can hand the schema back even with no rows.
+        let (schema, batches) = read_arrow(&handle, 0, 10).unwrap();
+        assert!(batches.is_empty());
+        let schema = schema.expect("a schema-only sheet still has a schema");
+        assert!(
+            !encode_ipc_with_schema(schema.as_ref(), &batches)
+                .unwrap()
+                .is_empty(),
+            "an empty read still encodes a schema-bearing stream"
+        );
+
+        // A later append keeps the columns and starts delivering rows.
+        append("p#schema", &handle, vec![vec!["1".into()]]);
+        let page = read(&handle, 0, 10).unwrap();
+        assert_eq!(page.columns[0].name, "id");
+        assert_eq!(page.rows, vec![vec!["1".to_string()]]);
+
+        release("p#schema", &handle);
     }
 
     #[test]

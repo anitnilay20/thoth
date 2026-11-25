@@ -244,8 +244,22 @@ pub trait RecordSource: FileLoader {
         if !schema_only.is_empty() {
             return Ok(schema_only);
         }
-        // Some readers only publish a schema alongside real rows.
-        Ok(batch_columns(&self.fetch(Vec::new(), None, Some(1))?))
+        // Some readers only publish a schema alongside real rows; an in-memory
+        // batch sheet may have no batches at all but still knows its schema.
+        let alongside_rows = batch_columns(&self.fetch(Vec::new(), None, Some(1))?);
+        if !alongside_rows.is_empty() {
+            return Ok(alongside_rows);
+        }
+        Ok(self
+            .schema()
+            .map(|schema| {
+                schema
+                    .fields()
+                    .iter()
+                    .map(|field| field.name().to_string())
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
     /// Column names and SQL-ish type hints of the primary alias, in schema
@@ -257,11 +271,16 @@ pub trait RecordSource: FileLoader {
             // Some readers only publish a schema alongside real rows.
             batches = self.fetch(Vec::new(), None, Some(1))?;
         }
-        let Some(batch) = batches.first() else {
+        // A schema-only batch sheet has no batches to probe, but keeps its
+        // schema so later appends still know the columns.
+        let schema = batches
+            .first()
+            .map(|batch| batch.schema())
+            .or_else(|| self.schema());
+        let Some(schema) = schema else {
             return Ok(Vec::new());
         };
-        Ok(batch
-            .schema()
+        Ok(schema
             .fields()
             .iter()
             .map(|field| (field.name().clone(), arrow_type_hint(field.data_type())))
@@ -318,13 +337,14 @@ fn arrow_type_hint(data_type: &DataType) -> String {
 /// The plugin `dataset-bus.publish-arrow` path lands here: the host parses the
 /// IPC stream once and then serves windows without another copy.
 pub struct BatchLoader {
+    schema: SchemaRef,
     batches: Vec<RecordBatch>,
 }
 
 impl BatchLoader {
-    /// Wrap a batch sequence as a loader.
-    pub fn new(batches: Vec<RecordBatch>) -> Self {
-        Self { batches }
+    /// Wrap a parsed stream's schema and batches as a loader.
+    pub fn new(schema: SchemaRef, batches: Vec<RecordBatch>) -> Self {
+        Self { schema, batches }
     }
 }
 
@@ -375,7 +395,7 @@ impl FileLoader for BatchLoader {
     }
 
     fn schema(&self) -> Option<SchemaRef> {
-        self.batches.first().map(|batch| batch.schema())
+        Some(self.schema.clone())
     }
 
     fn is_owned(&self) -> bool {
@@ -406,8 +426,17 @@ impl FileLoader for BatchLoader {
     }
 }
 
-/// Parse an Arrow IPC stream into record batches.
-pub fn parse_ipc(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
+/// An Arrow IPC stream's schema and record batches.
+///
+/// The schema survives a stream that carries no batches, so an empty typed
+/// dataset still knows its columns.
+pub struct ParsedIpc {
+    pub schema: SchemaRef,
+    pub batches: Vec<RecordBatch>,
+}
+
+/// Parse an Arrow IPC stream into its schema and record batches.
+pub fn parse_ipc(bytes: &[u8]) -> Result<ParsedIpc> {
     use duckdb::arrow::ipc::reader::StreamReader;
 
     let invalid = |e: &dyn std::fmt::Display| crate::error::ThothError::Unknown {
@@ -415,9 +444,11 @@ pub fn parse_ipc(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
     };
     let reader =
         StreamReader::try_new(std::io::Cursor::new(bytes), None).map_err(|e| invalid(&e))?;
-    reader
+    let schema = reader.schema();
+    let batches = reader
         .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e| invalid(&e))
+        .map_err(|e| invalid(&e))?;
+    Ok(ParsedIpc { schema, batches })
 }
 
 /// Encode record batches as an Arrow IPC stream, taking the schema from the
