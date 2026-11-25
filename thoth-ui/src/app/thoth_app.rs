@@ -354,6 +354,7 @@ impl App for ThothApp {
 
         // Restore plugin tabs that were deferred while the core runtime initialized.
         self.poll_pending_plugin_restores();
+        self.poll_plugin_capability_prompts();
 
         // Handle OS-dispatched file opens (e.g. macOS Apple Events / Finder)
         self.poll_os_open_requests();
@@ -1496,6 +1497,41 @@ impl ThothApp {
         // All deferred tabs are now open — apply the saved active-tab index.
         if let Some(idx) = self.core.session_restore_active_index.take() {
             self.window_state.tab_manager.switch_to_tab_by_index(idx);
+        }
+    }
+
+    /// Prompt once on first load for any loaded plugin that declares host
+    /// `permissions` in `plugin.toml` not yet recorded in `Settings` (#119).
+    fn poll_plugin_capability_prompts(&self) {
+        let Some(manager) = self.core.plugins.manager() else {
+            return;
+        };
+        for plugin in manager.registry.get_all_plugins() {
+            if plugin.permissions.is_empty()
+                || self
+                    .core
+                    .settings
+                    .plugins
+                    .capability_grants
+                    .contains_key(&plugin.id)
+                || !crate::plugin::capability_grants::mark_prompted(&plugin.id)
+            {
+                continue;
+            }
+            let allow_id = plugin.id.clone();
+            let allow_perms = plugin.permissions.clone();
+            let deny_id = plugin.id.clone();
+            crate::consent::manager::ConsentManager::push_capability_consent(
+                &plugin.id,
+                &plugin.name,
+                &plugin.permissions,
+                std::sync::Arc::new(move |_| {
+                    crate::plugin::capability_grants::grant(&allow_id, &allow_perms);
+                }),
+                std::sync::Arc::new(move |_| {
+                    crate::plugin::capability_grants::deny(&deny_id);
+                }),
+            );
         }
     }
 

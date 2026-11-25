@@ -67,6 +67,7 @@ impl ThothCore {
     }
 
     pub fn with_persistent_state(settings: Settings, persistent_state: PersistentState) -> Self {
+        crate::plugin::capability_grants::seed_from_settings(&settings.plugins.capability_grants);
         Self {
             settings,
             persistent_state,

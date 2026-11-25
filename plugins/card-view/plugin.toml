@@ -4,3 +4,4 @@ version      = "0.1.0"
 description  = "Present a dataset as a grid of cards"
 author       = "Thoth contributors"
 capabilities = ["renderer"]
+permissions  = ["dataset-read"]

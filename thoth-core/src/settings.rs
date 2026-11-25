@@ -170,6 +170,10 @@ pub struct PluginSettings {
     /// Passed back to the plugin via `apply-settings` on load.
     #[serde(default)]
     pub plugin_settings: HashMap<String, Vec<PluginSettingData>>,
+
+    /// Per-plugin granted host capabilities, keyed by plugin ID (#119).
+    #[serde(default)]
+    pub capability_grants: HashMap<String, Vec<crate::plugin::HostPermission>>,
 }
 
 impl Default for Settings {
@@ -248,6 +252,7 @@ impl Default for PluginSettings {
             disabled_plugin_ids: Vec::new(),
             network_policies: Default::default(),
             plugin_settings: Default::default(),
+            capability_grants: Default::default(),
         }
     }
 }

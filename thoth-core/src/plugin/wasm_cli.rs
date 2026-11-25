@@ -214,6 +214,11 @@ impl thoth::plugin::secure_storage::Host for CliState {
         key: String,
         secret: String,
     ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
+        crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::SecureStorage,
+        )
+        .map_err(secure_error)?;
         secret_store::write(&format!("{}:{key}", self.plugin_id), &secret).map_err(secure_error)
     }
 
@@ -221,6 +226,11 @@ impl thoth::plugin::secure_storage::Host for CliState {
         &mut self,
         key: String,
     ) -> std::result::Result<Option<String>, thoth::plugin::secure_storage::PluginError> {
+        crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::SecureStorage,
+        )
+        .map_err(secure_error)?;
         secret_store::read(&format!("{}:{key}", self.plugin_id)).map_err(secure_error)
     }
 
@@ -228,6 +238,11 @@ impl thoth::plugin::secure_storage::Host for CliState {
         &mut self,
         key: String,
     ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
+        crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::SecureStorage,
+        )
+        .map_err(secure_error)?;
         secret_store::delete(&format!("{}:{key}", self.plugin_id)).map_err(secure_error)
     }
 }
@@ -247,6 +262,12 @@ impl thoth::plugin::http_client::Host for CliState {
         thoth::plugin::http_client::HttpResponse,
         thoth::plugin::http_client::PluginError,
     > {
+        if let Err(msg) = crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Network,
+        ) {
+            return Err(http_error(403, msg));
+        }
         match self.policy.check_data_source(&req.url) {
             Ok(CheckOutcome::Allowed) => {
                 let response = execute_http_request(
@@ -293,6 +314,12 @@ impl thoth::plugin::tcp_client::Host for CliState {
         port: u16,
         tls: bool,
     ) -> std::result::Result<u64, thoth::plugin::tcp_client::PluginError> {
+        if let Err(msg) = crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Tcp,
+        ) {
+            return Err(tcp_error(403, msg));
+        }
         if self.tcp_streams.len() >= MAX_TCP_STREAMS {
             return Err(tcp_error(
                 429,

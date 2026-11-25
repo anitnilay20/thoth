@@ -86,6 +86,12 @@ impl thoth::plugin::ui_tabs::Host for UiComponentPluginState {
         icon: Option<String>,
         initial_state: Option<String>,
     ) -> String {
+        if !crate::plugin::capability_grants::is_allowed(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Tabs,
+        ) {
+            return String::new();
+        }
         let request_id = next_tab_request_id();
         let _ = self.tab_tx.send(TabOpenRequest::sanitized(
             request_id.clone(),

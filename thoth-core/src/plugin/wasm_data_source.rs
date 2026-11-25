@@ -243,6 +243,15 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
         thoth::plugin::http_client::HttpResponse,
         thoth::plugin::http_client::PluginError,
     > {
+        if let Err(msg) = crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Network,
+        ) {
+            return Err(thoth::plugin::http_client::PluginError {
+                code: 403,
+                message: msg,
+            });
+        }
         match self.policy.check_data_source(&req.url) {
             Ok(CheckOutcome::Allowed) => {
                 execute_http_request(req).map_err(|e| thoth::plugin::http_client::PluginError {
@@ -292,6 +301,15 @@ impl thoth::plugin::http_client::Host for DataSourcePluginState {
         let request_id = next_request_id();
         let tx = self.http_tx.clone();
         let id = request_id.clone();
+
+        if let Err(msg) = crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Network,
+        ) {
+            self.pending_count.fetch_add(1, Ordering::Relaxed);
+            let _ = tx.send((id, Err::<HttpResponseRaw, String>(msg)));
+            return request_id;
+        }
 
         match self.policy.check_data_source(&req.url) {
             Ok(CheckOutcome::Allowed) => {
@@ -375,6 +393,12 @@ impl thoth::plugin::ui_tabs::Host for DataSourcePluginState {
         icon: Option<String>,
         initial_state: Option<String>,
     ) -> String {
+        if !crate::plugin::capability_grants::is_allowed(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Tabs,
+        ) {
+            return String::new();
+        }
         let request_id = next_tab_request_id();
         let _ = self.tab_tx.send(TabOpenRequest::sanitized(
             request_id.clone(),
@@ -495,6 +519,15 @@ impl thoth::plugin::tcp_client::Host for DataSourcePluginState {
         port: u16,
         tls: bool,
     ) -> std::result::Result<u64, thoth::plugin::tcp_client::PluginError> {
+        if let Err(msg) = crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Tcp,
+        ) {
+            return Err(thoth::plugin::tcp_client::PluginError {
+                code: 403,
+                message: msg,
+            });
+        }
         // The user/connection-host is the gate: allowlist or per-host consent.
         // Unlike the HTTP SSRF guard we do NOT block private/loopback ranges —
         // database clients legitimately target localhost and internal networks.
@@ -644,6 +677,11 @@ impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
         key: String,
         secret: String,
     ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
+        crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::SecureStorage,
+        )
+        .map_err(se_err)?;
         secret_store::write(&self.scoped_key(&key), &secret).map_err(se_err)
     }
 
@@ -651,6 +689,11 @@ impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
         &mut self,
         key: String,
     ) -> std::result::Result<Option<String>, thoth::plugin::secure_storage::PluginError> {
+        crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::SecureStorage,
+        )
+        .map_err(se_err)?;
         secret_store::read(&self.scoped_key(&key)).map_err(se_err)
     }
 
@@ -658,6 +701,11 @@ impl thoth::plugin::secure_storage::Host for DataSourcePluginState {
         &mut self,
         key: String,
     ) -> std::result::Result<(), thoth::plugin::secure_storage::PluginError> {
+        crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::SecureStorage,
+        )
+        .map_err(se_err)?;
         secret_store::delete(&self.scoped_key(&key)).map_err(se_err)
     }
 }
@@ -901,6 +949,12 @@ impl thoth::plugin::websocket::Host for DataSourcePluginState {
     ) -> std::result::Result<String, thoth::plugin::websocket::PluginError> {
         let ws_err =
             |code: u32, message: String| thoth::plugin::websocket::PluginError { code, message };
+        if let Err(msg) = crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Network,
+        ) {
+            return Err(ws_err(403, msg));
+        }
         let conn_id = next_ws_id();
         match self.policy.check(&url) {
             Ok(CheckOutcome::Allowed) => {
@@ -1039,6 +1093,11 @@ impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
         Option<thoth::plugin::file_dialog::OpenedFile>,
         thoth::plugin::file_dialog::PluginError,
     > {
+        crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Filesystem,
+        )
+        .map_err(fd_err)?;
         let Some(path) = crate::dialogs::pick_open(&title, &extensions) else {
             return Ok(None);
         };
@@ -1056,6 +1115,11 @@ impl thoth::plugin::file_dialog::Host for DataSourcePluginState {
         extensions: Vec<String>,
         contents: String,
     ) -> std::result::Result<Option<String>, thoth::plugin::file_dialog::PluginError> {
+        crate::plugin::capability_grants::check(
+            &self.plugin_id,
+            crate::plugin::HostPermission::Filesystem,
+        )
+        .map_err(fd_err)?;
         let Some(path) = crate::dialogs::pick_save(&title, &default_name, &extensions) else {
             return Ok(None);
         };
