@@ -510,6 +510,9 @@ impl From<FileType> for FileKind {
             | FileType::Excel
             | FileType::Arrow
             | FileType::Avro
+            | FileType::Yaml
+            | FileType::Xml
+            | FileType::Toml
             | FileType::DB => FileKind::Json,
             FileType::Plugin => FileKind::Plugin,
             FileType::Unknown => FileKind::Json,

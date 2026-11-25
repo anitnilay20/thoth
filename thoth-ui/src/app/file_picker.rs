@@ -11,6 +11,9 @@ use crate::plugin::{Capability, runtime::active_manager};
 /// picking a `.log` full of NDJSON gets a table either way.
 const NATIVE: &[(&str, &[&str])] = &[
     ("JSON", &["json", "ndjson", "jsonl", "geojson"]),
+    ("YAML", &["yaml", "yml"]),
+    ("XML", &["xml"]),
+    ("TOML", &["toml"]),
     ("CSV", &["csv", "tsv"]),
     ("Parquet", &["parquet", "pq"]),
     ("Database", &["db", "duckdb", "sqlite", "sqlite3"]),

@@ -26,6 +26,9 @@ pub enum FileType {
     Excel,
     Arrow,
     Avro,
+    Yaml,
+    Xml,
+    Toml,
     DB,
     Plugin,
     #[default]
@@ -75,6 +78,9 @@ impl FileType {
             Some("xlsx") | Some("xlsm") => FileType::Excel,
             Some("arrow") | Some("arrows") | Some("ipc") => FileType::Arrow,
             Some("avro") => FileType::Avro,
+            Some("yaml") | Some("yml") => FileType::Yaml,
+            Some("xml") => FileType::Xml,
+            Some("toml") => FileType::Toml,
             Some("db") | Some("duckdb") | Some("sqlite") | Some("sqlite3") => FileType::DB,
             Some("duckdb_extension") | Some("so") | Some("dll") | Some("dylib") => FileType::Plugin,
             _ => FileType::Unknown,
@@ -103,6 +109,9 @@ impl FileType {
                 | FileType::Excel
                 | FileType::Arrow
                 | FileType::Avro
+                | FileType::Yaml
+                | FileType::Xml
+                | FileType::Toml
                 | FileType::DB
         )
     }
@@ -133,6 +142,9 @@ impl FileType {
             FileType::Excel => "Excel",
             FileType::Arrow => "Arrow",
             FileType::Avro => "Avro",
+            FileType::Yaml => "YAML",
+            FileType::Xml => "XML",
+            FileType::Toml => "TOML",
             FileType::DB => "Database",
             FileType::Plugin => "Plugin",
             FileType::Unknown => "Unknown",

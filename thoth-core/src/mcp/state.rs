@@ -100,6 +100,9 @@ impl OpenFile {
             FileType::Excel => "excel",
             FileType::Arrow => "arrow",
             FileType::Avro => "avro",
+            FileType::Yaml => "yaml",
+            FileType::Xml => "xml",
+            FileType::Toml => "toml",
             FileType::DB => "database",
             FileType::Plugin => "plugin",
         }

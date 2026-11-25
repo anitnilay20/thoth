@@ -154,7 +154,7 @@ const PREVIEW_BYTES: u64 = 1 << 20;
 fn default_view(path: &Path) -> &'static str {
     match FileType::from_path(path) {
         // Records — the tree is the point.
-        FileType::Json => "json",
+        FileType::Json | FileType::Yaml | FileType::Xml | FileType::Toml => "json",
         // Already rectangular.
         FileType::Csv
         | FileType::Parquet

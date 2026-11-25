@@ -232,7 +232,12 @@ impl DuckdbConnection {
     fn register_scan(&self, alias: &str, file_type: FileType, scan_path: &Path) -> Result<()> {
         let literal = quote_literal(&scan_path.to_string_lossy());
         let reader = match file_type {
-            FileType::Json | FileType::Plugin | FileType::Unknown => {
+            FileType::Json
+            | FileType::Plugin
+            | FileType::Unknown
+            | FileType::Yaml
+            | FileType::Xml
+            | FileType::Toml => {
                 // DuckDB's default object limit is left alone deliberately. A
                 // document too large to read as one value is an envelope, and
                 // raising the limit only buys a multi-gigabyte parse before the
@@ -951,6 +956,9 @@ impl FileLoader for DuckdbConnection {
                 None => (FileType::Json, Some(stage_via_plugin(path)?)),
             },
             FileType::Plugin => (FileType::Json, Some(stage_via_plugin(path)?)),
+            FileType::Yaml => (FileType::Json, Some(stage_yaml(path)?)),
+            FileType::Xml => (FileType::Json, Some(stage_xml(path)?)),
+            FileType::Toml => (FileType::Json, Some(stage_toml(path)?)),
             named => (named, None),
         };
 
@@ -1071,6 +1079,179 @@ impl FileLoader for DuckdbConnection {
                 reason: format!("No record at index {index}"),
             })
     }
+}
+
+/// Write a `serde_json::Value` (array, object, or scalar) to a temporary
+/// `.json` file for DuckDB `read_json_auto`.
+fn write_staged_json(value: &serde_json::Value) -> Result<NamedTempFile> {
+    use std::io::Write;
+    let mut tmp = tempfile::Builder::new()
+        .prefix("thoth-staged-")
+        .suffix(".json")
+        .tempfile()?;
+    serde_json::to_writer(&mut tmp, value)?;
+    tmp.flush()?;
+    Ok(tmp)
+}
+
+/// Convert a YAML file (single or multi-document) into staged JSON (#35).
+fn stage_yaml(path: &Path) -> Result<NamedTempFile> {
+    use serde::Deserialize;
+    let raw = std::fs::read_to_string(path)?;
+    let mut docs = Vec::new();
+    for doc in serde_yaml::Deserializer::from_str(&raw) {
+        let val = serde_json::Value::deserialize(doc).map_err(|e| ThothError::Unknown {
+            message: format!("invalid YAML in {}: {e}", path.display()),
+        })?;
+        docs.push(val);
+    }
+    let root = match docs.len() {
+        0 => serde_json::Value::Object(Default::default()),
+        1 => docs.into_iter().next().unwrap(),
+        _ => serde_json::Value::Array(docs),
+    };
+    write_staged_json(&root)
+}
+
+/// Convert a TOML file into staged JSON (#35).
+fn stage_toml(path: &Path) -> Result<NamedTempFile> {
+    let raw = std::fs::read_to_string(path)?;
+    let val: toml::Value = toml::from_str(&raw).map_err(|e| ThothError::Unknown {
+        message: format!("invalid TOML in {}: {e}", path.display()),
+    })?;
+    let json = serde_json::to_value(val)?;
+    write_staged_json(&json)
+}
+
+/// Convert an XML file into a JSON tree (`@attr` attributes, `#text` text,
+/// repeated sibling tags as arrays) for DuckDB + Arrow tree viewing (#35).
+fn stage_xml(path: &Path) -> Result<NamedTempFile> {
+    let raw = std::fs::read_to_string(path)?;
+    let json = xml_to_json(&raw).map_err(|e| ThothError::Unknown {
+        message: format!("invalid XML in {}: {e}", path.display()),
+    })?;
+    write_staged_json(&json)
+}
+
+fn xml_to_json(raw: &str) -> std::result::Result<serde_json::Value, String> {
+    use quick_xml::Reader;
+    use quick_xml::events::Event;
+    use serde_json::{Map, Value};
+
+    struct Frame {
+        name: String,
+        attrs: Map<String, Value>,
+        children: Map<String, Value>,
+        text: String,
+    }
+
+    fn insert_child(map: &mut Map<String, Value>, key: String, val: Value) {
+        match map.get_mut(&key) {
+            Some(Value::Array(arr)) => arr.push(val),
+            Some(existing) => {
+                let prev = std::mem::replace(existing, Value::Null);
+                *existing = Value::Array(vec![prev, val]);
+            }
+            None => {
+                map.insert(key, val);
+            }
+        }
+    }
+
+    fn finalize(frame: Frame) -> Value {
+        let trimmed = frame.text.trim();
+        if frame.attrs.is_empty() && frame.children.is_empty() {
+            return Value::String(trimmed.to_string());
+        }
+        let mut obj = frame.attrs;
+        for (k, v) in frame.children {
+            obj.insert(k, v);
+        }
+        if !trimmed.is_empty() {
+            obj.insert("#text".to_string(), Value::String(trimmed.to_string()));
+        }
+        Value::Object(obj)
+    }
+
+    let mut reader = Reader::from_str(raw);
+    reader.config_mut().trim_text(false);
+    let mut stack: Vec<Frame> = Vec::new();
+    let mut root = Map::new();
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => {
+                let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let mut attrs = Map::new();
+                for attr in e.attributes().flatten() {
+                    let k = format!("@{}", String::from_utf8_lossy(attr.key.as_ref()));
+                    let v = attr
+                        .decode_and_unescape_value(reader.decoder())
+                        .map(|s| s.into_owned())
+                        .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
+                    attrs.insert(k, Value::String(v));
+                }
+                stack.push(Frame {
+                    name,
+                    attrs,
+                    children: Map::new(),
+                    text: String::new(),
+                });
+            }
+            Ok(Event::Empty(e)) => {
+                let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
+                let mut attrs = Map::new();
+                for attr in e.attributes().flatten() {
+                    let k = format!("@{}", String::from_utf8_lossy(attr.key.as_ref()));
+                    let v = attr
+                        .decode_and_unescape_value(reader.decoder())
+                        .map(|s| s.into_owned())
+                        .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
+                    attrs.insert(k, Value::String(v));
+                }
+                let val = if attrs.is_empty() {
+                    Value::Object(Map::new())
+                } else {
+                    Value::Object(attrs)
+                };
+                if let Some(parent) = stack.last_mut() {
+                    insert_child(&mut parent.children, name, val);
+                } else {
+                    insert_child(&mut root, name, val);
+                }
+            }
+            Ok(Event::Text(e)) => {
+                if let Some(top) = stack.last_mut() {
+                    let t = e
+                        .unescape()
+                        .map(|s| s.into_owned())
+                        .unwrap_or_else(|_| String::from_utf8_lossy(e.as_ref()).into_owned());
+                    top.text.push_str(&t);
+                }
+            }
+            Ok(Event::CData(e)) => {
+                if let Some(top) = stack.last_mut() {
+                    top.text.push_str(&String::from_utf8_lossy(e.as_ref()));
+                }
+            }
+            Ok(Event::End(_)) => {
+                if let Some(done) = stack.pop() {
+                    let name = done.name.clone();
+                    let val = finalize(done);
+                    if let Some(parent) = stack.last_mut() {
+                        insert_child(&mut parent.children, name, val);
+                    } else {
+                        insert_child(&mut root, name, val);
+                    }
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(e.to_string()),
+            _ => {}
+        }
+    }
+
+    Ok(Value::Object(root))
 }
 
 /// Pull every record out of a file-loader plugin and write it as NDJSON.
@@ -1243,6 +1424,33 @@ mod tests {
 
         let csv = unnamed_file(".dat", "a,b,c\n1,2,3\n4,5,6\n");
         assert_eq!(db.sniff_reader(csv.path()), Some(FileType::Csv));
+    }
+
+    #[test]
+    fn yaml_xml_and_toml_open_through_duckdb() {
+        let yaml = fixture(".yaml", b"- name: ada\n  age: 36\n- name: linus\n  age: 54\n");
+        let db_yaml = DuckdbConnection::new().unwrap();
+        db_yaml
+            .open(&yaml.path().to_string_lossy(), "yaml_tbl")
+            .unwrap();
+        assert_eq!(db_yaml.len().unwrap(), 2);
+
+        let xml = fixture(
+            ".xml",
+            b"<users><user id=\"1\"><name>ada</name></user><user id=\"2\"><name>linus</name></user></users>",
+        );
+        let db_xml = DuckdbConnection::new().unwrap();
+        db_xml
+            .open(&xml.path().to_string_lossy(), "xml_tbl")
+            .unwrap();
+        assert_eq!(db_xml.len().unwrap(), 1);
+
+        let toml = fixture(".toml", b"[package]\nname = \"thoth\"\nversion = \"0.5.0\"\n");
+        let db_toml = DuckdbConnection::new().unwrap();
+        db_toml
+            .open(&toml.path().to_string_lossy(), "toml_tbl")
+            .unwrap();
+        assert_eq!(db_toml.len().unwrap(), 1);
     }
 
     #[test]
