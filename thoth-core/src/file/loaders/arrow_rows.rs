@@ -211,10 +211,13 @@ impl RecordWindow {
         }
         self.ensure(loader, start, count)?;
         if self.cells.is_none() {
-            let rows = crate::file::to_dataset::batches_to_dataset(&self.batches)
-                .map(|(_, rows)| rows)
-                .unwrap_or_default();
-            let nulls = crate::file::to_dataset::batch_nulls(&self.batches);
+            let (rows, nulls) =
+                match crate::file::to_dataset::try_batches_to_dataset(&self.batches)? {
+                    Some((_, rows)) => (rows, crate::file::to_dataset::batch_nulls(&self.batches)),
+                    // No rows is a valid empty window; a formatting failure
+                    // returns Err above instead of being cached as empty.
+                    None => (Vec::new(), Vec::new()),
+                };
             self.cells = Some((rows, nulls));
         }
         // The window may hold more than was asked for, and starts at its own
@@ -257,6 +260,7 @@ impl RecordWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::file::loaders::BatchLoader;
     use crate::file::loaders::duck_db::DuckdbConnection;
     use std::io::Write;
     use tempfile::NamedTempFile;
@@ -413,6 +417,45 @@ mod tests {
         // A range outside the window is a genuine miss, and refetches once.
         let _ = window.cells(&counting, 400, 10).unwrap();
         assert_eq!(counting.fetches.get(), 2);
+    }
+
+    #[test]
+    fn a_formatting_failure_is_an_error_not_an_empty_window() {
+        use duckdb::arrow::array::Date32Array;
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+        use std::sync::Arc;
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "day",
+            DataType::Date32,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Date32Array::from(vec![i32::MAX]))],
+        )
+        .unwrap();
+        let loader = BatchLoader::new(schema, vec![batch]);
+
+        let mut window = RecordWindow::default();
+        assert!(
+            window.cells(&loader, 0, 1).is_err(),
+            "a value formatting failure must not look like an empty window"
+        );
+    }
+
+    #[test]
+    fn a_zero_row_window_is_a_valid_empty_page() {
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+        use std::sync::Arc;
+
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let loader = BatchLoader::new(schema, Vec::new());
+
+        let mut window = RecordWindow::default();
+        let (rows, nulls) = window.cells(&loader, 0, 10).unwrap();
+        assert!(rows.is_empty());
+        assert!(nulls.is_empty());
     }
 
     #[test]

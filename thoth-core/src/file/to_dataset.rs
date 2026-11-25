@@ -15,6 +15,7 @@ use duckdb::arrow::datatypes::DataType;
 use duckdb::arrow::util::display::{ArrayFormatter, FormatOptions, array_value_to_string};
 use serde_json::Value;
 
+use crate::error::{Result as ThothResult, ThothError};
 use crate::file::loaders::FileLoader;
 
 /// Rows read from the file (bounds the crossing for large files).
@@ -78,10 +79,15 @@ fn collect_rows(batches: &[RecordBatch], cap: usize) -> Option<Vec<Vec<String>>>
     Some(rows)
 }
 
-/// Map Arrow batches to a [`DatasetTable`]. `None` if there are no rows or a
-/// column cannot be formatted (never a partial table).
-pub fn batches_to_dataset(batches: &[RecordBatch]) -> Option<DatasetTable> {
-    let first = batches.iter().find(|b| b.num_rows() > 0)?;
+/// Fallible Arrow-to-dataset conversion.
+///
+/// `Ok(None)` means the batches hold no rows, which is a valid empty window;
+/// `Err` means a value could not be formatted. Display code must not collapse
+/// the two into an empty page.
+pub fn try_batches_to_dataset(batches: &[RecordBatch]) -> ThothResult<Option<DatasetTable>> {
+    let Some(first) = batches.iter().find(|b| b.num_rows() > 0) else {
+        return Ok(None);
+    };
     let cols: Vec<(String, String)> = first
         .schema()
         .fields()
@@ -89,14 +95,23 @@ pub fn batches_to_dataset(batches: &[RecordBatch]) -> Option<DatasetTable> {
         .map(|f| (f.name().to_string(), type_hint_arrow(f.data_type())))
         .collect();
     if cols.is_empty() {
-        return None;
+        return Ok(None);
     }
-    let rows = collect_rows(batches, CAP)?;
-    if rows.is_empty() {
+    let rows = collect_rows(batches, CAP).ok_or_else(|| ThothError::Unknown {
+        message: "failed to format Arrow values as text".to_string(),
+    })?;
+    Ok(if rows.is_empty() {
         None
     } else {
         Some((cols, rows))
-    }
+    })
+}
+
+/// Map Arrow batches to a [`DatasetTable`]. `None` if there are no rows or a
+/// column cannot be formatted (never a partial table). Callers that must tell
+/// an empty window from a formatting failure use [`try_batches_to_dataset`].
+pub fn batches_to_dataset(batches: &[RecordBatch]) -> Option<DatasetTable> {
+    try_batches_to_dataset(batches).ok().flatten()
 }
 
 /// Map already-loaded JSON records to a [`DatasetTable`]. `None` if empty.

@@ -307,6 +307,12 @@ pub struct FileViewer {
     /// was read at. See [`FileViewer::document_text`].
     document: Option<(String, u64, String)>,
 
+    /// How many times [`FileViewer::document_text`] has re-read the document.
+    /// Test-only: lets a test prove cached frames do not re-read it, without
+    /// relying on a timing ratio that varies with the machine.
+    #[cfg(test)]
+    document_reads: usize,
+
     /// What the user asked to do with a saved query this frame, drained by
     /// the app — which owns the file path and the persisted store.
     saved_request: Option<thoth_plugin_sdk::components::SavedAction>,
@@ -378,6 +384,8 @@ impl FileViewer {
             query_job: None,
             saved_request: None,
             document: None,
+            #[cfg(test)]
+            document_reads: 0,
             sort_queued: false,
         }
     }
@@ -1295,6 +1303,10 @@ impl FileViewer {
             .as_ref()
             .is_some_and(|(id, rev, _)| id == handle && *rev == revision);
         if !fresh {
+            #[cfg(test)]
+            {
+                self.document_reads += 1;
+            }
             self.document = Some((handle.to_string(), revision, read_document(handle)));
         }
         self.document
@@ -1873,22 +1885,19 @@ mod tests {
         assert!(settle(&mut viewer, 22).is_some());
         let handle = viewer.handle.clone().expect("a text handle");
 
-        let first = std::time::Instant::now();
         let length = viewer.document_text(&handle).len();
-        let cold = first.elapsed();
+        let reads = viewer.document_reads;
+        assert!(reads >= 1, "the first frame should read the document");
 
-        let again = std::time::Instant::now();
         for _ in 0..100 {
             assert_eq!(viewer.document_text(&handle).len(), length);
         }
-        let hundred_frames = again.elapsed();
 
-        // A hundred frames off the cache cost less than the one read that
-        // filled it — which is the difference between re-joining a document
-        // sixty times a second and not.
-        assert!(
-            hundred_frames < cold,
-            "100 cached reads took {hundred_frames:?}, one cold read took {cold:?}"
+        // A hundred frames off the cache must not re-join the document — which
+        // is the difference between re-joining it sixty times a second and not.
+        assert_eq!(
+            viewer.document_reads, reads,
+            "cached frames re-read the document"
         );
     }
 
