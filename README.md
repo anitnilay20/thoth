@@ -41,6 +41,14 @@ Thoth is a high-performance, native desktop workspace for exploring your data. I
 
 ## Installation
 
+### Homebrew (macOS)
+
+```bash
+brew install --cask anitnilay20/tap/thoth
+```
+
+Homebrew automatically handles Gatekeeper quarantine removal and updates (`brew upgrade --cask thoth`).
+
 ### Quick Install (Terminal)
 
 One command installs the latest release — re-run it anytime to update.
