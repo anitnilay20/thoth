@@ -59,6 +59,8 @@ duckdb = { version = "~1.10505.0", features = ["bundled", "json", "parquet", "vt
 arrow = { version = "58.4", features = ["json"] }
 getrandom = "0.3"
 unicode-width = "0.2"
+serde_yaml = "0.9"
+quick-xml = "0.37"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
