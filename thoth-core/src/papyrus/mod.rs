@@ -602,8 +602,8 @@ fn insert_relation(
     );
     reg.order.push(id.clone());
     // A relation sheet is Arrow-backed (size 0), but it still counts toward the
-    // dataset-count budget, so evict after registering it.
-    reg.enforce_budget();
+    // dataset-count budget, so evict after registering it (never this one).
+    reg.enforce_budget(Some(&id));
     id
 }
 
@@ -1339,6 +1339,10 @@ pub(crate) mod tests {
         assert_eq!(meta.columns[0].name, "id");
         assert_eq!(meta.columns[0].type_hint, "integer");
 
+        let page = read(&handle, 0, 10).expect("an empty page is still a page");
+        assert!(page.rows.is_empty());
+        assert_eq!(page.columns[0].name, "id");
+
         // read-arrow can hand the schema back even with no rows.
         let (schema, batches) = read_arrow(&handle, 0, 10).unwrap();
         assert!(batches.is_empty());
@@ -1357,6 +1361,35 @@ pub(crate) mod tests {
         assert_eq!(page.rows, vec![vec!["1".to_string()]]);
 
         release("p#schema", &handle);
+    }
+
+    #[test]
+    fn read_does_not_turn_a_formatting_failure_into_an_empty_page() {
+        use crate::file::loaders::{encode_ipc, parse_ipc};
+        use duckdb::arrow::array::Date32Array;
+        use duckdb::arrow::datatypes::{DataType, Field, Schema};
+
+        let _g = reset();
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "day",
+            DataType::Date32,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(schema, vec![Arc::new(Date32Array::from(vec![i32::MAX]))])
+            .unwrap();
+        let parsed = parse_ipc(&encode_ipc(std::slice::from_ref(&batch)).unwrap()).unwrap();
+        let handle = publish_batches("p", "p#bad-date", "bad".into(), parsed);
+
+        assert!(
+            read(&handle, 0, 10).is_none(),
+            "a formatting failure must not be returned as a page"
+        );
+        assert!(
+            read_arrow(&handle, 0, 10).is_some(),
+            "the typed source is still available through Arrow"
+        );
+
+        release("p#bad-date", &handle);
     }
 
     #[test]
