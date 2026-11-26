@@ -45,6 +45,27 @@ pub struct CustomSyntax {
     pub special: Vec<String>,
 }
 
+/// Map a file extension (without leading dot, case-insensitive) to a built-in
+/// [`CodeEditor`] / [`TextView`](crate::components::TextView) syntax name.
+pub fn syntax_for_extension(ext: &str) -> Option<&'static str> {
+    match ext.to_ascii_lowercase().as_str() {
+        "rs" => Some("rust"),
+        "sql" => Some("sql"),
+        "sh" | "bash" | "zsh" => Some("shell"),
+        "json" | "jsonc" | "ndjson" | "jsonl" => Some("json"),
+        "py" | "pyi" => Some("python"),
+        "ts" | "tsx" | "mts" | "cts" => Some("typescript"),
+        "js" | "jsx" | "mjs" | "cjs" => Some("javascript"),
+        "go" => Some("go"),
+        "yaml" | "yml" => Some("yaml"),
+        "toml" => Some("toml"),
+        "xml" | "html" | "htm" | "svg" => Some("xml"),
+        "css" | "scss" => Some("css"),
+        "c" | "h" | "cc" | "cpp" | "hpp" => Some("c"),
+        _ => None,
+    }
+}
+
 /// An editable, syntax-highlighted code editor. Owns its `value`;
 /// [`CodeEditor::show`] edits it in place.
 ///
@@ -217,13 +238,90 @@ impl CodeEditor {
             match self.syntax.as_deref() {
                 Some("rust") => Syntax::rust(),
                 Some("sql") => Syntax::sql(),
-                Some("shell") | Some("sh") | Some("bash") => Syntax::shell(),
+                Some("shell") | Some("sh") | Some("bash") | Some("zsh") => Syntax::shell(),
                 // The crate has no built-in JSON syntax; approximate it so JSON
                 // content isn't rendered as plain text: highlight the literals and
                 // treat strings via the default quote handling.
                 Some("json") => Syntax::new("json")
                     .with_comment("//")
                     .with_keywords(["true", "false", "null"]),
+                Some("python") | Some("py") => Syntax::new("python")
+                    .with_comment("#")
+                    .with_keywords([
+                        "def", "class", "import", "from", "as", "return", "if", "elif", "else",
+                        "for", "while", "in", "try", "except", "finally", "with", "yield", "async",
+                        "await", "lambda", "pass", "break", "continue", "raise", "True", "False",
+                        "None", "and", "or", "not", "is",
+                    ])
+                    .with_types(["int", "str", "float", "bool", "list", "dict", "set", "tuple"]),
+                Some("typescript") | Some("ts") | Some("javascript") | Some("js") => {
+                    Syntax::new("typescript")
+                        .with_comment("//")
+                        .with_comment_multiline(["/*", "*/"])
+                        .with_keywords([
+                            "function",
+                            "const",
+                            "let",
+                            "var",
+                            "return",
+                            "if",
+                            "else",
+                            "for",
+                            "while",
+                            "switch",
+                            "case",
+                            "break",
+                            "continue",
+                            "import",
+                            "export",
+                            "from",
+                            "default",
+                            "class",
+                            "interface",
+                            "type",
+                            "enum",
+                            "extends",
+                            "implements",
+                            "async",
+                            "await",
+                            "try",
+                            "catch",
+                            "finally",
+                            "throw",
+                            "new",
+                            "this",
+                            "true",
+                            "false",
+                            "null",
+                            "undefined",
+                        ])
+                        .with_types(["string", "number", "boolean", "void", "any", "Promise"])
+                }
+                Some("go") => Syntax::new("go")
+                    .with_comment("//")
+                    .with_comment_multiline(["/*", "*/"])
+                    .with_keywords([
+                        "package", "import", "func", "return", "if", "else", "for", "range",
+                        "switch", "case", "default", "type", "struct", "interface", "map", "chan",
+                        "go", "defer", "select", "var", "const", "true", "false", "nil",
+                    ])
+                    .with_types(["string", "int", "int64", "bool", "error", "byte"]),
+                Some("yaml") | Some("yml") => Syntax::new("yaml")
+                    .with_comment("#")
+                    .with_keywords(["true", "false", "null", "yes", "no"]),
+                Some("toml") => Syntax::new("toml")
+                    .with_comment("#")
+                    .with_keywords(["true", "false"]),
+                Some("xml") | Some("html") => Syntax::new("xml").with_comment_multiline(["<!--", "-->"]),
+                Some("css") => Syntax::new("css").with_comment_multiline(["/*", "*/"]),
+                Some("c") | Some("cpp") => Syntax::new("c")
+                    .with_comment("//")
+                    .with_comment_multiline(["/*", "*/"])
+                    .with_keywords([
+                        "struct", "enum", "typedef", "const", "static", "return", "if", "else",
+                        "for", "while", "switch", "case", "true", "false", "NULL",
+                    ])
+                    .with_types(["int", "char", "void", "size_t", "bool", "float", "double"]),
                 _ => Syntax::default(),
             }
         };
@@ -584,5 +682,17 @@ mod tests {
         // A plugin that predates the field still deserialises, as editable.
         let old: CodeEditor = serde_json::from_str(r#"{"value":"x"}"#).unwrap();
         assert!(!old.read_only);
+    }
+
+    #[test]
+    fn maps_common_code_extensions_to_syntax_names() {
+        assert_eq!(syntax_for_extension("rs"), Some("rust"));
+        assert_eq!(syntax_for_extension("PY"), Some("python"));
+        assert_eq!(syntax_for_extension("tsx"), Some("typescript"));
+        assert_eq!(syntax_for_extension("sql"), Some("sql"));
+        assert_eq!(syntax_for_extension("yaml"), Some("yaml"));
+        assert_eq!(syntax_for_extension("toml"), Some("toml"));
+        assert_eq!(syntax_for_extension("go"), Some("go"));
+        assert_eq!(syntax_for_extension("log"), None);
     }
 }
