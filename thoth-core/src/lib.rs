@@ -17,6 +17,7 @@ pub mod core;
 pub mod dialogs;
 pub mod error;
 pub mod file;
+pub mod fts;
 pub mod helpers;
 pub mod mcp;
 pub mod notification;
