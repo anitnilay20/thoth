@@ -568,6 +568,7 @@ fn build_req_tabs(st: &State) -> RenderNode {
                 "Auth".to_string(),
                 "Headers".to_string(),
                 "Body".to_string(),
+                "Scripts".to_string(),
             ])
             .content_gap(0.0)
             .actions(vec![TabAction::builder()
@@ -597,6 +598,30 @@ fn build_req_tabs(st: &State) -> RenderNode {
                         .value(st.body.clone())
                         .rows(25)
                         .disabled(!is_body_method(&st.method))
+                        .build(),
+                ),
+                RenderNode::Column(
+                    Column::builder()
+                        .gap(8.0)
+                        .padding(8.0)
+                        .children(vec![
+                            muted("Pre-request script (set header/param/body):"),
+                            RenderNode::CodeEditor(
+                                CodeEditor::builder()
+                                    .id("pre-script")
+                                    .value(st.pre_script.clone())
+                                    .rows(6)
+                                    .build(),
+                            ),
+                            muted("Post-request script (select $.path, assert status == 200, assert contains ...):"),
+                            RenderNode::CodeEditor(
+                                CodeEditor::builder()
+                                    .id("post-script")
+                                    .value(st.post_script.clone())
+                                    .rows(6)
+                                    .build(),
+                            ),
+                        ])
                         .build(),
                 ),
             ])
@@ -898,11 +923,16 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
 
     if let Some(ok) = val.get("ok") {
         let status = ok.get("status").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-        let body_raw = ok
+        let mut body_raw = ok
             .get("body")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
+        let script_err = if st.post_script.trim().is_empty() {
+            None
+        } else {
+            crate::scripts::run_post_script(&st.post_script, status, &mut body_raw).err()
+        };
         let headers: Vec<KvPair> = ok
             .get("headers")
             .and_then(|v| v.as_array())
@@ -929,7 +959,7 @@ fn handle_http_response(st: &mut State, event: &UiEvent) {
             headers,
             body: body_raw,
             parsed_body,
-            error: None,
+            error: script_err,
             duration_ms,
             size_bytes,
         });
@@ -1186,6 +1216,8 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
         "params" => st.params = parse_kv_list(&event.value),
         "headers" => st.req_headers = parse_kv_list(&event.value),
         "body" => st.body = parse_str(&event.value),
+        "pre-script" => st.pre_script = parse_str(&event.value),
+        "post-script" => st.post_script = parse_str(&event.value),
 
         "auth-type" => st.auth_type = parse_str(&event.value),
         "auth-token" => st.auth_token = parse_str(&event.value),
@@ -1196,6 +1228,9 @@ pub fn apply_event(st: &mut State, event: &UiEvent) {
         "auth-key-in" => st.auth_key_in = parse_str(&event.value),
 
         "send" if !st.url.is_empty() => {
+            if !st.pre_script.trim().is_empty() {
+                crate::scripts::run_pre_script(st);
+            }
             let req = build_request(st);
             let request_id = http_client::submit(&req);
             st.pending_request_id = Some(request_id);

@@ -3,6 +3,7 @@ mod helper;
 #[rustfmt::skip]
 mod bindings;
 mod http;
+mod scripts;
 mod ui;
 
 use serde_json::Value;
@@ -54,6 +55,10 @@ struct State {
     params: Vec<KvPair>,      // query params
     req_headers: Vec<KvPair>, // custom request headers
     body: String,
+    #[serde(default)]
+    pre_script: String,
+    #[serde(default)]
+    post_script: String,
 
     // ── Auth ──────────────────────────────────────────────────────────────
     auth_type: String, // "none" | "bearer" | "basic" | "api-key"
@@ -134,6 +139,8 @@ impl State {
             params: Vec::new(),
             req_headers: Vec::new(),
             body: String::new(),
+            pre_script: String::new(),
+            post_script: String::new(),
             auth_type: "none".to_string(),
             auth_token: String::new(),
             auth_username: String::new(),
@@ -213,6 +220,10 @@ struct SavedRequest {
     params: Vec<KvPair>,
     req_headers: Vec<KvPair>,
     body: String,
+    #[serde(default)]
+    pre_script: String,
+    #[serde(default)]
+    post_script: String,
     auth_type: String,
     auth_token: String,
     auth_username: String,
@@ -445,6 +456,8 @@ fn save_current_request(st: &mut State) {
         params: st.params.clone(),
         req_headers: st.req_headers.clone(),
         body: st.body.clone(),
+        pre_script: st.pre_script.clone(),
+        post_script: st.post_script.clone(),
         auth_type: st.auth_type.clone(),
         auth_token: st.auth_token.clone(),
         auth_username: st.auth_username.clone(),
@@ -469,6 +482,8 @@ fn load_saved_request(st: &mut State, req: SavedRequest) {
     st.params = req.params;
     st.req_headers = req.req_headers;
     st.body = req.body;
+    st.pre_script = req.pre_script;
+    st.post_script = req.post_script;
     st.auth_type = req.auth_type;
     st.auth_token = req.auth_token;
     st.auth_username = req.auth_username;
