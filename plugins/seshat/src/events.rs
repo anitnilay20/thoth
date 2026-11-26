@@ -829,6 +829,11 @@ fn open_filter_match(st: &State, index: usize) {
                 format!("SELECT * FROM \"{schema}\".\"{table}\""),
             )
         }
+        crate::db::Engine::MongoDb => (
+            m.database.clone(),
+            format!(r#"{{"collection": "{}", "filter": {{}}, "limit": 100}}"#, m.name),
+        ),
+        crate::db::Engine::Kafka => (None, format!("CONSUME {}", m.name)),
     };
     open_tab(
         &conn.name,
@@ -916,6 +921,10 @@ fn open_table_data_named(st: &State, schema: &str, table: &str) {
             let table = table.replace('"', "\"\"");
             format!("SELECT * FROM \"{schema}\".\"{table}\"")
         }
+        crate::db::Engine::MongoDb => {
+            format!(r#"{{"collection": "{table}", "filter": {{}}, "limit": 100}}"#)
+        }
+        crate::db::Engine::Kafka => format!("CONSUME {table}"),
     };
     open_tab(
         &conn.name,
