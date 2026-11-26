@@ -15,6 +15,8 @@ pub(crate) fn engine_logo(e: Engine) -> (&'static str, &'static [u8]) {
     match e {
         Engine::Postgres => ("bytes://seshat/postgres", POSTGRES),
         Engine::Mysql => ("bytes://seshat/mysql", MYSQL),
+        Engine::Clickhouse => ("bytes://seshat/clickhouse", POSTGRES),
         Engine::Elasticsearch => ("bytes://seshat/elasticsearch", ELASTICSEARCH),
+        Engine::Redis => ("bytes://seshat/redis", ELASTICSEARCH),
     }
 }

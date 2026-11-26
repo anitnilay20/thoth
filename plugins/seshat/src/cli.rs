@@ -264,7 +264,9 @@ fn parse_connection_url(url: &str, requested: Option<&str>) -> Result<(Engine, P
     let inferred = match scheme {
         "postgres" | "postgresql" => Engine::Postgres,
         "mysql" => Engine::Mysql,
+        "clickhouse" | "ch" => Engine::Clickhouse,
         "http" | "https" | "elasticsearch" => Engine::Elasticsearch,
+        "redis" | "rediss" => Engine::Redis,
         _ => return Err(format!("unsupported connection scheme '{scheme}'")),
     };
     let engine = requested.map(parse_engine).transpose()?.unwrap_or(inferred);
@@ -322,7 +324,9 @@ fn parse_engine(value: &str) -> Result<Engine, String> {
     match value {
         "postgres" | "postgresql" => Ok(Engine::Postgres),
         "mysql" => Ok(Engine::Mysql),
+        "clickhouse" | "ch" => Ok(Engine::Clickhouse),
         "elasticsearch" | "elastic" | "es" => Ok(Engine::Elasticsearch),
+        "redis" => Ok(Engine::Redis),
         _ => Err(format!("unsupported engine '{value}'")),
     }
 }
@@ -331,7 +335,9 @@ fn engine_name(engine: Engine) -> &'static str {
     match engine {
         Engine::Postgres => "postgres",
         Engine::Mysql => "mysql",
+        Engine::Clickhouse => "clickhouse",
         Engine::Elasticsearch => "elasticsearch",
+        Engine::Redis => "redis",
     }
 }
 

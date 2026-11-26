@@ -356,9 +356,10 @@ pub(crate) static STATE: PluginState<State> = PluginState::new();
 /// Engine picker groups `(category label, engines)` — drives the categorised
 /// card grid in the connection dialog. The group index is embedded in each
 /// list's widget id (`engine-list-<i>`) so clicks route back to the right engine.
-pub(crate) const ENGINE_GROUPS: [(&str, &[Engine]); 2] = [
-    ("SQL Databases", &[Engine::Postgres, Engine::Mysql]),
+pub(crate) const ENGINE_GROUPS: [(&str, &[Engine]); 3] = [
+    ("SQL Databases", &[Engine::Postgres, Engine::Mysql, Engine::Clickhouse]),
     ("Search", &[Engine::Elasticsearch]),
+    ("Key-Value", &[Engine::Redis]),
 ];
 
 /// Rows rendered per tree level before a "Show more" row appears (and how many
@@ -372,7 +373,9 @@ pub(crate) const ROW_PAGE: usize = 100;
 pub(crate) fn engine_from_value(v: &str) -> Engine {
     match v {
         "mysql" => Engine::Mysql,
+        "clickhouse" => Engine::Clickhouse,
         "elasticsearch" => Engine::Elasticsearch,
+        "redis" => Engine::Redis,
         _ => Engine::Postgres,
     }
 }
@@ -380,14 +383,18 @@ pub(crate) fn engine_label(e: Engine) -> &'static str {
     match e {
         Engine::Postgres => "PostgreSQL",
         Engine::Mysql => "MySQL",
+        Engine::Clickhouse => "ClickHouse",
         Engine::Elasticsearch => "Elasticsearch",
+        Engine::Redis => "Redis",
     }
 }
 pub(crate) fn engine_badge(e: Engine) -> (&'static str, &'static str) {
     match e {
         Engine::Postgres => ("PG", "blue"),
         Engine::Mysql => ("MY", "orange"),
+        Engine::Clickhouse => ("CH", "warning"),
         Engine::Elasticsearch => ("ES", "success"),
+        Engine::Redis => ("RD", "error"),
     }
 }
 

@@ -23,7 +23,9 @@ pub(crate) struct Prepared {
 /// is left unchanged. UI and CLI callers consume this same result instead of
 /// interpreting the lower-level SQL/Elasticsearch rewriters independently.
 pub(crate) fn prepare(engine: Engine, query: &str, limit: usize) -> Prepared {
-    let applied = if engine == Engine::Elasticsearch {
+    let applied = if engine == Engine::Redis {
+        None
+    } else if engine == Engine::Elasticsearch {
         crate::db::es::cap(query, limit)
     } else {
         crate::sql::add_limit(query, limit)

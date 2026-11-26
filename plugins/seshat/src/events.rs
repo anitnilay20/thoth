@@ -813,7 +813,8 @@ fn open_filter_match(st: &State, index: usize) {
     // open_table_data_named).
     let (target_db, sql) = match conn.engine {
         crate::db::Engine::Elasticsearch => (None, es_search_query(&m.name)),
-        crate::db::Engine::Mysql => {
+        crate::db::Engine::Redis => (None, format!("GET {}", m.name)),
+        crate::db::Engine::Mysql | crate::db::Engine::Clickhouse => {
             // MySQL: the schema is the database; qualify in the current connection.
             let db = m.database.clone().unwrap_or_else(|| m.schema.clone());
             let db = db.replace('`', "``");
@@ -906,7 +907,8 @@ fn open_table_data_named(st: &State, schema: &str, table: &str) {
     // No LIMIT here — the run path caps rows and offers "Load more".
     let sql = match conn.engine {
         crate::db::Engine::Elasticsearch => es_search_query(table),
-        crate::db::Engine::Mysql => {
+        crate::db::Engine::Redis => format!("GET {table}"),
+        crate::db::Engine::Mysql | crate::db::Engine::Clickhouse => {
             let schema = schema.replace('`', "``");
             let table = table.replace('`', "``");
             format!("SELECT * FROM `{schema}`.`{table}`")
