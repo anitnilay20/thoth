@@ -24,7 +24,7 @@ pub struct CliOutput {
 /// Return whether an argument selects a built-in or discovered CLI command.
 pub fn is_known_command(argument: &str, plugin_ids: &[String]) -> bool {
     argument.starts_with('-')
-        || matches!(argument, "plugins" | "completions" | "help")
+        || matches!(argument, "plugins" | "completions" | "search" | "help")
         || plugin_ids.iter().any(|id| id == argument)
 }
 
@@ -47,6 +47,11 @@ enum Action {
     },
     Completions(Shell),
     QueryFile(Vec<String>, String),
+    SearchFile {
+        file: String,
+        query: String,
+        limit: usize,
+    },
 }
 
 /// Parse and run a CLI invocation without initializing a native window.
@@ -89,6 +94,7 @@ where
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
         Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
+        Action::SearchFile { file, query, limit } => search_file_action(&file, &query, limit),
     }
 }
 
@@ -119,6 +125,7 @@ where
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
         Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
+        Action::SearchFile { file, query, limit } => search_file_action(&file, &query, limit),
     }
 }
 
@@ -138,7 +145,24 @@ fn command(schemas: &[CliSchema]) -> Command {
                         .value_parser(value_parser!(Shell)),
                 ),
         )
-        .subcommand(file_viewer::command());
+        .subcommand(file_viewer::command())
+        .subcommand(
+            Command::new("search")
+                .about("Full-text BM25 search over a local file")
+                .arg(Arg::new("file").required(true).help("Path to the file"))
+                .arg(
+                    Arg::new("query")
+                        .required(true)
+                        .help("Search query (supports phrases, AND/OR, -term, field:term)"),
+                )
+                .arg(
+                    Arg::new("limit")
+                        .long("limit")
+                        .short('n')
+                        .default_value("20")
+                        .value_parser(value_parser!(usize)),
+                ),
+        );
 
     for schema in schemas {
         let mut plugin = Command::new(schema.id.clone())
@@ -201,6 +225,17 @@ where
                 .expect("shell is required by clap"),
         )),
         "query-file" => Ok(file_viewer::parse(matches)),
+        "search" => Ok(Action::SearchFile {
+            file: matches
+                .get_one::<String>("file")
+                .expect("file is required")
+                .clone(),
+            query: matches
+                .get_one::<String>("query")
+                .expect("query is required")
+                .clone(),
+            limit: *matches.get_one::<usize>("limit").unwrap_or(&20),
+        }),
         plugin_id => parse_plugin(plugin_id, matches, schemas),
     }
 }
@@ -242,6 +277,35 @@ fn parse_plugin(
             values,
         },
     })
+}
+
+fn search_file_action(file: &str, query: &str, limit: usize) -> CliOutput {
+    let index = match crate::fts::FtsIndex::open_or_build(std::path::Path::new(file)) {
+        Ok(idx) => idx,
+        Err(err) => {
+            return CliOutput {
+                exit_code: 1,
+                stdout: String::new(),
+                stderr: format!("{err}\n"),
+            };
+        }
+    };
+    let hits = index.search(query, limit);
+    let records: Vec<Value> = hits
+        .into_iter()
+        .map(|h| {
+            serde_json::json!({
+                "line": h.line_number,
+                "score": (h.score * 1000.0).round() / 1000.0,
+                "text": h.text,
+            })
+        })
+        .collect();
+    CliOutput {
+        exit_code: 0,
+        stdout: table_output::print_json(&records),
+        stderr: String::new(),
+    }
 }
 
 fn completion_output(shell: Shell, mut command: Command) -> CliOutput {
