@@ -820,14 +820,19 @@ fn open_filter_match(st: &State, index: usize) {
             let table = m.name.replace('`', "``");
             (None, format!("SELECT * FROM `{db}`.`{table}`"))
         }
-        crate::db::Engine::Postgres => {
-            // Postgres: open a tab connected to the match's database.
+        crate::db::Engine::Postgres | crate::db::Engine::Snowflake => {
+            // Postgres / Snowflake: open a tab connected to the match's database.
             let schema = m.schema.replace('"', "\"\"");
             let table = m.name.replace('"', "\"\"");
             (
                 m.database.clone(),
                 format!("SELECT * FROM \"{schema}\".\"{table}\""),
             )
+        }
+        crate::db::Engine::BigQuery => {
+            let schema = m.schema.replace('`', "");
+            let table = m.name.replace('`', "");
+            (None, format!("SELECT * FROM `{schema}`.`{table}`"))
         }
     };
     open_tab(
@@ -906,12 +911,12 @@ fn open_table_data_named(st: &State, schema: &str, table: &str) {
     // No LIMIT here — the run path caps rows and offers "Load more".
     let sql = match conn.engine {
         crate::db::Engine::Elasticsearch => es_search_query(table),
-        crate::db::Engine::Mysql => {
+        crate::db::Engine::Mysql | crate::db::Engine::BigQuery => {
             let schema = schema.replace('`', "``");
             let table = table.replace('`', "``");
             format!("SELECT * FROM `{schema}`.`{table}`")
         }
-        crate::db::Engine::Postgres => {
+        crate::db::Engine::Postgres | crate::db::Engine::Snowflake => {
             let schema = schema.replace('"', "\"\"");
             let table = table.replace('"', "\"\"");
             format!("SELECT * FROM \"{schema}\".\"{table}\"")
