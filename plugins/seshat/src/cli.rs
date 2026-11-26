@@ -265,6 +265,8 @@ fn parse_connection_url(url: &str, requested: Option<&str>) -> Result<(Engine, P
         "postgres" | "postgresql" => Engine::Postgres,
         "mysql" => Engine::Mysql,
         "http" | "https" | "elasticsearch" => Engine::Elasticsearch,
+        "duckdb" => Engine::DuckDB,
+        "sqlite" | "libsql" => Engine::SQLite,
         _ => return Err(format!("unsupported connection scheme '{scheme}'")),
     };
     let engine = requested.map(parse_engine).transpose()?.unwrap_or(inferred);
@@ -323,6 +325,8 @@ fn parse_engine(value: &str) -> Result<Engine, String> {
         "postgres" | "postgresql" => Ok(Engine::Postgres),
         "mysql" => Ok(Engine::Mysql),
         "elasticsearch" | "elastic" | "es" => Ok(Engine::Elasticsearch),
+        "duckdb" => Ok(Engine::DuckDB),
+        "sqlite" | "libsql" => Ok(Engine::SQLite),
         _ => Err(format!("unsupported engine '{value}'")),
     }
 }
@@ -332,6 +336,8 @@ fn engine_name(engine: Engine) -> &'static str {
         Engine::Postgres => "postgres",
         Engine::Mysql => "mysql",
         Engine::Elasticsearch => "elasticsearch",
+        Engine::DuckDB => "duckdb",
+        Engine::SQLite => "sqlite",
     }
 }
 
