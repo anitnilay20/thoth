@@ -55,7 +55,9 @@ pub use card::CardEvent;
 pub use card::{Card, CardAction, CardIcon};
 pub use checkbox::Checkbox;
 pub use code::Code;
-pub use code_editor::{CodeEditor, CodeEditorOutput, CustomSyntax, RunRequest};
+pub use code_editor::{
+    CodeEditor, CodeEditorOutput, CustomSyntax, RunRequest, syntax_for_extension,
+};
 pub use context_menu::{ContextMenu, ContextMenuItem};
 #[cfg(feature = "egui")]
 pub use data_row::DataRowOutput;

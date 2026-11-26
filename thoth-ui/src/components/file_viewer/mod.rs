@@ -1267,9 +1267,16 @@ impl FileViewer {
             return;
         }
 
+        let syntax = self
+            .file_path
+            .as_deref()
+            .and_then(|p| p.extension().and_then(|e| e.to_str()))
+            .and_then(thoth_plugin_sdk::components::syntax_for_extension);
+
         TextView::builder()
             .id(format!("file_text_{}", self.tab_id))
             .value(shown)
+            .maybe_syntax(syntax)
             .maybe_caption(Self::document_note_text(shown_lines, total))
             .build()
             .show(ui);
