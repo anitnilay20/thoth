@@ -6,9 +6,11 @@
 //! the host `tcp-client` shim, does its work, and closes. All methods are
 //! blocking and are only ever invoked on the host's db-runtime worker thread
 //! (never the UI thread), via the plugin's `query` export.
+pub(crate) mod clickhouse;
 pub(crate) mod es;
 pub(crate) mod mysql;
 pub(crate) mod pg;
+pub(crate) mod redis;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,7 +22,9 @@ pub enum Engine {
     #[default]
     Postgres,
     Mysql,
+    Clickhouse,
     Elasticsearch,
+    Redis,
 }
 
 /// A connection target: one database server plus credentials.
@@ -175,7 +179,9 @@ pub fn adapter(engine: Engine) -> Box<dyn DbAdapter> {
     match engine {
         Engine::Postgres => Box::new(pg::Postgres),
         Engine::Mysql => Box::new(mysql::Mysql),
+        Engine::Clickhouse => Box::new(clickhouse::ClickHouse),
         Engine::Elasticsearch => Box::new(es::Elasticsearch),
+        Engine::Redis => Box::new(redis::Redis),
     }
 }
 
@@ -225,11 +231,9 @@ impl Engine {
             Engine::Postgres => format!("EXPLAIN (ANALYZE, FORMAT JSON) {sql}"),
             // MySQL's ANALYZE only emits TREE format, so JSON stays estimate-only
             // (no actual run times — the plan renderer bars by cost instead).
-            Engine::Mysql => format!("EXPLAIN FORMAT=JSON {sql}"),
-            // Elasticsearch has no SQL EXPLAIN. Its Explain tab isn't rendered and
-            // `load_explain` refuses early, so this arm is unreachable in practice;
-            // echo the body rather than fabricate a plan.
-            Engine::Elasticsearch => sql.to_string(),
+            Engine::Mysql | Engine::Clickhouse => format!("EXPLAIN FORMAT=JSON {sql}"),
+            // Elasticsearch and Redis have no SQL EXPLAIN.
+            Engine::Elasticsearch | Engine::Redis => sql.to_string(),
         }
     }
 }

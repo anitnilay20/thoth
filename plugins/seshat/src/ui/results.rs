@@ -18,7 +18,10 @@ pub fn results_view(state: &State) -> RenderNode {
     // tab is omitted for it rather than showing a re-run of the search dressed
     // up as a plan. The tab-change handler matches on the tab *label*, so
     // dropping one here can't misroute the others.
-    let explain = state.engine() != crate::db::Engine::Elasticsearch;
+    let explain = !matches!(
+        state.engine(),
+        crate::db::Engine::Elasticsearch | crate::db::Engine::Redis
+    );
 
     let mut headers = vec!["Results".to_string(), "Messages".to_string()];
     let mut icons = vec![ICON_TABLE.to_string(), ICON_CHAT_TEXT.to_string()];
