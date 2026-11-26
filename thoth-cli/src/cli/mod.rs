@@ -24,7 +24,7 @@ pub struct CliOutput {
 /// Return whether an argument selects a built-in or discovered CLI command.
 pub fn is_known_command(argument: &str, plugin_ids: &[String]) -> bool {
     argument.starts_with('-')
-        || matches!(argument, "plugins" | "completions" | "help")
+        || matches!(argument, "plugins" | "completions" | "graph" | "help")
         || plugin_ids.iter().any(|id| id == argument)
 }
 
@@ -47,6 +47,12 @@ enum Action {
     },
     Completions(Shell),
     QueryFile(Vec<String>, String),
+    GraphFile {
+        file: String,
+        layout: crate::json_graph::GraphLayout,
+        format: String,
+        depth: usize,
+    },
 }
 
 /// Parse and run a CLI invocation without initializing a native window.
@@ -89,6 +95,12 @@ where
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
         Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
+        Action::GraphFile {
+            file,
+            layout,
+            format,
+            depth,
+        } => graph_file_action(&file, layout, &format, depth),
     }
 }
 
@@ -119,6 +131,12 @@ where
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
         Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
+        Action::GraphFile {
+            file,
+            layout,
+            format,
+            depth,
+        } => graph_file_action(&file, layout, &format, depth),
     }
 }
 
@@ -138,7 +156,30 @@ fn command(schemas: &[CliSchema]) -> Command {
                         .value_parser(value_parser!(Shell)),
                 ),
         )
-        .subcommand(file_viewer::command());
+        .subcommand(file_viewer::command())
+        .subcommand(
+            Command::new("graph")
+                .about("Export a JSON file as an SVG, Mermaid flowchart, or node-graph JSON")
+                .arg(Arg::new("file").required(true).help("Path to the JSON file"))
+                .arg(
+                    Arg::new("layout")
+                        .long("layout")
+                        .default_value("tree")
+                        .value_parser(["tree", "mindmap"]),
+                )
+                .arg(
+                    Arg::new("format")
+                        .long("format")
+                        .default_value("svg")
+                        .value_parser(["svg", "mermaid", "json"]),
+                )
+                .arg(
+                    Arg::new("depth")
+                        .long("depth")
+                        .default_value("5")
+                        .value_parser(value_parser!(usize)),
+                ),
+        );
 
     for schema in schemas {
         let mut plugin = Command::new(schema.id.clone())
@@ -201,6 +242,28 @@ where
                 .expect("shell is required by clap"),
         )),
         "query-file" => Ok(file_viewer::parse(matches)),
+        "graph" => {
+            let layout = match matches
+                .get_one::<String>("layout")
+                .map(String::as_str)
+                .unwrap_or("tree")
+            {
+                "mindmap" => crate::json_graph::GraphLayout::MindMap,
+                _ => crate::json_graph::GraphLayout::Tree,
+            };
+            Ok(Action::GraphFile {
+                file: matches
+                    .get_one::<String>("file")
+                    .expect("file is required")
+                    .clone(),
+                layout,
+                format: matches
+                    .get_one::<String>("format")
+                    .cloned()
+                    .unwrap_or_else(|| "svg".to_string()),
+                depth: *matches.get_one::<usize>("depth").unwrap_or(&5),
+            })
+        }
         plugin_id => parse_plugin(plugin_id, matches, schemas),
     }
 }
@@ -242,6 +305,45 @@ fn parse_plugin(
             values,
         },
     })
+}
+
+fn graph_file_action(
+    file: &str,
+    layout: crate::json_graph::GraphLayout,
+    format: &str,
+    depth: usize,
+) -> CliOutput {
+    let raw = match std::fs::read_to_string(file) {
+        Ok(s) => s,
+        Err(err) => {
+            return CliOutput {
+                exit_code: 1,
+                stdout: String::new(),
+                stderr: format!("Failed to read {file}: {err}\n"),
+            };
+        }
+    };
+    let val: Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(err) => {
+            return CliOutput {
+                exit_code: 1,
+                stdout: String::new(),
+                stderr: format!("Invalid JSON in {file}: {err}\n"),
+            };
+        }
+    };
+    let graph = crate::json_graph::JsonGraph::from_value(&val, depth, 250, layout);
+    let stdout = match format {
+        "mermaid" => graph.to_mermaid(),
+        "json" => serde_json::to_string_pretty(&graph).unwrap_or_default(),
+        _ => graph.to_svg(),
+    };
+    CliOutput {
+        exit_code: 0,
+        stdout: format!("{stdout}\n"),
+        stderr: String::new(),
+    }
 }
 
 fn completion_output(shell: Shell, mut command: Command) -> CliOutput {
