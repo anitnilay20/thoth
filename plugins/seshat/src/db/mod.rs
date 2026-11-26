@@ -6,9 +6,11 @@
 //! the host `tcp-client` shim, does its work, and closes. All methods are
 //! blocking and are only ever invoked on the host's db-runtime worker thread
 //! (never the UI thread), via the plugin's `query` export.
+pub(crate) mod bigquery;
 pub(crate) mod es;
 pub(crate) mod mysql;
 pub(crate) mod pg;
+pub(crate) mod snowflake;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -21,6 +23,8 @@ pub enum Engine {
     Postgres,
     Mysql,
     Elasticsearch,
+    BigQuery,
+    Snowflake,
 }
 
 /// A connection target: one database server plus credentials.
@@ -176,6 +180,8 @@ pub fn adapter(engine: Engine) -> Box<dyn DbAdapter> {
         Engine::Postgres => Box::new(pg::Postgres),
         Engine::Mysql => Box::new(mysql::Mysql),
         Engine::Elasticsearch => Box::new(es::Elasticsearch),
+        Engine::BigQuery => Box::new(bigquery::BigQuery),
+        Engine::Snowflake => Box::new(snowflake::Snowflake),
     }
 }
 
@@ -230,6 +236,8 @@ impl Engine {
             // `load_explain` refuses early, so this arm is unreachable in practice;
             // echo the body rather than fabricate a plan.
             Engine::Elasticsearch => sql.to_string(),
+            Engine::BigQuery => format!("EXPLAIN {sql}"),
+            Engine::Snowflake => format!("EXPLAIN USING JSON {sql}"),
         }
     }
 }
