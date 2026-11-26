@@ -47,6 +47,12 @@ enum Action {
     },
     Completions(Shell),
     QueryFile(Vec<String>, String),
+    Convert {
+        files: Vec<String>,
+        to: String,
+        out_dir: Option<String>,
+        sql: Option<String>,
+    },
 }
 
 /// Parse and run a CLI invocation without initializing a native window.
@@ -89,6 +95,50 @@ where
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
         Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
+        Action::Convert {
+            files,
+            to,
+            out_dir,
+            sql,
+        } => convert_action(&files, &to, out_dir.as_deref(), sql.as_deref()),
+    }
+}
+
+fn convert_action(
+    files: &[String],
+    to: &str,
+    out_dir: Option<&str>,
+    sql: Option<&str>,
+) -> CliOutput {
+    use std::path::{Path, PathBuf};
+    use thoth_core::file::convert::{ExportFormat, convert_batch};
+
+    let format = match ExportFormat::from_name(to) {
+        Ok(f) => f,
+        Err(e) => {
+            return CliOutput {
+                exit_code: 1,
+                stdout: String::new(),
+                stderr: format!("{e}\n"),
+            };
+        }
+    };
+    let inputs: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
+    let dir = out_dir.map(Path::new).unwrap_or_else(|| Path::new("."));
+    match convert_batch(&inputs, dir, format, sql) {
+        Ok(outputs) => {
+            let lines: Vec<String> = outputs.iter().map(|p| p.display().to_string()).collect();
+            CliOutput {
+                exit_code: 0,
+                stdout: format!("{}\n", lines.join("\n")),
+                stderr: String::new(),
+            }
+        }
+        Err(e) => CliOutput {
+            exit_code: 1,
+            stdout: String::new(),
+            stderr: format!("{e}\n"),
+        },
     }
 }
 
@@ -119,6 +169,12 @@ where
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
         Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
+        Action::Convert {
+            files,
+            to,
+            out_dir,
+            sql,
+        } => convert_action(&files, &to, out_dir.as_deref(), sql.as_deref()),
     }
 }
 
@@ -138,7 +194,36 @@ fn command(schemas: &[CliSchema]) -> Command {
                         .value_parser(value_parser!(Shell)),
                 ),
         )
-        .subcommand(file_viewer::command());
+        .subcommand(file_viewer::command())
+        .subcommand(
+            Command::new("convert")
+                .about("Convert files between JSON, NDJSON, CSV, and Parquet")
+                .arg(
+                    Arg::new("files")
+                        .required(true)
+                        .num_args(1..)
+                        .value_name("FILE"),
+                )
+                .arg(
+                    Arg::new("to")
+                        .long("to")
+                        .required(true)
+                        .value_name("FORMAT")
+                        .help("Output format: json, ndjson, csv, parquet"),
+                )
+                .arg(
+                    Arg::new("out-dir")
+                        .long("out-dir")
+                        .value_name("DIR")
+                        .help("Output directory (defaults to current directory)"),
+                )
+                .arg(
+                    Arg::new("sql")
+                        .long("sql")
+                        .value_name("QUERY")
+                        .help("Optional SQL SELECT over table `data` to filter/shape output"),
+                ),
+        );
 
     for schema in schemas {
         let mut plugin = Command::new(schema.id.clone())
@@ -201,6 +286,22 @@ where
                 .expect("shell is required by clap"),
         )),
         "query-file" => Ok(file_viewer::parse(matches)),
+        "convert" => {
+            let files: Vec<String> = matches
+                .get_many::<String>("files")
+                .unwrap_or_default()
+                .cloned()
+                .collect();
+            let to = matches.get_one::<String>("to").cloned().unwrap_or_default();
+            let out_dir = matches.get_one::<String>("out-dir").cloned();
+            let sql = matches.get_one::<String>("sql").cloned();
+            Ok(Action::Convert {
+                files,
+                to,
+                out_dir,
+                sql,
+            })
+        }
         plugin_id => parse_plugin(plugin_id, matches, schemas),
     }
 }

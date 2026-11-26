@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
+pub mod convert;
 pub mod detect_file_type;
 pub mod extensions;
 pub mod index_cache;
