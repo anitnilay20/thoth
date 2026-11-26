@@ -820,8 +820,8 @@ fn open_filter_match(st: &State, index: usize) {
             let table = m.name.replace('`', "``");
             (None, format!("SELECT * FROM `{db}`.`{table}`"))
         }
-        crate::db::Engine::Postgres => {
-            // Postgres: open a tab connected to the match's database.
+        crate::db::Engine::Postgres | crate::db::Engine::DuckDB | crate::db::Engine::SQLite => {
+            // Postgres / DuckDB / SQLite: open a tab connected to the match's database.
             let schema = m.schema.replace('"', "\"\"");
             let table = m.name.replace('"', "\"\"");
             (
@@ -911,7 +911,7 @@ fn open_table_data_named(st: &State, schema: &str, table: &str) {
             let table = table.replace('`', "``");
             format!("SELECT * FROM `{schema}`.`{table}`")
         }
-        crate::db::Engine::Postgres => {
+        crate::db::Engine::Postgres | crate::db::Engine::DuckDB | crate::db::Engine::SQLite => {
             let schema = schema.replace('"', "\"\"");
             let table = table.replace('"', "\"\"");
             format!("SELECT * FROM \"{schema}\".\"{table}\"")
