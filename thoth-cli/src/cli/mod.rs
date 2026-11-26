@@ -24,7 +24,7 @@ pub struct CliOutput {
 /// Return whether an argument selects a built-in or discovered CLI command.
 pub fn is_known_command(argument: &str, plugin_ids: &[String]) -> bool {
     argument.starts_with('-')
-        || matches!(argument, "plugins" | "completions" | "help")
+        || matches!(argument, "plugins" | "completions" | "analyze" | "help")
         || plugin_ids.iter().any(|id| id == argument)
 }
 
@@ -47,6 +47,11 @@ enum Action {
     },
     Completions(Shell),
     QueryFile(Vec<String>, String),
+    AnalyzeFile {
+        file: String,
+        schema_only: bool,
+        ask: Option<String>,
+    },
 }
 
 /// Parse and run a CLI invocation without initializing a native window.
@@ -89,6 +94,11 @@ where
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
         Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
+        Action::AnalyzeFile {
+            file,
+            schema_only,
+            ask,
+        } => analyze_file_action(&file, schema_only, ask.as_deref()),
     }
 }
 
@@ -119,6 +129,11 @@ where
             invocation,
         } => plugin_output(runtime.run_cli(&plugin_id, &invocation)),
         Action::QueryFile(files, sql) => file_viewer::action(&files, &sql),
+        Action::AnalyzeFile {
+            file,
+            schema_only,
+            ask,
+        } => analyze_file_action(&file, schema_only, ask.as_deref()),
     }
 }
 
@@ -138,7 +153,24 @@ fn command(schemas: &[CliSchema]) -> Command {
                         .value_parser(value_parser!(Shell)),
                 ),
         )
-        .subcommand(file_viewer::command());
+        .subcommand(file_viewer::command())
+        .subcommand(
+            Command::new("analyze")
+                .about("Infer JSON schema, field stats, anomalies, relationships, or translate NL queries")
+                .arg(Arg::new("file").required(true).help("Path to the JSON or NDJSON file"))
+                .arg(
+                    Arg::new("schema")
+                        .long("schema")
+                        .action(ArgAction::SetTrue)
+                        .help("Emit only the inferred JSON Schema"),
+                )
+                .arg(
+                    Arg::new("ask")
+                        .long("ask")
+                        .value_name("QUESTION")
+                        .help("Translate a natural-language question into SQL"),
+                ),
+        );
 
     for schema in schemas {
         let mut plugin = Command::new(schema.id.clone())
@@ -201,6 +233,14 @@ where
                 .expect("shell is required by clap"),
         )),
         "query-file" => Ok(file_viewer::parse(matches)),
+        "analyze" => Ok(Action::AnalyzeFile {
+            file: matches
+                .get_one::<String>("file")
+                .expect("file is required")
+                .clone(),
+            schema_only: matches.get_flag("schema"),
+            ask: matches.get_one::<String>("ask").cloned(),
+        }),
         plugin_id => parse_plugin(plugin_id, matches, schemas),
     }
 }
@@ -242,6 +282,52 @@ fn parse_plugin(
             values,
         },
     })
+}
+
+fn analyze_file_action(file: &str, schema_only: bool, ask: Option<&str>) -> CliOutput {
+    let raw = match std::fs::read_to_string(file) {
+        Ok(s) => s,
+        Err(err) => {
+            return CliOutput {
+                exit_code: 1,
+                stdout: String::new(),
+                stderr: format!("Failed to read {file}: {err}\n"),
+            };
+        }
+    };
+    let records: Vec<Value> = match serde_json::from_str::<Value>(&raw) {
+        Ok(Value::Array(arr)) => arr,
+        Ok(other) => vec![other],
+        Err(_) => raw
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .collect(),
+    };
+    let report = crate::json_insights::analyze_records(&records);
+    if let Some(question) = ask {
+        let cols: Vec<String> = report.fields.iter().map(|f| f.path.clone()).collect();
+        let table = std::path::Path::new(file)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("data");
+        let sql = crate::json_insights::nl_to_sql(table, question, &cols);
+        return CliOutput {
+            exit_code: 0,
+            stdout: format!("{sql}\n"),
+            stderr: String::new(),
+        };
+    }
+    let out = if schema_only {
+        serde_json::to_string_pretty(&report.schema).unwrap_or_default()
+    } else {
+        serde_json::to_string_pretty(&report).unwrap_or_default()
+    };
+    CliOutput {
+        exit_code: 0,
+        stdout: format!("{out}\n"),
+        stderr: String::new(),
+    }
 }
 
 fn completion_output(shell: Shell, mut command: Command) -> CliOutput {

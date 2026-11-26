@@ -18,6 +18,7 @@ pub mod dialogs;
 pub mod error;
 pub mod file;
 pub mod helpers;
+pub mod json_insights;
 pub mod mcp;
 pub mod notification;
 pub mod papyrus;
