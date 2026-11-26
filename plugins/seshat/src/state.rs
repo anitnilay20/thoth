@@ -356,8 +356,10 @@ pub(crate) static STATE: PluginState<State> = PluginState::new();
 /// Engine picker groups `(category label, engines)` — drives the categorised
 /// card grid in the connection dialog. The group index is embedded in each
 /// list's widget id (`engine-list-<i>`) so clicks route back to the right engine.
-pub(crate) const ENGINE_GROUPS: [(&str, &[Engine]); 2] = [
+pub(crate) const ENGINE_GROUPS: [(&str, &[Engine]); 4] = [
     ("SQL Databases", &[Engine::Postgres, Engine::Mysql]),
+    ("Document Stores", &[Engine::MongoDb]),
+    ("Streaming", &[Engine::Kafka]),
     ("Search", &[Engine::Elasticsearch]),
 ];
 
@@ -373,6 +375,8 @@ pub(crate) fn engine_from_value(v: &str) -> Engine {
     match v {
         "mysql" => Engine::Mysql,
         "elasticsearch" => Engine::Elasticsearch,
+        "mongodb" => Engine::MongoDb,
+        "kafka" => Engine::Kafka,
         _ => Engine::Postgres,
     }
 }
@@ -381,6 +385,8 @@ pub(crate) fn engine_label(e: Engine) -> &'static str {
         Engine::Postgres => "PostgreSQL",
         Engine::Mysql => "MySQL",
         Engine::Elasticsearch => "Elasticsearch",
+        Engine::MongoDb => "MongoDB",
+        Engine::Kafka => "Kafka",
     }
 }
 pub(crate) fn engine_badge(e: Engine) -> (&'static str, &'static str) {
@@ -388,6 +394,8 @@ pub(crate) fn engine_badge(e: Engine) -> (&'static str, &'static str) {
         Engine::Postgres => ("PG", "blue"),
         Engine::Mysql => ("MY", "orange"),
         Engine::Elasticsearch => ("ES", "success"),
+        Engine::MongoDb => ("MG", "success"),
+        Engine::Kafka => ("KF", "orange"),
     }
 }
 

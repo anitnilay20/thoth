@@ -9,6 +9,8 @@ use crate::db::Engine;
 const POSTGRES: &[u8] = include_bytes!("../assets/icons/postgres.png");
 const MYSQL: &[u8] = include_bytes!("../assets/icons/mysql.png");
 const ELASTICSEARCH: &[u8] = include_bytes!("../assets/icons/elasticsearch.png");
+const MONGODB: &[u8] = include_bytes!("../assets/icons/mongodb.svg");
+const KAFKA: &[u8] = include_bytes!("../assets/icons/kafka.svg");
 
 /// The logo `(cache-uri, bytes)` for an engine — feeds a `ListItemPrefix::Image`.
 pub(crate) fn engine_logo(e: Engine) -> (&'static str, &'static [u8]) {
@@ -16,5 +18,7 @@ pub(crate) fn engine_logo(e: Engine) -> (&'static str, &'static [u8]) {
         Engine::Postgres => ("bytes://seshat/postgres", POSTGRES),
         Engine::Mysql => ("bytes://seshat/mysql", MYSQL),
         Engine::Elasticsearch => ("bytes://seshat/elasticsearch", ELASTICSEARCH),
+        Engine::MongoDb => ("bytes://seshat/mongodb.svg", MONGODB),
+        Engine::Kafka => ("bytes://seshat/kafka.svg", KAFKA),
     }
 }

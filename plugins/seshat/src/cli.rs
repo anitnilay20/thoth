@@ -265,6 +265,8 @@ fn parse_connection_url(url: &str, requested: Option<&str>) -> Result<(Engine, P
         "postgres" | "postgresql" => Engine::Postgres,
         "mysql" => Engine::Mysql,
         "http" | "https" | "elasticsearch" => Engine::Elasticsearch,
+        "mongodb" | "mongo" => Engine::MongoDb,
+        "kafka" => Engine::Kafka,
         _ => return Err(format!("unsupported connection scheme '{scheme}'")),
     };
     let engine = requested.map(parse_engine).transpose()?.unwrap_or(inferred);
@@ -323,6 +325,8 @@ fn parse_engine(value: &str) -> Result<Engine, String> {
         "postgres" | "postgresql" => Ok(Engine::Postgres),
         "mysql" => Ok(Engine::Mysql),
         "elasticsearch" | "elastic" | "es" => Ok(Engine::Elasticsearch),
+        "mongodb" | "mongo" => Ok(Engine::MongoDb),
+        "kafka" => Ok(Engine::Kafka),
         _ => Err(format!("unsupported engine '{value}'")),
     }
 }
@@ -332,6 +336,8 @@ fn engine_name(engine: Engine) -> &'static str {
         Engine::Postgres => "postgres",
         Engine::Mysql => "mysql",
         Engine::Elasticsearch => "elasticsearch",
+        Engine::MongoDb => "mongodb",
+        Engine::Kafka => "kafka",
     }
 }
 

@@ -7,6 +7,8 @@
 //! blocking and are only ever invoked on the host's db-runtime worker thread
 //! (never the UI thread), via the plugin's `query` export.
 pub(crate) mod es;
+pub(crate) mod kafka;
+pub(crate) mod mongodb;
 pub(crate) mod mysql;
 pub(crate) mod pg;
 
@@ -21,6 +23,8 @@ pub enum Engine {
     Postgres,
     Mysql,
     Elasticsearch,
+    MongoDb,
+    Kafka,
 }
 
 /// A connection target: one database server plus credentials.
@@ -176,6 +180,8 @@ pub fn adapter(engine: Engine) -> Box<dyn DbAdapter> {
         Engine::Postgres => Box::new(pg::Postgres),
         Engine::Mysql => Box::new(mysql::Mysql),
         Engine::Elasticsearch => Box::new(es::Elasticsearch),
+        Engine::MongoDb => Box::new(mongodb::MongoDb),
+        Engine::Kafka => Box::new(kafka::Kafka),
     }
 }
 
@@ -229,7 +235,7 @@ impl Engine {
             // Elasticsearch has no SQL EXPLAIN. Its Explain tab isn't rendered and
             // `load_explain` refuses early, so this arm is unreachable in practice;
             // echo the body rather than fabricate a plan.
-            Engine::Elasticsearch => sql.to_string(),
+            Engine::Elasticsearch | Engine::MongoDb | Engine::Kafka => sql.to_string(),
         }
     }
 }
