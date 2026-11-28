@@ -49,6 +49,10 @@ pub struct ThothApp {
     /// itself; caching it here is what lets an unsaved theme **preview** repaint
     /// the canvas instead of waiting for the settings to be saved.
     canvas_color: egui::Color32,
+    /// Modal for opening remote S3 / GCS / Azure / HTTPS URIs via OpenDAL (#150).
+    remote_open_modal: components::remote_open_modal::RemoteOpenModal,
+    /// Keeps streamed remote temp files alive while open in tabs (#150).
+    remote_temp_files: Vec<thoth_core::storage::NamedTempFile>,
 }
 
 /// Build the synthetic `http-response` UiEvent delivered to a plugin when an
@@ -219,6 +223,8 @@ impl ThothApp {
             producer_signals: std::collections::HashMap::new(),
             unavailable_charts: std::collections::HashSet::new(),
             chart_export: None,
+            remote_open_modal: components::remote_open_modal::RemoteOpenModal::default(),
+            remote_temp_files: Vec::new(),
         }
     }
 
@@ -397,6 +403,20 @@ impl App for ThothApp {
             ShortcutHandler::handle_shortcuts(ui.ctx(), &self.core.settings.shortcuts);
         self.handle_shortcut_actions(ui.ctx(), shortcut_actions);
         self.refresh_chart_sources();
+
+        if let Some(temp) = self.remote_open_modal.render(ui) {
+            let path = temp.path().to_path_buf();
+            self.remote_temp_files.push(temp);
+            let nav_capacity = self.core.settings.performance.navigation_history_size;
+            let file_type = crate::components::toolbar::infer_file_type(&path);
+            let id = self.window_state.tab_manager.open_file(path, nav_capacity);
+            if let Some(tab) = self.window_state.tab_manager.tabs.get_mut(&id) {
+                if let Some(ft) = file_type {
+                    tab.file_type = ft;
+                }
+                tab.error = None;
+            }
+        }
 
         use crate::components::settings_dialog::{SettingsDialogEvent, SettingsDialogProps};
         use crate::components::traits::ContextComponent;
@@ -1285,6 +1305,9 @@ impl ThothApp {
                         tab.file_type = file_type;
                         tab.error = None;
                     }
+                }
+                components::toolbar::ToolbarEvent::OpenRemote => {
+                    self.remote_open_modal.show_dialog();
                 }
                 components::toolbar::ToolbarEvent::CloseTab => {
                     let was_empty = self.window_state.tab_manager.close_active_tab();
