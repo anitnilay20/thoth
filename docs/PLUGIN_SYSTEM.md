@@ -1320,7 +1320,7 @@ The file is a JSON object keyed by the variant names listed in `catalog`. Each v
 }
 ```
 
-All tokens map 1-to-1 to fields in `ThemeColors` (`thoth-core/src/theme/mod.rs`). Missing tokens fall back to the built-in defaults.
+All tokens map 1-to-1 to fields in `ThemeColors` (`thoth-plugin-sdk/src/theme/mod.rs`). Missing tokens fall back to the built-in defaults.
 
 A dynamic WASM variant can expose a `theme-provider` interface that returns the colour map at runtime — useful for adaptive themes or palettes generated from user preferences. See [#70](https://github.com/anitnilay20/thoth/issues/70) for the full spec.
 
