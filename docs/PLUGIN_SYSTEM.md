@@ -458,7 +458,14 @@ world data-source-plugin {    // external data source + interactive UI
 
 world exporter-plugin {
     include base-plugin;
+    import dataset-read;       // paged read / read-arrow over a Papyrus handle
     export exporter;
+}
+
+world data-renderer-plugin {
+    include base-plugin;
+    import dataset-read;       // paged read / read-arrow over a Papyrus handle
+    export data-renderer;
 }
 ```
 
@@ -1313,7 +1320,7 @@ The file is a JSON object keyed by the variant names listed in `catalog`. Each v
 }
 ```
 
-All tokens map 1-to-1 to fields in `ThemeColors` (`src/theme.rs`). Missing tokens fall back to the built-in defaults.
+All tokens map 1-to-1 to fields in `ThemeColors` (`thoth-plugin-sdk/src/theme/mod.rs`). Missing tokens fall back to the built-in defaults.
 
 A dynamic WASM variant can expose a `theme-provider` interface that returns the colour map at runtime — useful for adaptive themes or palettes generated from user preferences. See [#70](https://github.com/anitnilay20/thoth/issues/70) for the full spec.
 
@@ -1338,10 +1345,10 @@ Each plugin runs in a fully isolated Wasmtime instance:
 
 ## Integration with Core
 
-The bridge between plugins and core lives in `src/plugin/`:
+The plugin runtime and loaders live in `thoth-core/src/plugin/`, while the egui `RenderNode` walker lives in `thoth-ui/src/plugin/`:
 
 ```
-src/plugin/
+thoth-core/src/plugin/
 ├── mod.rs                      ← Plugin, FileLoaderMeta, Capability types; pub mod re-exports
 ├── manager.rs                  ← PluginManager: discovery, loading, scan_directory
 ├── plugin_registry.rs          ← PluginRegistry: capability_index + plugin_key maps
@@ -1349,24 +1356,20 @@ src/plugin/
 ├── wasm_file_viewer_loader.rs  ← WasmFileViewerLoader  (file-viewer-plugin world)
 ├── wasm_data_source.rs         ← WasmDataSourceLoader  (data-source-plugin world)
 │                                    async HTTP: background thread + mpsc channel polling
+├── wasm_exporter.rs            ← WasmExporter          (exporter-plugin world + dataset-read)
+├── wasm_renderer.rs            ← WasmRenderer          (data-renderer-plugin world + dataset-read)
 ├── network_policy.rs           ← Per-plugin domain allowlist + SSRF guard
+├── dataset_grants.rs           ← Cross-producer dataset-read consent grants
 ├── wasm_plugin_settings.rs     ← Settings rendering + persistence bridge
-└── render_node.rs              ← RenderNode enum + render_node() egui walker
+└── render_node.rs              ← RenderNode enum + host-side DSL types
+
+thoth-ui/src/plugin/
+└── render_node.rs              ← render_node() egui walker + DataView / Chart integration
 ```
 
-`FileType` in `src/file/loaders/mod.rs` has a variant for each loader kind:
+`DetectedFileType` in `thoth-core/src/file/detect_file_type.rs` identifies native JSON/NDJSON variants, while `thoth-core/src/file/loaders/` routes native formats through DuckDB (`DuckdbConnection`), `BatchLoader`, `RelationLoader`, `TextIndex`, or WASM plugins (`WasmFileLoader` / `WasmFileViewerLoader`).
 
-```rust
-pub enum FileType {
-    Ndjson(NdjsonFile),
-    JsonArray(JsonArrayFile),
-    Single(SingleValueFile),
-    Plugin(WasmFileLoader),
-    PluginWithViewer(WasmFileViewerLoader),
-}
-```
-
-`WasmDataSourceLoader` in `src/plugin/wasm_data_source.rs` holds the complete state for an active data-source pane:
+`WasmDataSourceLoader` in `thoth-core/src/plugin/wasm_data_source.rs` holds the complete state for an active data-source pane:
 
 ```rust
 pub struct WasmDataSourceLoader {

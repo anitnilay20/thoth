@@ -606,11 +606,11 @@ for event in output.events {
 
 ## Examples in Codebase
 
-- **Toolbar**: `src/components/toolbar.rs` - Full example of ContextComponent
-- **Settings tabs**: `src/components/settings_dialog/*.rs` - StatelessComponent panels
-- **Search / Bookmarks**: `src/components/search.rs`, `bookmarks.rs` - StatefulComponent panels
-- **FileFormatViewer**: `src/components/file_viewer/viewer_trait.rs` - Specialized trait pattern
-- **Component Traits**: `src/components/common/traits.rs` - Trait definitions
+- **Toolbar**: `thoth-ui/src/components/toolbar.rs` - Full example of ContextComponent
+- **Settings tabs**: `thoth-ui/src/components/settings_dialog/*.rs` - StatelessComponent panels
+- **Sidebar / Recent Files**: `thoth-ui/src/components/sidebar.rs`, `recent_files.rs` - StatefulComponent panels
+- **FileFormatViewer**: `thoth-ui/src/components/file_viewer/viewer_trait.rs` - Specialized trait pattern
+- **Component Traits**: `thoth-ui/src/components/common/traits.rs` - Trait definitions
 - **Reusable widgets**: `thoth-plugin-sdk/src/components/` - the shared widget library these panels compose (run the gallery: `cargo run -p thoth-plugin-sdk --example gallery --features egui`)
 
 ## Contributing

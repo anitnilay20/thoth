@@ -257,7 +257,7 @@ This ensures shortcuts feel native on each platform while using a single configu
 
 To add a new keyboard shortcut:
 
-1. Add the shortcut to `KeyboardShortcuts` in `src/shortcuts.rs`:
+1. Add the shortcut to `KeyboardShortcuts` in `thoth-core/src/shortcuts.rs`:
 
 ```rust
 pub struct KeyboardShortcuts {
@@ -275,7 +275,7 @@ impl Default for KeyboardShortcuts {
 }
 ```
 
-2. Add the action to `ShortcutAction` in `src/app/shortcut_handler.rs`:
+2. Add the action to `ShortcutAction` in `thoth-ui/src/app/shortcut_handler.rs`:
 
 ```rust
 pub enum ShortcutAction {

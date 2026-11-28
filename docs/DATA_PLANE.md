@@ -53,8 +53,9 @@ concept (`Page::nulls` is empty, read as “present”).
 - `pin(handle)` / `unpin(handle)` are reference counts. Budget eviction skips
   pinned sheets; an explicit `release` still drops them.
 
-Pushed rows count against the 128 MB budget; Arrow and Text sheets hold an
-index/window and contribute ~nothing. LRU evicts down to at most 32 datasets.
+Pushed rows and owned Arrow batches (`publish-arrow`) count against the 128 MB
+budget; live engine `Arrow` and `Text` sheets hold an index/window and
+contribute ~nothing. LRU evicts down to at most 32 datasets.
 
 ## Producers
 
@@ -116,8 +117,6 @@ index/window and contribute ~nothing. LRU evicts down to at most 32 datasets.
 
 - **Chart aggregation/sampling.** Push large engine-backed charts to DuckDB
   instead of materializing the first N rows.
-- **DataView pinning.** Pin the handle a file tab is displaying, or re-publish
-  it if evicted.
 - **Arrow IPC compression.** `lz4`/`zstd` for large typed pushes.
 
 ## Map
